@@ -113,6 +113,16 @@ inheriting that delay. This scheduling state supplies no authority or output pro
 and creates no task or timer per cell. Current request-pipeline qualification is
 reported in the [integration checkpoint](progress.md#current-integration-checkpoint).
 
+An unchanged Quorum source may reuse its committed entry image for the first
+immutable dependent read. The SQL owner records its baseline before maintenance
+and constructors; private writes, schema changes, connection-local objects and
+pending storage work still require a checkpoint. S3 sources retain their
+checkpoint/archive path. Ordinary SDK queries use this same read-only dispatch.
+Target read consistency and independent S3 minima, current source/target fences
+and final parent receipt settlement are unchanged. Native and real-RustFS
+regressions cover clean Quorum, dirty Quorum and clean S3 sources in both images.
+This does not qualify the complete multi-step public pipeline.
+
 The archive controller may retain one completed physical verification across
 idle gaps and quiet cleanup. It keeps the exact journaled head and original
 checkpoint/tail reservations. Admission for new capture or replay evicts that

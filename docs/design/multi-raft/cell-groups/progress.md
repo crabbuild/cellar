@@ -29,6 +29,61 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `189edd9a` remains included. **Runtime source `086f1663` reuses an unchanged
+Quorum entry image for its first immutable dependent read.** The SQL owner
+records the baseline before maintenance/constructors; private writes, schema
+changes, temporary objects and pending storage work still require checkpoints.
+S3 sources retain their checkpoint/archive path. Ordinary SDK queries now use
+read-only source dispatch. Target consistency, current ownership/route/history/
+term checks, original deadlines and final receipt settlement are preserved.
+
+The gated regression fails at pre-change `2b480ae8` because the source version
+advances before the first clean Quorum target read. It passes native storage and
+real RustFS, both images, for clean Quorum, dirty Quorum and clean S3 sources:
+**two selections, twelve configurations**. One follower holds the target reader
+while the third voter performs a fresh-quorum source read. Dirty/S3 cases require
+an advanced source version; every final parent receipt must still commit.
+
+Intermediate guards at `29b334ef` pass **3/4**: RustFS SDK fencing refuses transfer
+admission with `NotReady`. Both interleaving controls pass, including rollback,
+leader loss, unknown identity, restart and shutdown. A frozen pre-change SDK
+control passes. The final SDK fixture retries only this known pre-admission
+refusal with fixed target/term/revision and one original five-second budget
+shared across observation/admission. Unknown outcomes are not retried and no
+fencing/data oracle is removed. Both SDK controls pass at the final source;
+production runtime files are identical to `29b334ef`.
+
+**The original public set remains FAILED: 6/16 pass.** Both SDK source-proof and
+both history controls, registration and ordinary Fleet pass. EventStream fails
+five activations and three later Consume paths. Native Queue fails producer
+sequence 33; RustFS Queue times out in `Scenario::empty`, whose log does not
+distinguish outage drain from post-producer drain. Complete production, the
+528-message delivery oracles and load metrics remain unproven. Final cohort 301
+is **8/18**, including both new regressions. No public stability, full primitive
+compatibility or latency improvement is established.
+
+`CG-17-initial-read-aggregate-302-086f1663` references diagnostic 285, baseline
+289, regression 293, guards 296, frozen comparison 297, retention supplement 298
+and final cohort 301 under `.cellar/cell-groups-evidence/`. Executable/log hashes
+and frozen backups are verified. Baseline, intermediate guard and thirty failed
+public voter disks remain retained. Temporary probes are removed. The optimized
+locked build, strict library/all-test Clippy, formatting, layout, dependency and
+docs checks pass. Profiles record opt-level 1, assertions/overflow checks and
+incremental caching; elapsed times are not comparable with older campaigns as a
+speedup. Voters share one process and separate workspace disks, with one SQL
+worker per public voter. RustFS is one CPU/two GiB. All jobs are terminal; the
+owned container/VM are stopped and their object volume remains.
+
+**Next:** close cumulative source preparation/checkpoint/settlement work in
+normal multi-step primitive calls under original deadlines. Isolate cold
+broker/binding progress; finish autonomous interrupted binding recovery and safe
+sequence sealing; label and close Queue drain phases. Complete the remaining
+primitive lifecycle/recovery and CG-13/17/15/16 gates before hard cutover. Counts
+stay **13/17 tasks and 147/195 accepted cases**. Historical evidence still needs
+restoration or explicit current-source requalification.
+
+## Previous idle archive proof checkpoint
+
 Fetched main `189edd9a` remains included. **Runtime source `cfd83b13` reuses
 one completed physical S3 verification across idle gaps.** The proof retains
 its original checkpoint and tail admission. New capture or replay work evicts

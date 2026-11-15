@@ -4,7 +4,47 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current idle archive proof checkpoint
+## Current initial Quorum read checkpoint
+
+Main `189edd9a` remains included. Runtime `086f1663`, branch
+`codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170),
+reuses an unchanged Quorum entry image for a first immutable dependent read.
+The baseline precedes maintenance/constructors; private changes and S3 sources
+retain checkpoints. Ordinary SDK queries now select read-only dispatch. Target
+consistency, ownership, original deadlines and final receipts are preserved.
+
+The regression fails at `2b480ae8` and passes both images and all three source
+cases against native storage and real RustFS: **2/2 selections, twelve
+configurations**. Both final SDK controls pass. Their fencing flow now retries
+only known pre-admission transfer `NotReady` with fixed target/term/revision and
+one shared original five-second budget. No unknown outcome or business call is
+retried, and no oracle is weakened. Both interleaving controls pass at
+`29b334ef`, whose production runtime matches the final source.
+
+**The original public set remains FAILED: 6/16.** SDK/history, registration and
+Fleet pass; EventStream fails five activations and three Consume paths. Queue
+fails native producer sequence 33 and RustFS drain. The RustFS log does not label
+the drain phase, so producer completion and full delivery remain unproven. Final
+cohort 301 is **8/18** including the two new regressions. See the
+[current evidence](progress.md#current-integration-checkpoint).
+
+Next: close cumulative source preparation and checkpoint/settlement cost in
+multi-step primitive calls and cold broker/binding progress; finish interrupted
+binding recovery and safe sequence sealing; label and close Queue drain stages.
+Then finish all primitive lifecycle/recovery and CG-13/17/15/16 release/cutover
+gates. Keep original budgets and mutation ambiguity. Aggregate 302 references
+cohorts 285/289/293/296/297/298/301. The failed disks, objects, logs and verified
+binary/evidence backups remain. All jobs are terminal and the owned RustFS
+container/VM are verified stopped. The optimized build, strict library/all-test
+Clippy and repository checks pass. Public fixtures retain one SQL worker per
+voter; voters share one process and separate workspace disks. RustFS is one
+CPU/two GiB. Build profiles explicitly record incremental caching with opt-level
+1 and assertions/overflow checks; no latency comparison is claimed. Use ignored
+`.cellar/cg17-payload-01/event-read-state.json` for exact records and handles.
+Counts stay **13/17 tasks and 147/195 cases**; independent Linux qualification,
+historical evidence restoration/requalification and full hard cutover remain open.
+
+## Previous idle archive proof checkpoint
 
 Main `189edd9a` remains included. Runtime source `cfd83b13` on
 `codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170),

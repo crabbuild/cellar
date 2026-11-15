@@ -57,25 +57,27 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `189edd9a`. Runtime `cfd83b13` reuses one completed physical S3 verification
-across idle gaps, with pressure eviction before new checkpoint/tail admission.
-The new native and real-RustFS regression passes both images, including a fresh
-S3 write after reuse; all **32 owning archive selections pass**. Original quotas,
-proofs, deadlines and mutation ambiguity are preserved. Earlier enrollment and
-callback fixes retain their own source-pinned evidence.
+main `189edd9a`. Runtime `086f1663` reuses an unchanged Quorum entry image for a
+first immutable dependent read. Its baseline precedes maintenance/constructors;
+dirty and S3 sources retain checkpoints. Ordinary SDK queries select read-only
+dispatch. The regression passes native and real RustFS in both images for clean
+Quorum, dirty Quorum and clean S3 sources, and both final SDK controls pass.
+Previous idle archive reuse retains **32/32 owning selections at `cfd83b13`**,
+with original quotas and exact proofs. These are scoped checkpoints.
 
 **The original sixteen public selections remain FAILED: 6/16 pass.** Both SDK
 source-proof and both history controls, registration and Fleet pass. All eight
-EventStream selections fail initial materialized activation. Native Queue fails
-producer sequence 7; RustFS Queue reaches producer completion but fails final
-drain. Two frozen pre-cache comparisons also fail initial activation on this
-host, so the cache is not an isolated cause. Focused diagnostic 278 passes native
-named lifecycle in both images; RustFS target-S3 passes materialized storage,
-then fails extent-image activation while metadata reads complete and broker
-configuration stays pending. The failed uninstrumented gate remains authoritative.
-No stability or latency improvement is established.
+EventStream selections fail: five activations and three later Consume paths.
+Native Queue fails producer sequence 33; RustFS Queue drain expires without a
+labelled phase, so producer completion remains unproven. Final cohort 301 passes
+8/18 selections including the two new regressions. The intermediate SDK handoff
+failure is retained; its final control retries only known pre-admission
+`NotReady` with unchanged fences and one original five-second budget. No public
+stability, full primitive acceptance or latency improvement is established.
 
-1. **Close cold S3 activation and binding progress.** Isolate the delayed broker
+1. **Close multi-step request and cold S3 binding progress.** The clean-read
+   optimization does not close cumulative source preparation/checkpoint and
+   settlement work under original request deadlines. Isolate the delayed broker
    transition using exact parent/child identities under original budgets;
    successful metadata polling does not prove child progress. Reproduce any
    checkpoint/readiness or archive-proof scheduling boundary before changing it.
@@ -87,8 +89,9 @@ No stability or latency improvement is established.
    recovery. The [EventStream contract](event-stream-durability.md) keeps separate
    source, destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
-   and fault oracles. At `cfd83b13`, native producer sequence 7 exceeds its
-   deadline; RustFS producer requests finish but the original final drain expires.
+   and fault oracles. At `086f1663`, native producer sequence 33 exceeds its
+   deadline; RustFS drain expires without a labelled phase. Establish that stage
+   before attributing the failure to post-producer delivery.
    Resolve both under unchanged load and budgets. Full delivery of either
    528-message campaign and load metrics are not established.
    Qualify both image forms.
