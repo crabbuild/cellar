@@ -217,8 +217,8 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                     Ok::<_,anyhow::Error>(version)
                 },
             ).await;
-            let before = observed?;
-            let reply = reply?;
+                let reply = reply.context("parent invocation before following-read observation")?;
+                let before = observed?;
             ensure!(reply.result==(index+1).to_string().as_bytes() && reply.durability==durability);
             ensure!(reply.version.sequence>before.sequence, "final parent receipt was not committed");
             let child = target_observer.query(ProposalId::new([193;16])?, &target_observer.contract("Peek")?,
