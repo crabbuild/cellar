@@ -917,9 +917,7 @@ impl CellGroupSqlPool {
                     // The old writer may have proven several roots while this
                     // request waited. Rebase only before any application entry,
                     // keeping the original term/history fence and command ID.
-                    let fresh = commits
-                        .continuation_authority(&domain, &cell, &fence)
-                        .await?;
+                    let fresh = commits.entry_authority(&domain, &cell, &fence).await?;
 
                     Ok::<_, ExecutionError>((reserved, fresh))
                 };

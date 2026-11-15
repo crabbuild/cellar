@@ -1850,6 +1850,21 @@ async fn proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Re
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
+async fn rustfs_proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "rpc-progress",
+            rooted,
+        )?));
+        Box::pin(rpc_progress::run(rooted, store))
+            .await
+            .with_context(|| format!("RustFS RPC progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
 async fn rustfs_ordinary_cell_rpcs_interleave_between_proven_roots() -> Result<()> {
     for rooted in [false, true] {
         for durability in [Durability::Quorum, Durability::S3] {

@@ -19,14 +19,41 @@ pub(crate) struct RpcCommitContext {
     pub bindings: Option<Arc<dyn crate::application::cell_bindings::Host>>,
 }
 
+enum AuthorityPhase {
+    Entry,
+    Continuation,
+}
+
 impl RpcCommitContext {
-    /// Refresh before application entry or a proven-root continuation while
-    /// retaining the caller's writer position and original execution deadline.
+    /// New application entry still waits for the complete committed group cut.
+    pub(super) async fn entry_authority(
+        &self,
+        domain: &crate::asyncrt::DomainToken,
+        cell: &CellHistory,
+        fence: &crate::raft::cell_groups::CellActivationFence,
+    ) -> Result<CellExecutionAuthority, ExecutionError> {
+        self.authority(domain, cell, fence, AuthorityPhase::Entry)
+            .await
+    }
+
+    /// The parked invocation has reacquired its writer. Refresh its proven
+    /// cell image without waiting for unrelated cells' committed apply work.
     pub(super) async fn continuation_authority(
         &self,
         domain: &crate::asyncrt::DomainToken,
         cell: &CellHistory,
         fence: &crate::raft::cell_groups::CellActivationFence,
+    ) -> Result<CellExecutionAuthority, ExecutionError> {
+        self.authority(domain, cell, fence, AuthorityPhase::Continuation)
+            .await
+    }
+
+    async fn authority(
+        &self,
+        domain: &crate::asyncrt::DomainToken,
+        cell: &CellHistory,
+        fence: &crate::raft::cell_groups::CellActivationFence,
+        phase: AuthorityPhase,
     ) -> Result<CellExecutionAuthority, ExecutionError> {
         let timeout = domain
             .sleep_until(self.deadline)
@@ -42,11 +69,19 @@ impl RpcCommitContext {
                         RuntimeError::DeadlineExceeded,
                     ));
                 }
-                match self
-                    .runtime
-                    .execution_authority(self.route.history, cell.clone())
-                    .await
-                {
+                let current = match phase {
+                    AuthorityPhase::Entry => {
+                        self.runtime
+                            .execution_authority(self.route.history, cell.clone())
+                            .await
+                    }
+                    AuthorityPhase::Continuation => self
+                        .runtime
+                        .reconciliation_authority(self.route.history, cell.clone())
+                        .await
+                        .and_then(|proof| fence.resume_authority(proof)),
+                };
+                match current {
                     Ok(authority) if fence.accepts_continuation(&authority) => {
                         return Ok(authority)
                     }
