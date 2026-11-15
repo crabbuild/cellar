@@ -193,7 +193,9 @@ impl Resolution {
                 self.started,
             )
             .map_err(CellDispatchError::Routing)?;
+        tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-route-start",?invocation);
         let mut attempt = session.begin().await.map_err(CellDispatchError::Routing)?;
+        tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-route-ready",?invocation);
         let mut previous = None;
         let mut next = 0;
         loop {
@@ -261,6 +263,7 @@ impl Resolution {
                 .limit_query_deadline(deadline)
                 .map_err(CellDispatchError::Routing)?;
             let selected = if local == Some(member) {
+                tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-local-start",?invocation,ordinal=attempt.ordinal(),?member,slice_ms=slice);
                 self.owner
                     .handle
                     .core
@@ -269,6 +272,7 @@ impl Resolution {
                     .await
                     .map_err(CellDispatchError::Runtime)
             } else {
+                tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-remote-start",?invocation,ordinal=attempt.ordinal(),?member,slice_ms=slice);
                 let response: Result<CellRemoteNameResponse, _> = self
                     .owner
                     .handle
@@ -280,6 +284,7 @@ impl Resolution {
                     .map(|response| response.record().cloned())
                     .map_err(|error| CellDispatchError::Transport(error.for_read()))
             };
+            tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-result",?invocation,success=selected.is_ok(),error=?selected.as_ref().err());
             match selected {
                 Ok(record) => {
                     self.live()?;
