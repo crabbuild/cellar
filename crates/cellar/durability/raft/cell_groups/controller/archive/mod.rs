@@ -269,6 +269,7 @@ struct Entry {
     foreground_wake: bool,
     waiters: Vec<settlement::Request>,
     proof_queued: bool,
+    proof_retry: Option<(LogIndex, u64)>,
 }
 
 pub(super) struct PublicationCompleted {
@@ -284,6 +285,7 @@ pub(super) struct PublicationCompleted {
 pub(super) struct ProofCompleted {
     group: GroupHistory,
     waiters: Vec<settlement::Request>,
+    retry_cut: Option<LogIndex>,
 }
 
 pub(super) enum Completed {
@@ -300,7 +302,6 @@ pub(super) struct Manager {
     proof_job: Option<BoxFuture<'static, ProofCompleted>>,
     proof_group: Option<GroupHistory>,
     proof_queue: VecDeque<GroupHistory>,
-    proof_retry_at: u64,
     // Keep one completed verification through pending predecessor cleanup so
     // covered late requests can share it. Drop it before new verification;
     // no physical pin is cached for idle groups.
@@ -351,6 +352,7 @@ impl Manager {
                 foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
+                proof_retry: None,
             },
         );
         self.queue.push_back(group);
@@ -400,6 +402,7 @@ impl Manager {
                 foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
+                proof_retry: None,
             },
         );
         self.queue.push_back(group);
@@ -470,7 +473,7 @@ impl Manager {
     }
 
     fn launch_proof(&mut self, now: u64) {
-        if self.proof_job.is_some() || now < self.proof_retry_at {
+        if self.proof_job.is_some() {
             return;
         }
         for _ in 0..self.proof_queue.len() {
@@ -497,10 +500,19 @@ impl Manager {
                     continue;
                 }
             };
+            let index = coverage.marker().position().index;
+            if entry
+                .proof_retry
+                .is_some_and(|(cut, retry_at)| cut == index && now < retry_at)
+            {
+                entry.proof_queued = true;
+                self.proof_queue.push_back(group);
+                continue;
+            }
             let mut selected = Vec::new();
             let mut waiting = Vec::new();
             for request in entry.waiters.drain(..) {
-                if selected.len() < 32 && request.may_reuse(coverage.marker().position().index) {
+                if selected.len() < 32 && request.may_reuse(index) {
                     selected.push(request);
                 } else {
                     waiting.push(request);
@@ -549,7 +561,17 @@ impl Manager {
                         }
                     }
                 }
-                ProofCompleted { group, waiters }
+                // Uncovered outputs remember this cut and cannot select it
+                // again. Only a retry of the same physical proof needs backoff.
+                let retry_cut = waiters
+                    .iter()
+                    .any(|request| request.may_reuse(index))
+                    .then_some(index);
+                ProofCompleted {
+                    group,
+                    waiters,
+                    retry_cut,
+                }
             }));
             break;
         }
@@ -574,7 +596,9 @@ impl Manager {
             }
             return;
         }
-        let uncovered = !completed.waiters.is_empty();
+        entry.proof_retry = completed
+            .retry_cut
+            .map(|cut| (cut, now.saturating_add(shared.limits.retry_interval_ms)));
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
         if !entry.waiters.is_empty() {
@@ -588,14 +612,8 @@ impl Manager {
                 self.proof_queue.push_back(completed.group);
             }
         }
-        // Busy reads may retry the same cut, but never spin independently of
-        // the existing shared controller timer. Uncovered outputs remember the
-        // cut they inspected and require a newer one for another proof batch.
-        self.proof_retry_at = if uncovered {
-            now.saturating_add(shared.limits.retry_interval_ms)
-        } else {
-            now
-        };
+        // The shared timer bounds busy retries for this exact group/cut. A
+        // newer verified cut, or another group, must not inherit that delay.
     }
 
     pub fn launch(&mut self, runtime: &CellGroupRuntime, shared: &Shared, now: u64) {

@@ -306,7 +306,13 @@ pub(crate) async fn s3_newer_receipt_bypasses_inflight_maintenance(
             .response()
             .await?;
         let version = newer.observation().version;
-        required = Some(newer.local_receipt().context("newer receipt cut")?.position.index);
+        required = Some(
+            newer
+                .local_receipt()
+                .context("newer receipt cut")?
+                .position
+                .index,
+        );
         anyhow::ensure!(
             newer
                 .local_receipt()
@@ -370,13 +376,17 @@ pub(crate) async fn s3_newer_receipt_bypasses_inflight_maintenance(
     }
     .await;
     let work = work.with_context(|| {
-        let status = h.controllers[0].archive_status(h.route.history).map(|status| {
-            status.map(|status| (
-                status.published.map(|marker| marker.position().index),
-                status.attempts,
-                status.error.map(|error| error.to_string()),
-            ))
-        });
+        let status = h.controllers[0]
+            .archive_status(h.route.history)
+            .map(|status| {
+                status.map(|status| {
+                    (
+                        status.published.map(|marker| marker.position().index),
+                        status.attempts,
+                        status.error.map(|error| error.to_string()),
+                    )
+                })
+            });
         format!("inflight archive: extents={rooted}, required={required:?}, status={status:?}")
     });
     drop(release);
