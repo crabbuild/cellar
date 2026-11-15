@@ -169,6 +169,10 @@ impl RaftCells {
                 loop {
                     remaining()?;
                     let result = async {
+                        tracing::debug!(target: "cellar::raft::sql_ingress", ?invocation,
+                            phase="metadata-lookup", hint=route.history_hint.is_some(),
+                            remaining_ms=deadline.saturating_sub(owner.handle.domain.mono_ms().unwrap_or(deadline)),
+                            "[DEBUG-cg17-activation-227]");
                         let history = match route.history_hint.clone() {
                             Some(history) => history,
                             None => {
@@ -198,6 +202,10 @@ impl RaftCells {
                                 found?.ok_or(RuntimeError::NotFound)?
                             }
                         };
+                        tracing::debug!(target: "cellar::raft::sql_ingress", ?invocation,
+                            phase="metadata-history", cell=%history.cell.as_str(),
+                            remaining_ms=deadline.saturating_sub(owner.handle.domain.mono_ms().unwrap_or(deadline)),
+                            "[DEBUG-cg17-activation-227]");
                         let response = owner
                             .handle
                             .core
@@ -218,7 +226,12 @@ impl RaftCells {
                                 QueryAdmission::Event(route.durability),
                             )?
                             .response()
-                            .await?;
+                            .await;
+                        tracing::debug!(target: "cellar::raft::sql_ingress", ?invocation,
+                            phase="metadata-query-response", success=response.is_ok(),
+                            remaining_ms=deadline.saturating_sub(owner.handle.domain.mono_ms().unwrap_or(deadline)),
+                            "[DEBUG-cg17-activation-227]");
+                        let response = response?;
                         remaining()?;
                         anyhow::ensure!(
                             response.result().len() <= route.max_result_bytes,
