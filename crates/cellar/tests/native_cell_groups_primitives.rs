@@ -52,6 +52,8 @@ mod event_streams;
 mod events;
 #[path = "support/cell_group_filesystem.rs"]
 mod filesystem;
+#[path = "support/cell_group_initial_read.rs"]
+mod initial_reads;
 #[path = "support/cell_group_interleaving.rs"]
 mod interleaving;
 #[path = "support/cell_group_kv.rs"]
@@ -87,6 +89,17 @@ mod workflows;
 #[test]
 fn event_stream_registration_requires_resolved_host_owned_declarations() -> Result<()> {
     event_streams::registration()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clean_initial_queries_reuse_quorum_source_proof() -> Result<()> {
+    Box::pin(initial_reads::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_clean_initial_queries_reuse_quorum_source_proof() -> Result<()> {
+    Box::pin(initial_reads::qualify(true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

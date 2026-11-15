@@ -628,7 +628,6 @@ fn rpc_admitted(
             ordinal,
             move |intent| {
                 let identity = intent.child;
-                tracing::debug!(target: "cellar::raft::sql_ingress", source=?action_source.history.cell, child=?identity, target=?intent.candidate.cell, "DEBUG-cg17-binding-283 prepared source intent");
                 *observed_command.lock().unwrap() = Some(identity);
                 let call = dispatch.try_schedule_binding(move |io| async move {
                     run(
@@ -688,7 +687,6 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
-    tracing::debug!(target: "cellar::raft::sql_ingress", source=?source.history.cell, child=?intent.child, target=?intent.candidate.cell, enroll=intent.enroll, remaining=?dispatch.remaining_timeout(), "DEBUG-cg17-binding-283 source proof ready");
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -706,7 +704,6 @@ async fn run(
                     dispatch.remaining_timeout()?,
                 )
                 .await;
-            tracing::debug!(target: "cellar::raft::sql_ingress", child=?intent.child, error=?result.as_ref().err(), remaining=?dispatch.remaining_timeout(), "DEBUG-cg17-binding-283 enrollment result");
             let not_admitted = result
                 .as_ref()
                 .err()
@@ -755,7 +752,6 @@ async fn run(
         storage.sync().await?;
     }
     io.begin_io()?;
-    tracing::debug!(target: "cellar::raft::sql_ingress", child=?intent.child, remaining=?dispatch.remaining_timeout(), "DEBUG-cg17-binding-283 target command begin");
     *selected.lock().unwrap() = Some(history.clone());
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
@@ -772,7 +768,6 @@ async fn run(
                 intent.route.admission,
             )
             .await;
-        tracing::debug!(target: "cellar::raft::sql_ingress", child=?intent.child, error=?result.as_ref().err(), remaining=?dispatch.remaining_timeout(), "DEBUG-cg17-binding-283 target command result");
         let not_admitted = result
             .as_ref()
             .err()
@@ -804,7 +799,6 @@ async fn run(
                 CommandFailure::CorruptState
             );
             io.resume_writer().await?;
-            tracing::debug!(target: "cellar::raft::sql_ingress", child=?intent.child, remaining=?dispatch.remaining_timeout(), "DEBUG-cg17-binding-283 source writer resumed");
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
