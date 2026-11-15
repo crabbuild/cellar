@@ -311,6 +311,37 @@ async fn cursor_images_released(hosts: &[RaftCells]) -> Result<()> {
     .context("parked cursors did not release their physical images")?
 }
 
+fn first_gate_snapshot(hosts: &[RaftCells], calls: &AtomicUsize) -> serde_json::Value {
+    let nodes: Vec<_> = hosts
+        .iter()
+        .enumerate()
+        .map(|(node, host)| {
+            let usage = host.resource_usage();
+            let performance = host.performance();
+            let counters: std::collections::BTreeMap<_, _> = performance
+                .counters
+                .into_iter()
+                .filter(|counter| counter.name.starts_with("cell_"))
+                .map(|counter| (counter.name, counter.value))
+                .collect();
+            let operations: Vec<_> = performance
+                .operations
+                .into_iter()
+                .filter(|operation| operation.started != 0)
+                .map(|operation| {
+                    json!({"name":operation.name,"started":operation.started,
+                        "count":operation.count,"failed":operation.failed,"sum_us":operation.sum_us})
+                })
+                .collect();
+            json!({"node":node,"sql":usage.sql,"controller":usage.host.controller,
+                "runtime":usage.runtime,"control":usage.control,"services":usage.control_services,
+                "serving_images":usage.serving_images,"counters":counters,"operations":operations,
+                "performance_available":performance.available,"performance_saturated":performance.saturated})
+        })
+        .collect();
+    json!({"target_callback_entries":calls.load(Ordering::Acquire),"nodes":nodes})
+}
+
 pub async fn run(
     rooted: bool,
     durability: Durability,
@@ -456,7 +487,9 @@ pub async fn run(
             let (result, observed) = tokio::join!(
                 cells[0].command(&cells[0].contract("Run")?, input.clone(), options.clone()),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await.context("SDK gate 0 entered")?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await.with_context(|| {
+                        format!("SDK gate 0 entered; original-deadline snapshot={}", first_gate_snapshot(&cluster.hosts, &calls))
+                    })?;
                     let source = value(&observed_cells[0], 178).await?;
                     let target = value(&observed_cells[1], 179).await?;
                     gates[0].release.notify_one();

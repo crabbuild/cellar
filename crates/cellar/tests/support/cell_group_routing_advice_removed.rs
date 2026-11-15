@@ -262,7 +262,8 @@ pub(super) async fn exercise(
         let callbacks_after = callbacks.load(Ordering::Acquire);
         let rejected_after = counter(ingress, "cell_command_pre_admission_refusals")?;
         ensure!(callbacks_before == 1 && callbacks_after == callbacks_before && sql_before == sql_after);
-        ensure!(after[0] == before[0]+1 && after[2] == before[2] && after[3] == before[3]+1 && after[4] == before[4]+1);
+        ensure!(after[0] == before[0]+1 && after[2] == before[2] && after[3] == before[3]+1 && after[4] == before[4]+1,
+            "removed-member routing observations: names={COUNTERS:?}, before={before:?}, after={after:?}, refusal={failure}");
         // The one actual application attempt has a complete, authenticated
         // pre-admission refusal. Bad role advice cannot discard that proof.
         ensure!(rejected_after == rejected+1 && failure["ambiguous"] == false);
