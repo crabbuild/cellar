@@ -154,6 +154,17 @@ async fn rustfs_axum_event_streams_preserve_independent_target_s3_minimum() -> R
     Box::pin(events::qualify_target_s3(true)).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fresh_catalog_activation_joins_enrollment_without_ingress_command() -> Result<()> {
+    Box::pin(events::qualify_enrollment(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_fresh_catalog_activation_joins_enrollment_without_ingress_command() -> Result<()> {
+    Box::pin(events::qualify_enrollment(true)).await
+}
+
 #[test]
 fn cron_declarations_refuse_changed_or_invalid_contracts() -> Result<()> {
     cron::validate_contracts()

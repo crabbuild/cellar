@@ -373,11 +373,11 @@ impl RaftCells {
             let operation = async {
                 // A local applied history is only a locator. The sequence query
                 // and command still require the exact target's fresh quorum.
-                let (history, newly_enrolled) = if let Some(history) = history_hint {
-                    (history, false)
+                let (history, enrollment) = if let Some(history) = history_hint {
+                    (history, None)
                 } else {
                     match ready_name(&owner, &candidate, deadline).await? {
-                        Some(history) => (history, false),
+                        Some(history) => (history, None),
                         None => {
                             match owner
                                 .cell(candidate.clone())?
@@ -390,10 +390,10 @@ impl RaftCells {
                                 )
                                 .await
                             {
-                                Ok(_) => (candidate.clone(), true),
+                                Ok(response) => (candidate.clone(), Some(response)),
                                 Err(error) => loop {
                                     match ready_name(&owner, &candidate, deadline).await {
-                                        Ok(Some(history)) => break (history, false),
+                                        Ok(Some(history)) => break (history, None),
                                         Ok(None) => {
                                             let delay = (remaining()?.as_millis() as u64).min(
                                                 owner
@@ -419,25 +419,46 @@ impl RaftCells {
                         }
                     }
                 };
+                let newly_enrolled = enrollment.is_some();
                 *selected.lock().unwrap() = Some(history.clone());
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
                     phase="history", newly_enrolled, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
-                // Enrollment already proves the initializer's empty command
-                // stream at its applied cut. A speculative receipt read adds
-                // no mutation authority there. If a concurrent caller has since
-                // consumed sequence 1, the ordinary command-conflict path below
-                // requires fresh proof of its different fingerprint. Existing
-                // histories still join their exact provisioning operation.
-                if !newly_enrolled
-                    && method == "__catalogConfigure"
+                // Enrollment itself can acknowledge its exact compiled intent.
+                // Keep that owned minimum proof through response construction;
+                // accepted/creating grants no current catalog/broker readiness.
+                if method == "__catalogConfigure"
                     && matches!(&origin, Origin::Event(authority)
                         if matches!(authority.as_ref(), super::super::native_event_rpc::Authority::Event(caller)
                             if caller.require_provisioning().is_ok()))
                 {
-                    if let Some(response) = owner
-                        .joined_event_configuration(&history, &input, durability, deadline)
-                        .await?
-                    {
+                    let response = if let Some(proof) = &enrollment {
+                        owner
+                            .handle
+                            .core
+                            .host
+                            .enrolled_event_configuration(
+                                &history,
+                                CellEnrollmentRequest {
+                                    creation,
+                                    durability,
+                                },
+                                proof,
+                                &input,
+                            )?
+                            .map(|status| {
+                                crate::application::encode_rpc(
+                                    &cellar_native::clone::StructuredValue::from_json(
+                                        serde_json::json!({"ok":status}),
+                                    )?,
+                                )
+                            })
+                            .transpose()?
+                    } else {
+                        owner
+                            .joined_event_configuration(&history, &input, durability, deadline)
+                            .await?
+                    };
+                    if let Some(response) = response {
                         if let Some(limit) = reservation.reply_limit() {
                             anyhow::ensure!(
                                 matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
@@ -450,6 +471,9 @@ impl RaftCells {
                         return Ok(response);
                     }
                 }
+                // Updates and other primitives need the same bounded SQL/image
+                // admissions. Do not retain enrollment output beside a producer.
+                drop(enrollment);
                 if let Origin::KvPreparation { digest, length } = origin {
                     let store = owner.kv_wire_store(&history)?;
                     let reference = store.prepare_reference(&history, digest, length)?;

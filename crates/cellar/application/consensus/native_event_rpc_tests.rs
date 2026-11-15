@@ -168,6 +168,18 @@ async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result
             )?;
             assert_eq!(observed["state"], "creating");
             assert_eq!(observed["operation"], body["operation"]);
+            let args = crate::application::encode_rpc(
+                &cellar_native::clone::StructuredValue::from_json(serde_json::json!([body.clone()]))?,
+            )?;
+            let wire = encode_ingress(
+                cell.cell.as_str(), Some(&event_stream::catalog_name(&definition.resource)?),
+                "__catalogConfigure", Authority::Event(caller.clone()), &args, usize::MAX, [5;16],
+            )?;
+            let compiled = class.event_enrollments.as_ref().unwrap()
+                .get(&(cell.cell.as_str().to_owned(), definition.resource.id.clone())).unwrap();
+            let (_, fingerprint) = super::super::native_event_enrollment::fingerprint(cell.cell.as_str(), &wire)?;
+            assert_eq!(compiled.pending(fingerprint).unwrap(), observed,
+                "compiled acceptance must describe the actual initializer's state");
             let work = storage.work_installation(cellar_logic::work::Reason::ResourceReconciliation)?.unwrap();
             assert_eq!(work.at_ms, 1234);
             Ok(work)

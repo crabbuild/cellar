@@ -410,6 +410,8 @@ struct Query {
 /// `Registry::raft_cell`. Schema versions do not authorize automatic migration.
 pub struct RaftClass {
     pub(super) event_configuration_bytes: usize,
+    pub(super) event_enrollments: Option<Arc<super::native_event_enrollment::CatalogEnrollments>>,
+    pub(super) event_enrollment_bytes: usize,
     name: String,
     schema_version: u32,
     base_schema_digest: [u8; 32],
@@ -544,6 +546,8 @@ impl RaftClass {
             commands: BTreeMap::new(),
             initializer: None,
             event_configuration_bytes: 0,
+            event_enrollments: None,
+            event_enrollment_bytes: 0,
             system_commands: BTreeMap::new(),
             queries: BTreeMap::new(),
             blobs: None,
@@ -1131,6 +1135,8 @@ impl RaftClass {
             commands: self.commands.clone(),
             initializer: self.initializer.clone(),
             event_configuration_bytes: self.event_configuration_bytes,
+            event_enrollments: self.event_enrollments.clone(),
+            event_enrollment_bytes: self.event_enrollment_bytes,
             system_commands: self.system_commands.clone(),
             queries: self.queries.clone(),
             blobs: self.blobs,

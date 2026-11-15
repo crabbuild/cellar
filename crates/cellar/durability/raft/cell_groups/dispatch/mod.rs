@@ -147,6 +147,7 @@ impl CellGroupDispatcher {
             .retained_bytes
             .checked_add(self.limits.route_cache_bytes)
             .and_then(|n| n.checked_add(self.directory.cache_capacity_bytes()))
+            .and_then(|n| n.checked_add(self.class.event_enrollment_bytes()))
             .and_then(|n| n.checked_add(8192))
             .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
         Ok((

@@ -165,30 +165,30 @@ pub(in crate::application) fn event_service(
         super::sql_ingress_identity::native_digest(),
         |query, input| query.sql_ingress_sequence(input),
     )?;
+    let mut enrollments = std::collections::BTreeMap::new();
     for definition in definitions {
-        use base64::Engine;
-        let authority = events::Authority::deployment(&configuration.script, definition)
-            .map_err(|_| RegistrationError::Invalid("stream provisioning authority"))?;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(
-            serde_json::to_vec(definition)
-                .map_err(|_| RegistrationError::Invalid("stream definition"))?,
-        );
-        let args = crate::application::encode_rpc(&cellar_native::clone::StructuredValue::from_json(serde_json::json!([{"operation":"00000000000000000000000000000001","definition":encoded}])).map_err(|_| RegistrationError::Invalid("stream configuration"))?).map_err(|_| RegistrationError::Invalid("stream configuration RPC"))?;
-        let scope = events::catalog_scope(&definition.resource)
-            .map_err(|_| RegistrationError::Invalid("stream catalog scope"))?;
-        let name = events::catalog_name(&definition.resource)
-            .map_err(|_| RegistrationError::Invalid("stream catalog name"))?;
-        let frame = super::native_event_rpc::encode_ingress(
-            &scope,
-            Some(&name),
-            "__catalogConfigure",
-            authority.into(),
-            &args,
-            usize::MAX,
-            [1; 16],
+        let intent = super::native_event_enrollment::CatalogEnrollment::new(
+            &configuration.script,
+            definition,
         )
-        .map_err(|_| RegistrationError::Invalid("stream configuration envelope"))?;
-        class.event_configuration_bytes = class.event_configuration_bytes.max(frame.len());
+        .map_err(|_| RegistrationError::Invalid("stream enrollment configuration"))?;
+        class.event_configuration_bytes = class.event_configuration_bytes.max(intent.wire_bytes());
+        if catalog {
+            class.event_enrollment_bytes = class
+                .event_enrollment_bytes
+                .checked_add(
+                    intent
+                        .retained_bytes()
+                        .ok_or(RegistrationError::Invalid("stream enrollment bounds"))?,
+                )
+                .ok_or(RegistrationError::Invalid("stream enrollment bounds"))?;
+            if enrollments.insert(intent.key(), intent).is_some() {
+                return Err(RegistrationError::Invalid("duplicate catalog enrollment"));
+            }
+        }
+    }
+    if catalog {
+        class.event_enrollments = Some(Arc::new(enrollments));
     }
     let definitions: Arc<[events::Definition]> = definitions.to_vec().into();
     let principal = configuration.script.clone();

@@ -16,6 +16,24 @@ enum Access {
 }
 
 impl CellGroupHost {
+    pub(crate) fn enrolled_event_configuration(
+        &self,
+        history: &CellHistory,
+        request: CellEnrollmentRequest,
+        enrollment: &CellEnrollmentResponse,
+        input: &[u8],
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        self.inner.check_lifecycle()?;
+        let binding = self
+            .inner
+            .namespaces
+            .get(&(history.cluster, history.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        binding
+            .class
+            .enrolled_event_configuration(history, request, enrollment, input)
+    }
+
     pub(crate) fn event_sources(
         &self,
     ) -> Result<Vec<Arc<crate::application::storage::EventSourceConfiguration>>, CellDispatchError>

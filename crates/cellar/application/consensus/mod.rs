@@ -21,6 +21,7 @@ mod native_applications;
 pub use native_applications::RaftApplications;
 mod native_cell;
 mod native_configuration;
+mod native_event_enrollment;
 pub(crate) mod native_event_query;
 pub(crate) mod native_event_rpc;
 pub(crate) mod native_ingress;
