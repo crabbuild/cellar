@@ -111,10 +111,14 @@ and budgets. These are scoped passes, not complete primitive-family acceptance.
    creation/enrollment controls and keep their cause open; independent-voter,
    full-size, long-callback and combined lifecycle/recovery gates remain. Reuse
    bounded shared owners rather than per-idle-cell tasks.
-4. **Finish payload and provider adapters.** Complete Blob/external payload
-   publication, actual-byte recovery verification and root-aware collection that
-   protects retained images, readers, pending uploads and interrupted turns.
-   Qualify filesystem movement/wake, archive outage/load and disk-loss recovery.
+4. **Extend payload and provider lifecycle qualification.** The
+   [filesystem/Blob/payload checkpoint](progress.md#cg-17-filesystem-blob-and-retained-payload-roots)
+   passes scoped real-store movement/wake, archive outage, fenced disk-loss
+   recovery, actual-byte verification and retained-cut/reader collection gates.
+   Complete the wider KV lifecycle and interrupted-transfer matrix, scheduled
+   collection policy, explicit unknown-owner reconciliation, provider-process
+   recovery and archive outage/load qualification. Preserve the recorded small
+   operator-GET deadline failure and independent provider commit semantics.
    Deliver HTTP/streaming, WebSocket reconnect/stale-owner handling, container and
    external-provider fencing/reconciliation, and stateless/ephemeral and optional
    adapter conformance. See [payload storage](payload-storage.md) and

@@ -49,7 +49,8 @@ capture still gates source output. No capacity limit is raised automatically.
 Retained-record reads also use the private immutable query contract. They check
 the current read grant and lifecycle, then paginate the selected image's stored
 retention frontier without advancing its clock or running maintenance. A read
-allocates no command identity, receipt or new log entry. Source writes are still
+allocates no per-cell command identity, mutation or receipt. A normal leader
+election may still persist its Raft term barrier before the read. Source writes are still
 proved before a bound read, and an S3 target still requires independently verified
 archive coverage of the selected version. Cursor expiry and byte/count limits
 match ordinary Fleet reads; lease acquisition and acknowledgment remain commands.

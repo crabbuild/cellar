@@ -705,17 +705,6 @@ async fn run(
             ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == puts_before + 1,
                 "expired source upload started after restoring its archive provider");
             }
-            for host in &cluster.hosts {
-                let usage = host
-                    .resource_usage()
-                    .host
-                    .payloads
-                    .context("installed KV pool")?;
-                ensure!(
-                    usage.operations == 0 && usage.retained_bytes == 0,
-                    "KV transport leaked payload admission: {usage:?}"
-                );
-            }
             if coverage.focused() {
                 return Ok(());
             }
@@ -821,13 +810,30 @@ async fn run(
         Some(http) => http.close().await,
         None => Ok(()),
     };
-    if work.is_err() || joined.is_err() || http_joined.is_err() {
+    domain.shutdown().await;
+    // Foreground transfers and archive verification share the same bank. Only
+    // joined host/domain shutdown establishes quiescence, including reader cleanup.
+    let payloads_joined = (|| -> Result<()> {
+        for host in &cluster.hosts {
+            let usage = host
+                .resource_usage()
+                .host
+                .payloads
+                .context("installed KV pool")?;
+            ensure!(
+                usage.operations == 0 && usage.retained_bytes == 0,
+                "joined KV host leaked payload admission: {usage:?}"
+            );
+        }
+        Ok(())
+    })();
+    if work.is_err() || joined.is_err() || http_joined.is_err() || payloads_joined.is_err() {
         for root in std::mem::take(&mut cluster.roots) {
             eprintln!("retained KV binding disk: {}", root.keep().display());
         }
     }
-    domain.shutdown().await;
     work?;
     joined?;
+    payloads_joined?;
     http_joined
 }

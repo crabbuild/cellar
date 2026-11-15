@@ -17,6 +17,7 @@ pub(crate) enum DueEffect {
     Alarm(alarm::DueAlarm),
     Work(crate::application::consensus::native_work::Work),
     Binding(Box<crate::storage::raft_binding_recovery::Pending>),
+    Payload(crate::storage::raft_payloads::Retirement),
     Delivery {
         selected: outbox::Selected,
         minimum: Durability,
@@ -28,7 +29,7 @@ impl DueEffect {
     pub fn minimum(&self) -> Result<Durability> {
         match self {
             Self::Alarm(due) => Ok(due.minimum),
-            Self::Work(_) => Ok(Durability::Quorum),
+            Self::Work(_) | Self::Payload(_) => Ok(Durability::Quorum),
             Self::Binding(pending) => pending.minimum(),
             Self::Delivery { minimum, .. } => Ok(*minimum),
         }
@@ -44,6 +45,10 @@ impl DueEffect {
             Self::Binding(pending) => (
                 crate::storage::raft_binding_recovery::CLAIM.into(),
                 serde_json::to_vec(&pending.key)?,
+            ),
+            Self::Payload(key) => (
+                crate::storage::raft_payloads::RETIRE.into(),
+                serde_json::to_vec(key)?,
             ),
             Self::Delivery { selected, .. } => {
                 (outbox::CLAIM.into(), serde_json::to_vec(selected)?)
@@ -112,11 +117,14 @@ fn scan_connection(
         if let Some(pending) = &pending {
             pending.minimum()?;
         }
-        Ok(pending.map(|pending| DueEffect::Binding(Box::new(pending))))
+        Ok(match pending {
+            Some(pending) => Some(DueEffect::Binding(Box::new(pending))),
+            None => crate::storage::raft_payloads::due(connection)?.map(DueEffect::Payload),
+        })
     };
     // Alternate existing work with binding recovery. A hot binding lane cannot
     // indefinitely starve alarms/outbox work in the same cell.
-    let previous_binding:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_receipts r JOIN __sys_raft_clients c ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1 AND r.operation IN('__sys_raft_binding_claim','__sys_raft_binding_settle'))",[client.bytes().as_slice()],|row|row.get(0))?;
+    let previous_binding:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_receipts r JOIN __sys_raft_clients c ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1 AND r.operation IN('__sys_raft_binding_claim','__sys_raft_binding_settle','__sys_raft_payload_retire'))",[client.bytes().as_slice()],|row|row.get(0))?;
     let other = if previous.is_some_and(|operation| {
         operation.starts_with("__sys_raft_alarm_")
             || operation == crate::application::consensus::native_work::OPERATION

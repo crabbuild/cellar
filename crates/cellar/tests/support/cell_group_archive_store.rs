@@ -22,6 +22,7 @@ pub struct Store {
     pub inner: Arc<dyn ObjectStore>,
     pub puts: AtomicUsize,
     pub gets: AtomicUsize,
+    pub payload_gets: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub lose_immutable_put_response: AtomicBool,
     pub lose_directory_head_and_reads: AtomicBool,
@@ -50,6 +51,7 @@ impl Store {
             inner,
             puts: AtomicUsize::new(0),
             gets: AtomicUsize::new(0),
+            payload_gets: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             lose_immutable_put_response: AtomicBool::new(false),
             lose_directory_head_and_reads: AtomicBool::new(false),
@@ -278,6 +280,12 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> Result<GetResult> {
         self.gets.fetch_add(1, Ordering::AcqRel);
+        if !opts.head
+            && path.as_ref().contains("/cell-payloads-1/")
+            && !path.as_ref().contains("/ownership/")
+        {
+            self.payload_gets.fetch_add(1, Ordering::AcqRel);
+        }
         self.available()?;
         if path.as_ref().contains("/chunks/") && self.deny_chunk_reads.load(Ordering::Acquire) {
             self.denied_chunk_reads.fetch_add(1, Ordering::AcqRel);

@@ -6,8 +6,8 @@ use super::*;
 
 #[path = "cell_group_disaster_receipts.rs"]
 mod receipts;
-pub(crate) use receipts::registered_receipts;
 pub(super) use receipts::ReceiptWorkload;
+pub(crate) use receipts::{filesystem_disaster, registered_receipts};
 
 struct FreshVoter {
     log: ReplicaLog,

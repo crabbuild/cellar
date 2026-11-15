@@ -32,6 +32,10 @@ mod alarms;
 mod binding_recovery;
 #[path = "support/cell_group_bindings.rs"]
 mod bindings;
+#[path = "support/blob_contract.rs"]
+mod blob_contract;
+#[path = "support/cell_group_blob.rs"]
+mod blobs;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
 #[path = "support/cell_group_cron.rs"]
@@ -172,6 +176,28 @@ async fn rustfs_axum_event_stream_publication_subscriptions_and_outbox_recover_t
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()> {
     filesystem::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn blob_provider_contracts_follow_proven_shared_group_turns() -> Result<()> {
+    blobs::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_blob_provider_contracts_follow_proven_shared_group_turns() -> Result<()> {
+    blobs::qualify(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn filesystem_archive_outage_movement_and_park_wake() -> Result<()> {
+    filesystem::qualify_lifecycle(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_filesystem_archive_outage_movement_and_park_wake() -> Result<()> {
+    filesystem::qualify_lifecycle(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

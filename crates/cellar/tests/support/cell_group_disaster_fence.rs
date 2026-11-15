@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 mod activation;
 #[path = "cell_group_disaster_seed.rs"]
 mod seed;
-pub(super) use activation::{activate_quorum, registered_receipts};
+pub(super) use activation::{activate_quorum, filesystem_disaster, registered_receipts};
 pub(super) use seed::seed_engine;
 
 #[derive(Default)]

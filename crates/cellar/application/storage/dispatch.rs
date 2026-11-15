@@ -298,7 +298,8 @@ impl RaftDispatch {
         self.schedule_owned_io(action, false)
     }
 
-    /// Only the host's pure Query adapter may reuse an unchanged source proof.
+    /// Read-only target queries and provider GET bodies may reuse an unchanged
+    /// source proof. This never authorizes a provider or target mutation.
     pub(crate) fn schedule_read<T, F, Fut>(self, action: F) -> DispatchCall<T>
     where
         T: Send + 'static,

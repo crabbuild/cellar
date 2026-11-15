@@ -668,7 +668,7 @@ impl NamespaceCell {
             }
             if options.references && self.storage.is_raft() {
                 if let Some(reference) = reference.as_deref() {
-                    let (reference, length) = raft_wire::published_value(reference)?;
+                    let (reference, length) = raft_wire::published_value(reference).await?;
                     ensure!(
                         u64::try_from(integer(&row, "size")?)? == length as u64,
                         super::consensus::CommandFailure::CorruptState

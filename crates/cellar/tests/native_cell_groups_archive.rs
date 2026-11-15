@@ -24,6 +24,8 @@ mod fault;
 mod images;
 #[path = "support/cell_group_archive_isolation.rs"]
 mod isolation_fixture;
+#[path = "support/cell_group_archive_payloads.rs"]
+mod payload_fixture;
 #[path = "support/cell_group_archive_publication.rs"]
 mod publication_fixture;
 #[path = "support/cell_group_rustfs.rs"]
@@ -36,6 +38,53 @@ mod tail_fixture;
 mod runtime_fixture;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn external_payload_recovery_and_gc_preserve_retained_cuts_and_readers() -> Result<()> {
+    for rooted in [false, true] {
+        payload_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new())).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_external_payload_recovery_and_gc_preserve_retained_cuts_and_readers() -> Result<()>
+{
+    for rooted in [false, true] {
+        payload_fixture::qualify(
+            rooted,
+            rustfs::store("external-payload-recovery-gc", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn filesystem_survives_fenced_all_voter_disk_loss() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::filesystem_disaster(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_filesystem_survives_fenced_all_voter_disk_loss() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::filesystem_disaster(
+            rooted,
+            rustfs::store("filesystem-disk-loss", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_archive_publication_survives_competing_registry_cas() -> Result<()> {

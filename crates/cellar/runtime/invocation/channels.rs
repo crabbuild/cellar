@@ -510,10 +510,16 @@ pub(crate) static BLOB_STORE: HostSlot<Bucket> = HostSlot::new(|channels| &chann
 
 /// Give the Blob bindings the fleet bucket to live in.
 pub fn set_blob_store(bucket: Bucket) {
-    if BLOB_STORE.set(bucket.clone()).is_ok() {
-        #[cfg(not(cellar_internal_tests))]
-        bucket.start_multipart_maintenance();
-    }
+    let _ = try_set_blob_store(bucket);
+}
+
+pub(crate) fn try_set_blob_store(bucket: Bucket) -> Result<(), &'static str> {
+    BLOB_STORE
+        .set(bucket.clone())
+        .map_err(|_| "Blob provider is already configured or the host is closed")?;
+    #[cfg(not(cellar_internal_tests))]
+    bucket.start_multipart_maintenance();
+    Ok(())
 }
 
 /// Why the output gate did not release a ticket.

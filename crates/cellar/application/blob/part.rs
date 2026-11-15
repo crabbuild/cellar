@@ -71,8 +71,9 @@ impl Drop for Reservation {
 /// becomes visible only after exact-length completion. Cancellation or an
 /// error during a write poisons the stage; discard it rather than replaying.
 pub struct ResumablePart {
-    inner: Box<dyn crate::bucket::StreamedPart>,
-    authority: crate::application::InvocationAuthority,
+    inner: Option<Box<dyn crate::bucket::StreamedPart>>,
+    authority: Option<crate::application::InvocationAuthority>,
+    raft_authority: Option<crate::application::storage::RaftStorageAuthority>,
     number: u32,
     interrupted: bool,
 }
@@ -84,33 +85,67 @@ impl ResumablePart {
         inner: Box<dyn crate::bucket::StreamedPart>,
     ) -> Result<Self> {
         Ok(Self {
-            inner,
-            authority: context.invocation_authority()?,
+            inner: Some(inner),
+            authority: if context.raft_storage.is_none() {
+                Some(context.invocation_authority()?)
+            } else {
+                None
+            },
+            raft_authority: context.raft_storage.clone(),
             number,
             interrupted: false,
         })
     }
 
+    fn check(&self, context: &Context) -> Result<()> {
+        if let Some(authority) = &self.authority {
+            authority.check(context)?;
+        }
+        if let Some(authority) = &self.raft_authority {
+            context.check_binding_turn()?;
+            crate::application::Storage::raft_command(authority.clone()).check_raft_turn()?;
+        }
+        Ok(())
+    }
+
     pub async fn write(&mut self, context: &Context, bytes: bytes::Bytes) -> Result<()> {
-        self.authority.check(context)?;
+        self.check(context)?;
         ensure!(!self.interrupted, "part stage was interrupted; discard it");
         ensure!(bytes.len() <= PART_CHUNK_BYTES, "part chunk exceeds 64 KiB");
-        crate::native_worker::blob_gate(context).await?;
-        self.authority.check(context)?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        self.check(context)?;
         self.interrupted = true;
-        self.inner.write(bytes).await?;
-        self.authority.check(context)?;
+        let mut inner = self
+            .inner
+            .take()
+            .ok_or(PartRefused("part stage was interrupted"))?;
+        let (inner, result) = super::raft::io(context, async move {
+            let result = inner.write(bytes).await;
+            Ok((inner, result))
+        })
+        .await?;
+        self.inner = Some(inner);
+        result?;
+        self.check(context)?;
         self.interrupted = false;
         Ok(())
     }
 
-    pub async fn complete(self, context: &Context) -> Result<UploadedPart> {
-        self.authority.check(context)?;
+    pub async fn complete(mut self, context: &Context) -> Result<UploadedPart> {
+        self.check(context)?;
         ensure!(!self.interrupted, "part stage was interrupted; discard it");
-        crate::native_worker::blob_gate(context).await?;
-        self.authority.check(context)?;
-        let receipt = self.inner.complete().await?;
-        self.authority.check(context)?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        self.check(context)?;
+        let inner = self
+            .inner
+            .take()
+            .ok_or(PartRefused("part stage was interrupted"))?;
+        let receipt = super::raft::io(context, async move { Ok(inner.complete().await?) }).await?;
+        self.check(context)?;
         ensure!(
             !receipt.content_id.is_empty() && receipt.content_id.len() <= 16_384,
             "invalid part receipt"

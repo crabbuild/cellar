@@ -740,7 +740,18 @@ impl NativeCellFactory {
                     })
                     .collect(),
             ),
-            blob_bindings: Arc::default(),
+            blob_bindings: Arc::new(
+                self.config
+                    .blob_bindings
+                    .iter()
+                    .map(|(binding, bucket)| {
+                        (
+                            binding.clone(),
+                            crate::application::blob::Bucket::new(binding, bucket),
+                        )
+                    })
+                    .collect(),
+            ),
             asset_binding: None,
             queue_config: if self.class == crate::deploy::QUEUE_CLASS {
                 Some(Arc::new(serde_json::from_value(
