@@ -743,7 +743,6 @@ impl CellQueryInvocation {
                 .await
                 .map_err(CellDispatchError::Runtime)?;
         }
-        tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="authority-start",invocation=?self.request.invocation);
         let authority = runtime
             .read_authority(
                 attempt.route().history,
@@ -756,7 +755,6 @@ impl CellQueryInvocation {
         if authority.route() != attempt.route() || authority.cell().version.history != *cell {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
-        tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="sql-start",invocation=?self.request.invocation);
         let mut selected = sql
             .query_registered_retained(
                 options,
@@ -785,7 +783,6 @@ impl CellQueryInvocation {
                 }
             })?;
         if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3) {
-            tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="archive-start",invocation=?self.request.invocation);
             let client = self
                 .dispatcher
                 .s3
@@ -806,7 +803,6 @@ impl CellQueryInvocation {
             selected = *settled.selected;
             selected.retain_archive(settled.proof);
         }
-        tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="query-ready",invocation=?self.request.invocation);
         let token = self
             .dispatcher
             .keys

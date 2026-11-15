@@ -192,10 +192,8 @@ impl Resolution {
                 None,
                 self.started,
             )
-            .map_err(CellDispatchError::Routing)?;
-        tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-route-start",?invocation);
-        let mut attempt = session.begin().await.map_err(CellDispatchError::Routing)?;
-        tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-route-ready",?invocation);
+            .map_err(name_routing_failure)?;
+        let mut attempt = session.begin().await.map_err(name_routing_failure)?;
         let mut previous = None;
         let mut next = 0;
         loop {
@@ -261,9 +259,8 @@ impl Resolution {
             let deadline = now.saturating_add(slice).min(self.deadline);
             attempt
                 .limit_query_deadline(deadline)
-                .map_err(CellDispatchError::Routing)?;
+                .map_err(name_routing_failure)?;
             let selected = if local == Some(member) {
-                tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-local-start",?invocation,ordinal=attempt.ordinal(),?member,slice_ms=slice);
                 self.owner
                     .handle
                     .core
@@ -272,7 +269,6 @@ impl Resolution {
                     .await
                     .map_err(CellDispatchError::Runtime)
             } else {
-                tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-remote-start",?invocation,ordinal=attempt.ordinal(),?member,slice_ms=slice);
                 let response: Result<CellRemoteNameResponse, _> = self
                     .owner
                     .handle
@@ -284,13 +280,12 @@ impl Resolution {
                     .map(|response| response.record().cloned())
                     .map_err(|error| CellDispatchError::Transport(error.for_read()))
             };
-            tracing::debug!(target:"cellar::raft::event_activation_probe",probe="DEBUG-cg17-resume",phase="name-result",?invocation,success=selected.is_ok(),error=?selected.as_ref().err());
             match selected {
                 Ok(record) => {
                     self.live()?;
                     session
                         .validate_attempt(&attempt)
-                        .map_err(CellDispatchError::Routing)?;
+                        .map_err(name_routing_failure)?;
                     return Ok(record.map(|record| record.cell().clone()));
                 }
                 Err(error)
@@ -304,7 +299,7 @@ impl Resolution {
                     } else {
                         session.refresh(&attempt).await
                     }
-                    .map_err(CellDispatchError::Routing)?;
+                    .map_err(name_routing_failure)?;
                 }
                 Err(error) => return Err(error),
             }
@@ -377,4 +372,55 @@ fn name_retryable(error: &CellDispatchError) -> bool {
                 )
         )
     )
+}
+
+fn name_routing_failure(error: CellRoutingError) -> CellDispatchError {
+    // A read's session timer and its outer timer denote the same original
+    // deadline. Preserve every other failure, including any mutation ambiguity.
+    if matches!(error.reason, CellRoutingFailure::Deadline) && error.ambiguous_command.is_none() {
+        CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
+    } else {
+        CellDispatchError::Routing(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_session_deadline_retains_the_public_deadline_type() {
+        let error = name_routing_failure(CellRoutingError {
+            reason: CellRoutingFailure::Deadline,
+            ambiguous_command: None,
+        });
+        assert!(matches!(
+            error,
+            CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
+        ));
+    }
+
+    #[test]
+    fn name_deadline_mapping_preserves_ambiguity_and_other_refusals() {
+        let command =
+            CommandId::new(cellar_logic::consensus::ClientId::new([1; 16]).unwrap(), 1).unwrap();
+        let error = name_routing_failure(CellRoutingError {
+            reason: CellRoutingFailure::Deadline,
+            ambiguous_command: Some(command),
+        });
+        assert!(
+            matches!(error, CellDispatchError::Routing(error) if error.ambiguous_command == Some(command))
+        );
+        let error = name_routing_failure(CellRoutingError {
+            reason: CellRoutingFailure::InvalidHint,
+            ambiguous_command: None,
+        });
+        assert!(matches!(
+            error,
+            CellDispatchError::Routing(CellRoutingError {
+                reason: CellRoutingFailure::InvalidHint,
+                ..
+            })
+        ));
+    }
 }

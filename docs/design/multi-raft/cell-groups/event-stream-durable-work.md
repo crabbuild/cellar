@@ -54,6 +54,17 @@ proved before a bound read, and an S3 target still requires independently verifi
 archive coverage of the selected version. Cursor expiry and byte/count limits
 match ordinary Fleet reads; lease acquisition and acknowledgment remain commands.
 
+Retained groups do not require an idle election timeout before starting their
+first strong read. A current voter whose last durable vote was for itself may
+attempt one ordinary startup election when no leader is known. This vote is a
+liveness hint, not evidence of prior or current leadership. PreVote, quorum votes,
+durable log admission and the new term's applied read barrier remain required.
+Observing a leader or starting an election consumes the hint; repeated reads
+cannot create a campaign loop. Recovery, membership and park fences still refuse
+admission, and ordinary election timers remain the fallback. Stale reads do not
+trigger this optimization. Name-discovery session expiry keeps the same typed
+deadline failure as its original outer timer, without changing mutation ambiguity.
+
 This reconciliation requires its own combined-source qualification. Earlier
 branch results below do not establish the merged candidate's runtime behavior.
 

@@ -168,7 +168,6 @@ impl RaftCells {
                 let mut backoff_ms = 10;
                 loop {
                     remaining()?;
-                    tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-resume", phase="query-start", ?invocation, hinted=route.history_hint.is_some(), remaining_ms=remaining()?.as_millis());
                     let result = async {
                         let history = match route.history_hint.clone() {
                             Some(history) => history,
@@ -196,11 +195,9 @@ impl RaftCells {
                                         )
                                         .await
                                 };
-                                tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-resume", phase="history-result", ?invocation, success=found.is_ok(), remaining_ms=remaining()?.as_millis());
                                 found?.ok_or(RuntimeError::NotFound)?
                             }
                         };
-                        tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-resume", phase="target-start", ?invocation, remaining_ms=remaining()?.as_millis());
                         let response = owner
                             .handle
                             .core
