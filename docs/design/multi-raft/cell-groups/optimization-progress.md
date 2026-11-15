@@ -81,34 +81,34 @@ and its named RO/RL cases remain the acceptance contract:
 
 ### Priorities for completing the optimization
 
-The refreshed main-173 constrained smoke passes SQL and KV. Queue acknowledges
-and delivers all 24 warmup and 48 measured messages with complete probes and
-zero backlog/dead letters, but the controller rejects the API's valid `0.0`
-counts because it requires Python integers. The original smoke remains failed
-and the full comparison has not started. A regression reproduces this rejection
-before repair. The controller now accepts finite, nonnegative whole-number
-counts while excluding booleans, fractions and nonfinite values; complete
-observer rounds, exact identity/body reconciliation and zero settlement remain
-mandatory. All 341 performance tests run successfully with one existing skip,
-and unchanged saved Queue windows pass independent replay validation. This
-repairs measurement admission, establishes no speedup and requires a fresh
-constrained smoke before full measurements. Rust and load-client bytes are
-unchanged. The original RustFS is restored ready after the failed smoke.
+The latest twelve-case comparison is the
+[main-173 campaign](three-node-primitive-main-173-2026-11-15.md), including main
+`189edd9a` and source cut `69654995`. Nine candidate cases pass; KV+S3,
+Queue+S3 and bucket Queue fail. All SQL modes and the complete SQL/KV quorum
+pairs pass. Candidate timed windows record 104 verified, two failed and fourteen
+unmeasured, with sixteen request errors across emitted windows. Queue quorum
+passes on the candidate but fails its control's C16 drain. A broader host audit
+finds another checkout's primitive qualification plus a second VM, missed by
+the narrow compiler monitor. SQL timings are mixed and KV rates are lower;
+neither direction establishes an isolated optimization effect.
 
-The latest twelve-case candidate comparison is the
-[main-172 campaign](three-node-primitive-main-172-2026-11-14.md), on integrated
-main `0e925f6b`: Workflow quorum-read progress (#171) and shared-group EventStream
-delivery (#172). Five candidate cases pass and seven fail; all four Queue cases
-fail. The matched quorum control passes SQL and fails KV/Queue. There is no
-complete passing control/candidate quorum pair, so no isolated optimization
-gain follows. Native qualification records 1,508 passes, 15 failures and 107
-explicit ignores across eight libtest targets; the separate production daemon
-oracle passes. At repair source `9f483e79`, the full native primitive target
-passes 37 tests with zero failures and 41 explicit ignores; the library passes
-1,184 tests with zero failures and two ignores. The earlier eight primitive
-failures are unreproduced in that follow-up. The subsequent repair/inspection follow-up below passes the original automatic
-handoff and child-selection controls with both backends. Constrained comparison,
-broader fault/feature-mode gates and the removed-member protocol cut remain open.
+The Queue validator correction accepts the API's valid floating-point counts
+while preserving finite whole-number checks, complete observer rounds, exact
+identity/body reconciliation and zero settlement. Its regression fails before
+repair; all 341 performance tests run successfully with one existing skip.
+Saved-window replay and the fresh three-family smoke pass. The original smoke
+stays failed. Both frozen images retain their exact prior Rust/load-client bytes
+with verified new manifests. All comparison owners join and the original RustFS
+identity, limits and mounts are restored, with HTTP 200 readiness.
+
+The earlier [main-172 campaign](three-node-primitive-main-172-2026-11-14.md)
+retains its five passing and seven failing candidate cases. Later native
+follow-ups below pass automatic handoff, child selection and the scoped
+removed-member oracle with both backends. Current library qualification passes
+1,192 tests with two existing ignores after an earlier park/wake `Closed`
+failure; 103 isolated attempts do not explain that failure. Current-head Typed
+RPC CI also retains a standard-Python proof-wait `NodeLeaseMismatch` failure.
+These scoped passes do not close the full primitive, fault or feature-mode gates.
 
 Direct routing, targeted cache repair, consistency-aware read selection and
 bounded shared workers already exist. Completion requires the following delivery
@@ -116,9 +116,10 @@ and evidence, under the design's original limits and acceptance oracles:
 
 | Priority | Gap | Evidence required to close it |
 | --- | --- | --- |
-| P0 | Public SQL/KV/Queue reliability | Complete the source-matched native/SDK/native HTTP/Axum controls and all requested three-node C1/4/16 windows. Account for every acknowledged and unconfirmed identity; verify Queue bodies, settlement and drain, including the earlier bucket backlog. Fix remaining failures without increasing deadlines or admission limits. |
+| P0 | Public SQL/KV/Queue reliability | Close the main-173 KV+S3 and Queue+S3 ambiguous deadlines, bucket Queue durability/drain failure and control Queue drain cut. Complete the source-matched native/SDK/native HTTP/Axum and three-node C1/4/16 matrix. Account for every acknowledged and unconfirmed identity; preserve exact bodies, settlement and original deadlines/admission limits. |
 | P0 | Original-deadline progress | Show bounded routing/readiness, writer admission, SQL preparation, ReadIndex and output-proof progress. Slow callbacks and archive work must leave control/election progress available; expired waiters must retain their actual physical owners until completion. |
 | P1 | Persistence and archive amplification | Measure image/manifest file and directory syncs, engine batch bytes/groups, independent archive replay and queue waits. Compare matched before/after throughput, p50/p95/p99, errors and resources; accept a tuning change only with its correctness controls. Sparse traffic must not wait to fill a batch. |
+| P1 | Safe public read integration | Connect explicit read-only SQL operations to fresh ReadIndex/source-image proof without treating writable `__sqlQuery` as a read. Preserve KV TTL/metrics mutations, exact tokens, read preferences and partition refusal. Recheck gains with a broader host audit and crossover measurements. |
 | P1 | Sustainable physical capacity and movement | Complete shared-file/segment release and once-only accounting, followed by repeated split/move/merge under the original bounds. Retained readers, snapshots, archive/transfer work and uncertain completions must protect bytes; credit follows synced deletion and joined owners. Preserve placement reserve and failure-domain checks. |
 | P1 | Authority and read-consistency fault coverage | Complete the remaining RO-03/04/07/08/10 cuts for current membership, boot, revocation/expiry, ambiguous commands and partitioned reads. Advice cannot authorize execution; fresh ReadIndex cohorts, exact tokens and image pins remain required. |
 | P2 | Wake/recovery and combined qualification | Exercise optimized routes through park/wake, interrupted movement, retained restart and fenced all-disk-loss recovery. Run the complete primitive/backend/crash/feature-mode/daemon suite on one combined source and restore legitimate missing historical evidence. A single Colima VM does not establish independent physical failure domains. |

@@ -1,0 +1,3313 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-15T13:11:32.572764+00:00",
+  "source_revision": "69654995d602d7e33bd8f0d1590574a5cd67a1b6",
+  "timing_isolated": false,
+  "timing_limits": {
+    "status": "NOT_TIMING_ISOLATED",
+    "captured_at": "2026-11-15T12:38:57.988318+00:00",
+    "evidence": "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/qualification/main172-host-resume-01/main173-mid-comparison-host-cpu.json",
+    "other_checkout_primitive_processes": [
+      {
+        "pid": 98897,
+        "ppid": 97039,
+        "elapsed": "00:45",
+        "cpu_percent": 14.3,
+        "command": "/Volumes/Workspace/crabbuild-target/cellar-cell-group-effects-binding-seal-5323c59e/qualification/CG-17-rpc-progress-fast-223-0af5a562/primitives"
+      }
+    ],
+    "active_virtualization_processes": 2,
+    "scope": "Broader read-only snapshot finds an unrelated checkout executable named primitives and a second VM. The runner only audits rustc/clang/native_cell_groups/cellar test names; absence in that narrow monitor does not establish quiet host CPU or storage. Functional results remain scoped; no isolated causal performance gain/regression accepted. No unrelated process is stopped."
+  },
+  "performance_gain_accepted": false,
+  "source_and_engine_unchanged": true,
+  "original_backend_restored": true,
+  "runs": {
+    "control": {
+      "status": "FAILED",
+      "image": "sha256:c4a431bc24fde7b3f23c765f69d12138e0470537ac880f98079983aa9bc9589b",
+      "source_revision": "69654995d602d7e33bd8f0d1590574a5cd67a1b6",
+      "source_inputs_sha256": "67e4310de43e72eb614eb261bccd3be0e1acda5d460fbe46fc56688f0ec534ae",
+      "profile": {
+        "node_count": 3,
+        "voters_per_raft_group": 3,
+        "resources": {
+          "node_cpu": 1,
+          "node_memory_bytes": 2147483648,
+          "store_cpu": 1,
+          "store_memory_bytes": 2147483648,
+          "load_cpu": 1,
+          "load_memory_bytes": 2147483648,
+          "extra_swap_bytes": 0,
+          "cpu_sets": {
+            "nodes": [
+              0,
+              1,
+              2
+            ],
+            "store": 3,
+            "load": 4
+          }
+        },
+        "entities": 24,
+        "raft_groups": 3,
+        "payload_bytes": 256,
+        "queue_batch_messages": 8,
+        "actor_operation_ms": 5000,
+        "actor_lease_ms": 5000,
+        "lease_trace": false,
+        "seconds": 30,
+        "warmup_seconds": 5,
+        "repetitions": 2,
+        "concurrency": [
+          1,
+          4,
+          16
+        ]
+      },
+      "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+      "binary_digests": "f6df4895760058d5e1d24725fd901189e7d7613d9ebc5cc70f921624f1632cbb  /out/cellar-perf-baseline\n4a9124afa82202ad240e7a5e1f9644831080e997a6bb8730cfefabd905842bbf  /out/cellar-perf-raft\nc73d4f9475f82877ec47d69b4afd55690967da61e8a57d2ed523472939935eb2  /out/primitive_load.py",
+      "limitations": [
+        "One Colima VM and one local RustFS per case; no independent failure-domain or cloud-S3 qualification.",
+        "Closed-loop completion latency; queue latency is batch enqueue acknowledgement, with separate verified drain throughput.",
+        "Fleet acknowledges peer replication or a bucket proof; it is not strict Raft quorum.",
+        "Read consistency follows each public binding implementation; this does not certify equivalent read algorithms.",
+        "The existing production harness manifest budget is distinct from the failing single-process 1,024-page fixture."
+      ],
+      "cases": [
+        {
+          "family": "sql",
+          "mode": "raft-quorum",
+          "status": "PASSED",
+          "acknowledgement": "RF3 Raft quorum",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 1113,
+              "elapsed_seconds": 60.08975576599914,
+              "requests_per_second": 18.52229195828707,
+              "latency": {
+                "p50_ms": 43.989,
+                "p95_ms": 103.766,
+                "p99_ms": 150.322,
+                "max_ms": 438.245
+              },
+              "repeat_rates": [
+                24.150677996887556,
+                12.903271024971538
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 1122,
+              "elapsed_seconds": 60.010290744001395,
+              "requests_per_second": 18.696793268113847,
+              "latency": {
+                "p50_ms": 47.141,
+                "p95_ms": 88.435,
+                "p99_ms": 144.234,
+                "max_ms": 529.805
+              },
+              "repeat_rates": [
+                21.69439994788433,
+                15.698667320248061
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 1458,
+              "elapsed_seconds": 60.398196627997095,
+              "requests_per_second": 24.139793593177515,
+              "latency": {
+                "p50_ms": 142.636,
+                "p95_ms": 316.689,
+                "p99_ms": 639.423,
+                "max_ms": 1006.647
+              },
+              "repeat_rates": [
+                26.990135260707508,
+                21.296979782156544
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 1490,
+              "elapsed_seconds": 60.22434593800426,
+              "requests_per_second": 24.740824940362586,
+              "latency": {
+                "p50_ms": 133.577,
+                "p95_ms": 347.911,
+                "p99_ms": 565.375,
+                "max_ms": 790.599
+              },
+              "repeat_rates": [
+                31.010063840343722,
+                18.468636716995622
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 1253,
+              "elapsed_seconds": 61.32314841198968,
+              "requests_per_second": 20.432740856387895,
+              "latency": {
+                "p50_ms": 594.412,
+                "p95_ms": 1842.775,
+                "p99_ms": 2381.48,
+                "max_ms": 3492.766
+              },
+              "repeat_rates": [
+                20.060469025594582,
+                20.80978135453194
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 1494,
+              "elapsed_seconds": 61.93314961199212,
+              "requests_per_second": 24.122784152910523,
+              "latency": {
+                "p50_ms": 486.075,
+                "p95_ms": 1683.178,
+                "p99_ms": 2196.11,
+                "max_ms": 3594.492
+              },
+              "repeat_rates": [
+                24.261972705339414,
+                23.984080210868903
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 417.9578123750034,
+              "cpu_seconds": 105.230922,
+              "average_cores": 0.2517740281059369,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 956096512,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 417.9578123750034,
+              "cpu_seconds": 99.404769,
+              "average_cores": 0.23783445615035248,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 986914816,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 417.9578123750034,
+              "cpu_seconds": 98.537968,
+              "average_cores": 0.235760560234699,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 974659584,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 417.9578123750034,
+              "cpu_seconds": 136.443653,
+              "average_cores": 0.3264531705357357,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1633087488,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 417.9578123750034,
+              "cpu_seconds": 3.069919,
+              "average_cores": 0.007345045143564832,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 14286848,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "kv",
+          "mode": "raft-quorum",
+          "status": "PASSED",
+          "acknowledgement": "RF3 Raft quorum",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 1084,
+              "elapsed_seconds": 60.038121304991364,
+              "requests_per_second": 18.05519520661417,
+              "latency": {
+                "p50_ms": 49.845,
+                "p95_ms": 90.664,
+                "p99_ms": 112.418,
+                "max_ms": 501.366
+              },
+              "repeat_rates": [
+                19.852067383525682,
+                16.257963673037313
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 1051,
+              "elapsed_seconds": 60.05590051300533,
+              "requests_per_second": 17.50036201309482,
+              "latency": {
+                "p50_ms": 51.423,
+                "p95_ms": 92.972,
+                "p99_ms": 199.19,
+                "max_ms": 485.162
+              },
+              "repeat_rates": [
+                17.2347417095979,
+                17.766471416696188
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 1660,
+              "elapsed_seconds": 60.16138508000586,
+              "requests_per_second": 27.592449837922487,
+              "latency": {
+                "p50_ms": 124.129,
+                "p95_ms": 291.573,
+                "p99_ms": 459.889,
+                "max_ms": 743.507
+              },
+              "repeat_rates": [
+                32.31470620976011,
+                22.870667024140328
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 1601,
+              "elapsed_seconds": 60.245543898003234,
+              "requests_per_second": 26.574579569080182,
+              "latency": {
+                "p50_ms": 130.203,
+                "p95_ms": 295.261,
+                "p99_ms": 488.502,
+                "max_ms": 625.456
+              },
+              "repeat_rates": [
+                27.686244597662796,
+                25.460209175190396
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 1763,
+              "elapsed_seconds": 61.094099490997905,
+              "requests_per_second": 28.857123923395818,
+              "latency": {
+                "p50_ms": 413.772,
+                "p95_ms": 1459.003,
+                "p99_ms": 2439.282,
+                "max_ms": 3303.024
+              },
+              "repeat_rates": [
+                33.11346639462583,
+                24.63029132883399
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 1507,
+              "elapsed_seconds": 61.31941551799537,
+              "requests_per_second": 24.576229033979324,
+              "latency": {
+                "p50_ms": 480.242,
+                "p95_ms": 1659.909,
+                "p99_ms": 2728.516,
+                "max_ms": 3902.809
+              },
+              "repeat_rates": [
+                25.1008036301296,
+                24.04971953771407
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 416.43597912500263,
+              "cpu_seconds": 109.334718,
+              "average_cores": 0.2625486833047649,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 834314240,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 416.43597912500263,
+              "cpu_seconds": 102.957873,
+              "average_cores": 0.24723577731283128,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 876613632,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 416.43597912500263,
+              "cpu_seconds": 103.375088,
+              "average_cores": 0.24823764799863665,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 862531584,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 416.43597912500263,
+              "cpu_seconds": 144.516826,
+              "average_cores": 0.34703251698773135,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1758724096,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 416.43597912500263,
+              "cpu_seconds": 3.256615,
+              "average_cores": 0.007820205657644326,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 16437248,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "queue",
+          "mode": "raft-quorum",
+          "status": "FAILED",
+          "acknowledgement": "RF3 Raft quorum",
+          "error": "load process failed",
+          "expected_windows": 12,
+          "observed_windows": 6,
+          "unmeasured_windows": 6,
+          "passed_windows": 5,
+          "failed_windows": 1,
+          "timed_expected": 6,
+          "timed_verified": 2,
+          "timed_failed": 1,
+          "timed_unmeasured": 3,
+          "request_errors": 0,
+          "failed_window_evidence": [
+            {
+              "repeat": 0,
+              "concurrency": 16,
+              "phase": "enqueue",
+              "attempts": 642,
+              "successful_requests": 642,
+              "verification_error": "Queue delivery set/body differs from acknowledged messages",
+              "errors": [],
+              "acknowledged_messages": 5136,
+              "delivered_messages": 5008,
+              "readback_probe_pending": null,
+              "readback_probe_complete": null,
+              "delivery_probe_complete": true,
+              "delivery_set_verified": false,
+              "queue_metrics_probe_complete": true,
+              "queue_settlement_verified": false,
+              "missing_count": 128,
+              "extra_count": 0,
+              "unconfirmed_write_count": 0,
+              "nonzero_queue_metrics": {
+                "0": {
+                  "backlog": 16.0,
+                  "dead": 0.0
+                }
+              }
+            }
+          ],
+          "bins": [],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 229.79042304200266,
+              "cpu_seconds": 82.11216,
+              "average_cores": 0.35733499644147915,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1046454272,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 229.79042304200266,
+              "cpu_seconds": 78.220479,
+              "average_cores": 0.3403992123105249,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1082560512,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 229.79042304200266,
+              "cpu_seconds": 79.754409,
+              "average_cores": 0.3470745557808645,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1002930176,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 229.79042304200266,
+              "cpu_seconds": 71.484773,
+              "average_cores": 0.3110868244797719,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1016676352,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 229.79042304200266,
+              "cpu_seconds": 2.102325,
+              "average_cores": 0.009148879975801789,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 21258240,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        }
+      ],
+      "counts": {
+        "expected_windows": 48,
+        "observed_windows": 42,
+        "unmeasured_windows": 6,
+        "passed_windows": 41,
+        "failed_windows": 1,
+        "timed_expected": 30,
+        "timed_verified": 26,
+        "timed_failed": 1,
+        "timed_unmeasured": 3,
+        "request_errors": 0,
+        "passed_cases": 2,
+        "failed_cases": 1
+      }
+    },
+    "candidate": {
+      "status": "FAILED",
+      "image": "sha256:e97bed0bd9e61ca625530361245763fdd100e3dfbe30fddd2dc08cd0956583d9",
+      "source_revision": "69654995d602d7e33bd8f0d1590574a5cd67a1b6",
+      "source_inputs_sha256": "803d1d85640e31861c9beac6f7ede5eb36a72fd27a57cfff8af0adf95a7baf00",
+      "profile": {
+        "node_count": 3,
+        "voters_per_raft_group": 3,
+        "resources": {
+          "node_cpu": 1,
+          "node_memory_bytes": 2147483648,
+          "store_cpu": 1,
+          "store_memory_bytes": 2147483648,
+          "load_cpu": 1,
+          "load_memory_bytes": 2147483648,
+          "extra_swap_bytes": 0,
+          "cpu_sets": {
+            "nodes": [
+              0,
+              1,
+              2
+            ],
+            "store": 3,
+            "load": 4
+          }
+        },
+        "entities": 24,
+        "raft_groups": 3,
+        "payload_bytes": 256,
+        "queue_batch_messages": 8,
+        "actor_operation_ms": 5000,
+        "actor_lease_ms": 5000,
+        "lease_trace": false,
+        "seconds": 30,
+        "warmup_seconds": 5,
+        "repetitions": 2,
+        "concurrency": [
+          1,
+          4,
+          16
+        ]
+      },
+      "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+      "binary_digests": "c00205b91f3c7b363ef46685f493370a06d812514e02493b86429c74acc5fe31  /out/cellar-perf-baseline\nb02e4e823307e3625553dfbcb684e7edd855e6edca5817a6075b77e827236679  /out/cellar-perf-raft\nc73d4f9475f82877ec47d69b4afd55690967da61e8a57d2ed523472939935eb2  /out/primitive_load.py",
+      "limitations": [
+        "One Colima VM and one local RustFS per case; no independent failure-domain or cloud-S3 qualification.",
+        "Closed-loop completion latency; queue latency is batch enqueue acknowledgement, with separate verified drain throughput.",
+        "Fleet acknowledges peer replication or a bucket proof; it is not strict Raft quorum.",
+        "Read consistency follows each public binding implementation; this does not certify equivalent read algorithms.",
+        "The existing production harness manifest budget is distinct from the failing single-process 1,024-page fixture."
+      ],
+      "cases": [
+        {
+          "family": "sql",
+          "mode": "raft-quorum",
+          "status": "PASSED",
+          "acknowledgement": "RF3 Raft quorum",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 936,
+              "elapsed_seconds": 60.082554193999385,
+              "requests_per_second": 15.57856540149355,
+              "latency": {
+                "p50_ms": 56.278,
+                "p95_ms": 112.742,
+                "p99_ms": 185.728,
+                "max_ms": 448.562
+              },
+              "repeat_rates": [
+                19.351123619058033,
+                11.810319805181024
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 967,
+              "elapsed_seconds": 60.0366378500039,
+              "requests_per_second": 16.106831338822836,
+              "latency": {
+                "p50_ms": 56.613,
+                "p95_ms": 95.804,
+                "p99_ms": 165.267,
+                "max_ms": 416.749
+              },
+              "repeat_rates": [
+                17.04872496982942,
+                15.164105691335562
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 1241,
+              "elapsed_seconds": 60.331745785006206,
+              "requests_per_second": 20.56960202050736,
+              "latency": {
+                "p50_ms": 165.759,
+                "p95_ms": 398.55,
+                "p99_ms": 519.048,
+                "max_ms": 800.295
+              },
+              "repeat_rates": [
+                25.966043858451325,
+                15.190883521613141
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 1246,
+              "elapsed_seconds": 60.27170484400267,
+              "requests_per_second": 20.673050533827453,
+              "latency": {
+                "p50_ms": 168.306,
+                "p95_ms": 376.73,
+                "p99_ms": 543.702,
+                "max_ms": 838.073
+              },
+              "repeat_rates": [
+                25.686844244194674,
+                15.673420682081401
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 1360,
+              "elapsed_seconds": 61.228655430997605,
+              "requests_per_second": 22.211822069695273,
+              "latency": {
+                "p50_ms": 557.004,
+                "p95_ms": 1721.911,
+                "p99_ms": 2166.9,
+                "max_ms": 3047.239
+              },
+              "repeat_rates": [
+                22.734092236955323,
+                21.694018537061876
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 1305,
+              "elapsed_seconds": 61.91524418300105,
+              "requests_per_second": 21.07720024720972,
+              "latency": {
+                "p50_ms": 546.082,
+                "p95_ms": 1874.449,
+                "p99_ms": 2503.874,
+                "max_ms": 3213.721
+              },
+              "repeat_rates": [
+                25.286077267057372,
+                16.87688311069772
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 422.344024375001,
+              "cpu_seconds": 93.044731,
+              "average_cores": 0.22030554626099125,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 913235968,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 422.344024375001,
+              "cpu_seconds": 87.950742,
+              "average_cores": 0.20824431488086634,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 874143744,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 422.344024375001,
+              "cpu_seconds": 87.960244,
+              "average_cores": 0.20826681312744166,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 898146304,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 422.344024375001,
+              "cpu_seconds": 121.127215,
+              "average_cores": 0.28679751105570434,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1550372864,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 422.344024375001,
+              "cpu_seconds": 2.962041,
+              "average_cores": 0.007013337064217562,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 16748544,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "sql",
+          "mode": "raft-s3",
+          "status": "PASSED",
+          "acknowledgement": "RF3 Raft quorum and shared-store publication",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 485,
+              "elapsed_seconds": 60.03869247200055,
+              "requests_per_second": 8.078123956916334,
+              "latency": {
+                "p50_ms": 112.106,
+                "p95_ms": 208.733,
+                "p99_ms": 361.161,
+                "max_ms": 1047.755
+              },
+              "repeat_rates": [
+                9.125597020852279,
+                7.030226047472627
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 512,
+              "elapsed_seconds": 60.097617198996886,
+              "requests_per_second": 8.519472549213582,
+              "latency": {
+                "p50_ms": 101.812,
+                "p95_ms": 220.456,
+                "p99_ms": 315.465,
+                "max_ms": 888.866
+              },
+              "repeat_rates": [
+                9.157275226787442,
+                7.882435291977517
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 870,
+              "elapsed_seconds": 61.216584363006405,
+              "requests_per_second": 14.211835061574375,
+              "latency": {
+                "p50_ms": 249.755,
+                "p95_ms": 506.106,
+                "p99_ms": 982.184,
+                "max_ms": 1320.705
+              },
+              "repeat_rates": [
+                15.925889867232241,
+                12.535782081852547
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 797,
+              "elapsed_seconds": 60.26931796700228,
+              "requests_per_second": 13.223975762200611,
+              "latency": {
+                "p50_ms": 251.528,
+                "p95_ms": 585.574,
+                "p99_ms": 1214.667,
+                "max_ms": 1518.042
+              },
+              "repeat_rates": [
+                15.191447162583021,
+                11.271822596990594
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 946,
+              "elapsed_seconds": 62.970209833998524,
+              "requests_per_second": 15.02297677733386,
+              "latency": {
+                "p50_ms": 777.142,
+                "p95_ms": 2474.368,
+                "p99_ms": 3537.939,
+                "max_ms": 4381.05
+              },
+              "repeat_rates": [
+                15.713871021759553,
+                14.322953776905772
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 1071,
+              "elapsed_seconds": 63.04319520799618,
+              "requests_per_second": 16.988352136443716,
+              "latency": {
+                "p50_ms": 705.341,
+                "p95_ms": 2197.185,
+                "p99_ms": 3050.073,
+                "max_ms": 3941.966
+              },
+              "repeat_rates": [
+                18.298230507193775,
+                15.677517146547387
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 450.1638645839994,
+              "cpu_seconds": 93.754234,
+              "average_cores": 0.2082669031789994,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 716292096,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 450.1638645839994,
+              "cpu_seconds": 90.144776,
+              "average_cores": 0.20024880513966536,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 722931712,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 450.1638645839994,
+              "cpu_seconds": 90.713387,
+              "average_cores": 0.2015119251826867,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 722653184,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 450.1638645839994,
+              "cpu_seconds": 188.808805,
+              "average_cores": 0.41942239227593264,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1811144704,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 450.1638645839994,
+              "cpu_seconds": 2.534024,
+              "average_cores": 0.005629114638825387,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 14422016,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "sql",
+          "mode": "fleet",
+          "status": "PASSED",
+          "acknowledgement": "Fleet peer replication or bucket proof",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 10838,
+              "elapsed_seconds": 60.003734113000974,
+              "requests_per_second": 180.62209227828268,
+              "latency": {
+                "p50_ms": 4.96,
+                "p95_ms": 8.39,
+                "p99_ms": 12.311,
+                "max_ms": 244.868
+              },
+              "repeat_rates": [
+                182.5527672511197,
+                178.69136362002436
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 94452,
+              "elapsed_seconds": 60.00219294400449,
+              "requests_per_second": 1574.142466561929,
+              "latency": {
+                "p50_ms": 0.514,
+                "p95_ms": 0.905,
+                "p99_ms": 3.061,
+                "max_ms": 56.823
+              },
+              "repeat_rates": [
+                1897.9398955285244,
+                1250.359571162718
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 20313,
+              "elapsed_seconds": 60.02206064299389,
+              "requests_per_second": 338.4255685725286,
+              "latency": {
+                "p50_ms": 10.076,
+                "p95_ms": 18.12,
+                "p99_ms": 26.205,
+                "max_ms": 1024.04
+              },
+              "repeat_rates": [
+                362.61547758816874,
+                314.23327697491635
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 312498,
+              "elapsed_seconds": 60.001677040992945,
+              "requests_per_second": 5208.1544285254295,
+              "latency": {
+                "p50_ms": 0.716,
+                "p95_ms": 1.059,
+                "p99_ms": 1.696,
+                "max_ms": 23.963
+              },
+              "repeat_rates": [
+                5319.236308659539,
+                5097.071921286924
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 37833,
+              "elapsed_seconds": 60.034190776001196,
+              "requests_per_second": 630.1908880751305,
+              "latency": {
+                "p50_ms": 21.883,
+                "p95_ms": 47.267,
+                "p99_ms": 67.39,
+                "max_ms": 261.902
+              },
+              "repeat_rates": [
+                626.2572005900141,
+                634.1273294458423
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 531785,
+              "elapsed_seconds": 60.00354660100129,
+              "requests_per_second": 8862.559467295321,
+              "latency": {
+                "p50_ms": 1.59,
+                "p95_ms": 3.52,
+                "p99_ms": 5.455,
+                "max_ms": 217.334
+              },
+              "repeat_rates": [
+                7910.740213011827,
+                9814.376840611492
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 388.23894416700205,
+              "cpu_seconds": 120.331067,
+              "average_cores": 0.30994074347224493,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 215216128,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 388.23894416700205,
+              "cpu_seconds": 118.270333,
+              "average_cores": 0.30463284216311304,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 196714496,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 388.23894416700205,
+              "cpu_seconds": 117.906072,
+              "average_cores": 0.30369460295379946,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 194101248,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 388.23894416700205,
+              "cpu_seconds": 103.663391,
+              "average_cores": 0.2670092543714752,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 631353344,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 388.23894416700205,
+              "cpu_seconds": 70.362952,
+              "average_cores": 0.18123620274872063,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 42242048,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "sql",
+          "mode": "bucket",
+          "status": "PASSED",
+          "acknowledgement": "shared-store bucket proof",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 12694,
+              "elapsed_seconds": 60.00814003400592,
+              "requests_per_second": 211.5379678957964,
+              "latency": {
+                "p50_ms": 3.871,
+                "p95_ms": 7.582,
+                "p99_ms": 13.4,
+                "max_ms": 1392.422
+              },
+              "repeat_rates": [
+                223.561581076414,
+                199.51348472097897
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 101093,
+              "elapsed_seconds": 60.00144575400191,
+              "requests_per_second": 1684.8427355312087,
+              "latency": {
+                "p50_ms": 0.537,
+                "p95_ms": 0.748,
+                "p99_ms": 1.154,
+                "max_ms": 969.348
+              },
+              "repeat_rates": [
+                1779.7765842077174,
+                1589.9074078790768
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 23137,
+              "elapsed_seconds": 60.022757636994356,
+              "requests_per_second": 385.470460053301,
+              "latency": {
+                "p50_ms": 7.548,
+                "p95_ms": 18.149,
+                "p99_ms": 40.372,
+                "max_ms": 2332.464
+              },
+              "repeat_rates": [
+                364.5464490581656,
+                406.388575273655
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 315254,
+              "elapsed_seconds": 60.00154228899919,
+              "requests_per_second": 5254.098277700427,
+              "latency": {
+                "p50_ms": 0.708,
+                "p95_ms": 1.055,
+                "p99_ms": 1.628,
+                "max_ms": 76.214
+              },
+              "repeat_rates": [
+                5389.934213166121,
+                5118.262649374201
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 36200,
+              "elapsed_seconds": 60.09685163600079,
+              "requests_per_second": 602.3610058520026,
+              "latency": {
+                "p50_ms": 18.348,
+                "p95_ms": 55.893,
+                "p99_ms": 193.953,
+                "max_ms": 1004.064
+              },
+              "repeat_rates": [
+                490.0076337839593,
+                714.9288811465781
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 592248,
+              "elapsed_seconds": 60.003895547000866,
+              "requests_per_second": 9870.15917218398,
+              "latency": {
+                "p50_ms": 1.471,
+                "p95_ms": 2.772,
+                "p99_ms": 3.808,
+                "max_ms": 973.902
+              },
+              "repeat_rates": [
+                9735.612427352948,
+                10004.709292997235
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 387.82442404099857,
+              "cpu_seconds": 125.390829,
+              "average_cores": 0.32331854629852913,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 231718912,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 387.82442404099857,
+              "cpu_seconds": 122.591258,
+              "average_cores": 0.31609989057068866,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 210915328,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 387.82442404099857,
+              "cpu_seconds": 123.834321,
+              "average_cores": 0.3193051116009882,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 226521088,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 387.82442404099857,
+              "cpu_seconds": 189.950828,
+              "average_cores": 0.4897856252083791,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1538027520,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 387.82442404099857,
+              "cpu_seconds": 73.793054,
+              "average_cores": 0.1902743855869145,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 41656320,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "kv",
+          "mode": "raft-quorum",
+          "status": "PASSED",
+          "acknowledgement": "RF3 Raft quorum",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 916,
+              "elapsed_seconds": 60.28396317300212,
+              "requests_per_second": 15.19475415661169,
+              "latency": {
+                "p50_ms": 47.208,
+                "p95_ms": 120.907,
+                "p99_ms": 383.973,
+                "max_ms": 961.9
+              },
+              "repeat_rates": [
+                21.499015417472524,
+                8.949036608064198
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 714,
+              "elapsed_seconds": 60.10298184500425,
+              "requests_per_second": 11.879610263618686,
+              "latency": {
+                "p50_ms": 59.844,
+                "p95_ms": 127.619,
+                "p99_ms": 553.01,
+                "max_ms": 2895.489
+              },
+              "repeat_rates": [
+                15.960379668353447,
+                7.792594617070105
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 995,
+              "elapsed_seconds": 60.30043836899131,
+              "requests_per_second": 16.500709230526347,
+              "latency": {
+                "p50_ms": 159.537,
+                "p95_ms": 527.808,
+                "p99_ms": 2835.072,
+                "max_ms": 3667.984
+              },
+              "repeat_rates": [
+                24.424198138797912,
+                8.628591303334764
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 949,
+              "elapsed_seconds": 60.369006608001655,
+              "requests_per_second": 15.71998701522801,
+              "latency": {
+                "p50_ms": 187.971,
+                "p95_ms": 515.72,
+                "p99_ms": 1747.537,
+                "max_ms": 4074.487
+              },
+              "repeat_rates": [
+                20.93050177618019,
+                10.505789314923213
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 1268,
+              "elapsed_seconds": 61.60530223800015,
+              "requests_per_second": 20.58264392732508,
+              "latency": {
+                "p50_ms": 565.029,
+                "p95_ms": 1945.012,
+                "p99_ms": 3145.696,
+                "max_ms": 4322.159
+              },
+              "repeat_rates": [
+                21.619796388170904,
+                19.548437153027198
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 1146,
+              "elapsed_seconds": 62.40178612299496,
+              "requests_per_second": 18.36485894396059,
+              "latency": {
+                "p50_ms": 663.723,
+                "p95_ms": 2092.433,
+                "p99_ms": 3152.929,
+                "max_ms": 4115.329
+              },
+              "repeat_rates": [
+                19.129211824511234,
+                17.576701343264894
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 425.3536618340004,
+              "cpu_seconds": 95.468482,
+              "average_cores": 0.2244449514984022,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 722440192,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 425.3536618340004,
+              "cpu_seconds": 95.052127,
+              "average_cores": 0.2234661072157298,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 709881856,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 425.3536618340004,
+              "cpu_seconds": 93.073661,
+              "average_cores": 0.21881476369262615,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 723402752,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 425.3536618340004,
+              "cpu_seconds": 127.813023,
+              "average_cores": 0.30048647623934327,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1318531072,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 425.3536618340004,
+              "cpu_seconds": 3.917646,
+              "average_cores": 0.00921032625676304,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 15171584,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "kv",
+          "mode": "raft-s3",
+          "status": "FAILED",
+          "acknowledgement": "RF3 Raft quorum and shared-store publication",
+          "error": "load process failed",
+          "expected_windows": 18,
+          "observed_windows": 7,
+          "unmeasured_windows": 11,
+          "passed_windows": 6,
+          "failed_windows": 1,
+          "timed_expected": 12,
+          "timed_verified": 4,
+          "timed_failed": 0,
+          "timed_unmeasured": 8,
+          "request_errors": 2,
+          "failed_window_evidence": [
+            {
+              "repeat": 0,
+              "concurrency": 16,
+              "phase": "warmup",
+              "attempts": 48,
+              "successful_requests": 46,
+              "verification_error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 48 }, ambiguous=true: Raft target attempt 1 started with 4999ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 48 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 4999ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 48 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 48 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "errors": [
+                {
+                  "worker": 10,
+                  "sequence": 2,
+                  "entity": 2,
+                  "identity": "5750c8173b84.0.16.warmup.10.2",
+                  "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 13,
+                  "sequence": 2,
+                  "entity": 5,
+                  "identity": "5750c8173b84.0.16.warmup.13.2",
+                  "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 47 }, ambiguous=true: Raft target attempt 1 started with 4536ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 47 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 4536ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 47 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 47 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+                  "mutation_outcome": "unconfirmed"
+                }
+              ],
+              "acknowledged_messages": null,
+              "delivered_messages": null,
+              "readback_probe_pending": {
+                "entity": 11,
+                "key": "5750c8173b84.0.16.warmup.3",
+                "expected_identity": "5750c8173b84.0.16.warmup.3.3"
+              },
+              "readback_probe_complete": false,
+              "delivery_probe_complete": null,
+              "delivery_set_verified": null,
+              "queue_metrics_probe_complete": null,
+              "queue_settlement_verified": null,
+              "missing_count": 0,
+              "extra_count": 0,
+              "unconfirmed_write_count": 2,
+              "nonzero_queue_metrics": {}
+            }
+          ],
+          "bins": [],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 170.80739637499937,
+              "cpu_seconds": 20.492269,
+              "average_cores": 0.1199729603922433,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 154529792,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 170.80739637499937,
+              "cpu_seconds": 19.677349,
+              "average_cores": 0.11520197261715372,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 157130752,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 170.80739637499937,
+              "cpu_seconds": 20.022507,
+              "average_cores": 0.11722271649198115,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 157843456,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 170.80739637499937,
+              "cpu_seconds": 45.452231,
+              "average_cores": 0.26610224126484444,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 565469184,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 170.80739637499937,
+              "cpu_seconds": 0.795079,
+              "average_cores": 0.004654827699934273,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 15421440,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "kv",
+          "mode": "fleet",
+          "status": "PASSED",
+          "acknowledgement": "Fleet peer replication or bucket proof",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 3159,
+              "elapsed_seconds": 60.11498368100001,
+              "requests_per_second": 52.54929481081163,
+              "latency": {
+                "p50_ms": 5.782,
+                "p95_ms": 84.209,
+                "p99_ms": 173.116,
+                "max_ms": 1101.987
+              },
+              "repeat_rates": [
+                72.40062682670064,
+                32.683019744017486
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 102313,
+              "elapsed_seconds": 60.00134097901173,
+              "requests_per_second": 1705.1785565224075,
+              "latency": {
+                "p50_ms": 0.531,
+                "p95_ms": 0.735,
+                "p99_ms": 1.078,
+                "max_ms": 273.632
+              },
+              "repeat_rates": [
+                1867.525704793202,
+                1542.8315432834772
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 9879,
+              "elapsed_seconds": 60.03509737899731,
+              "requests_per_second": 164.55374324846306,
+              "latency": {
+                "p50_ms": 11.951,
+                "p95_ms": 34.603,
+                "p99_ms": 381.203,
+                "max_ms": 1460.271
+              },
+              "repeat_rates": [
+                281.50415075516736,
+                47.715789894963216
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 315703,
+              "elapsed_seconds": 60.001397662003,
+              "requests_per_second": 5261.59410116416,
+              "latency": {
+                "p50_ms": 0.678,
+                "p95_ms": 0.995,
+                "p99_ms": 1.509,
+                "max_ms": 286.796
+              },
+              "repeat_rates": [
+                5440.418525883286,
+                5082.768269016755
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 13019,
+              "elapsed_seconds": 60.31360670199501,
+              "requests_per_second": 215.85510653219427,
+              "latency": {
+                "p50_ms": 28.423,
+                "p95_ms": 254.984,
+                "p99_ms": 598.301,
+                "max_ms": 1525.631
+              },
+              "repeat_rates": [
+                283.8086977341577,
+                148.10388246303162
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 563690,
+              "elapsed_seconds": 60.00321901799907,
+              "requests_per_second": 9394.329324746906,
+              "latency": {
+                "p50_ms": 1.444,
+                "p95_ms": 2.736,
+                "p99_ms": 4.043,
+                "max_ms": 699.99
+              },
+              "repeat_rates": [
+                9310.158803848324,
+                9478.4993942981
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 390.87768220800353,
+              "cpu_seconds": 102.473361,
+              "average_cores": 0.2621622202146331,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 112144384,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 390.87768220800353,
+              "cpu_seconds": 101.947831,
+              "average_cores": 0.26081773311823153,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 110555136,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 390.87768220800353,
+              "cpu_seconds": 101.454333,
+              "average_cores": 0.2595551949318294,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 105435136,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 390.87768220800353,
+              "cpu_seconds": 97.628588,
+              "average_cores": 0.24976761898635963,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 675487744,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 390.87768220800353,
+              "cpu_seconds": 66.655062,
+              "average_cores": 0.17052665075037426,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 39841792,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "kv",
+          "mode": "bucket",
+          "status": "PASSED",
+          "acknowledgement": "shared-store bucket proof",
+          "error": null,
+          "expected_windows": 18,
+          "observed_windows": 18,
+          "unmeasured_windows": 0,
+          "passed_windows": 18,
+          "failed_windows": 0,
+          "timed_expected": 12,
+          "timed_verified": 12,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "write",
+              "requests": 11697,
+              "elapsed_seconds": 60.00451783999597,
+              "requests_per_second": 194.9353218901023,
+              "latency": {
+                "p50_ms": 4.211,
+                "p95_ms": 8.693,
+                "p99_ms": 16.688,
+                "max_ms": 840.873
+              },
+              "repeat_rates": [
+                204.25069853091193,
+                185.6198915636981
+              ]
+            },
+            {
+              "concurrency": 1,
+              "phase": "read",
+              "requests": 107937,
+              "elapsed_seconds": 60.001127044000896,
+              "requests_per_second": 1798.9162090379748,
+              "latency": {
+                "p50_ms": 0.5,
+                "p95_ms": 0.707,
+                "p99_ms": 1.085,
+                "max_ms": 889.521
+              },
+              "repeat_rates": [
+                1854.0246758504582,
+                1743.8073163095212
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "write",
+              "requests": 23389,
+              "elapsed_seconds": 60.020961875001376,
+              "requests_per_second": 389.68052609202647,
+              "latency": {
+                "p50_ms": 7.988,
+                "p95_ms": 18.635,
+                "p99_ms": 40.897,
+                "max_ms": 975.733
+              },
+              "repeat_rates": [
+                416.5758215128989,
+                362.7750776537529
+              ]
+            },
+            {
+              "concurrency": 4,
+              "phase": "read",
+              "requests": 319901,
+              "elapsed_seconds": 60.00150731999747,
+              "requests_per_second": 5331.549394149678,
+              "latency": {
+                "p50_ms": 0.683,
+                "p95_ms": 1.003,
+                "p99_ms": 1.636,
+                "max_ms": 1019.872
+              },
+              "repeat_rates": [
+                5464.018635656434,
+                5199.079630735039
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "write",
+              "requests": 32959,
+              "elapsed_seconds": 60.03435997499764,
+              "requests_per_second": 549.0022715945727,
+              "latency": {
+                "p50_ms": 21.576,
+                "p95_ms": 56.545,
+                "p99_ms": 138.596,
+                "max_ms": 1565.324
+              },
+              "repeat_rates": [
+                493.3157583092209,
+                604.6741362696962
+              ]
+            },
+            {
+              "concurrency": 16,
+              "phase": "read",
+              "requests": 479718,
+              "elapsed_seconds": 60.00405000399769,
+              "requests_per_second": 7994.760353143486,
+              "latency": {
+                "p50_ms": 1.648,
+                "p95_ms": 4.127,
+                "p99_ms": 6.448,
+                "max_ms": 774.601
+              },
+              "repeat_rates": [
+                5953.712045383051,
+                10035.844823029516
+              ]
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 391.38235949999944,
+              "cpu_seconds": 120.035151,
+              "average_cores": 0.3066953532431759,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 216932352,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 391.38235949999944,
+              "cpu_seconds": 118.678664,
+              "average_cores": 0.30322946632447845,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 215838720,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 391.38235949999944,
+              "cpu_seconds": 118.739989,
+              "average_cores": 0.3033861545310658,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 213463040,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 391.38235949999944,
+              "cpu_seconds": 198.886437,
+              "average_cores": 0.5081640298098318,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1506099200,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 391.38235949999944,
+              "cpu_seconds": 78.001575,
+              "average_cores": 0.19929762572755944,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 42143744,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "queue",
+          "mode": "raft-quorum",
+          "status": "PASSED",
+          "acknowledgement": "RF3 Raft quorum",
+          "error": null,
+          "expected_windows": 12,
+          "observed_windows": 12,
+          "unmeasured_windows": 0,
+          "passed_windows": 12,
+          "failed_windows": 0,
+          "timed_expected": 6,
+          "timed_verified": 6,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "enqueue",
+              "requests": 369,
+              "elapsed_seconds": 60.19005131299491,
+              "requests_per_second": 6.130581249734433,
+              "latency": {
+                "p50_ms": 141.772,
+                "p95_ms": 328.786,
+                "p99_ms": 555.977,
+                "max_ms": 968.338
+              },
+              "repeat_rates": [
+                7.20158959706176,
+                5.056921146911013
+              ],
+              "acknowledged_messages": 2952,
+              "delivered_messages": 2952,
+              "messages_per_enqueue_second": 49.04464999787547,
+              "verified_messages_per_second_including_drain": 44.41129438530467,
+              "enqueue_and_drain_seconds": 66.46957808500156
+            },
+            {
+              "concurrency": 4,
+              "phase": "enqueue",
+              "requests": 568,
+              "elapsed_seconds": 60.68595222300064,
+              "requests_per_second": 9.359661984256082,
+              "latency": {
+                "p50_ms": 353.168,
+                "p95_ms": 927.075,
+                "p99_ms": 1475.689,
+                "max_ms": 1815.573
+              },
+              "repeat_rates": [
+                10.069073939995198,
+                8.652686983057336
+              ],
+              "acknowledged_messages": 4544,
+              "delivered_messages": 4544,
+              "messages_per_enqueue_second": 74.87729587404866,
+              "verified_messages_per_second_including_drain": 46.04206858403748,
+              "enqueue_and_drain_seconds": 98.69235114200274
+            },
+            {
+              "concurrency": 16,
+              "phase": "enqueue",
+              "requests": 887,
+              "elapsed_seconds": 63.365362882002955,
+              "requests_per_second": 13.99818386034882,
+              "latency": {
+                "p50_ms": 879.35,
+                "p95_ms": 2691.502,
+                "p99_ms": 3829.39,
+                "max_ms": 4506.141
+              },
+              "repeat_rates": [
+                16.716176848882107,
+                11.406643084042987
+              ],
+              "acknowledged_messages": 7096,
+              "delivered_messages": 7096,
+              "messages_per_enqueue_second": 111.98547088279057,
+              "verified_messages_per_second_including_drain": 46.758694909035135,
+              "enqueue_and_drain_seconds": 151.75787121100439
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 402.68975241700537,
+              "cpu_seconds": 121.032744,
+              "average_cores": 0.3005607748236527,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1135529984,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 402.68975241700537,
+              "cpu_seconds": 112.525664,
+              "average_cores": 0.2794351316977991,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1144270848,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 402.68975241700537,
+              "cpu_seconds": 115.842875,
+              "average_cores": 0.2876727662044872,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1121591296,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 402.68975241700537,
+              "cpu_seconds": 100.193585,
+              "average_cores": 0.24881086344666783,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1315680256,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 402.68975241700537,
+              "cpu_seconds": 3.018357,
+              "average_cores": 0.007495489969345782,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 24031232,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "queue",
+          "mode": "raft-s3",
+          "status": "FAILED",
+          "acknowledgement": "RF3 Raft quorum and shared-store publication",
+          "error": "load process failed",
+          "expected_windows": 12,
+          "observed_windows": 6,
+          "unmeasured_windows": 6,
+          "passed_windows": 5,
+          "failed_windows": 1,
+          "timed_expected": 6,
+          "timed_verified": 2,
+          "timed_failed": 1,
+          "timed_unmeasured": 3,
+          "request_errors": 4,
+          "failed_window_evidence": [
+            {
+              "repeat": 0,
+              "concurrency": 16,
+              "phase": "enqueue",
+              "attempts": 272,
+              "successful_requests": 268,
+              "verification_error": "Queue delivery set/body differs from acknowledged messages",
+              "errors": [
+                {
+                  "worker": 1,
+                  "sequence": 3,
+                  "entity": 9,
+                  "identity": "5750c8173b84.0.16.enqueue.1.3",
+                  "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 28 }, ambiguous=true: Raft target attempt 1 started with 2240ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 28 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2240ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 28 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 28 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 3,
+                  "sequence": 7,
+                  "entity": 3,
+                  "identity": "5750c8173b84.0.16.enqueue.3.7",
+                  "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 33 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 6,
+                  "sequence": 4,
+                  "entity": 6,
+                  "identity": "5750c8173b84.0.16.enqueue.6.4",
+                  "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 30 }, ambiguous=true: Raft target attempt 1 started with 1577ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 30 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 1577ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 30 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 30 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 10,
+                  "sequence": 3,
+                  "entity": 18,
+                  "identity": "5750c8173b84.0.16.enqueue.10.3",
+                  "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 27 }, ambiguous=true: Raft target attempt 1 started with 1883ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 27 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 1883ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 27 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 27 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+                  "mutation_outcome": "unconfirmed"
+                }
+              ],
+              "acknowledged_messages": 2144,
+              "delivered_messages": 2168,
+              "readback_probe_pending": null,
+              "readback_probe_complete": null,
+              "delivery_probe_complete": true,
+              "delivery_set_verified": false,
+              "queue_metrics_probe_complete": true,
+              "queue_settlement_verified": false,
+              "missing_count": 0,
+              "extra_count": 24,
+              "unconfirmed_write_count": 0,
+              "nonzero_queue_metrics": {}
+            }
+          ],
+          "bins": [],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 219.092901875003,
+              "cpu_seconds": 66.734213,
+              "average_cores": 0.304593222458997,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 536555520,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 219.092901875003,
+              "cpu_seconds": 64.488987,
+              "average_cores": 0.294345396168025,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 540459008,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 219.092901875003,
+              "cpu_seconds": 67.48633,
+              "average_cores": 0.30802609040480156,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 540823552,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 219.092901875003,
+              "cpu_seconds": 97.960304,
+              "average_cores": 0.4471176526562616,
+              "throttled_period_fraction": 0.00045641259698767686,
+              "peak_sampled_memory_bytes": 1208647680,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 219.092901875003,
+              "cpu_seconds": 1.284633,
+              "average_cores": 0.005863416792630321,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 19484672,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "queue",
+          "mode": "fleet",
+          "status": "PASSED",
+          "acknowledgement": "Fleet peer replication or bucket proof",
+          "error": null,
+          "expected_windows": 12,
+          "observed_windows": 12,
+          "unmeasured_windows": 0,
+          "passed_windows": 12,
+          "failed_windows": 0,
+          "timed_expected": 6,
+          "timed_verified": 6,
+          "timed_failed": 0,
+          "timed_unmeasured": 0,
+          "request_errors": 0,
+          "failed_window_evidence": [],
+          "bins": [
+            {
+              "concurrency": 1,
+              "phase": "enqueue",
+              "requests": 1890,
+              "elapsed_seconds": 60.015434720000485,
+              "requests_per_second": 31.49189885598124,
+              "latency": {
+                "p50_ms": 29.158,
+                "p95_ms": 46.202,
+                "p99_ms": 103.986,
+                "max_ms": 310.24
+              },
+              "repeat_rates": [
+                33.6325695724352,
+                29.35223177622169
+              ],
+              "acknowledged_messages": 15120,
+              "delivered_messages": 15120,
+              "messages_per_enqueue_second": 251.93519084784992,
+              "verified_messages_per_second_including_drain": 251.36783462214805,
+              "enqueue_and_drain_seconds": 60.15089409799839
+            },
+            {
+              "concurrency": 4,
+              "phase": "enqueue",
+              "requests": 3965,
+              "elapsed_seconds": 60.10046937000152,
+              "requests_per_second": 65.97286246784431,
+              "latency": {
+                "p50_ms": 51.349,
+                "p95_ms": 121.452,
+                "p99_ms": 196.399,
+                "max_ms": 702.676
+              },
+              "repeat_rates": [
+                69.01400409627735,
+                62.92845494469641
+              ],
+              "acknowledged_messages": 31720,
+              "delivered_messages": 31720,
+              "messages_per_enqueue_second": 527.7828997427545,
+              "verified_messages_per_second_including_drain": 525.3519292319994,
+              "enqueue_and_drain_seconds": 60.37857336199522
+            },
+            {
+              "concurrency": 16,
+              "phase": "enqueue",
+              "requests": 7226,
+              "elapsed_seconds": 60.08657372099697,
+              "requests_per_second": 120.25981101123942,
+              "latency": {
+                "p50_ms": 115.87,
+                "p95_ms": 262.105,
+                "p99_ms": 449.527,
+                "max_ms": 718.567
+              },
+              "repeat_rates": [
+                123.48680225962886,
+                117.03447099740424
+              ],
+              "acknowledged_messages": 57808,
+              "delivered_messages": 57808,
+              "messages_per_enqueue_second": 962.0784880899154,
+              "verified_messages_per_second_including_drain": 958.7014693430059,
+              "enqueue_and_drain_seconds": 60.29822822699498
+            }
+          ],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 212.19593383400206,
+              "cpu_seconds": 23.082138,
+              "average_cores": 0.10877747552908737,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 173068288,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 212.19593383400206,
+              "cpu_seconds": 22.212946,
+              "average_cores": 0.10468129901761868,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 166604800,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 212.19593383400206,
+              "cpu_seconds": 21.975427,
+              "average_cores": 0.10356196088654117,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 162824192,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 212.19593383400206,
+              "cpu_seconds": 109.139186,
+              "average_cores": 0.5143321270490417,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1300598784,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 212.19593383400206,
+              "cpu_seconds": 3.834705,
+              "average_cores": 0.018071529132126708,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 67641344,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        },
+        {
+          "family": "queue",
+          "mode": "bucket",
+          "status": "FAILED",
+          "acknowledgement": "shared-store bucket proof",
+          "error": "node/store exited or load failed during sampling",
+          "expected_windows": 12,
+          "observed_windows": 6,
+          "unmeasured_windows": 6,
+          "passed_windows": 5,
+          "failed_windows": 1,
+          "timed_expected": 6,
+          "timed_verified": 2,
+          "timed_failed": 1,
+          "timed_unmeasured": 3,
+          "request_errors": 10,
+          "failed_window_evidence": [
+            {
+              "repeat": 0,
+              "concurrency": 16,
+              "phase": "enqueue",
+              "attempts": 1175,
+              "successful_requests": 1165,
+              "verification_error": "Queue delivery set/body differs from acknowledged messages",
+              "errors": [
+                {
+                  "worker": 0,
+                  "sequence": 75,
+                  "entity": 8,
+                  "identity": "5750c8173b84.0.16.enqueue.0.75",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 3,
+                  "sequence": 72,
+                  "entity": 11,
+                  "identity": "5750c8173b84.0.16.enqueue.3.72",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 4,
+                  "sequence": 76,
+                  "entity": 4,
+                  "identity": "5750c8173b84.0.16.enqueue.4.76",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 6,
+                  "sequence": 80,
+                  "entity": 22,
+                  "identity": "5750c8173b84.0.16.enqueue.6.80",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 7,
+                  "sequence": 76,
+                  "entity": 7,
+                  "identity": "5750c8173b84.0.16.enqueue.7.76",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 8,
+                  "sequence": 76,
+                  "entity": 8,
+                  "identity": "5750c8173b84.0.16.enqueue.8.76",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 11,
+                  "sequence": 73,
+                  "entity": 11,
+                  "identity": "5750c8173b84.0.16.enqueue.11.73",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 12,
+                  "sequence": 72,
+                  "entity": 20,
+                  "identity": "5750c8173b84.0.16.enqueue.12.72",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 14,
+                  "sequence": 75,
+                  "entity": 22,
+                  "identity": "5750c8173b84.0.16.enqueue.14.75",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                },
+                {
+                  "worker": 15,
+                  "sequence": 74,
+                  "entity": 7,
+                  "identity": "5750c8173b84.0.16.enqueue.15.74",
+                  "error": "HTTP 503: route failed: DurabilityUnproven",
+                  "mutation_outcome": "unconfirmed"
+                }
+              ],
+              "acknowledged_messages": 9320,
+              "delivered_messages": 9344,
+              "readback_probe_pending": null,
+              "readback_probe_complete": null,
+              "delivery_probe_complete": true,
+              "delivery_set_verified": false,
+              "queue_metrics_probe_complete": true,
+              "queue_settlement_verified": false,
+              "missing_count": 8,
+              "extra_count": 32,
+              "unconfirmed_write_count": 0,
+              "nonzero_queue_metrics": {
+                "4": {
+                  "backlog": 8.0,
+                  "dead": 0.0
+                },
+                "7": {
+                  "backlog": 16.0,
+                  "dead": 0.0
+                },
+                "8": {
+                  "backlog": 16.0,
+                  "dead": 0.0
+                },
+                "20": {
+                  "backlog": 8.0,
+                  "dead": 0.0
+                }
+              }
+            }
+          ],
+          "bins": [],
+          "resources": [
+            {
+              "role": "node1",
+              "observed_seconds": 166.38852600000246,
+              "cpu_seconds": 14.263823,
+              "average_cores": 0.08572600132295054,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 106860544,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node2",
+              "observed_seconds": 166.38852600000246,
+              "cpu_seconds": 13.869207,
+              "average_cores": 0.0833543474025354,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 104546304,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "node3",
+              "observed_seconds": 166.38852600000246,
+              "cpu_seconds": 13.890503,
+              "average_cores": 0.08348233699720253,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 110309376,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "store",
+              "observed_seconds": 166.38852600000246,
+              "cpu_seconds": 69.355946,
+              "average_cores": 0.4168313024180464,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 1002864640,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            },
+            {
+              "role": "load",
+              "observed_seconds": 166.38852600000246,
+              "cpu_seconds": 4.403656,
+              "average_cores": 0.02646610379852716,
+              "throttled_period_fraction": 0.0,
+              "peak_sampled_memory_bytes": 49926144,
+              "memory_events_delta": {
+                "low": 0,
+                "high": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0
+              }
+            }
+          ],
+          "terminal_observations_complete": true,
+          "all_recorded_containers_stopped": true,
+          "healthy_terminal_observed": true,
+          "container_oom_count": 0,
+          "container_restarts": 0
+        }
+      ],
+      "counts": {
+        "expected_windows": 192,
+        "observed_windows": 169,
+        "unmeasured_windows": 23,
+        "passed_windows": 166,
+        "failed_windows": 3,
+        "timed_expected": 120,
+        "timed_verified": 104,
+        "timed_failed": 2,
+        "timed_unmeasured": 14,
+        "request_errors": 16,
+        "passed_cases": 9,
+        "failed_cases": 3
+      }
+    }
+  },
+  "matched_quorum_pairs": [
+    {
+      "family": "sql",
+      "complete_passing_pair": true,
+      "bins": [
+        {
+          "concurrency": 1,
+          "phase": "write",
+          "control_rps": 18.52229195828707,
+          "candidate_rps": 15.57856540149355,
+          "throughput_change_percent": -15.892884981096877,
+          "control_latency": {
+            "p50_ms": 43.989,
+            "p95_ms": 103.766,
+            "p99_ms": 150.322,
+            "max_ms": 438.245
+          },
+          "candidate_latency": {
+            "p50_ms": 56.278,
+            "p95_ms": 112.742,
+            "p99_ms": 185.728,
+            "max_ms": 448.562
+          }
+        },
+        {
+          "concurrency": 1,
+          "phase": "read",
+          "control_rps": 18.696793268113847,
+          "candidate_rps": 16.106831338822836,
+          "throughput_change_percent": -13.85243925068167,
+          "control_latency": {
+            "p50_ms": 47.141,
+            "p95_ms": 88.435,
+            "p99_ms": 144.234,
+            "max_ms": 529.805
+          },
+          "candidate_latency": {
+            "p50_ms": 56.613,
+            "p95_ms": 95.804,
+            "p99_ms": 165.267,
+            "max_ms": 416.749
+          }
+        },
+        {
+          "concurrency": 4,
+          "phase": "write",
+          "control_rps": 24.139793593177515,
+          "candidate_rps": 20.56960202050736,
+          "throughput_change_percent": -14.789652442095347,
+          "control_latency": {
+            "p50_ms": 142.636,
+            "p95_ms": 316.689,
+            "p99_ms": 639.423,
+            "max_ms": 1006.647
+          },
+          "candidate_latency": {
+            "p50_ms": 165.759,
+            "p95_ms": 398.55,
+            "p99_ms": 519.048,
+            "max_ms": 800.295
+          }
+        },
+        {
+          "concurrency": 4,
+          "phase": "read",
+          "control_rps": 24.740824940362586,
+          "candidate_rps": 20.673050533827453,
+          "throughput_change_percent": -16.44154718502898,
+          "control_latency": {
+            "p50_ms": 133.577,
+            "p95_ms": 347.911,
+            "p99_ms": 565.375,
+            "max_ms": 790.599
+          },
+          "candidate_latency": {
+            "p50_ms": 168.306,
+            "p95_ms": 376.73,
+            "p99_ms": 543.702,
+            "max_ms": 838.073
+          }
+        },
+        {
+          "concurrency": 16,
+          "phase": "write",
+          "control_rps": 20.432740856387895,
+          "candidate_rps": 22.211822069695273,
+          "throughput_change_percent": 8.707012073474152,
+          "control_latency": {
+            "p50_ms": 594.412,
+            "p95_ms": 1842.775,
+            "p99_ms": 2381.48,
+            "max_ms": 3492.766
+          },
+          "candidate_latency": {
+            "p50_ms": 557.004,
+            "p95_ms": 1721.911,
+            "p99_ms": 2166.9,
+            "max_ms": 3047.239
+          }
+        },
+        {
+          "concurrency": 16,
+          "phase": "read",
+          "control_rps": 24.122784152910523,
+          "candidate_rps": 21.07720024720972,
+          "throughput_change_percent": -12.62534161229204,
+          "control_latency": {
+            "p50_ms": 486.075,
+            "p95_ms": 1683.178,
+            "p99_ms": 2196.11,
+            "max_ms": 3594.492
+          },
+          "candidate_latency": {
+            "p50_ms": 546.082,
+            "p95_ms": 1874.449,
+            "p99_ms": 2503.874,
+            "max_ms": 3213.721
+          }
+        }
+      ],
+      "isolated_causal_gain_accepted": false
+    },
+    {
+      "family": "kv",
+      "complete_passing_pair": true,
+      "bins": [
+        {
+          "concurrency": 1,
+          "phase": "write",
+          "control_rps": 18.05519520661417,
+          "candidate_rps": 15.19475415661169,
+          "throughput_change_percent": -15.842758924891665,
+          "control_latency": {
+            "p50_ms": 49.845,
+            "p95_ms": 90.664,
+            "p99_ms": 112.418,
+            "max_ms": 501.366
+          },
+          "candidate_latency": {
+            "p50_ms": 47.208,
+            "p95_ms": 120.907,
+            "p99_ms": 383.973,
+            "max_ms": 961.9
+          }
+        },
+        {
+          "concurrency": 1,
+          "phase": "read",
+          "control_rps": 17.50036201309482,
+          "candidate_rps": 11.879610263618686,
+          "throughput_change_percent": -32.11791701948994,
+          "control_latency": {
+            "p50_ms": 51.423,
+            "p95_ms": 92.972,
+            "p99_ms": 199.19,
+            "max_ms": 485.162
+          },
+          "candidate_latency": {
+            "p50_ms": 59.844,
+            "p95_ms": 127.619,
+            "p99_ms": 553.01,
+            "max_ms": 2895.489
+          }
+        },
+        {
+          "concurrency": 4,
+          "phase": "write",
+          "control_rps": 27.592449837922487,
+          "candidate_rps": 16.500709230526347,
+          "throughput_change_percent": -40.198462523439595,
+          "control_latency": {
+            "p50_ms": 124.129,
+            "p95_ms": 291.573,
+            "p99_ms": 459.889,
+            "max_ms": 743.507
+          },
+          "candidate_latency": {
+            "p50_ms": 159.537,
+            "p95_ms": 527.808,
+            "p99_ms": 2835.072,
+            "max_ms": 3667.984
+          }
+        },
+        {
+          "concurrency": 4,
+          "phase": "read",
+          "control_rps": 26.574579569080182,
+          "candidate_rps": 15.71998701522801,
+          "throughput_change_percent": -40.845773404000006,
+          "control_latency": {
+            "p50_ms": 130.203,
+            "p95_ms": 295.261,
+            "p99_ms": 488.502,
+            "max_ms": 625.456
+          },
+          "candidate_latency": {
+            "p50_ms": 187.971,
+            "p95_ms": 515.72,
+            "p99_ms": 1747.537,
+            "max_ms": 4074.487
+          }
+        },
+        {
+          "concurrency": 16,
+          "phase": "write",
+          "control_rps": 28.857123923395818,
+          "candidate_rps": 20.58264392732508,
+          "throughput_change_percent": -28.67395939399987,
+          "control_latency": {
+            "p50_ms": 413.772,
+            "p95_ms": 1459.003,
+            "p99_ms": 2439.282,
+            "max_ms": 3303.024
+          },
+          "candidate_latency": {
+            "p50_ms": 565.029,
+            "p95_ms": 1945.012,
+            "p99_ms": 3145.696,
+            "max_ms": 4322.159
+          }
+        },
+        {
+          "concurrency": 16,
+          "phase": "read",
+          "control_rps": 24.576229033979324,
+          "candidate_rps": 18.36485894396059,
+          "throughput_change_percent": -25.273894060113268,
+          "control_latency": {
+            "p50_ms": 480.242,
+            "p95_ms": 1659.909,
+            "p99_ms": 2728.516,
+            "max_ms": 3902.809
+          },
+          "candidate_latency": {
+            "p50_ms": 663.723,
+            "p95_ms": 2092.433,
+            "p99_ms": 3152.929,
+            "max_ms": 4115.329
+          }
+        }
+      ],
+      "isolated_causal_gain_accepted": false
+    },
+    {
+      "family": "queue",
+      "complete_passing_pair": false
+    }
+  ],
+  "raw_capsule": {
+    "file": "three-node-primitive-main-173-2026-11-15.raw.json.gz",
+    "bytes": 22483380,
+    "sha256": "8b81524d454b97552651646fb609c8f4506a59f121b8c49511723639460a2b68",
+    "scope": "Complete emitted windows, raw samples and ledgers, resource samples, topology/performance observations, terminal states, build equivalence and timing limits. No runtime config credentials, private keys or environment dumps."
+  }
+}

@@ -926,6 +926,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-main-173-2026-11-15.md",
+      "title": "Main-173 three-node primitive verification",
+      "summary": "Record the refreshed constrained SQL/KV/Queue comparison, complete verification ledgers and remaining progress failures.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/tikv-informed-optimization.md",
       "title": "Cell-group routing, lifecycle and performance optimization",
       "summary": "TiKV-informed design for direct routing, precise cache repair, sustainable group movement and bounded shared execution.",
