@@ -209,14 +209,17 @@ impl Resolution {
             let local = match self.owner.handle.core.log.cell_group(&route.history) {
                 Ok(group) => {
                     if new_route && matches!(self.options.routing, QueryRouting::Automatic) {
-                        let cache = group
-                            .read()
-                            .map_err(|error| CellDispatchError::Runtime(error.into()))?;
-                        let vote = cache.hard_state.vote;
-                        if cache.conf_state.voters.contains(&vote)
-                            || cache.conf_state.voters_outgoing.contains(&vote)
-                        {
-                            preferred = MemberId::new(vote).ok();
+                        match group.read() {
+                            Ok(cache) => {
+                                let vote = cache.hard_state.vote;
+                                if cache.conf_state.voters.contains(&vote)
+                                    || cache.conf_state.voters_outgoing.contains(&vote)
+                                {
+                                    preferred = MemberId::new(vote).ok();
+                                }
+                            }
+                            Err(LogError::Closed | LogError::NotFound) => (),
+                            Err(error) => return Err(CellDispatchError::Runtime(error.into())),
                         }
                     }
                     Some(group.identity().member)
