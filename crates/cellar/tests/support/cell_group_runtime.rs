@@ -916,7 +916,7 @@ pub(super) use sql::{archive_controller_publish_store, archive_controller_reconc
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
-    follower_acquires_published_prefix, full_backend_outage, output_during_apply, s3_commands,
+    enrollment_output_during_apply, follower_acquires_published_prefix, full_backend_outage, output_during_apply, s3_commands,
     s3_deadline, s3_enrollment, s3_enrollment_deadline,
     s3_late_receipt_uses_completed_verification, s3_missing_sibling, s3_namespace_minimum,
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,

@@ -453,6 +453,29 @@ async fn s3_enrollment_requires_the_original_archived_creation() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_enrollment_output_waits_for_serving_authority_without_reinitialization() -> Result<()> {
+    for rooted in [false, true] {
+        for expire in [false, true] {
+            Box::pin(runtime_fixture::enrollment_output_during_apply(rooted,
+                Arc::new(object_store::memory::InMemory::new()), expire)).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_enrollment_output_waits_for_serving_authority_without_reinitialization() -> Result<()> {
+    for rooted in [false, true] {
+        for expire in [false, true] {
+            Box::pin(runtime_fixture::enrollment_output_during_apply(rooted,
+                rustfs::store(if expire { "enrollment-output-expiry" } else { "enrollment-output-progress" }, rooted)?, expire)).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn s3_enrollment_deadlines_preserve_resolved_ownership() -> Result<()> {
     for rooted in [false, true] {
         for cancel in [false, true] {

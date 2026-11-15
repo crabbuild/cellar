@@ -38,6 +38,107 @@ impl Harness {
     }
 }
 
+/// A proven creation remains buffered while a later entry awaits apply. Neither
+/// a transient serving fence nor expiry can recreate its retired SQL producer.
+pub(crate) async fn enrollment_output_during_apply(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+    expire: bool,
+) -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let faults = apply_faults::physical::Faults::new(root.path().join("node-1/pages"), None);
+    let filesystem = Arc::new(apply_faults::physical::FaultFileSystem {
+        faults: faults.clone(),
+    });
+    let mut h = Harness::configured_resources(
+        rooted, store, 2, Durability::Quorum, None, None,
+        Some(Resources::Storage { root, filesystem }),
+    ).await?;
+    h.cell.cell = CellId::new("enrollment-output")?;
+    let publication = h.remote.hold_publication();
+    struct Publication(Arc<archive_controller::archive_store::Gate>);
+    impl Drop for Publication {
+        fn drop(&mut self) { self.0.release.notify_one(); }
+    }
+    let publication_release = Publication(publication.clone());
+    let work = async {
+        let call = h.enroll(&h.dispatcher, 225, Durability::S3, Duration::from_secs(5)).await?;
+        tokio::time::timeout(Duration::from_secs(5), publication.entered.notified()).await?;
+        h.waiting().await?;
+        let original = h.creation().await?;
+        let position = h.fixture.runtimes[0]
+            .reconciliation_authority(h.route.history, h.cell.clone()).await?
+            .cell().last_mutation;
+        let other = history(&h.route, "registered-b")?;
+        let runtime = &h.fixture.runtimes[0];
+        let authority = runtime.execution_authority(h.route.history, other.clone()).await?;
+        let options = h.fixture.cell_options(&other).await?;
+        let pool = h.fixture.appliers[&(0, h.route.history)].0.clone();
+        let CellSqlOutcome::Prepared(private) = pool.stage(options, authority, cell_attempt(239)?, true, |tx| {
+            tx.execute("UPDATE value SET n=n+1", [])?;
+            Ok(b"blocking-result".to_vec())
+        }).await? else { anyhow::bail!("private preparation"); };
+        pool.mark_submitted(other.clone(), private.proposal()).await?;
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let (release, held) = std::sync::mpsc::sync_channel(1);
+        struct Unblock(std::sync::mpsc::SyncSender<()>);
+        impl Drop for Unblock {
+            fn drop(&mut self) { let _ = self.0.try_send(()); }
+        }
+        let unblock = Unblock(release);
+        *faults.before_directory_sync.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered.send(());
+            let _ = held.recv_timeout(Duration::from_secs(8));
+        }));
+        let accepted = accepted_sql(runtime, &private).await?;
+        tokio::time::timeout(Duration::from_secs(5), started).await??;
+        let status = runtime.status(h.route.history).await?;
+        anyhow::ensure!(status.committed >= accepted.position.index && status.applied.index < accepted.position.index);
+        drop(publication_release);
+        archive_controller::published(&h.controllers[0], h.route.history, position.index).await?;
+        let mut response = Box::pin(call.response());
+        let early = tokio::time::timeout(Duration::from_millis(500), response.as_mut()).await;
+        anyhow::ensure!(early.is_err(), "proven enrollment returned before fresh serving authority: {:?}",
+            early.map(|result| result.map(|_| ())));
+        let expired = if expire {
+            let error = response.as_mut().await.err().context("original enrollment deadline")?;
+            anyhow::ensure!(error.ambiguous && matches!(error.cause.as_ref(),
+                CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)), "{error:?}");
+            true
+        } else { false };
+        anyhow::ensure!(h.controllers[0].usage().quarantined_groups == 0);
+        anyhow::ensure!(h.initializations.load(Ordering::SeqCst) == 1);
+        drop(unblock);
+        controller::applied(&h.fixture, h.route.history, accepted.position.index).await?;
+        let authority = runtime.reconciliation_authority(h.route.history, other.clone()).await?;
+        let CellSqlReconciliation::Committed(blocker) = pool.reconcile(private.proposal(), authority).await?
+            else { anyhow::bail!("blocking command receipt"); };
+        anyhow::ensure!(blocker.receipt().receipt.result() == b"blocking-result");
+        drop(blocker);
+        drop(private);
+        if !expired {
+            let receipt = response.await?;
+            anyhow::ensure!(receipt.record() == &original && receipt.durability() == Durability::S3);
+            drop(receipt);
+        }
+        let retry = h.enroll(&h.dispatcher, 225, Durability::S3, Duration::from_secs(5)).await?
+            .response().await?;
+        anyhow::ensure!(retry.record() == &original && retry.durability() == Durability::S3);
+        anyhow::ensure!(h.initializations.load(Ordering::SeqCst) == 1, "receipt retry reran initializer");
+        drop(retry);
+        controller::wait_for(async || Ok(h.controllers[0].usage().retained_commands == 0
+            && h.controllers[0].usage().retained_s3 == 0 && pool.usage()?.retained_operations == 0)).await?;
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    if work.is_err() {
+        h.fixture.cluster._root.disable_cleanup(true);
+        eprintln!("retained enrollment-output disk: {}", h.fixture.cluster._root.path().display());
+    }
+    let closed = h.close().await;
+    work?;
+    closed
+}
+
 pub(crate) async fn s3_enrollment(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
     for minimum in [Durability::Quorum, Durability::S3] {
         let backend = Arc::new(object_store::prefix::PrefixStore::new(
