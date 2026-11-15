@@ -81,12 +81,15 @@ and its named RO/RL cases remain the acceptance contract:
 
 ### Priorities for completing the optimization
 
-The latest complete twelve-case comparison is the
-[main-168 campaign](three-node-primitive-main-168-2026-11-14.md), with eight native
-primitive failures and ten failed comparison cases. Main subsequently advances
-to `0e925f6b`: Workflow quorum-read progress (#171) and shared-group EventStream
-delivery (#172). Integration and validation of that combined source are underway;
-the earlier results do not establish its pass or failure.
+The latest twelve-case candidate comparison is the
+[main-172 campaign](three-node-primitive-main-172-2026-11-14.md), on integrated
+main `0e925f6b`: Workflow quorum-read progress (#171) and shared-group EventStream
+delivery (#172). Five candidate cases pass and seven fail; all four Queue cases
+fail. The matched quorum control passes SQL and fails KV/Queue. There is no
+complete passing control/candidate quorum pair, so no isolated optimization
+gain follows. Native qualification records 1,508 passes, 15 failures and 107
+explicit ignores across eight libtest targets; the separate production daemon
+oracle passes. Subsequent repairs retain their own source and validation scope.
 
 Direct routing, targeted cache repair, consistency-aware read selection and
 bounded shared workers already exist. Completion requires the following delivery
@@ -4157,3 +4160,68 @@ and 28,530 archive-verifier/journal calls. Tracing changes timings and final Raf
 observations are incomplete. Counts include failure observation/shutdown, and
 summed syscall times overlap. Bounded image/archive batching and isolation are
 profiling priorities; original failures and every OPT/CG gate remain unchanged.
+
+## Main-172 integrated qualification and matched control, 2026-11-15 UTC
+
+Source `95244b42` includes main `0e925f6b`; its frozen compiler manifest is
+`f8917ffe` (3,413 inputs). The [complete report](three-node-primitive-main-172-2026-11-14.md),
+[assessment](three-node-primitive-main-172-2026-11-14.json) and
+[raw capsule](three-node-primitive-main-172-2026-11-14.raw.json.gz) retain all
+attempted windows, including failures. The control reverses only `97b805f3`'s
+nine LTX image-publication files. Both images use matching locked Rust 1.98.1
+profiles and load bytes under the original three 1-vCPU/2-GiB node limits.
+
+The candidate passes five of twelve cases, while the quorum control passes SQL
+and fails KV/Queue. Candidate timed windows record 78 verified, six failed and
+36 unmeasured, with 43 request errors across emitted windows. All four Queue
+cases fail. No complete passing quorum pair exists. Shared-host compiler activity
+and queued source hashing also prevent an isolated causal speedup claim. An
+unconfirmed SQL write plus readback mismatch does not establish corruption or
+acknowledged data loss; the original verifier does not identify the mismatched
+key/value. Missing Queue producer evidence remains explicitly scoped.
+
+The joined native campaign records 1,508 passes, 15 failures and 107 explicit
+ignores across eight libtest targets; the separate production daemon passes.
+Original failure deadlines and assertions remain unchanged. Some failed native
+temporary disks are unavailable after host restart or fixture cleanup; their
+logs survive, and disk retention is a separate harness gap. All 75 measured
+containers stop without observed OOM/restarts, and the original RustFS identity,
+limits and data are restored with HTTP 200 readiness. This accepts no complete
+primitive family, OPT/CG package, independent failure domain or release profile.
+
+### Source-journal and verification repairs
+
+Repair manifest `9f483e79` moves destination wire-bound capture to the public
+EventStream adapter. The private synchronous journal requires that explicit
+bound instead of attempting to acquire an asynchronous dispatch capability.
+The real SDK authorization and source-history capture remain mandatory; failed
+wire admission rolls back source identity, lanes, events, statistics and work
+discovery together. Seventeen outbox tests and the full Cellar library pass
+(1,184 passed, two existing ignores). Both public native and Axum EventStream
+publication/subscription/outbox recovery controls pass on that same executable.
+
+The Queue load client records acknowledged identities, body hashes and attempted
+batches before verification I/O, retaining partial per-node delivery and per-queue
+metrics observations on error. The comparison validator independently reconciles
+complete probe rounds, IDs, bodies, duplicate counts and settlement. The new
+failure-injection and tampering controls fail before repair; 336 performance
+tests run with one existing skip after repair. The frozen campaign still uses
+its original client bytes and retains its missing evidence and failed status.
+
+Strict all-target Cellar Clippy, format/layout, the reviewed SDK inventory and
+13 coverage-validator tests pass. Regenerating the catalog/explorer closes the
+new report's initial catalog-coverage failure; documentation then validates 133
+documents and 2,650 references. The native dependency graph remains 496 packages
+without a JavaScript engine. The failed documentation attempt and two diagnostics
+held before execution remain recorded separately from the successful follow-up.
+
+The selected SDK source-proof oracle passes all four image/durability profiles
+in 33.69 seconds; its earlier timeout is unreproduced, not attributed to the
+journal repair or failure-only snapshot. The removed-member oracle still fails:
+its unchanged callback/SQL-stage guard passes, but application RPC attempts remain
+two before/after while leader probes rise from five to seventeen. The intended
+faulty-peer command is not reached. Membership refresh/background observations
+increase; these counters alone do not identify why the seeded leader hint is
+unusable. The bounded named-counter failure context preserves this distinction
+without relaxing assertions or granting authority. Full-suite interaction and
+the remaining SQL/KV/Queue, recovery, authority and feature-mode gates stay open.

@@ -914,6 +914,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-main-172-2026-11-14.md",
+      "title": "Main-172 three-node primitive verification",
+      "summary": "Retain the complete frozen main-based control/candidate comparison and its failing correctness boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/tikv-informed-optimization.md",
       "title": "Cell-group routing, lifecycle and performance optimization",
       "summary": "TiKV-informed design for direct routing, precise cache repair, sustainable group movement and bounded shared execution.",
