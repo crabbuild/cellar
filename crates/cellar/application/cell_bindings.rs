@@ -629,6 +629,7 @@ fn rpc_admitted(
             move |intent| {
                 let identity = intent.child;
                 *observed_command.lock().unwrap() = Some(identity);
+                trace_cold_binding("intent-prepared", &intent, &action);
                 let call = dispatch.try_schedule_binding(move |io| async move {
                     run(
                         action_source,
@@ -678,6 +679,16 @@ fn rpc_admitted(
     })
 }
 
+// Temporary cold-activation diagnostic. No payloads, principals or cell IDs.
+fn trace_cold_binding(phase: &'static str, intent: &Intent, dispatch: &RaftDispatch) {
+    tracing::debug!(target: "cellar::raft::sql_ingress",
+        event = "cell_binding_progress", phase, ordinal = intent.ordinal,
+        source_minimum = ?intent.source_durability,
+        target_minimum = ?intent.route.durability,
+        remaining_ms = ?dispatch.remaining_timeout().ok().map(|value| value.as_millis()),
+        "[DEBUG-cg17-cold]");
+}
+
 async fn run(
     source: Source,
     storage: Storage,
@@ -687,6 +698,7 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
+    trace_cold_binding("source-proof-ready", &intent, &dispatch);
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -695,6 +707,7 @@ async fn run(
     } else {
         let mut noted = false;
         let enrolled = loop {
+            trace_cold_binding("target-enrollment-start", &intent, &dispatch);
             let result = source
                 .host
                 .enroll(
@@ -704,6 +717,7 @@ async fn run(
                     dispatch.remaining_timeout()?,
                 )
                 .await;
+            trace_cold_binding("target-enrollment-completed", &intent, &dispatch);
             let not_admitted = result
                 .as_ref()
                 .err()
@@ -758,6 +772,7 @@ async fn run(
     options.durability = intent.route.durability;
     let result = loop {
         options.timeout = dispatch.remaining_timeout()?;
+        trace_cold_binding("target-command-start", &intent, &dispatch);
         let result = source
             .host
             .command(
@@ -768,6 +783,7 @@ async fn run(
                 intent.route.admission,
             )
             .await;
+        trace_cold_binding("target-command-completed", &intent, &dispatch);
         let not_admitted = result
             .as_ref()
             .err()
@@ -798,8 +814,10 @@ async fn run(
                     && receipt.durability >= intent.route.durability,
                 CommandFailure::CorruptState
             );
+            trace_cold_binding("source-continuation-start", &intent, &dispatch);
             io.resume_writer().await?;
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
+            trace_cold_binding("source-completion-recorded", &intent, &dispatch);
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
             // A crash before either retains the original unresolved intent.

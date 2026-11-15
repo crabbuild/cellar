@@ -57,14 +57,25 @@ latency.
 
 The current candidate moves the audited read-only subscription status operation
 to authorized pinned queries, with owning cases for expired-lease observation,
-grant revocation and subscription recreation. Compile and qualify it before
-claiming a consumption pass. It observes identity/lease/lag under current
+grant revocation and subscription recreation. It observes identity/lease/lag under current
 grants/lifecycle, independent S3 and source proof; lease/clock/ack mutations remain
 commands. At `63fcede9`, strict library/all-test Clippy passes. The follow-up
 selects a fresh configuration-status read on resumed owners even before the
 range cache is populated; the read must still prove the exact active definition.
-Qualify that retained path before claiming recovery progress. Then reduce configuration/enrollment work and retained service
-readiness delays. Preserve original budgets and all public assertions. The isolated
+At `28752a8a`, optimized build, affected strict Clippy, repository checks and all
+21 owning units pass. Public control 183 is **FAILED: 2/8**, with all six shared
+selections failing initial materialized activation. Extents and the new public
+status/retained paths are unrun. Backend 179 resumes with its original volume,
+verified owner/image/limits and a fresh signed probe.
+
+Next, finish the single-case cold binding phase diagnostic: distinguish source
+proof, target enrollment/command and source settlement. Remove temporary
+`DEBUG-cg17-cold` instrumentation after diagnosis, then implement and qualify the
+actual cold bottleneck before claiming consumption/recovery progress. Binding
+selection already skips a checkpoint when the selected history is its original
+candidate. Effect scans already use immutable queries, and a blanket early busy
+skip would suppress binding recovery/delivery as well as native work. Preserve
+original budgets and all public assertions. The isolated
 worktree is archived after its needed changes were integrated and retained.
 
 After public EventStream progress, finish interruption/retention and Queue load,

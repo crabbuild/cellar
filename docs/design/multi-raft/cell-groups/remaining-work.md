@@ -75,6 +75,10 @@ restart activation, RustFS named consumption exceeds its request budget, and
 independent-target-S3 fails cold activation. A separate native Axum case also
 fails cold activation. A compiled adapter or one passing public path is not
 complete primitive support.
+The status/resumed-read follow-up at `28752a8a` passes all 21 owning units and
+build/static checks, but public control 183 is FAILED at 2/8. All six shared
+selections fail cold materialized activation, leaving the new public paths and
+extent branches unrun. Resolve that cold configuration boundary first.
 
 1. **Close EventStream startup, consumption and recovery progress.** Reduce
    configuration/enrollment work and finish retained service readiness under the
@@ -82,9 +86,9 @@ complete primitive support.
    status candidate on its authorized pinned query path,
    preserving current grants, lifecycle, source proof and independent target-S3
    coverage. Leases, clock decisions and acknowledgements remain commands.
-   Retained images establish two child receipts for the same configuration input;
-   The implemented reservation coalesces live reconciliation before allocating duplicate child identities and
-   re-arm the same durable obligation safely. Poll only current status for the
+   Earlier retained images established duplicate configuration receipts. The
+   implemented reservation coalesces live reconciliation and re-arms the same
+   durable obligation safely. Poll only current status for the
    original operation, within the original activation deadline. A local history
    hint can select an optimization but never replace current authority/proof.
    Trace remaining first-request and consumption delays at their owning boundary;

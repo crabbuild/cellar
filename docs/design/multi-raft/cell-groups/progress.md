@@ -127,22 +127,31 @@ Read-only inspection `CG-17-event-cold-inspection-c7ed340c-177` hashes and verif
 attempt and one binding lane; each observed broker has at most one event-command
 receipt. This supports the intended coalescing behavior without attributing the
 remaining latency. Next delivery must reduce configuration/enrollment work and
-finish retained service readiness and consumption. Subscription status is an
-audited read-only operation still using the command bridge; moving it to an
-authorized pinned query is a concrete follow-up. The current candidate now routes
+finish retained service readiness and consumption. The current candidate routes
 `__streamSubscriptionStatus` through that private query contract and reuses the
 same status reader for Fleet commands. Every lookup uses the committed read
 facade; current consume/admin grants, subscription generation, lifecycle and
 independent target-S3 coverage remain required. It does not advance the clock,
 expire leases or allocate a child mutation identity. New owning cases cover
 expired-lease observation without mutation, current grant revocation and
-deleted/recreated subscription identities. Compilation and current-source public
-qualification remain pending; no startup or consumption pass is claimed yet.
+deleted/recreated subscription identities.
 The status candidate passes strict library/all-test Clippy at `63fcede9`.
 The follow-up also tries fresh configuration status on resumed owners before
 allocating a configuration command: an empty route cache previously hid retained
 catalogs from the local history hint. Resume is only an optimization hint; exact
 current definition, lifecycle, grants and target proof still determine readiness.
+
+At `28752a8a`, the locked optimized build, strict library/affected-test Clippy,
+repository checks and all **21 selected owning units pass**. Cohort
+`CG-17-event-status-28752a8a-183` is **FAILED: 2/8**. Registration and Fleet
+conformance pass; native/Axum named, broader native recovery, RustFS native/Axum
+named and independent-target-S3 all fail initial materialized activation. Their
+extent branches and the new public status/retained paths are unrun. No current
+native-path pass is inferred from the earlier `8588e800` control. The recorded
+RustFS owner/image/limits and signed probe pass after resuming its original volume.
+The next diagnostic traces source-intent proof, target enrollment/command and
+source continuation in one unchanged cold case. It cannot count as full-family
+or release acceptance, and its temporary trace must be removed after diagnosis.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS
