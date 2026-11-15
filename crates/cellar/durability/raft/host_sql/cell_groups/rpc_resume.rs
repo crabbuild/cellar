@@ -27,7 +27,6 @@ impl Suspended {
         activation.fence = fence;
         cache.put(self.cell.clone(), activation.clone(), now)?;
         self.retention.lease.park()?;
-        tracing::debug!(target: "cellar::raft::sql_ingress", cell=%self.cell.cell.as_str(), phase="rpc-parked", "[DEBUG-cg17-s3-242]");
         Ok(())
     }
 
@@ -44,7 +43,6 @@ impl Suspended {
                 Poll::Ready(result) => result?,
             }
             let commits = self.commits.as_ref().ok_or_else(unavailable)?.clone();
-            tracing::debug!(target: "cellar::raft::sql_ingress", cell=%self.cell.cell.as_str(), phase="rpc-writer-reacquired", "[DEBUG-cg17-s3-242]");
             let cell = self.cell.clone();
             let fence = self
                 .activation
@@ -68,7 +66,6 @@ impl Suspended {
             Poll::Ready(result) => result?,
         };
         self.resuming = None;
-        tracing::debug!(target: "cellar::raft::sql_ingress", cell=%self.cell.cell.as_str(), phase="rpc-authority-ready", "[DEBUG-cg17-s3-242]");
         let prior = self
             .activation
             .as_ref()

@@ -402,6 +402,70 @@ pub(crate) async fn s3_newer_receipt_bypasses_inflight_maintenance(
     closed
 }
 
+/// An idle publisher keeps one admitted proof for later immutable observations.
+/// Registry authority remains available; rereading the verified chunks is denied.
+pub(crate) async fn s3_idle_observation_reuses_verification(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let h = Harness::new(rooted, store, 1).await?;
+    let expected = h.fixture.runtimes[0]
+        .execution_authority(h.route.history, h.cell.clone())
+        .await?
+        .cell()
+        .version
+        .clone();
+    h.remote.deny_chunk_reads.store(true, Ordering::Release);
+    let work = async {
+        let mut lookup = h
+            .lookup(
+                h.receipt_request(1, b"not-submitted", Durability::S3)?,
+                Duration::from_secs(5),
+            )
+            .await?;
+        let response = lookup
+            .execute(
+                &h.fixture.runtimes[0],
+                &h.fixture.appliers[&(0, h.route.history)].0,
+                h.fixture.cell_options(&h.cell).await?,
+            )
+            .await
+            .context("idle observation repeated completed physical verification")?;
+        anyhow::ensure!(response.durability() == Durability::S3);
+        anyhow::ensure!(response.receipt().is_none());
+        anyhow::ensure!(response.observation().version == expected);
+        h.token(&response).await?;
+        anyhow::ensure!(h.remote.denied_chunk_reads.load(Ordering::Acquire) == 0);
+        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 0);
+        drop((response, lookup));
+        h.remote.deny_chunk_reads.store(false, Ordering::Release);
+        // A new cut must evict the cached physical admission before recovery.
+        let response = h
+            .command(1, b"new-cut", Durability::S3, Duration::from_secs(5))
+            .await?
+            .response()
+            .await?;
+        anyhow::ensure!(response.durability() == Durability::S3);
+        anyhow::ensure!(response.observation().version.sequence > expected.sequence);
+        anyhow::ensure!(response.result() == b"new-cut");
+        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 1);
+        drop(response);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    h.remote.deny_chunk_reads.store(false, Ordering::Release);
+    if work.is_err() {
+        h.fixture.cluster._root.disable_cleanup(true);
+        eprintln!(
+            "retained idle-proof disk: {}",
+            h.fixture.cluster._root.path().display()
+        );
+    }
+    let closed = h.close().await;
+    work?;
+    closed
+}
+
 /// A proof arriving during background publication must consume its already
 /// verified physical cut, without downloading that same checkpoint again.
 pub(crate) async fn s3_late_receipt_uses_completed_verification(

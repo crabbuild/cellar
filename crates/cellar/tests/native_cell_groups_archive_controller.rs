@@ -598,6 +598,31 @@ async fn late_s3_receipt_reuses_completed_background_verification() -> Result<()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn idle_s3_observation_reuses_completed_verification() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_idle_observation_reuses_verification(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_idle_s3_observation_reuses_completed_verification() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_idle_observation_reuses_verification(
+            rooted,
+            rustfs::store("idle-observation-verification", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
 async fn rustfs_late_s3_receipt_reuses_completed_background_verification() -> Result<()> {
     for rooted in [false, true] {

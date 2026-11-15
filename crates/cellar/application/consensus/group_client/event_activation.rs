@@ -185,11 +185,6 @@ impl RaftCells {
         args: Value,
         deadline: u64,
     ) -> HandlerFuture<Value> {
-        let domain = self.handle.domain.clone();
-        let started = domain.mono_ms().unwrap_or(deadline);
-        tracing::debug!(target: "cellar::raft::sql_ingress", method,
-            phase="activation-start", remaining_ms=deadline.saturating_sub(started),
-            "[DEBUG-cg17-s3-242]");
         let prepared = (|| -> Result<_> {
             self.check_open()?;
             anyhow::ensure!(
@@ -211,13 +206,7 @@ impl RaftCells {
             })
         })();
         Box::pin(async move {
-            let result = prepared?.await;
-            let now = domain.mono_ms().unwrap_or(deadline);
-            tracing::debug!(target: "cellar::raft::sql_ingress", method,
-                phase="activation-response", elapsed_ms=now.saturating_sub(started),
-                remaining_ms=deadline.saturating_sub(now), success=result.is_ok(),
-                "[DEBUG-cg17-s3-242]");
-            let result = result?;
+            let result = prepared?.await?;
             let value = crate::application::decode_rpc_result(&result)?.to_json()?;
             if let Some(error) = value.get("error") {
                 return Err(

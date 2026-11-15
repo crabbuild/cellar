@@ -351,12 +351,6 @@ impl RaftDispatch {
             let external = Arc::new(AtomicBool::new(false));
             let waiting = external.clone();
             let task = Box::pin(async move {
-                let diagnostic_cell = self
-                    .context
-                    .binding_source
-                    .as_ref()
-                    .map(|source| source.history.cell.clone());
-                tracing::debug!(target: "cellar::raft::sql_ingress", ?diagnostic_cell, read_only, phase="dispatch-proof-start", "[DEBUG-cg17-s3-242]");
                 let proof = async {
                     slot.admission.clone().await.map_err(anyhow::Error::msg)?;
                     self.remaining()?;
@@ -371,7 +365,6 @@ impl RaftDispatch {
                 let result = async {
                     proof?;
                     let timeout = self.remaining()?;
-                    tracing::debug!(target: "cellar::raft::sql_ingress", ?diagnostic_cell, read_only, phase="dispatch-proof-ready", remaining_ms=timeout.as_millis(), "[DEBUG-cg17-s3-242]");
                     let permit = RaftDispatchPermit(self);
                     waiting.store(true, Ordering::Release);
                     // Admission and every response poll use the original
@@ -397,7 +390,6 @@ impl RaftDispatch {
                     .await
                 }
                 .await;
-                tracing::debug!(target: "cellar::raft::sql_ingress", ?diagnostic_cell, read_only, phase="dispatch-result", success=result.is_ok(), "[DEBUG-cg17-s3-242]");
                 let _ = send.send(result);
                 Ok(())
             });

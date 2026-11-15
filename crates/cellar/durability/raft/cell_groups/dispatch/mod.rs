@@ -717,15 +717,6 @@ impl CellQueryInvocation {
     ) -> Result<CellQueryResponse, CellDispatchError> {
         let cell = &attempt.request().cell;
         let schema = self.dispatcher.class.schema_digest();
-        let diagnostic = |phase: &str| {
-            if matches!(self.admission, QueryAdmission::Event(_)) {
-                tracing::debug!(target: "cellar::raft::sql_ingress",
-                    invocation=?self.request.invocation, phase,
-                    remaining_ms=attempt.deadline_ms().saturating_sub(self.dispatcher.domain.mono_ms().unwrap_or(attempt.deadline_ms())),
-                    "[DEBUG-cg17-s3-242]");
-            }
-        };
-        diagnostic("query-read-barrier");
         let consistency = match &self.request.consistency {
             CellQueryConsistency::Stale => CellReadConsistency::Stale,
             CellQueryConsistency::RecentSource { max_age_ms } => {
@@ -764,7 +755,6 @@ impl CellQueryInvocation {
         if authority.route() != attempt.route() || authority.cell().version.history != *cell {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
-        diagnostic("query-authority-ready");
         let mut selected = sql
             .query_registered_retained(
                 options,
@@ -792,7 +782,6 @@ impl CellQueryInvocation {
                     CellDispatchError::Execution(error)
                 }
             })?;
-        diagnostic("query-sql-ready");
         if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3) {
             let client = self
                 .dispatcher
@@ -807,7 +796,6 @@ impl CellQueryInvocation {
                     attempt.deadline_ms(),
                 )
                 .await?;
-            diagnostic("query-s3-ready");
             settled
                 .proof
                 .require_current(&self.dispatcher.domain, attempt.deadline_ms())
