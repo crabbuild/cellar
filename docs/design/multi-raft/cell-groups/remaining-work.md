@@ -56,56 +56,37 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-The merged-source activation and reconciliation work is tracked in the
-[current checkpoint](progress.md#cg-17-merged-source-activation-and-reconciliation).
-Main `0e925f6b` is integrated into one private EventStream implementation. At
-`1408d26a`, named native/Axum Quorum paths pass both images natively and against
-RustFS; broader recovery and independent-target-S3 activation still fail.
-Stateful metadata queries and fresh retained activation are implemented at
-`aa6b3700`, but its native and RustFS campaigns fail cold startup. The hint-only
-correction at `2216aa23` passes its build/static gates yet fails four of five
-public controls. Catalog coalescing at `c7ed340c` also passes build/static gates
-but fails four of six controls: registration and Fleet conformance pass, while
-all four shared-group selections fail initial activation. One RustFS configuration
-commits after 2,839 ms, then immutable reader admission returns `Overloaded`.
-At `8588e800`, bounded immutable reader-admission retries pass all 19 selected
-owning units in the optimized CI profile. The fresh-backend control passes 3/6:
-native named Quorum completes both images, broader native recovery fails inbox
-restart activation, RustFS named consumption exceeds its request budget, and
-independent-target-S3 fails cold activation. A separate native Axum case also
-fails cold activation. A compiled adapter or one passing public path is not
-complete primitive support.
-The status/resumed-read follow-up at `28752a8a` passes all 21 owning units and
-build/static checks, but public control 183 is FAILED at 2/8. All six shared
-selections fail cold materialized activation, leaving the new public paths and
-extent branches unrun. The `13a8e205` correction moves catalog intent/work into
-enrollment and joins its exact receipt without another command. All 24 owning
-cases and build/static gates pass. Public control 187 improves to 6/8: all four
-named native/Axum Quorum selections pass both images natively and with RustFS,
-including subscription status and retained restart. Explicit-resource activation
-still wastes a configuration command on an already enrolled catalog; independent
-target-S3 readiness still exceeds its deadline. Their extent branches are unrun.
+The [current checkpoint](progress.md#cg-17-merged-source-activation-and-reconciliation)
+includes main `0e925f6b`. At Rust source `734363f2`, exact catalog joins also cover
+already enrolled catalogs; genuine updates retain typed absence fallback and
+original command identity. Retained-record reads now use authorized immutable
+linearizable images, with cursor limits and independent target S3 coverage, and
+allocate no command/log receipt. A real immutable-frame regression keeps command
+dispatch/write capabilities refused. All 41 owning checks, optimized build,
+strict library/all-test Clippy and repository checks pass.
 
-1. **Close the two remaining EventStream activation paths.** Join exact
-   provisioning operations for already enrolled catalogs without replaying a
-   configuration command; retain the normal update path for genuinely absent
-   operations. Then close independent target-S3 readiness under the original
-   budget. Subscription status and retained readiness pass within the four named
-   Quorum controls; extend that evidence through the remaining lifecycle matrix,
-   preserving current grants, lifecycle, source proof and independent target-S3
-   coverage. Leases, clock decisions and acknowledgements remain commands.
-   Earlier retained images established duplicate configuration receipts. The
-   implemented reservation coalesces live reconciliation and re-arms the same
-   durable obligation safely. Poll only current status for the
-   original operation, within the original activation deadline. A local history
-   hint can select an optimization but never replace current authority/proof.
-   Trace remaining first-request and consumption delays at their owning boundary;
-   do not infer that one optimization explains every failed control. Keep original
-   budgets, independent source/target S3 proofs, fresh lifecycle/grant checks and
-   mutation ambiguity. Then qualify long polling, autonomous interrupted delivery
-   and ack settlement, deletion/recreation, retention and original lane identity
-   through movement and fresh-incarnation recovery. The
-   [EventStream contract](event-stream-durability.md) retains separate source,
+Public cohort 191 passes **7/11**. Native Axum and real RustFS native/Axum named
+Quorum selections complete both images, reads, publication/replay, inbox/ack,
+retained restart and minority refusal. Registration, Fleet conformance and both
+SDK source-proof controls also pass. Native named, explicit-resource recovery
+and RustFS target-S3 native fail materialized retained/recovery activation.
+RustFS target-S3 Axum completes materialized recovery, then fails extent retained
+activation. Both target-S3 paths reach consumption under their original minima
+and budgets. These are scoped passes, not complete primitive-family acceptance.
+
+1. **Close managed retained activation.** All four current failures reach the
+   metadata activation path. Finish fresh catalog discovery, quorum wake,
+   immutable reader admission and required archive coverage within the original
+   deadline. An empty route cache cannot justify replaying configuration; a
+   stored/pending operation receipt cannot replace current serving authority.
+   Existing exact-operation joins and birth initialization are implemented.
+   Retain current grants/lifecycle, independent source/target minima, typed
+   failures and mutation ambiguity. Then qualify interrupted binding/delivery/ack,
+   long polling, deletion/recreation and retention through movement and fresh
+   incarnation recovery. Preserved cohort 189 images show completed fetch/first
+   ack and a pending repeated ack; use that specific recovery/timing seam without
+   claiming a latency cause or skipping pending-lease expiry commands. The
+   [EventStream contract](event-stream-durability.md) keeps separate source,
    destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles, then resolve producer deadlines and the older final-drain

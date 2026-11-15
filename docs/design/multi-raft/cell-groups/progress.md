@@ -29,13 +29,11 @@ for the next delivery.
 
 ## CG-17 merged-source activation and reconciliation
 
-Main `0e925f6b` is integrated: the #172 delivery/recovery adapter and this
-branch's private provenance, named activation and metadata readers now share one
-command/query implementation. **Current `13a8e205`: 24 owning cases pass; the
-public control passes 6/8, including all four named native/Axum Quorum selections
-in both image modes natively and against RustFS. Explicit-resource and independent
-target-S3 activation deadlines remain open.** Earlier integration checkpoints
-below are historical; their results are not relabeled as the current source.
+Main `0e925f6b` is included. **Current Rust source `734363f2`: 41 owning
+checks pass; public cohort 191 passes 7/11 selections.** Native Axum and real
+RustFS native/Axum named Quorum selections pass both image modes. Four selections
+still exceed their retained/recovery activation deadlines. Earlier checkpoints
+below retain their own source pins and do not qualify the current candidate.
 
 At `1408d26a`, cohort `CG-17-event-merge-1408d26a-157` passes **21/24 selections**.
 Named native/Axum Quorum requests pass both image forms, including retained restart
@@ -194,6 +192,60 @@ configuration updates and typed failures, then close the remaining S3 readiness
 chain. Original budgets and assertions remain unchanged. Six failed voter disks,
 source/binary identities, all logs and a verified 24-file evidence backup are
 retained. Host load observations accompany the result; no causal speedup is claimed.
+
+Source `fb70191f` extends exact provisioning-operation joins to already enrolled
+catalogs. Only a typed, authenticated operation absence permits an ordinary
+configuration update; the original command wire/nonce survives that fallback.
+Malformed replies, changed grants/lifecycle and unknown outcomes cannot authorize
+mutation. Trusted catalog work proves its claim with the binding intent before
+child I/O. All 38 selected owning checks pass. Expanded cohort 189 passes 6/11;
+its failed paths expose consumption and retained activation deadlines. A read-only
+inspection of preserved images finds completed fetch/first-ack intents and a
+pending repeated ack. This narrows the next investigation without proving a
+latency cause.
+
+The retained-record read follow-up routes `__streamRead` through the existing
+private linearizable query contract, with current read authorization and the
+target's independent S3 coverage. It allocates no command identity/receipt or new
+log entry. Record reads use the selected image's committed retention frontier
+and enforce the actual reader response bound before copying payloads. Command
+pagination retains its separate dispatch capability. No clock or lease mutation
+moves into the query path.
+
+The first candidate `ef75cf58` passes 40 owning checks and build/static gates,
+but cohort 190 is **FAILED: 4/11**. Public record reads expose a command-only
+budget helper attempting to capture asynchronous dispatch inside an immutable
+query. The capability guard correctly refuses it. Source `734363f2` separates
+pure pagination bounds from command dispatch. Its new regression opens an actual
+verified immutable SQLite generation, reads records successfully and proves that
+command dispatch and write-scope SQL remain refused.
+
+At `734363f2`, locked optimized build, strict library/all-test Clippy, formatter,
+layout, native-dependency and documentation checks pass. All **41 owning checks
+pass** in `CG-17-event-join-units-734363f2-191`. Public cohort
+`CG-17-event-join-734363f2-191` is **FAILED: 7/11**:
+
+- Registration, Fleet conformance, native Axum, real RustFS native/Axum named
+  Quorum, and native/RustFS SDK source-proof selections pass. The three named
+  selections complete both images, reads, publication/replay, inbox/ack, retained
+  restart and minority refusal.
+- Native named and RustFS independent-target-S3 native selections complete reads
+  and consumption, then fail retained activation in their materialized branch;
+  their extent branches are unrun.
+- Explicit-resource recovery fails outbox-recovery activation in its materialized
+  branch. The RustFS target-S3 Axum selection completes its materialized branch,
+  then fails retained activation in the extent branch. Both target-S3 selections
+  reach consumption under their independent minimum without relaxing its budget.
+
+All four failures reach the metadata activation path. Next close managed retained
+reactivation: current catalog discovery, fresh quorum wake, selected-image
+admission and any required archive coverage must complete under the original
+activation deadline. Do not replace fresh readiness with a stored configuration
+receipt or repeat a configuration mutation merely because routing caches are cold.
+Then qualify interrupted delivery/ack, long polling and retention; the earlier
+repeated-ack observation remains a separate timing/recovery gap. Twelve failed
+voter disks, frozen binaries, source/input hashes, logs and verified evidence
+backups are retained. No causal speedup or full primitive-family pass is claimed.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS
