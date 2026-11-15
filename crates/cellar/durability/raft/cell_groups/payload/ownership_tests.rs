@@ -4,6 +4,62 @@ use super::*;
 use cellar_logic::{cell_group::CellId, consensus::IncarnationId};
 
 #[tokio::test]
+async fn namespace_resolution_uses_the_bound_backend_and_refuses_aliases() -> anyhow::Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let outcome = domain
+        .run(async {
+            let pool = CellGroupPayloadPool::new(Default::default())?;
+            let first = Arc::new(object_store::memory::InMemory::new());
+            let second = Arc::new(object_store::memory::InMemory::new());
+            let cluster = ClusterId::new([2; 16])?;
+            let a = NamespaceId::new([3; 16])?;
+            let b = NamespaceId::new([8; 16])?;
+            pool.bind(first.clone(), Path::from("source"), cluster, a)?;
+            assert!(pool.resolve(cluster, b).is_err());
+            assert!(matches!(
+                pool.bind(second.clone(), Path::from("source"), cluster, a),
+                Err(CellGroupPayloadError::Conflict)
+            ));
+            let target = pool.bind(second.clone(), Path::from("foreign-catalog"), cluster, b)?;
+            let history = CellHistory {
+                cluster,
+                namespace: b,
+                cell: CellId::new("Counter:foreign")?,
+                incarnation: IncarnationId::new([4; 16])?,
+            };
+            let bytes = bytes::Bytes::from_static(b"actual target backend");
+            let timeout = Duration::from_secs(3);
+            let value = target.publish(&history, bytes.clone(), timeout).await?;
+            let resolved = pool.resolve(cluster, b)?;
+            assert_eq!(
+                resolved
+                    .get(&history, value.reference(), timeout)
+                    .await?
+                    .as_ref(),
+                bytes.as_ref()
+            );
+            // Identical replicas in the source store cannot substitute for the
+            // backend execution/recovery was configured to use for this namespace.
+            let control = target.control_path(value.reference());
+            first
+                .put(&control, second.get(&control).await?.bytes().await?.into())
+                .await?;
+            first
+                .put(&target.path(value.reference()), bytes.into())
+                .await?;
+            second.delete(&target.path(value.reference())).await?;
+            assert!(matches!(
+                resolved.get(&history, value.reference(), timeout).await,
+                Err(CellGroupPayloadError::Missing)
+            ));
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    outcome
+}
+
+#[tokio::test]
 async fn command_handoff_pending_roots_and_late_puts_preserve_their_owners() -> anyhow::Result<()> {
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     let outcome = domain
@@ -21,7 +77,7 @@ async fn command_handoff_pending_roots_and_late_puts_preserve_their_owners() -> 
                 Path::from("namespace"),
                 history.cluster,
                 history.namespace,
-            );
+            )?;
             let timeout = Duration::from_secs(3);
             let bytes = bytes::Bytes::from_static(b"retained across source archive lag");
             let published = store.publish(&history, bytes.clone(), timeout).await?;
@@ -155,7 +211,7 @@ async fn incomplete_inventory_and_corrupt_protected_bytes_refuse_before_delete(
                 Path::from("namespace"),
                 history.cluster,
                 history.namespace,
-            );
+            )?;
             let timeout = Duration::from_secs(3);
             let garbage = store
                 .publish(&history, bytes::Bytes::from_static(b"orphan"), timeout)

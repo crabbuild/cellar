@@ -138,7 +138,18 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
         .await?
         .commit(&cluster.domain)
         .await?;
+    let reads = remote
+        .payload_gets
+        .load(std::sync::atomic::Ordering::Acquire);
     let old = Box::pin(publish(&cluster, &registry, rooted, "payload-initial")).await?;
+    ensure!(
+        remote
+            .payload_gets
+            .load(std::sync::atomic::Ordering::Acquire)
+            - reads
+            == 1,
+        "one allocation was reread for each retained invocation owner"
+    );
     let old_hold = old.hold().clone();
     drop(old);
     let objects: Vec<_> = remote.inner.list(None).try_collect().await?;
@@ -190,7 +201,7 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
     remote.inner.put(&payload_path, body.clone().into()).await?;
     let after = images::image(
         Some(&expected["alpha"]),
-        "UPDATE value SET n=n+1; DELETE FROM __sys_kv;",
+        "UPDATE value SET n=n+1; DELETE FROM __sys_kv; DELETE FROM __sys_raft_payload_dependencies;",
     )?;
     checkpoint_fixture::advance_image(
         &mut cluster,

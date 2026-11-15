@@ -223,7 +223,6 @@ pub struct CellGroupArchive {
     limits: CellGroupArchiveLimits,
     budget: Arc<Budget>,
     workspace: usize,
-    namespace_archives: Path,
     payloads: Option<Arc<super::CellGroupPayloadPool>>,
 }
 
@@ -258,6 +257,18 @@ impl CellGroupArchivePool {
         self
     }
 
+    pub(crate) fn bind_payload_namespace(
+        &self,
+        namespace: &crate::raft::catalog::NamespaceCatalog,
+    ) -> Result<()> {
+        if let Some(pool) = &self.payloads {
+            namespace
+                .cell_payloads(pool)
+                .map_err(|_| CellGroupArchiveError::Invalid("payload namespace capability"))?;
+        }
+        Ok(())
+    }
+
     pub fn for_group(
         &self,
         store: Arc<dyn ObjectStore>,
@@ -273,7 +284,6 @@ impl CellGroupArchivePool {
         binding.update(history.namespace.bytes());
         binding.update(history.group.bytes());
         binding.update(history.incarnation.bytes());
-        let namespace_archives = prefix.clone();
         let prefix = prefix.child(DOMAIN).child(hex::encode(binding.finalize()));
         Ok(CellGroupArchive {
             store,
@@ -282,7 +292,6 @@ impl CellGroupArchivePool {
             limits: self.limits,
             budget: self.budget.clone(),
             workspace: self.workspace,
-            namespace_archives,
             payloads: self.payloads.clone(),
         })
     }

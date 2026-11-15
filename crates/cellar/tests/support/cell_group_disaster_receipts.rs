@@ -14,6 +14,7 @@ pub(in super::super) struct ReceiptWorkload {
     now: u64,
     old: BTreeMap<String, CellVersionObservation>,
     results: BTreeMap<(String, u64), Vec<u8>>,
+    filesystem: bool,
 }
 
 impl ReceiptWorkload {
@@ -64,6 +65,7 @@ impl ReceiptWorkload {
             now: 0,
             old: BTreeMap::new(),
             results: BTreeMap::new(),
+            filesystem,
         })
     }
 
@@ -82,6 +84,11 @@ impl ReceiptWorkload {
         cluster: &mut Cluster,
         expected: &mut BTreeMap<String, Vec<u8>>,
     ) -> Result<()> {
+        if self.filesystem {
+            for voter in &mut cluster.voters {
+                voter.filesystem_work = true;
+            }
+        }
         self.now = cluster
             .domain
             .run(async { cellar::asyncrt::wall_ms().max(0) as u64 })

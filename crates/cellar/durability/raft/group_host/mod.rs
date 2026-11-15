@@ -472,6 +472,11 @@ pub(crate) async fn start(
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         let payloads = limits.payloads.map(CellGroupPayloadPool::new).transpose()?;
+        if let Some(pool) = &payloads {
+            for namespace in &prepared.namespaces {
+                namespace.directory.namespace().cell_payloads(pool)?;
+            }
+        }
         let archive = archive::Pools::new(limits.archive, checkpoint, payloads.clone())?;
         let (archive_images, archive_provisioning) = if let Some(archive) = archive {
             let (observer, inventory, provisioning) = archive

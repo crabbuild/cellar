@@ -287,17 +287,46 @@ async fn move_voter(cluster: &ManagedCluster, history: &CellHistory, retry: u64)
                 .contains(&(obsolete as u64 + 1)),
         "filesystem replacement did not change actual quorum membership"
     );
+    drop(membership);
+    movement::discover(cluster).await?;
     let moved = cluster.hosts[3].cell(history.clone())?;
-    let result = moved
-        .command(
-            &moved.contract("Read")?,
-            b"[]".to_vec(),
-            CommandOptions {
-                durability: Durability::S3,
-                ..CommandOptions::new(CommandId::new(ClientId::new([184; 16])?, 1)?, retry)
+    let local = moved
+        .query(
+            ProposalId::new([185; 16])?,
+            &moved.contract("Snapshot")?,
+            vec![],
+            QueryOptions {
+                routing: QueryRouting::Local,
+                ..Default::default()
             },
         )
         .await?;
+    ensure!(
+        local.result == vec![1; 17],
+        "new voter did not read its local filesystem image"
+    );
+    let options = CommandOptions {
+        durability: Durability::S3,
+        ..CommandOptions::new(CommandId::new(ClientId::new([184; 16])?, 1)?, retry)
+    };
+    let result = moved
+        .command(&moved.contract("Read")?, b"[]".to_vec(), options.clone())
+        .await;
+    let result = match result {
+        Ok(result) => result,
+        Err(error) if error.ambiguous => {
+            // Movement may close an in-flight remote response. Reconcile the
+            // exact stored request on the current leader; never mint a new ID
+            // or infer non-commit from the broken connection.
+            eprintln!("filesystem moved command response lost: {error}");
+            let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+            let cell = cluster.hosts[leader].cell(history.clone())?;
+            cell.command(&cell.contract("Read")?, b"[]".to_vec(), options)
+                .await
+                .context("reconcile exact moved filesystem command")?
+        }
+        Err(error) => return Err(error.into()),
+    };
     ensure!(
         serde_json::from_slice::<Vec<u8>>(&result.result)? == vec![1; 17],
         "moved filesystem lost its data"
@@ -314,6 +343,10 @@ pub async fn qualify_lifecycle(real_rustfs: bool) -> Result<()> {
 }
 
 async fn qualify_mode(real_rustfs: bool, lifecycle: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()))
+        .with_test_writer()
+        .try_init();
     for rooted in [false, true] {
         let store = Arc::new(if real_rustfs {
             catalog_fault::Store::around(rustfs::store(

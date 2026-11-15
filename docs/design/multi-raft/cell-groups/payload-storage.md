@@ -121,7 +121,12 @@ prepared recovery cut. A missing, corrupt, ranged or incomplete object refuses
 admission. Pending descriptors remain protected without requiring an upload to
 have finished. `CellGroupArchivePool::with_payloads` supplies the same explicit
 node-wide pool used by foreground transfers; an archive with external references
-refuses when that admission is absent.
+refuses when that admission is absent. Each namespace binds its actual backend
+and data prefix into that shared pool. Node startup binds every configured
+namespace, including foreign dependencies. Standalone receivers bind each
+required `NamespaceCatalog` with `cell_payloads` before verification. Unknown or
+conflicting capabilities refuse; a copied object in the source catalog cannot
+substitute for a foreign namespace's configured backend.
 
 Archive publication installs scoped pins before selecting its root. A selected,
 confirmed archive belonging to the logical payload owner may adopt its upload

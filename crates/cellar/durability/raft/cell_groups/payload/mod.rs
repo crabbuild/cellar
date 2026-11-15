@@ -11,7 +11,11 @@ use object_store::{path::Path, ObjectStore, PutMode};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 const FORMAT: u8 = 1;
 
@@ -186,6 +190,12 @@ pub struct CellGroupPayloadUsage {
 pub struct CellGroupPayloadPool {
     limits: CellGroupPayloadLimits,
     budget: Arc<Budget>,
+    bindings: Arc<Mutex<BTreeMap<(ClusterId, NamespaceId), NamespaceBinding>>>,
+}
+
+struct NamespaceBinding {
+    store: Arc<dyn ObjectStore>,
+    prefix: Path,
 }
 
 impl CellGroupPayloadPool {
@@ -205,6 +215,7 @@ impl CellGroupPayloadPool {
         Ok(Self {
             limits,
             budget: Budget::new(limits.max_retained_bytes, limits.max_operations),
+            bindings: Arc::default(),
         })
     }
 
@@ -229,14 +240,65 @@ impl CellGroupPayloadPool {
         prefix: Path,
         cluster: ClusterId,
         namespace: NamespaceId,
-    ) -> CellGroupPayloadStore {
-        CellGroupPayloadStore {
+    ) -> Result<CellGroupPayloadStore> {
+        let prefix = prefix.child("cell-payloads-1");
+        if prefix.as_ref().len() > 4096 {
+            return Err(CellGroupPayloadError::Invalid("payload namespace prefix"));
+        }
+        let mut bindings = self
+            .bindings
+            .lock()
+            .map_err(|_| CellGroupPayloadError::Invalid("payload namespace owner"))?;
+        match bindings.get(&(cluster, namespace)) {
+            Some(bound) if !Arc::ptr_eq(&store, &bound.store) || prefix != bound.prefix => {
+                return Err(CellGroupPayloadError::Conflict)
+            }
+            Some(_) => (),
+            None => {
+                if bindings.len() == 4096 {
+                    return Err(CellGroupPayloadError::Overloaded);
+                }
+                bindings.insert(
+                    (cluster, namespace),
+                    NamespaceBinding {
+                        store: store.clone(),
+                        prefix: prefix.clone(),
+                    },
+                );
+            }
+        }
+        Ok(CellGroupPayloadStore {
             store,
-            prefix: prefix.child("cell-payloads-1"),
+            prefix,
             cluster,
             namespace,
             pool: self.clone(),
-        }
+        })
+    }
+
+    /// Resolve only host-bound capabilities. A foreign namespace may use a
+    /// different catalog, prefix or backend; descriptors cannot choose one.
+    pub(in crate::raft::cell_groups) fn resolve(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+    ) -> Result<CellGroupPayloadStore> {
+        let bindings = self
+            .bindings
+            .lock()
+            .map_err(|_| CellGroupPayloadError::Invalid("payload namespace owner"))?;
+        let bound = bindings
+            .get(&(cluster, namespace))
+            .ok_or(CellGroupPayloadError::Invalid(
+                "payload namespace capability is not configured",
+            ))?;
+        Ok(CellGroupPayloadStore {
+            store: bound.store.clone(),
+            prefix: bound.prefix.clone(),
+            cluster,
+            namespace,
+            pool: self.clone(),
+        })
     }
 }
 

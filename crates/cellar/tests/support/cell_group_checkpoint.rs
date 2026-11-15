@@ -108,6 +108,27 @@ pub(super) async fn enroll_images_with_payload(
                 if let Some(payload) = payload {
                     let encoded = hex::encode(serde_json::to_vec(payload)?);
                     sql.push_str(&format!("CREATE TABLE __sys_kv(name TEXT PRIMARY KEY,value BLOB,blob_id TEXT,size INTEGER NOT NULL); INSERT INTO __sys_kv VALUES('external',NULL,CAST(X'{encoded}' AS TEXT),{});", payload.length()));
+                    // Two retained invocation owners and the live value refer
+                    // to the same physical allocation. Verify its bytes once
+                    // per pass while preserving every ownership handoff.
+                    sql.push_str("CREATE TABLE __sys_raft_payload_dependencies(parent_client BLOB NOT NULL,parent_sequence BLOB NOT NULL,digest BLOB NOT NULL,body BLOB NOT NULL,confirmed INTEGER NOT NULL,retired INTEGER NOT NULL,PRIMARY KEY(parent_client,parent_sequence,digest)) WITHOUT ROWID;");
+                    for sequence in 1_u64..=2 {
+                        let guard = [sequence as u8; 32];
+                        let descriptor = serde_json::to_vec(&serde_json::json!({
+                            "format": 1,
+                            "cluster": cell.cluster.bytes(),
+                            "namespace": cell.namespace.bytes(),
+                            "cell": cell.cell.as_str(),
+                            "incarnation": cell.incarnation.bytes(),
+                            "reference": payload,
+                            "guard": guard,
+                        }))?;
+                        let digest = hex::encode(Sha256::digest(&descriptor));
+                        let descriptor = hex::encode(descriptor);
+                        let client = hex::encode([8_u8; 16]);
+                        let sequence = hex::encode(sequence.to_be_bytes());
+                        sql.push_str(&format!("INSERT INTO __sys_raft_payload_dependencies VALUES(X'{client}',X'{sequence}',X'{digest}',X'{descriptor}',1,0);"));
+                    }
                 }
             }
             images::image(None, &sql)?

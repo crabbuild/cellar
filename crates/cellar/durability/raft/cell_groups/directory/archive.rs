@@ -122,6 +122,7 @@ impl RangeDirectory {
         pool: &CellGroupArchivePool,
         route: &GroupRoute,
     ) -> Result<CellGroupArchive> {
+        pool.bind_payload_namespace(&self.namespace)?;
         Ok(pool.for_group(
             self.namespace.inner.store.clone(),
             Path::from(format!(

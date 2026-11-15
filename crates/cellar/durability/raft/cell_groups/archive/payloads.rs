@@ -28,6 +28,22 @@ pub(super) struct VerifiedDependency {
     pub local: bool,
 }
 
+type PayloadIdentity = (
+    [u8; 16],
+    [u8; 16],
+    String,
+    super::super::CellGroupPayloadReference,
+);
+
+fn payload_identity(dependency: &Dependency) -> PayloadIdentity {
+    (
+        dependency.history.cluster.bytes(),
+        dependency.history.namespace.bytes(),
+        dependency.history.cell.as_str().to_owned(),
+        dependency.reference.clone(),
+    )
+}
+
 impl CellGroupArchive {
     pub(super) fn payload_store(
         &self,
@@ -41,32 +57,15 @@ impl CellGroupArchive {
         cluster: cellar_logic::consensus::ClusterId,
         namespace: cellar_logic::consensus::NamespaceId,
     ) -> Result<super::super::CellGroupPayloadStore> {
-        // Derive capabilities from the archive's trusted namespace binding,
-        // never from a serialized descriptor's caller-selected object prefix.
-        let suffix = format!(
-            "raft/{}/{}/cell-group-archives",
-            hex::encode(self.history.cluster.bytes()),
-            hex::encode(self.history.namespace.bytes())
-        );
-        let catalog = self
-            .namespace_archives
-            .as_ref()
-            .strip_suffix(&suffix)
-            .ok_or(CellGroupArchiveError::Invalid(
-                "external payload namespace binding",
-            ))?;
-        let prefix = Path::from(format!(
-            "{catalog}raft/{}/{}",
-            hex::encode(cluster.bytes()),
-            hex::encode(namespace.bytes())
-        ));
         let payloads = self
             .payloads
             .as_ref()
             .ok_or(CellGroupArchiveError::Invalid(
                 "external payload admission is not configured",
             ))?;
-        Ok(payloads.bind(self.store.clone(), prefix, cluster, namespace))
+        payloads
+            .resolve(cluster, namespace)
+            .map_err(CellGroupArchiveError::Payload)
     }
 
     pub(super) async fn verify_payloads(
@@ -137,9 +136,10 @@ impl CellGroupArchive {
         // One original verification deadline covers the whole dependency set;
         // each body has the same length/digest/range/EOF and pool checks as SDK
         // reads. No cached descriptor or HEAD substitutes for actual bytes.
+        let mut checked = std::collections::BTreeSet::new();
         for verified in &dependencies {
             let dependency = &verified.dependency;
-            if !dependency.confirmed {
+            if !dependency.confirmed || !checked.insert(payload_identity(dependency)) {
                 continue;
             }
             let remaining = deadline
@@ -174,9 +174,10 @@ impl VerifiedCellGroupArchiveRecovery {
         let deadline = crate::asyncrt::mono_ms()
             .checked_add(archive.limits.io_timeout_ms)
             .ok_or(CellGroupArchiveError::Timeout)?;
+        let mut checked = std::collections::BTreeSet::new();
         for verified in &self.payloads {
             let dependency = &verified.dependency;
-            if !dependency.confirmed {
+            if !dependency.confirmed || !checked.insert(payload_identity(dependency)) {
                 continue;
             }
             let remaining = deadline
