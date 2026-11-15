@@ -785,6 +785,7 @@ impl Manager {
             .registration
             .publisher
             .retry_interval_ms(shared.limits.retry_interval_ms);
+        settlement::prune(&mut entry.waiters, now);
         let unexamined_waiters = !entry.waiters.is_empty();
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
@@ -828,6 +829,13 @@ impl Manager {
                 entry.retry_at = now.saturating_add(retry_interval);
                 status.error = Some(Arc::new(error));
             }
+        }
+        if unexamined_waiters && !entry.fatal && !entry.waiters.is_empty() {
+            // These live requests arrived after this job selected its batch.
+            // `settle` gave them one immediate attempt; the older completion's
+            // maintenance/backoff must not overwrite that wakeup. Requests
+            // already examined by this job retain the bounded retry cadence.
+            entry.retry_at = 0;
         }
         if entry.context.is_some() || entry.fatal {
             entry.activation.take();
