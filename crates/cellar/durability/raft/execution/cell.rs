@@ -17,7 +17,7 @@ use cellar_logic::cell_group::{CellVersion, MutationSequence};
 mod rpc;
 pub(crate) use rpc::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 
-/// A receipt read from the exact committed cell image. This is not S3 coverage.
+/// A receipt proven against the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {
     pub receipt: StoredReceipt,
     pub version: CellVersion,
@@ -590,6 +590,14 @@ impl CellPrivateExecutor {
             Ok(None) => return Err(ExecutionError::Uncertain),
         };
         check()?;
+        self.retire_reconciled()?;
+        Ok(resolution)
+    }
+
+    /// The caller has established the matching applied receipt or newer-term
+    /// absence proof. Keep the preview and log reservation until cleanup joins.
+    fn retire_reconciled(&mut self) -> Result<(), ExecutionError> {
+        let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
         // Only exact committed/reconciliation authority retires a private
         // preview. Pending retains its live pin through physical settlement.
         self.options
@@ -602,7 +610,7 @@ impl CellPrivateExecutor {
             .map_err(authority_failure)?;
         self.pending = None;
         self.poisoned = true;
-        Ok(resolution)
+        Ok(())
     }
 
     fn read_receipt(

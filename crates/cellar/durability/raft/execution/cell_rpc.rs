@@ -422,18 +422,54 @@ impl CellPrivateExecutor {
         {
             return Err(ExecutionError::Uncertain);
         }
-        committed.check().map_err(authority_failure)?;
-        let proposal = pending.prepared.proposal();
-        let CellReconciliation::Committed(receipt) = self.reconcile(proposal, reconciliation)?
-        else {
-            return Err(ExecutionError::Uncertain);
+        if !self.authority.accepts_reconciliation(&reconciliation)
+            || !committed.accepts_reconciliation(&reconciliation)
+        {
+            return Err(ExecutionError::Invalid("cell reconciliation identity"));
+        }
+        let check = || {
+            reconciliation.check().map_err(|error| match error {
+                RuntimeError::NotReady => ExecutionError::Uncertain,
+                error => authority_failure(error),
+            })
         };
-        if receipt.receipt.rpc_step != Some(step) || receipt.version != committed.cell().version {
+        check()?;
+        committed.check().map_err(authority_failure)?;
+        // This writer has not run application/owned work since capture and
+        // retains its cell lease until checkpoint settlement. Its frozen SQL
+        // state produced the exact image proven above. Read that same receipt
+        // without opening another immutable connection/cache. Other images or
+        // terms still use ordinary committed-image reconciliation.
+        let receipt = {
+            let connection = self
+                .working
+                .as_ref()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database()
+                .framework();
+            if !connection.is_autocommit() {
+                return Err(ExecutionError::Invalid(
+                    "RPC checkpoint writer is not frozen",
+                ));
+            }
+            receipts::lookup_rpc_identity(connection, &pending.request, &self.options.limits)?
+                .ok_or(ExecutionError::Uncertain)?
+        };
+        if receipt.rpc_step != Some(step) {
             return Err(ExecutionError::Invalid("RPC checkpoint receipt binding"));
         }
+        let receipt = CellCommittedReceipt {
+            receipt,
+            version: committed.cell().version.clone(),
+            position: committed.cell().last_mutation,
+            witness: committed.cell().witness,
+        };
+        check()?;
+        committed.check().map_err(authority_failure)?;
+        self.retire_reconciled()?;
         committed.check().map_err(authority_failure)?;
         self.authority = committed;
-        Ok(*receipt)
+        Ok(receipt)
     }
 
     pub(crate) fn continue_rpc_checkpoint(

@@ -14,6 +14,7 @@ struct PausedCell {
     storage: Storage,
     gates: Arc<[RpcGate; 2]>,
     calls: Arc<AtomicUsize>,
+    sql_thread: Arc<Mutex<Option<std::thread::ThreadId>>>,
 }
 
 impl Cell for PausedCell {
@@ -24,6 +25,7 @@ impl Cell for PausedCell {
                 return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
             }
             self.calls.fetch_add(1, Ordering::AcqRel);
+            *self.sql_thread.lock().unwrap() = Some(std::thread::current().id());
             update(&self.storage, 1)?;
             self.storage.sync().await?;
             self.gates[0].entered.notify_one();
@@ -77,6 +79,14 @@ impl Drop for ReleaseRead {
     }
 }
 
+struct DenyReopen(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for DenyReopen {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 fn hold_apply(faults: &physical::Faults) -> (Release, tokio::sync::oneshot::Receiver<()>) {
     let (entered, started) = tokio::sync::oneshot::channel();
     let (release, held) = std::sync::mpsc::sync_channel(1);
@@ -100,6 +110,10 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
     let reader = Arc::new(ReadGate::default());
     let query_reader = reader.clone();
+    let sql_thread = Arc::new(Mutex::new(None));
+    let source_thread = sql_thread.clone();
+    let deny_reopen = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reopened = Arc::new(AtomicUsize::new(0));
     let class = RaftClass::new("Counter", 1, [181; 32])?
         .initializer([182; 32], |_, tx| {
             tx.execute_batch("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(0)")?;
@@ -121,6 +135,7 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
                     storage: context.storage()?,
                     gates: waiting.clone(),
                     calls: called.clone(),
+                    sql_thread: source_thread.clone(),
                 }))
             },
         )?,
@@ -149,6 +164,19 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
         .join(hex::encode([7; 16]))
         .join("pages");
     let faults = physical::Faults::new(pages, None);
+    let images = roots[0].path().join("raft-cells/images");
+    let forbidden = deny_reopen.clone();
+    let observed_opens = reopened.clone();
+    *faults.read_open.lock().unwrap() = Some(Arc::new(move |path| {
+        if forbidden.load(Ordering::Acquire)
+            && path.starts_with(&images)
+            && *sql_thread.lock().unwrap() == Some(std::thread::current().id())
+        {
+            observed_opens.fetch_add(1, Ordering::AcqRel);
+            return Err(std::io::Error::other("checkpoint reopened a proven image"));
+        }
+        Ok(())
+    }));
     fixture.filesystem = Arc::new(physical::FaultFileSystem {
         faults: faults.clone(),
     });
@@ -276,11 +304,17 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
                                             cellar::asyncrt::timeout(TIMEOUT, started).await??;
                                             let status = cluster.hosts[0].group(group)?.status().await?;
                                             ensure!(status.applied.index < status.committed, "held unrelated committed apply");
+                                            // The retained writer already contains this exact
+                                            // captured checkpoint. Its settlement must not
+                                            // open another materialized receipt reader.
+                                            deny_reopen.store(!rooted, Ordering::Release);
+                                            let _no_reader = DenyReopen(deny_reopen.clone());
                                             reader.release();
                                             cellar::asyncrt::timeout(
                                                 Duration::from_secs(1),
                                                 gates[0].entered.notified(),
-                                            ).await.context("applied source checkpoint blocked by unrelated apply")?;
+                                            ).await.with_context(|| format!("applied checkpoint settlement stalled; immutable receipt reopens={}", reopened.load(Ordering::Acquire)))?;
+                                            ensure!(reopened.load(Ordering::Acquire) == 0, "checkpoint reopened an immutable receipt reader");
                                             let status = cluster.hosts[0].group(group)?.status().await?;
                                             ensure!(status.applied.index < status.committed, "checkpoint waited for group catch-up");
                                             Ok::<_, anyhow::Error>(())

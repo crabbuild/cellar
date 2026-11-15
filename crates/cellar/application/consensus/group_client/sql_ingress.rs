@@ -422,7 +422,14 @@ impl RaftCells {
                 *selected.lock().unwrap() = Some(history.clone());
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
                     phase="history", newly_enrolled, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
-                if method == "__catalogConfigure"
+                // Enrollment already proves the initializer's empty command
+                // stream at its applied cut. A speculative receipt read adds
+                // no mutation authority there. If a concurrent caller has since
+                // consumed sequence 1, the ordinary command-conflict path below
+                // requires fresh proof of its different fingerprint. Existing
+                // histories still join their exact provisioning operation.
+                if !newly_enrolled
+                    && method == "__catalogConfigure"
                     && matches!(&origin, Origin::Event(authority)
                         if matches!(authority.as_ref(), super::super::native_event_rpc::Authority::Event(caller)
                             if caller.require_provisioning().is_ok()))
