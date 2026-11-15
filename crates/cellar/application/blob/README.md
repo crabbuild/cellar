@@ -8,6 +8,11 @@ state have separate commits; persist references and reconcile uncertain results.
 
 ## Shared cell groups
 
+A host can install a provider once with
+`node.services().configure_blob_store(bucket).await` before admitting application
+work. This does not require a legacy Fleet, and the provider cannot replace an
+existing binding. The host joins entered multipart maintenance at shutdown.
+
 A native Raft configuration explicitly declares `blob_bindings`. Provider I/O
 parks the private SQLite writer only after its ordered source checkpoint has
 the required Quorum or S3 proof. The same invocation and original deadline are

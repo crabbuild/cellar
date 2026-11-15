@@ -118,7 +118,10 @@ Archive replay scans the actual recovered SQLite images and verifies every
 confirmed external dependency with actual complete bytes before coverage,
 movement or fenced recovery admission. It rechecks these bytes before copying a
 prepared recovery cut. A missing, corrupt, ranged or incomplete object refuses
-admission. Pending descriptors remain protected without requiring an upload to
+admission. Within one verification pass, records sharing the complete physical
+reference require one full-byte proof; every journal owner keeps its independent
+handoff. A later recovery or import pass reads the actual bytes again.
+Pending descriptors remain protected without requiring an upload to
 have finished. `CellGroupArchivePool::with_payloads` supplies the same explicit
 node-wide pool used by foreground transfers; an archive with external references
 refuses when that admission is absent. Each namespace binds its actual backend

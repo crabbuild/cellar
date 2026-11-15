@@ -22,6 +22,22 @@ const SCOPE: &str = "Objects:one";
 mod blob_contract;
 use blob_contract::Signals;
 
+#[tokio::test]
+async fn explicit_blob_provider_refuses_rebinding_and_closed_hosts() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let provider = cellar::bucket::Bucket::open_dev(&root.path().join("provider.sqlite"))?;
+    let domain = cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let services = domain.services();
+    services.configure_blob_store(provider.clone()).await?;
+    assert!(services
+        .configure_blob_store(provider.clone())
+        .await
+        .is_err());
+    domain.shutdown().await;
+    assert!(services.configure_blob_store(provider).await.is_err());
+    Ok(())
+}
+
 async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>) -> Result<Output> {
     let Invocation::Fetch(request) = invocation else {
         anyhow::bail!("fetch expected");

@@ -263,6 +263,19 @@ impl HostServices {
         self.containers.configure_options(options)
     }
 
+    /// Bind this host's Blob provider before admitting application work.
+    /// This does not enable Fleet ownership or supply a SQLite durability proof.
+    /// A second binding or a closed host refuses; providers are never replaced.
+    /// Entered multipart maintenance belongs to this host's execution domain.
+    pub async fn configure_blob_store(&self, bucket: crate::bucket::Bucket) -> anyhow::Result<()> {
+        let domain = self.domain_token().ok_or(crate::asyncrt::DomainClosed)?;
+        domain
+            .run(async move {
+                crate::host_channels::try_set_blob_store(bucket).map_err(anyhow::Error::msg)
+            })
+            .await?
+    }
+
     /// Install this node's policy before building application generations.
     /// SDK queue settlement and actor effects share its operation deadline.
     /// Once a generation has used a deadline it cannot be changed underneath

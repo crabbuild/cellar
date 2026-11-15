@@ -538,7 +538,6 @@ async fn start_configured_node(
     } = frontend;
     let classes = vec![];
     let shutdown = ShutdownPolicy::default();
-    let bucket = blob_bucket;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let probe_signer = Arc::new(PeerProbeSigner::generate());
@@ -577,33 +576,6 @@ async fn start_configured_node(
     config.cell_limits = cell_limits;
     let peer_http = reqwest::Client::builder().no_proxy().build()?;
     let peer_auth = Arc::new(PeerAuth::new([11; 32], label)?);
-    let fleet = bucket
-        .map(|bucket| -> Result<NodeFleet> {
-            Ok(NodeFleet {
-                replica_storage: ReplicaStorage::new(
-                    bucket.store.clone(),
-                    ReplicaStorageOptions {
-                        prefix: bucket.prefix.clone(),
-                        ..Default::default()
-                    },
-                )?,
-                lease_bucket: bucket.clone(),
-                bucket,
-                replication: ReplicationOptions {
-                    flush_interval: Duration::ZERO,
-                    compaction: None,
-                    ..Default::default()
-                },
-                log_transport: Arc::new(SignedPeerTransport::from_clients(
-                    peer_http.clone(),
-                    peer_http.clone(),
-                    peer_auth.clone(),
-                )),
-                log: LogOptions::default(),
-                fleet_durability: true,
-            })
-        })
-        .transpose()?;
     let services = NodeServices {
         wall_clock: None,
         http_client: None,
@@ -614,7 +586,7 @@ async fn start_configured_node(
         peer_http,
         peer_auth,
         probe_signer,
-        fleet,
+        fleet: None,
         containers: None,
         metrics: None,
     };
@@ -638,7 +610,7 @@ async fn start_configured_node(
         graph.cohosted.push(deployment);
         compiled = compiled.register(script, "test", move || Ok(application.clone()))?;
     }
-    if let Some(http) = external_http {
+    let node = if let Some(http) = external_http {
         let public_address = services.listener.local_addr()?;
         let (node, ingress) = Node::start_external(
             config,
@@ -662,8 +634,15 @@ async fn start_configured_node(
         )
         .await?;
         http.serve(services.listener, ingress);
-        Ok(node)
+        node
     } else {
-        Node::start_with_filesystem(config, services, graph, compiled, filesystem).await
+        Node::start_with_filesystem(config, services, graph, compiled, filesystem).await?
+    };
+    if let Some(bucket) = blob_bucket {
+        if let Err(error) = node.services().configure_blob_store(bucket).await {
+            node.shutdown(ShutdownMode::Preserve).await?;
+            return Err(error).context("install explicit shared-group Blob provider");
+        }
     }
+    Ok(node)
 }
