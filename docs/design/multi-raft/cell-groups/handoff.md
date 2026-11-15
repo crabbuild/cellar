@@ -4,7 +4,45 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current checkpoint receipt delivery
+## Current shared SQL progress delivery
+
+Main `16c45b266` is included; branch `codex/cg17-checkpoint-receipt-reuse`, PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `cd50b272` finishes
+the bounded suspended scan when one RPC cannot reacquire its writer. Another
+ready cell can run before the owner serves queued work or idles. No extra worker,
+task or execution permission is introduced.
+
+The physical ordering regression fails at `e6a0a8f5` and passes native storage
+and real RustFS, both images, at `cd50b272`. A queued immutable observer must see
+B progress while A's writer remains held; final A=11/B=10 receipts are required.
+The new fixture admits three RPCs and two observers within the original byte
+bank, with one SQL worker. Existing public profiles remain unchanged.
+
+New regressions are **2/2**, compatibility guards **14/14**. The original public
+set is nevertheless **FAILED, 6/16** at the same runtime/binary: SDK/history,
+registration and Fleet reference pass; all eight EventStream selections fail
+initial materialized activation. Queue fails native producer sequence 7 and
+RustFS producer sequence 13. Complete delivery and full primitive support remain
+unqualified. Earlier isolated SDK/probe passes do not explain its intermittent
+S3 timeout; probes are removed and no speedup is claimed.
+
+Next implementation priorities: join fresh catalog enrollment's exact durable
+configuration intent with its owned minimum proof, then investigate bounded
+successful-receipt sequence hints for hot ingress. Neither optimization may use
+a boolean/cache as authority, retry an unknown mutation with a new ID or skip
+current readiness. Finish interrupted binding recovery/sealing and all remaining
+primitive lifecycle/recovery and CG-13/17/15/16 gates.
+
+Aggregate 375 verifies frozen evidence and 33 retained failed voter disks, with
+per-case scope clarification. Build, strict library/all-test Clippy and repository
+checks pass. All local qualification/build jobs are terminal; the owned backend/VM
+are stopped and objects remain. Counts stay **13/17 tasks, 147/195 cases**. See the
+[current checkpoint](progress.md#current-integration-checkpoint) and ignored
+`.cellar/cg17-payload-01/event-read-state.json` for exact pins and candidate
+implementation boundaries. The latter records candidates, not implemented fixes
+or proven causes of the public failures.
+
+## Previous checkpoint receipt delivery
 
 PR #170 merged into main `16c45b266`. Follow-up branch
 `codex/cg17-checkpoint-receipt-reuse` starts from that main. Code `aeb6e5d75`

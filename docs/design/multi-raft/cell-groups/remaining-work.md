@@ -56,22 +56,17 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-The [current checkpoint](progress.md#current-integration-checkpoint) starts from
-main `16c45b266`, which merged PR #170. Follow-up code `aeb6e5d75` is identical
-to tested runtime `50d9e58fc`. An exact current-term applied checkpoint reads its
-receipt from the frozen writer instead of reopening the immutable image; generic
-reconciliation and S3 archival proofs remain. Its physical regression fails with
-one forbidden reader open before the fix and passes both backends/image forms.
-Fresh catalog enrollment also skips a speculative receipt probe while retaining
-concurrent conflict proofs and existing-history joins.
+The [current checkpoint](progress.md#current-integration-checkpoint) includes
+main `16c45b266`. Runtime `cd50b272` prevents a blocked same-cell writer resume
+from hiding another ready callback. Its physical ordering regression fails before
+the fix and passes both backend/image forms, with serialized final data/receipts.
+It keeps the bounded scan, existing worker count and original public limits.
+Previous exact checkpoint receipt reuse and S3 proof requirements remain.
 
-Final guards are **FAILED, 9/10 passed**. Both receipt cases, four generic
-leader-change/receipt controls, native SDK and both interleaving checks pass.
-The RustFS SDK control fails a nested sequence-1 call in its materialized
-S3-source case with an ambiguous deadline. The conditional public cohort did
-not run. Instrumented cold activation passes are diagnostic only, and earlier
-uninstrumented candidates still fail. Neither public stability nor a latency
-improvement is established. Original public quotas and deadlines remain.
+New regressions pass **2/2** and compatibility guards **14/14**, including both
+SDK and interleaving controls. The earlier S3 SDK timeout remains intermittent:
+an isolated pre-fix control also passes, and instrumentation is diagnostic only.
+Probes are removed. Current-source public stability and a speedup remain unproven.
 
 Earlier runtime `086f1663` reuses an unchanged Quorum entry image for a
 first immutable dependent read. Its baseline precedes maintenance/constructors;
@@ -81,38 +76,44 @@ Quorum, dirty Quorum and clean S3 sources, and both final SDK controls pass.
 Previous idle archive reuse retains **32/32 owning selections at `cfd83b13`**,
 with original quotas and exact proofs. These are scoped checkpoints.
 
-**The last complete sixteen-case public cohort remains FAILED: 6/16 at
-`086f1663`.** Both SDK
-source-proof and both history controls, registration and Fleet pass. All eight
-EventStream selections fail: five activations and three later Consume paths.
-Native Queue fails producer sequence 33; RustFS Queue drain expires without a
-labelled phase, so producer completion remains unproven. Final cohort 301 passes
-8/18 selections including the two new regressions. The intermediate SDK handoff
-failure is retained; its final control retries only known pre-admission
-`NotReady` with unchanged fences and one original five-second budget. No public
-stability, full primitive acceptance or latency improvement is established.
+**The complete original public cohort is FAILED: 6/16 at `cd50b272`.** Both SDK
+and history controls, registration and ordinary Fleet reference pass. All eight
+EventStream selections fail initial activation on node 0 in their first
+materialized mode. Queue fails native producer sequence 7 and RustFS producer
+sequence 13, both with ambiguous deadlines. Complete production, drain and either
+528-message delivery oracle remain unproven. Cohorts 372/373 use identical source
+and binary inputs; this result does not combine historical passes. Full primitive
+acceptance and the release cutover remain open.
 
-1. **Close the S3-source nested-call deadline and cold binding progress.** Final
-   guard 350 fails the RustFS SDK materialized S3-source case, while native SDK
-   and both interleaving controls pass. Reproduce its exact source/target proof
-   and settlement boundary before changing scheduling. The clean-read,
-   checkpoint continuation and receipt reuse changes do not establish complete
-   multi-step progress under original request deadlines. Preserve parent/child
-   identities and budgets; successful metadata polling does not prove child
-   progress. Reproduce cold broker activation separately when the guard closes.
-   Do not infer noncommit from one
-   voter's retained images, weaken proof, extend deadlines or repeat broad
+1. **Deliver the fresh catalog activation join.** Enrollment already persists
+   the trusted definition, operation receipt and autonomous work. Join that exact
+   accepted intent from an owned enrollment/minimum proof without another
+   foreground command or speculative immutable receipt read. Bind the history,
+   compiled initializer/definition, operation and caller authorization; return
+   accepted/pending only. Require fresh catalog and broker readiness before
+   activation. A `newly_enrolled` boolean or historical receipt alone is
+   insufficient. Existing histories, concurrent creators, genuine updates and
+   retirement keep their current proofs and refusal rules. This is the next
+   implementation target, not a demonstrated exclusive cause of all deadlines.
+   Keep the original budgets and qualify the intermittent S3 SDK failure under
+   combined load. Successful metadata polling does not prove child progress.
+   Do not infer noncommit from one voter's retained images, weaken proof,
+   extend deadlines or repeat broad
    campaigns in place of a focused failing boundary. Then finish autonomous
    interrupted binding/delivery/ack recovery, safe unused-sequence sealing, long
    polling, deletion/recreation and retention through movement and fresh-history
    recovery. The [EventStream contract](event-stream-durability.md) keeps separate
    source, destination and output boundaries.
-2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
-   and fault oracles. At `086f1663`, native producer sequence 33 exceeds its
-   deadline; RustFS drain expires without a labelled phase. Establish that stage
-   before attributing the failure to post-producer delivery.
-   Resolve both under unchanged load and budgets. Full delivery of either
-   528-message campaign and load metrics are not established.
+2. **Close Queue producer and shared startup failures.** Keep the passing
+   coalesced proof and fault oracles. At `cd50b272`, native producer sequence 7
+   and RustFS producer sequence 13 exceed their original budgets. Investigate
+   bounded next-sequence hints from exact successful ingress receipts to avoid
+   repeated immutable high-water reads. Hints cannot authorize mutation: retain
+   fresh conflict/fingerprint proof for concurrent global ingress-lane use,
+   invalidate on ambiguity or history/fence changes, and never move an unknown
+   mutation to a new ID. Reuse bounded owners and verify actual work reduction
+   before claiming a fix. Resolve both loads under unchanged budgets. Full
+   delivery of either 528-message campaign and load metrics are not established.
    Qualify both image forms.
    Resolve the managed trust-refresh failure and qualify concurrent boot
    reconciliation. General failed-startup joining and disk retention are now

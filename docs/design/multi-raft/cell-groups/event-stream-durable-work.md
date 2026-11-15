@@ -90,6 +90,16 @@ does not require another whole-group barrier. Reconciliation alone grants no
 execution permission. New application entry keeps full group readiness, and
 checkpoint/final settlement keeps its original durability proofs and deadlines.
 The continuation regression passes native and real RustFS in both image modes.
+At `cd50b272`, a parked RPC waiting for its writer no longer ends the suspended
+scan before another ready cell can run. The owner checks the rest of that bounded
+pass, then serves queued work or idles when none can run. A physical single-worker
+regression queues an immutable observer, wakes the blocked parent and another
+cell's dirty callback, and requires the ready callback to run before the observer
+while the first writer remains held. It fails before the fix and passes both
+image forms on native storage and real RustFS, preserving final serialized
+results/receipts. Original public limits, deadlines and all execution proofs
+remain. The complete public EventStream/Queue cohort still fails; this is a
+shared-worker progress fix, not full primitive acceptance.
 At `701b6d6f1`, an invocation that still owns its writer uses the same original
 fence to advance through its exact applied checkpoint. A later unrelated
 committed entry no longer forces a second whole-group readiness barrier at this

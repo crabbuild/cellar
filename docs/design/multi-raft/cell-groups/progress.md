@@ -29,6 +29,56 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `16c45b266` remains included. **Runtime `cd50b272` keeps a blocked writer
+reacquisition from hiding another cell's ready callback.** The SQL owner finishes
+one bounded suspended-work scan before declaring that no callback can run.
+It retains one work quantum before serving queued requests; it adds no worker,
+task, admission or execution authority.
+
+The physical regression fails at `e6a0a8f5`: while A's writer is held, an
+already-queued immutable observer overtakes B's ready callback. At `cd50b272`, B
+runs before that observer while A remains blocked. Final A=11/B=10 results and
+receipts preserve writer serialization. **Both native and real-RustFS selections
+pass both image forms.** The new fixture uses one SQL worker and five admissions
+(three RPCs, two observers) within the original 64-KiB command byte bank. Existing
+public fixture limits are unchanged.
+
+**All 14 compatibility controls pass**, including both SDK source-proof cases,
+both interleaving cases, both checkpoint and continuation cases, four generic
+reconciliation cases and both new-entry readiness/deadline cases. The SDK cases
+include S3-source recursion under its original deadline. A pre-fix isolated SDK
+run also passes, so the earlier S3 timeout remains intermittent; no exclusive
+cause or stability claim follows from these results. Temporary timing probes are
+removed, and no measured speedup is claimed.
+
+**The complete original public set remains FAILED: 6/16 pass at this source.**
+The two SDK controls, two history controls, registration and ordinary Fleet
+reference pass. All eight EventStream selections fail initial activation on
+node 0 in their first materialized mode. Native Queue fails producer sequence 7;
+RustFS Queue fails producer sequence 13. Both outcomes are ambiguous deadlines;
+neither complete 528-message delivery oracle is established. Public cohort 373
+is 4/14, combined only with the identical-source/binary SDK pair from cohort 372.
+The new scheduler regression and passing controls do not accept the primitive MVP.
+
+Aggregate `CG-17-resume-progress-aggregate-375-cd50b272` verifies frozen
+binaries/logs/backups and retains **33 failed voter disks** from the regression
+baseline and public cohort. Its scope supplement separates the new fixture,
+existing two-worker physical controls, original public profiles and Fleet
+reference. Voters share one process and separate workspace disks; RustFS has one
+CPU/two GiB. Build, strict library/all-test Clippy, formatting, layout, dependency
+and docs checks pass. All local qualification/build jobs are terminal; the owned
+backend/VM are stopped and object data remains. Counts stay **13/17 tasks and
+147/195 cases**.
+
+**Next:** deliver a proof-bound join of fresh catalog enrollment's existing
+configuration intent, while still requiring current catalog/broker readiness.
+Close Queue producer progress and qualify interrupted bindings/sequence sealing,
+then the remaining primitive lifecycle/recovery and CG-13/17/15/16 release gates.
+Fresh enrollment and successful receipt hints must never become mutation or
+readiness authority by themselves.
+
+## Previous checkpoint receipt checkpoint
+
 PR #170 is merged in main `16c45b266`. Follow-up code `aeb6e5d75` starts from
 that main and has **identical tracked files to qualified runtime `50d9e58fc`**.
 An exact current-term applied RPC checkpoint now reads its receipt from the
