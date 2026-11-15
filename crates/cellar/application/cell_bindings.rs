@@ -645,6 +645,7 @@ fn rpc_admitted(
                 Ok((identity, call))
             },
         )?;
+        tracing::debug!(target: "cellar::raft::sql_ingress", cell=%source.history.cell.as_str(), %method, ?identity, phase="binding-queued", "[DEBUG-cg17-s3-242]");
         Ok((identity, selected, command, call))
     })();
     Box::pin(async move {
@@ -687,6 +688,7 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
+    tracing::debug!(target: "cellar::raft::sql_ingress", cell=%source.history.cell.as_str(), child=?intent.child, enroll=intent.enroll, phase="binding-run", "[DEBUG-cg17-s3-242]");
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -790,6 +792,7 @@ async fn run(
         // child identity and input and consume the original deadline.
         dispatch.wait_admission().await?;
     };
+    tracing::debug!(target: "cellar::raft::sql_ingress", cell=%source.history.cell.as_str(), child=?intent.child, phase="binding-target-result", success=result.is_ok(), "[DEBUG-cg17-s3-242]");
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
