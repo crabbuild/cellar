@@ -57,7 +57,34 @@ view, retaining no provider, application or node execution owner. Arguments do
 not install bindings. Shared contexts refuse the Fleet event RPC path until the
 shared adapter exists; pending source obligations remain recoverable.
 
-## Remaining target and public adapters
+## Private destination admission candidate
+
+The destination candidate carries a typed Event/Name/Catalog authority, method
+and canonical native request in the retained command input. Its private `CEVT`
+frame keeps marker 1 and cannot decode as ordinary RPC. Normal command discovery
+and validation cannot select its operation. Transport uses a separate
+authenticated `EventCommand` purpose and body marker, retaining the independent
+namespace write grant, current boot/membership fences and exact route binding.
+Application bytes cannot select Event admission. Maintenance keeps its separate
+derived-client identity check and local ownership.
+
+Source calls reuse the binding intent, original child identity/deadline,
+checkpoint proof and independently configured target minimum. Interrupted source
+recovery can retire the original private child sequence without invoking business
+work. The receiver validates the global resource scope and canonical name before
+receipt lookup, then installs authority only in that invocation's context. The
+existing receiver still checks its current resource grants. Long polling proves
+and releases its root before waiting so another append can enter.
+
+Stream and catalog service definitions are independent of producer aliases and
+variables. Private routing requires one admitted global service namespace per
+class and cluster; missing or conflicting owners refuse. This does not provision
+resource definitions or activate application bindings.
+
+The candidate requires its own compilation, owning tests and RF3/public-path
+qualification. It does not establish public EventStream support.
+
+## Remaining public adapters
 
 Use a private authenticated query-route purpose, following binding retirement.
 Its origin, target, purpose and body must be covered by existing transport
@@ -79,6 +106,39 @@ and catalog namespaces; a producer binding does not own a foreign resource.
 Provisioning/reconciliation must reach destination Quorum/S3 proof before catalog
 configuration becomes active. Named bindings need actual catalog resolution and
 generation-local readiness; handles cannot silently retarget recreated resources.
+
+The public activation path reuses the same configuration/status and catalog/
+stream resolution protocol for Fleet and shared-group targets. Configuration
+mutations retain a nonce-bearing private command and the bounded ingress/receipt
+owner. Shared-group `__catalogStatus`, `__catalogResolveName`, `__catalogResolve`
+and `__streamResolve` use private linearizable queries over pinned immutable
+images. They do not construct a mutable factory, enroll a cell, allocate a command
+sequence or append an empty mutation. Their separate authenticated transport
+purpose retains the existing namespace write grant and boot/membership fences;
+public queries and generic maintenance cannot select this admission. Reads check
+the current stored resource grants and exact host-captured authority. Clock,
+lease and configuration mutations stay on the command path.
+
+An S3-minimum metadata read additionally waits for independently recovered
+complete coverage of its selected logical history/version. An older cut cannot
+prove it; a different incarnation or equal-version witness mismatch refuses.
+The coverage hold and admission survive response buffering and physical reply
+ownership. Discovery, the strong read, archive proof and output all retain the
+original activation deadline. This query candidate requires its own runtime
+qualification; the earlier command-path passes do not qualify it.
+
+Activation pins both generation and shared-cell factory
+bindings after proof. Superseded activation completions cannot reopen or cancel a
+newer source latch; an already pinned generation cannot adopt a recreated ID.
+
+Embedded shared-event nodes return a control-capable handle with public ingress
+closed. After installing Raft and provisioning the declared stream/catalog groups,
+the owner calls `Node::activate_event_resources`. The daemon activates after its
+Raft startup hook. A directly embedded `RaftCells` owner can activate a captured
+generation with `activate_event_generation`. Event services require explicit
+scheduler, command/result and source image capacity; a SQL-only profile refuses
+instead of receiving larger limits. This candidate still requires its public RF3
+and RustFS qualification; these API paths are not family acceptance evidence.
 
 Reuse existing stream, subscription and catalog state machines. Qualify
 publication/read, lease fetch, inbox/sync/ack, retry/extend, configuration,

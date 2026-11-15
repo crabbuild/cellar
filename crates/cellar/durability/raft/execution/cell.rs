@@ -197,6 +197,15 @@ impl CellPrivateExecutor {
         self.stage_registered_kind(attempt, class, input, allow_new, true)
     }
 
+    pub(crate) fn lookup_event_registered(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+    ) -> Result<CellStageOutcome, ExecutionError> {
+        self.stage_admitted_registered(attempt, class, input, false, CommandAdmission::Event)
+    }
+
     fn stage_registered_kind(
         &mut self,
         attempt: CommandAttempt,
@@ -205,21 +214,42 @@ impl CellPrivateExecutor {
         allow_new: bool,
         system: bool,
     ) -> Result<CellStageOutcome, ExecutionError> {
+        self.stage_admitted_registered(
+            attempt,
+            class,
+            input,
+            allow_new,
+            if system {
+                CommandAdmission::System
+            } else {
+                CommandAdmission::Public
+            },
+        )
+    }
+
+    fn stage_admitted_registered(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+        allow_new: bool,
+        admission: CommandAdmission,
+    ) -> Result<CellStageOutcome, ExecutionError> {
         let history = self.authority.cell().version.history.clone();
-        let contract = super::registered::validate(
+        let contract = super::registered::validate_admission(
             self.options.limits,
             self.options.application_digest,
             &history,
             &attempt.request,
             class,
             input,
-            system,
+            admission,
         )?;
         let command = attempt.request.id;
         let durability = attempt.request.durability;
         let route_epoch = self.authority.route().epoch;
         let limits = self.options.limits;
-        let system_request = system.then(|| attempt.request.clone());
+        let system_request = admission.is_system().then(|| attempt.request.clone());
         let origin = crate::storage::raft_binding_recovery::Origin {
             group: self.authority.route().history,
             term: self.authority.term().get(),

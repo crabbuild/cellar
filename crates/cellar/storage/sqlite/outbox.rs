@@ -223,12 +223,7 @@ fn emit_with_history(
     // exercise the source primitive before a destination adapter is installed.
     let input_limit = if history.is_some() {
         crate::storage::capture_raft_dispatch()?
-            .map(|dispatch| {
-                dispatch.event_wire_limit(
-                    &crate::application::event_stream::cell_scope(&binding.resource)?,
-                    "__streamAppend",
-                )
-            })
+            .map(|dispatch| dispatch.event_wire_limit(binding))
             .transpose()?
     } else {
         None

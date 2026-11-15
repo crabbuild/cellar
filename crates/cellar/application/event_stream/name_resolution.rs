@@ -6,7 +6,7 @@ use super::{
     authority::Authority, error::error, store, BindingConfig, CatalogNamespace, Definition,
     ErrorCode,
 };
-use crate::application::{Context, Result};
+use crate::application::{Context, Result, Storage};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -77,13 +77,19 @@ pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
             "catalog name lookup requires captured declaration authority",
         ));
     };
-    caller.validate_target(
-        &context
-            .identity()
-            .ok_or_else(|| error(ErrorCode::Forbidden, "catalog identity missing"))?
-            .scope,
-        METHOD,
-    )?;
+    let identity = context
+        .identity()
+        .ok_or_else(|| error(ErrorCode::Forbidden, "catalog identity missing"))?;
+    resolve_read(&context.storage()?, &identity.scope, caller, body)
+}
+
+pub(super) fn resolve_read(
+    db: &Storage,
+    scope: &str,
+    caller: &NameAuthority,
+    body: &Value,
+) -> Result<Value> {
+    caller.validate_target(scope, METHOD)?;
     use base64::Engine;
     let encoded = body["declaration"]
         .as_str()
@@ -106,11 +112,10 @@ pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
             "name declaration differs from captured host authority",
         ));
     }
-    let db = context.storage()?;
-    if db.system_sql("SELECT 1 AS present FROM sqlite_schema WHERE type='table' AND name='__sys_event_catalog'", &[])?.is_empty() {
+    if db.system_sql_read("SELECT 1 AS present FROM sqlite_schema WHERE type='table' AND name='__sys_event_catalog'", &[])?.is_empty() {
         return Err(error(ErrorCode::NotInitialized, "catalog name is not initialized"));
     }
-    let row = db.system_sql("SELECT lifecycle,definition FROM __sys_event_catalog WHERE name=? AND lifecycle!='deleted' LIMIT 1",
+    let row = db.system_sql_read("SELECT lifecycle,definition FROM __sys_event_catalog WHERE name=? AND lifecycle!='deleted' LIMIT 1",
         &[declaration.resource.name.clone().into()])?.into_iter().next()
         .ok_or_else(||error(ErrorCode::NotInitialized, "catalog name is absent or deleted"))?;
     if store::text(&row, "lifecycle")? != "active" {

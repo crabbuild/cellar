@@ -4,7 +4,7 @@
 use super::*;
 use crate::raft::budget::Permit;
 use crate::raft::cell_groups::{
-    CellDispatchError, CellSqlEnrollment, CellSqlReceipt, CellSqlReceiptLookup,
+    CellDispatchError, CellSqlEnrollment, CellSqlQueryResult, CellSqlReceipt, CellSqlReceiptLookup,
 };
 use crate::raft::execution::{CommandRequest, ExecutionError, ExecutionLimits};
 use cellar_logic::cell_group::GroupRoute;
@@ -67,6 +67,11 @@ pub(crate) struct LookupSettled {
     pub proof: Box<OutputProof>,
 }
 
+pub(crate) struct QuerySettled {
+    pub selected: Box<CellSqlQueryResult>,
+    pub proof: Box<OutputProof>,
+}
+
 struct Lookup {
     selected: Box<CellSqlReceiptLookup>,
     request: CommandRequest,
@@ -92,11 +97,13 @@ enum Output {
     Command(Box<CellSqlReceipt>),
     Enrollment(Box<CellSqlEnrollment>),
     Lookup(Box<Lookup>),
+    Query(Box<CellSqlQueryResult>),
 }
 
 impl Output {
     fn retained_bytes(&self) -> std::result::Result<usize, CellDispatchError> {
         match self {
+            Self::Query(selected) => selected.result().len(),
             Self::Command(receipt) => receipt.receipt().receipt.result().len(),
             // Creation records are bounded by the protocol to 4096 bytes. Their
             // variable identity bytes and the archive comparison stay admitted.
@@ -113,6 +120,10 @@ impl Output {
 
     fn retain(self, permit: Arc<Mutex<Permit>>) -> Self {
         match self {
+            // Immutable queries retain their original SQL pin/admission until
+            // the response owner joins; the archive permit separately bounds
+            // this queued result and its complete coverage.
+            Self::Query(selected) => Self::Query(selected),
             Self::Command(receipt) => Self::Command(receipt.retain_for_archive(permit)),
             Self::Enrollment(enrollment) => Self::Enrollment(enrollment.retain_for_archive(permit)),
             Self::Lookup(lookup) => Self::Lookup(Box::new(Lookup {
@@ -160,6 +171,25 @@ impl CellGroupController {
 }
 
 impl Client {
+    pub(crate) async fn query(
+        &self,
+        runtime: &CellGroupRuntime,
+        route: GroupRoute,
+        selected: Box<CellSqlQueryResult>,
+        deadline: u64,
+    ) -> std::result::Result<QuerySettled, CellDispatchError> {
+        let settled = self
+            .settle(runtime, route, Output::Query(selected), None, deadline)
+            .await?;
+        let Output::Query(selected) = settled.output else {
+            return Err(CellDispatchError::Invalid("S3 query output"));
+        };
+        Ok(QuerySettled {
+            selected,
+            proof: settled.proof,
+        })
+    }
+
     pub(crate) fn require_runtime(
         &self,
         runtime: &CellGroupRuntime,
@@ -441,7 +471,7 @@ impl Request {
     fn minimum_index(&self) -> Option<cellar_logic::consensus::LogIndex> {
         match &self.output {
             Output::Command(receipt) => Some(receipt.receipt().position.index),
-            Output::Enrollment(_) | Output::Lookup(_) => None,
+            Output::Enrollment(_) | Output::Lookup(_) | Output::Query(_) => None,
         }
     }
 
@@ -531,6 +561,13 @@ pub(super) async fn prove(
             let result =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     match &mut request.output {
+                        Output::Query(selected) => {
+                            crate::raft::cell_groups::archive::query::verify(
+                                &physical,
+                                &store,
+                                selected.observation(),
+                            )
+                        }
                         Output::Command(receipt) => {
                             crate::raft::cell_groups::archive::receipt::command(
                                 &physical,

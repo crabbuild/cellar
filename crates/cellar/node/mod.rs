@@ -5679,6 +5679,7 @@ async fn async_main(
             data_dir,
             durability_owner,
             policy: driver::RunPolicy {
+                defer_raft_events: false,
                 shutdown: shutdown_policy,
                 local_cache_max_bytes,
                 local_cache_prune_period: LOCAL_CACHE_PRUNE_PERIOD,

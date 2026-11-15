@@ -21,6 +21,27 @@ impl Remote {
     }
 
     pub(super) async fn start(h: &Harness, dispatcher: CellGroupDispatcher) -> Result<Self> {
+        let gateway = Self::install_gateway(h, dispatcher).await?;
+        let router = super::super::query_origins::Router::start(&h.fixture).await?;
+        router
+            .transport
+            .install_cell_query_group(h.fixture.tcp_route(h.route.history)?)?;
+        router.grant(&h.fixture, 1)?;
+        h.fixture.transports[0].grant_command_origin(
+            cellar::application::consensus::NamespaceCommandOrigin {
+                cluster: h.route.history.cluster,
+                namespace: h.route.history.namespace,
+                revision: 1,
+                peer: router.peer.clone(),
+            },
+        )?;
+        Ok(Self { gateway, router })
+    }
+
+    async fn install_gateway(
+        h: &Harness,
+        dispatcher: CellGroupDispatcher,
+    ) -> Result<CellCommandGateway> {
         // A gateway derives history paths below a namespace base. Nesting that
         // base inside an existing cell's disposable SQLite directory leaves a
         // foreign child which must make a later local reopen refuse.
@@ -35,26 +56,28 @@ impl Remote {
             CellSqlOptions::Materialized(options) => options.directory = base,
             CellSqlOptions::Extents(options) => options.cache_directory = base,
         }
-        let gateway = h.fixture.transports[0].install_cell_command_gateway(
+        Ok(h.fixture.transports[0].install_cell_command_gateway(
             dispatcher,
             h.controllers[0].clone(),
             cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
                 options,
             )?,
-        )?;
-        let router = super::super::query_origins::Router::start(&h.fixture).await?;
-        router
-            .transport
-            .install_cell_query_group(h.fixture.tcp_route(h.route.history)?)?;
-        router.grant(&h.fixture, 1)?;
-        h.fixture.transports[0].grant_command_origin(
-            cellar::application::consensus::NamespaceCommandOrigin {
-                cluster: h.route.history.cluster,
-                namespace: h.route.history.namespace,
-                revision: 1,
-                peer: router.peer.clone(),
-            },
-        )?;
+        )?)
+    }
+
+    async fn rebind(self, h: &Harness, dispatcher: CellGroupDispatcher) -> Result<Self> {
+        let Self { gateway, router } = self;
+        drop(gateway);
+        let gateway = match Self::install_gateway(h, dispatcher).await {
+            Ok(gateway) => gateway,
+            Err(error) => {
+                router
+                    .close()
+                    .await
+                    .context(format!("gateway rebinding: {error:#}"))?;
+                return Err(error);
+            }
+        };
         Ok(Self { gateway, router })
     }
 
@@ -273,7 +296,10 @@ pub(crate) async fn s3_remote_outputs(rooted: bool, store: Arc<dyn ObjectStore>)
         .await
         .err()
         .context("unbound command")?;
-    assert!(error.ambiguous);
+    // The authenticated gateway rejects the missing S3 capability before
+    // admission. Only this transmission is resolved; prior uncertainty would
+    // remain sticky in the invocation's remote-submission state.
+    assert!(!error.ambiguous, "unbound remote S3 command: {error}");
     assert!(matches!(
         *error.cause,
         CellDispatchError::Execution(ExecutionError::Refused(
@@ -285,6 +311,23 @@ pub(crate) async fn s3_remote_outputs(rooted: bool, store: Arc<dyn ObjectStore>)
     assert!(enrollment(&h, &remote, Durability::S3).await.is_err());
     assert_eq!(h.calls.load(Ordering::SeqCst), 0);
     assert_eq!(h.initializations.load(Ordering::SeqCst), 0);
+    refunded(&h).await?;
+    // The known rejection consumed no target sequence. Bind the real archive
+    // owner, retry the exact command and prove that replay runs no second callback.
+    let remote = remote.rebind(&h, h.dispatcher.clone()).await?;
+    let accepted = command(&h, &remote, 1, b"remote", Durability::S3).await?;
+    assert_eq!(accepted.durability(), Durability::S3);
+    assert_eq!(accepted.result(), b"remote");
+    let expected = accepted.observation().clone();
+    drop(accepted);
+    refunded(&h).await?;
+    let replay = command(&h, &remote, 1, b"remote", Durability::S3).await?;
+    assert_eq!(replay.durability(), Durability::S3);
+    assert_eq!(*replay.observation(), expected);
+    assert_eq!(replay.result(), b"remote");
+    assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(h.initializations.load(Ordering::SeqCst), 0);
+    drop(replay);
     refunded(&h).await?;
     remote.close().await?;
     h.close().await

@@ -15,7 +15,7 @@ pub(super) enum Callback {
     Registered {
         class: Arc<crate::application::consensus::RaftClass>,
         input: Box<[u8]>,
-        system: bool,
+        admission: CommandAdmission,
         commits: Option<Box<RpcCommitContext>>,
     },
 }
@@ -252,15 +252,22 @@ impl Cells {
                     Callback::Registered {
                         class,
                         input,
-                        system,
+                        admission,
                         ..
-                    } => {
-                        if system {
+                    } => match admission {
+                        CommandAdmission::System => {
                             executor.stage_system_registered(attempt, &class, &input, allow_new)
-                        } else {
+                        }
+                        CommandAdmission::Public => {
                             executor.stage_registered(attempt, &class, &input, allow_new)
                         }
-                    }
+                        CommandAdmission::Event if !allow_new => {
+                            executor.lookup_event_registered(attempt, &class, &input)
+                        }
+                        CommandAdmission::Event => {
+                            Err(ExecutionError::Invalid("event requires the RPC owner"))
+                        }
+                    },
                 };
                 self.publish_stage(
                     cell,

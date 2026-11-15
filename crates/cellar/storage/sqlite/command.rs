@@ -108,8 +108,8 @@ struct CommandFrame {
     dispatch: OnceCell<RaftDispatchContext>,
     binding_serial: Cell<u64>,
     parked_io: Cell<bool>,
-    // Minted only by the SQL owner after a Quorum checkpoint is applied. A
-    // read may reuse this proof while its private image remains unchanged.
+    // Minted by the SQL owner at Quorum entry or after an applied Quorum
+    // checkpoint. Reads reuse it only while the private image is unchanged.
     quorum_read_base: Cell<Option<(u64, i64)>>,
     // Invocation-local, so cached constructor Storage follows the current
     // callback without hiding another command's or immutable reader's alarm.

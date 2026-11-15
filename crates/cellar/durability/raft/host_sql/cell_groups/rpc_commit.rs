@@ -14,17 +14,46 @@ pub(crate) struct RpcCommitContext {
     pub route: cellar_logic::cell_group::GroupRoute,
     pub limits: ExecutionLimits,
     pub deadline: u64,
+    /// Captured by command admission and retained with every continuation.
+    pub admission: CommandAdmission,
     pub bindings: Option<Arc<dyn crate::application::cell_bindings::Host>>,
 }
 
+enum AuthorityPhase {
+    Entry,
+    Continuation,
+}
+
 impl RpcCommitContext {
-    /// Refresh before application entry or a proven-root continuation while
-    /// retaining the caller's writer position and original execution deadline.
+    /// New application entry still waits for the complete committed group cut.
+    pub(super) async fn entry_authority(
+        &self,
+        domain: &crate::asyncrt::DomainToken,
+        cell: &CellHistory,
+        fence: &crate::raft::cell_groups::CellActivationFence,
+    ) -> Result<CellExecutionAuthority, ExecutionError> {
+        self.authority(domain, cell, fence, AuthorityPhase::Entry)
+            .await
+    }
+
+    /// The parked invocation has reacquired its writer. Refresh its proven
+    /// cell image without waiting for unrelated cells' committed apply work.
     pub(super) async fn continuation_authority(
         &self,
         domain: &crate::asyncrt::DomainToken,
         cell: &CellHistory,
         fence: &crate::raft::cell_groups::CellActivationFence,
+    ) -> Result<CellExecutionAuthority, ExecutionError> {
+        self.authority(domain, cell, fence, AuthorityPhase::Continuation)
+            .await
+    }
+
+    async fn authority(
+        &self,
+        domain: &crate::asyncrt::DomainToken,
+        cell: &CellHistory,
+        fence: &crate::raft::cell_groups::CellActivationFence,
+        phase: AuthorityPhase,
     ) -> Result<CellExecutionAuthority, ExecutionError> {
         let timeout = domain
             .sleep_until(self.deadline)
@@ -40,11 +69,19 @@ impl RpcCommitContext {
                         RuntimeError::DeadlineExceeded,
                     ));
                 }
-                match self
-                    .runtime
-                    .execution_authority(self.route.history, cell.clone())
-                    .await
-                {
+                let current = match phase {
+                    AuthorityPhase::Entry => {
+                        self.runtime
+                            .execution_authority(self.route.history, cell.clone())
+                            .await
+                    }
+                    AuthorityPhase::Continuation => self
+                        .runtime
+                        .reconciliation_authority(self.route.history, cell.clone())
+                        .await
+                        .and_then(|proof| fence.resume_authority(&proof)),
+                };
+                match current {
                     Ok(authority) if fence.accepts_continuation(&authority) => {
                         return Ok(authority)
                     }
@@ -79,6 +116,7 @@ pub(super) async fn wait_checkpoint(
     domain: crate::asyncrt::DomainToken,
     prepared: CellPreparedCommand,
     expected: CellVersion,
+    fence: crate::raft::cell_groups::CellActivationFence,
     retained: Arc<Bytes>,
     deadline: Option<u64>,
 ) -> Result<CheckpointProof, ExecutionError> {
@@ -114,40 +152,28 @@ pub(super) async fn wait_checkpoint(
     }
     loop {
         match runtime
-            .execution_authority(prepared.group(), expected.history.clone())
-            .await
-        {
-            Ok(execution) if execution.term() == term && execution.cell().version == expected => {
-                match runtime
-                    .reconciliation_authority(prepared.group(), expected.history.clone())
-                    .await
-                {
-                    Ok(proof) if proof.term() == term && proof.cell().version == expected => {
-                        return Ok(CheckpointProof::Current(
-                            Box::new(execution),
-                            Box::new(proof),
-                        ));
-                    }
-                    Ok(proof) if proof.term() > term => {
-                        return Ok(CheckpointProof::Reconcile(Box::new(proof)))
-                    }
-                    Ok(_)
-                    | Err(
-                        RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded,
-                    ) => (),
-                    Err(error) => return Err(crate::raft::execution::authority_failure(error)),
-                }
-            }
-            Ok(_)
-            | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {}
-            Err(error) => return Err(crate::raft::execution::authority_failure(error)),
-        }
-        match runtime
             .reconciliation_authority(prepared.group(), expected.history.clone())
             .await
         {
             Ok(proof) if proof.term() > term => {
                 return Ok(CheckpointProof::Reconcile(Box::new(proof)))
+            }
+            Ok(proof) if proof.term() == term && proof.cell().version == expected => {
+                // This invocation retains its writer and its original ready
+                // barrier. Only its exact applied checkpoint can advance that
+                // authority; later apply work for another cell cannot revoke
+                // it. Reconciliation alone still grants no execution, and a
+                // changed leader/route/image must fail the original fence.
+                match fence.resume_authority(&proof) {
+                    Ok(execution) => {
+                        return Ok(CheckpointProof::Current(
+                            Box::new(execution),
+                            Box::new(proof),
+                        ));
+                    }
+                    Err(RuntimeError::NotReady) => (),
+                    Err(error) => return Err(crate::raft::execution::authority_failure(error)),
+                }
             }
             Ok(_)
             | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {}

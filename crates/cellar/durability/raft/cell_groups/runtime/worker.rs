@@ -1206,6 +1206,12 @@ impl Worker {
                     if let Some(error) = &group.failed {
                         return Err(error.clone());
                     }
+                    if request.kind.linearizable() && group.owner.begin_startup_read_election()? {
+                        // Campaign messages are ordinary owned Ready work.
+                        // Drive them without waiting for another idle tick;
+                        // this read still needs its original fresh barrier.
+                        group.wake(history, &mut self.order);
+                    }
                     if let Some(expected) = cohort {
                         let status = group.owner.status()?;
                         if expected.history != history

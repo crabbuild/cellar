@@ -97,16 +97,27 @@ impl RaftDispatch {
 
     /// Read-only capability metadata is available inside a savepoint. This
     /// neither submits a child nor grants permission to suspend its writer.
-    pub(crate) fn event_wire_limit(&self, scope: &str, method: &str) -> Result<usize> {
+    pub(crate) fn event_wire_limit(
+        &self,
+        binding: &super::super::event_stream::Binding,
+    ) -> Result<usize> {
         self.remaining()?;
         let source = self
             .context
             .binding_source
             .as_ref()
             .ok_or(consensus::CommandFailure::UnsupportedCapability)?;
-        let route = source
-            .host
-            .route(&source.history, source.configuration, scope, method)?;
+        let scope = super::super::event_stream::cell_scope(&binding.resource)?;
+        let authority = consensus::native_event_rpc::Authority::Event(
+            super::super::event_stream::Authority::producer(binding, source.history.cell.as_str())?,
+        );
+        let route = source.host.event_route(
+            &source.history,
+            source.configuration,
+            &scope,
+            "__streamAppend",
+            &authority,
+        )?;
         Ok(route
             .max_input_bytes
             .min(route.max_result_bytes.saturating_sub(4096)))

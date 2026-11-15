@@ -56,22 +56,61 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-1. **Broaden EventStream qualification and adapters.** The authenticated
-   explicit-UUID adapter passes native/Axum and real-RustFS cases in both image
-   forms, including publication, autonomous outbox recovery and inbox-protected
-   subscriptions. Preserve independent source and destination proofs. Named
-   selectors, operator inventory/retirement proof, cross-deployment grant changes,
-   movement/wake, sustained load, independent voter limits and all-voter disk
-   loss remain separate gates. See the [qualification record](progress.md#cg-17-eventstream-publishing-subscriptions-and-outbox),
-   [adapter contract](event-stream-durable-work.md) and
-   [source journal contract](event-stream-durability.md).
+The [current checkpoint](progress.md#current-integration-checkpoint) includes
+main `189edd9a`. Runtime `701b6d6f1` closes a physically reproduced checkpoint
+stall: an exact applied source checkpoint can resume under the original ready
+barrier and live invocation fence while another cell's later committed apply is
+blocked. New entry, original deadlines and S3 archival requirements remain.
+The focused cohort passes **8/10 selections**: both backend/image checkpoint and
+continuation cases, both entry readiness/deadline controls and both SDK controls.
+Both selected named EventStream cases still fail initial activation on node 0
+with materialized images. The other public selections were not rerun. This does
+not close cold binding activation or the full primitive MVP.
 
+Earlier runtime `086f1663` reuses an unchanged Quorum entry image for a
+first immutable dependent read. Its baseline precedes maintenance/constructors;
+dirty and S3 sources retain checkpoints. Ordinary SDK queries select read-only
+dispatch. The regression passes native and real RustFS in both images for clean
+Quorum, dirty Quorum and clean S3 sources, and both final SDK controls pass.
+Previous idle archive reuse retains **32/32 owning selections at `cfd83b13`**,
+with original quotas and exact proofs. These are scoped checkpoints.
+
+**The last complete sixteen-case public cohort remains FAILED: 6/16 at
+`086f1663`.** Both SDK
+source-proof and both history controls, registration and Fleet pass. All eight
+EventStream selections fail: five activations and three later Consume paths.
+Native Queue fails producer sequence 33; RustFS Queue drain expires without a
+labelled phase, so producer completion remains unproven. Final cohort 301 passes
+8/18 selections including the two new regressions. The intermediate SDK handoff
+failure is retained; its final control retries only known pre-admission
+`NotReady` with unchanged fences and one original five-second budget. No public
+stability, full primitive acceptance or latency improvement is established.
+
+1. **Close multi-step request and cold S3 binding progress.** The clean-read
+   optimization and fenced per-cell checkpoint continuation do not close cold
+   activation or cumulative source preparation/checkpoint and settlement work
+   under original request deadlines. Isolate the delayed broker
+   transition using exact parent/child identities under original budgets;
+   successful metadata polling does not prove child progress. Reproduce any
+   checkpoint/readiness or archive-proof scheduling boundary before changing it.
+   Do not infer noncommit from one
+   voter's retained images, weaken proof, extend deadlines or repeat broad
+   campaigns in place of a focused failing boundary. Then finish autonomous
+   interrupted binding/delivery/ack recovery, safe unused-sequence sealing, long
+   polling, deletion/recreation and retention through movement and fresh-history
+   recovery. The [EventStream contract](event-stream-durability.md) keeps separate
+   source, destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
-   and fault oracles, then resolve producer deadlines and the older final-drain
-   failures under the unchanged load and budgets. Qualify both image forms.
-   Fix concurrent boot reconciliation and ensure every failed startup joins its
-   owners and retains its disks; the current retention branch covers activation
-   errors only. Do not attribute intermittent failures to an unproven cause.
+   and fault oracles. At `086f1663`, native producer sequence 33 exceeds its
+   deadline; RustFS drain expires without a labelled phase. Establish that stage
+   before attributing the failure to post-producer delivery.
+   Resolve both under unchanged load and budgets. Full delivery of either
+   528-message campaign and load metrics are not established.
+   Qualify both image forms.
+   Resolve the managed trust-refresh failure and qualify concurrent boot
+   reconciliation. General failed-startup joining and disk retention are now
+   implemented, with the typed profile-refusal regression passing at `49509b38`.
+   Do not attribute intermittent failures to an unproven cause.
 3. **Complete bindings, durable time and Workflow lifecycle.** Qualify independent
    target-S3 minima, interruption before target proof, unused child sequence
    sealing, concurrent/cross-class creation and large calls. Complete SQL

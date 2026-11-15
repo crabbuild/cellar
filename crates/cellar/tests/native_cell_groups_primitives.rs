@@ -48,8 +48,12 @@ mod dispatch;
 mod erase;
 #[path = "support/cell_group_event_stream.rs"]
 mod event_streams;
+#[path = "support/cell_group_events.rs"]
+mod events;
 #[path = "support/cell_group_filesystem.rs"]
 mod filesystem;
+#[path = "support/cell_group_initial_read.rs"]
+mod initial_reads;
 #[path = "support/cell_group_interleaving.rs"]
 mod interleaving;
 #[path = "support/cell_group_kv.rs"]
@@ -65,6 +69,8 @@ mod named_service;
 mod names;
 #[path = "support/cell_group_queue.rs"]
 mod queues;
+#[path = "support/cell_group_rpc_progress.rs"]
+mod rpc_progress;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 #[path = "support/cell_group_sql_bindings.rs"]
@@ -86,8 +92,64 @@ fn event_stream_registration_requires_resolved_host_owned_declarations() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clean_initial_queries_reuse_quorum_source_proof() -> Result<()> {
+    Box::pin(initial_reads::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_clean_initial_queries_reuse_quorum_source_proof() -> Result<()> {
+    Box::pin(initial_reads::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
+    Box::pin(events::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
+    Box::pin(events::qualify_axum(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn event_startup_refusal_joins_owners_and_retains_disks() -> Result<()> {
+    Box::pin(events::refuse_startup()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn event_startup_refuses_missing_or_ambiguous_resource_owners() -> Result<()> {
+    Box::pin(events::refuse_resource_ownership()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
+    Box::pin(events::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()>
+{
+    Box::pin(events::qualify_axum(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_event_streams_preserve_independent_target_s3_minimum() -> Result<()> {
+    Box::pin(events::qualify_target_s3(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_event_streams_preserve_independent_target_s3_minimum() -> Result<()> {
+    Box::pin(events::qualify_target_s3(true)).await
 }
 
 #[test]
@@ -1782,6 +1844,62 @@ async fn ordinary_cell_rpcs_interleave_between_proven_roots() -> Result<()> {
             .await
             .with_context(|| format!("interleaving extents={rooted} durability={durability:?}"))?;
         }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(rpc_progress::run(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("RPC progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(rpc_progress::checkpoint(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("RPC checkpoint progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "rpc-checkpoint-progress",
+            rooted,
+        )?));
+        Box::pin(rpc_progress::checkpoint(rooted, store))
+            .await
+            .with_context(|| format!("RustFS RPC checkpoint progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "rpc-progress",
+            rooted,
+        )?));
+        Box::pin(rpc_progress::run(rooted, store))
+            .await
+            .with_context(|| format!("RustFS RPC progress extents={rooted}"))?;
     }
     Ok(())
 }

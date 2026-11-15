@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+pub(crate) mod activation;
 pub(crate) mod authority;
 mod binding_config;
 pub(crate) mod broker;
@@ -37,6 +38,7 @@ mod error;
 mod inventory;
 mod lifecycle;
 mod lifecycle_store;
+pub(crate) mod metadata;
 pub(crate) mod name_resolution;
 mod producer;
 pub(crate) mod raft;

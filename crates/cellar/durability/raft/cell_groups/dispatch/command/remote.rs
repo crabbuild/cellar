@@ -20,14 +20,15 @@ impl CellCommandInvocation {
     }
 
     /// Execute this catalog attempt on an explicitly selected remote member.
-    /// Any possible transmission makes failure ambiguous. Retry this same
-    /// invocation/identity; a transport response is never a non-commit proof.
+    /// Transport loss stays ambiguous. Only an authenticated pre-admission
+    /// rejection resolves this transmission; uncertainty from an earlier attempt
+    /// remains. Retries keep the same invocation and command identity.
     pub async fn execute_remote(
         &mut self,
         transport: &RaftTransport,
         member: MemberId,
     ) -> Result<CellRemoteCommandResponse, CellCommandError> {
-        if self.system {
+        if self.admission_kind.is_system() {
             return Err(self.error(CellDispatchError::Invalid(
                 "private commands require local ownership",
             )));
@@ -75,17 +76,26 @@ impl CellCommandInvocation {
             .map_err(|e| self.error(CellDispatchError::Routing(e)))?;
         self.dispatched = true;
         self.ambiguous = true;
+        let event = self.admission_kind == CommandAdmission::Event;
+        let cell = self.cell.clone();
+        let keys = self.dispatcher.keys.clone();
+        let deadline = self.session.deadline_ms();
+        let route = attempt.route();
+        let dispatched = async move {
+            if event {
+                transport
+                    .event_cell(route, &cell, member, call, keys, deadline)
+                    .await
+            } else {
+                transport
+                    .command_cell(route, &cell, member, call, keys, deadline)
+                    .await
+            }
+        };
         let result = self
             .dispatcher
             .domain
-            .run(transport.command_cell(
-                attempt.route(),
-                &self.cell,
-                member,
-                call,
-                self.dispatcher.keys.clone(),
-                self.session.deadline_ms(),
-            ))
+            .run(dispatched)
             .await
             .map_err(|_| self.error(closed()))?;
         let response = result.map_err(|error| {

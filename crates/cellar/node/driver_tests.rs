@@ -286,6 +286,7 @@ async fn host_with_fence_input(
                 data_dir: data_dir.into(),
                 durability_owner: None,
                 policy: RunPolicy {
+                    defer_raft_events: false,
                     shutdown,
                     local_cache_max_bytes: None,
                     local_cache_prune_period: Duration::from_secs(60),

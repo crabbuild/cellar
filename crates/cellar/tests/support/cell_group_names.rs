@@ -247,6 +247,17 @@ pub async fn run(
                 calls.load(Ordering::Acquire) == 0,
                 "read-only discovery invoked the application"
             );
+            let automatic = owner
+                .resolve_cell_history(
+                    group.cluster,
+                    group.namespace,
+                    destination.history().cell.clone(),
+                    QueryOptions::default(),
+                )
+                .await
+                .context("automatic discovery from a follower")?;
+            ensure!(automatic == Some(destination.history().clone()));
+            ensure!(calls.load(Ordering::Acquire) == 0);
             for host in &cluster.hosts {
                 for peer in &cluster.peers {
                     if peer.node != host.identity().node {
@@ -449,6 +460,29 @@ pub async fn run(
                     .await
                     .is_err(),
                 "name returned from retained metadata without quorum"
+            );
+            let refused = owner
+                .resolve_cell_history(
+                    group.cluster,
+                    group.namespace,
+                    destination.history().cell.clone(),
+                    QueryOptions {
+                        timeout: Duration::from_secs(1),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .expect_err("a cached vote cannot establish current quorum");
+            ensure!(
+                matches!(
+                    refused.as_ref(),
+                    CellDispatchError::Runtime(
+                        RuntimeError::DeadlineExceeded | RuntimeError::NotReady
+                    ) | CellDispatchError::Transport(
+                        cellar::sdk::consensus::verification::TransportError::Timeout
+                    )
+                ),
+                "automatic minority discovery lost its availability failure: {refused:#}"
             );
             Ok::<_, anyhow::Error>(())
         })

@@ -359,6 +359,12 @@ impl State {
                         &request.cell,
                         request.route.schema_digest,
                     )?;
+                    let route = match request.call.admission {
+                        crate::application::consensus::QueryAdmission::Public => route,
+                        crate::application::consensus::QueryAdmission::Event(_) => {
+                            route.for_event_query()?
+                        }
+                    };
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
@@ -415,6 +421,7 @@ impl State {
 pub(super) enum IncomingCall {
     Shared(CellQueryCall),
     Command(crate::raft::query_wire::command::CellCommandCall),
+    Event(crate::raft::query_wire::command::CellCommandCall),
     Binding(crate::raft::query_wire::binding::Call),
     CommandProbe(crate::raft::query_wire::command::CellCommandProbe),
     Enrollment(crate::raft::query_wire::enrollment::CellEnrollmentCall),
@@ -453,10 +460,18 @@ impl IncomingCall {
                 crate::raft::query_wire::command::CellCommandProbe::decode(bytes, limit)?,
             ));
         }
+        if route.is_event_command() {
+            return Ok(Self::Event(wire::command::CellCommandCall::decode_event(
+                bytes, limit,
+            )?));
+        }
         if route.is_command() {
             return Ok(Self::Command(
                 crate::raft::query_wire::command::CellCommandCall::decode(bytes, limit)?,
             ));
+        }
+        if route.is_event_query() {
+            return Ok(Self::Shared(CellQueryCall::decode_event(bytes, limit)?));
         }
         Ok(Self::Shared(CellQueryCall::decode(bytes, limit)?))
     }
@@ -464,7 +479,7 @@ impl IncomingCall {
     pub(super) fn timeout_ms(&self) -> u64 {
         match self {
             Self::Shared(call) => call.timeout_ms,
-            Self::Command(call) => call.timeout_ms,
+            Self::Command(call) | Self::Event(call) => call.timeout_ms,
             Self::Binding(call) => call.timeout_ms,
             Self::CommandProbe(call) => call.timeout_ms,
             Self::Enrollment(call) => call.timeout_ms,
@@ -486,7 +501,26 @@ impl IncomingCall {
                     .await
             }
             Self::Name(call) => state.execute_cell_name(route, call, deadline).await,
-            Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
+            Self::Command(call) => {
+                state
+                    .execute_cell_command(
+                        route,
+                        call,
+                        deadline,
+                        crate::application::consensus::CommandAdmission::Public,
+                    )
+                    .await
+            }
+            Self::Event(call) => {
+                state
+                    .execute_cell_command(
+                        route,
+                        call,
+                        deadline,
+                        crate::application::consensus::CommandAdmission::Event,
+                    )
+                    .await
+            }
             Self::CommandProbe(call) => {
                 state
                     .execute_cell_command_probe(route, call, deadline)
@@ -525,12 +559,11 @@ impl IncomingCall {
                     Err(error) => Err(error),
                 }
                 .map_err(|e| query_failure(&e));
-                wire::cell::encode_cell_result(
-                    &result,
+                super::query_replies::Reply::query(
+                    result,
                     leader_hint.as_ref(),
                     state.options.max_query_response_bytes,
                 )
-                .map(super::query_replies::Reply::plain)
             }
         }
     }
@@ -546,7 +579,7 @@ impl Gateway {
     ) -> Result<crate::raft::cell_groups::CellQueryCall, Arc<CellDispatchError>> {
         let options = self.storage.for_cell(&cell);
         let queued = (|| {
-            let mut query = self.dispatcher.query(
+            let mut query = self.dispatcher.query_routed_admitted(
                 cell,
                 call.request,
                 CellRoutingLimits {
@@ -554,6 +587,8 @@ impl Gateway {
                     max_attempts: 1,
                 },
                 None,
+                crate::raft::cell_groups::CellQueryRouting::Local,
+                call.admission,
             )?;
             query.bind_remote_route(crate::raft::cell_groups::RemoteMutationRoute {
                 group,

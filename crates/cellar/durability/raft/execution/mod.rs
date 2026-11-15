@@ -23,8 +23,8 @@ mod images;
 pub use cell::{CellCommittedReceipt, CellPrivateExecutor, CellReconciliation, CellStageOutcome};
 mod rooted_working;
 use crate::application::consensus::{
-    command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,
-    ProtocolError, RaftClass, RegistrationError,
+    command_request_digest, CommandAdmission, CommittedVersion, EnvelopeLimits, OperationContract,
+    OperationKind, ProtocolError, RaftClass, RegistrationError,
 };
 use crate::storage::{CommandInputs, CommandTransaction};
 use cellar_logic::consensus::Durability;
@@ -201,9 +201,27 @@ pub(super) fn validate_registered_query(
     application_digest: [u8; 32],
     limits: ExecutionLimits,
 ) -> Result<(), ExecutionError> {
+    validate_admitted_query(
+        class,
+        contract,
+        input,
+        application_digest,
+        limits,
+        crate::application::consensus::QueryAdmission::Public,
+    )
+}
+
+pub(super) fn validate_admitted_query(
+    class: &RaftClass,
+    contract: &OperationContract,
+    input: &[u8],
+    application_digest: [u8; 32],
+    limits: ExecutionLimits,
+    admission: crate::application::consensus::QueryAdmission,
+) -> Result<(), ExecutionError> {
     limits.validate()?;
     class
-        .validate_operation(contract)
+        .validate_query_admission(contract, admission)
         .map_err(ExecutionError::Registration)?;
     if contract.kind != OperationKind::Query {
         return Err(ExecutionError::Registration(

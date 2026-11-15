@@ -81,6 +81,10 @@ impl Suspended {
             domain.clone(),
             checkpoint.prepared.clone(),
             checkpoint.expected.clone(),
+            self.executor
+                .as_ref()
+                .ok_or_else(unavailable)?
+                .rpc_activation_fence(),
             self.retention.bytes.clone(),
             Some(commits.deadline),
         ))))
@@ -103,6 +107,7 @@ impl Suspended {
             domain.clone(),
             prepared.clone(),
             expected.clone(),
+            executor.rpc_activation_fence(),
             self.retention.bytes.clone(),
             Some(commits.deadline),
         )));
@@ -291,7 +296,7 @@ impl Cells {
             let Callback::Registered {
                 class,
                 input,
-                system,
+                admission,
                 commits,
             } = callback
             else {
@@ -326,7 +331,7 @@ impl Cells {
                         mode.allows_new(),
                         commits.is_some(),
                         CellRpcEnvironment {
-                            system,
+                            admission,
                             activation: &mut activation.activation,
                             reserve: &mut reserve,
                             dispatch: commits.as_ref().map(|commits| CellRpcDispatch {

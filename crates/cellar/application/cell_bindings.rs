@@ -20,6 +20,7 @@ pub(crate) struct Route {
     pub cell: CellId,
     pub schema: [u8; 32],
     pub contract: OperationContract,
+    pub admission: CommandAdmission,
     pub durability: Durability,
     pub max_input_bytes: usize,
     pub max_result_bytes: usize,
@@ -80,6 +81,15 @@ pub(crate) trait Host: Send + Sync {
         method: &str,
     ) -> Result<Route>;
 
+    fn event_route(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+        authority: &super::consensus::native_event_rpc::Authority,
+    ) -> Result<Route>;
+
     fn query(&self, route: Route, input: Vec<u8>, timeout: Duration) -> HandlerFuture<RpcData>;
 
     fn resolve(&self, route: Route, timeout: Duration) -> HandlerFuture<Option<CellHistory>>;
@@ -106,6 +116,7 @@ pub(crate) trait Host: Send + Sync {
         contract: OperationContract,
         input: Vec<u8>,
         options: CommandOptions,
+        admission: CommandAdmission,
     ) -> HandlerFuture<CommandReceipt>;
 }
 
@@ -294,6 +305,12 @@ impl std::error::Error for CallError {
     }
 }
 
+enum ReadAccess {
+    Resource,
+    Binding,
+    Event(Box<super::consensus::native_event_rpc::Authority>),
+}
+
 fn read_resource(scope: &str, method: &str) -> bool {
     scope
         .split_once(':')
@@ -312,7 +329,15 @@ pub(crate) fn resource_rpc(
     if !read_resource(&scope, &method) {
         return Box::pin(async { Err(CommandFailure::UnsupportedCapability.into()) });
     }
-    rpc_read(context, scope, name, method, args, call_scope, false)
+    rpc_read(
+        context,
+        scope,
+        name,
+        method,
+        args,
+        call_scope,
+        ReadAccess::Resource,
+    )
 }
 
 fn rpc_read(
@@ -322,12 +347,12 @@ fn rpc_read(
     method: String,
     args: RpcData,
     call_scope: crate::host_rpc::CallScope,
-    charge: bool,
+    access: ReadAccess,
 ) -> HandlerFuture<RpcData> {
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
         context.check_binding_turn()?;
-        if charge {
+        if !matches!(&access, ReadAccess::Resource) {
             context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
         }
         if let Some(signal) = &signal {
@@ -347,10 +372,23 @@ fn rpc_read(
             ))?;
         }
         let source = dispatch.binding_source()?;
-        let route =
-            source
-                .host
-                .read_route(&source.history, source.configuration, &scope, &method)?;
+        let route = match &access {
+            ReadAccess::Event(authority) => {
+                authority.validate_target(&scope, name.as_deref(), &method)?;
+                source.host.event_route(
+                    &source.history,
+                    source.configuration,
+                    &scope,
+                    &method,
+                    authority,
+                )?
+            }
+            ReadAccess::Resource | ReadAccess::Binding => {
+                source
+                    .host
+                    .read_route(&source.history, source.configuration, &scope, &method)?
+            }
+        };
         let (class, _) = scope
             .split_once(':')
             .ok_or(CommandFailure::UnsupportedCapability)?;
@@ -372,11 +410,23 @@ fn rpc_read(
             .and_then(|bytes| bytes.checked_add(8192))
             .ok_or(CommandFailure::Overloaded)?;
         let lease = source.host.admit(source.group, bytes)?;
-        let input = super::consensus::native_rpc::encode_request(
-            name.as_deref(),
-            &args,
-            route.max_input_bytes,
-        )?;
+        let input = match access {
+            ReadAccess::Event(authority) => super::consensus::native_event_rpc::encode(
+                &scope,
+                name.as_deref(),
+                &method,
+                *authority,
+                &args,
+                route.max_input_bytes,
+            )?,
+            ReadAccess::Resource | ReadAccess::Binding => {
+                super::consensus::native_rpc::encode_request(
+                    name.as_deref(),
+                    &args,
+                    route.max_input_bytes,
+                )?
+            }
+        };
         // Reads have no remote mutation/intent to reconcile. The same owned I/O
         // driver proves prior source writes and retains physical read admission.
         let call =
@@ -419,19 +469,58 @@ pub(crate) fn rpc(
     call_scope: crate::host_rpc::CallScope,
 ) -> HandlerFuture<RpcData> {
     if read_resource(&scope, &method) {
-        return rpc_read(context, scope, name, method, args, call_scope, true);
+        return rpc_read(
+            context,
+            scope,
+            name,
+            method,
+            args,
+            call_scope,
+            ReadAccess::Binding,
+        );
     }
-    rpc_authorized(context, scope, name, method, args, call_scope, None)
+    rpc_admitted(context, scope, name, method, args, call_scope, None)
 }
 
-pub(crate) fn rpc_authorized(
+pub(crate) fn event_rpc(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    authority: super::consensus::native_event_rpc::Authority,
+) -> HandlerFuture<RpcData> {
+    let call_scope = crate::host_rpc::CallScope::in_context(context, None, None);
+    if super::consensus::native_event_query::is_metadata(&method) {
+        return rpc_read(
+            context,
+            scope,
+            name,
+            method,
+            args,
+            call_scope,
+            ReadAccess::Event(Box::new(authority)),
+        );
+    }
+    rpc_admitted(
+        context,
+        scope,
+        name,
+        method,
+        args,
+        call_scope,
+        Some(authority),
+    )
+}
+
+fn rpc_admitted(
     context: &Context,
     scope: String,
     name: Option<String>,
     method: String,
     args: RpcData,
     call_scope: crate::host_rpc::CallScope,
-    event_authority: Option<super::event_stream::Authority>,
+    event: Option<super::consensus::native_event_rpc::Authority>,
 ) -> HandlerFuture<RpcData> {
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
@@ -450,10 +539,21 @@ pub(crate) fn rpc_authorized(
             dispatch = dispatch.limit_source(Duration::from_millis(remaining))?;
         }
         let source = dispatch.binding_source()?;
-        let mut route =
-            source
+        let mut route = match &event {
+            Some(authority) => {
+                authority.validate_target(&scope, name.as_deref(), &method)?;
+                source.host.event_route(
+                    &source.history,
+                    source.configuration,
+                    &scope,
+                    &method,
+                    authority,
+                )?
+            }
+            None => source
                 .host
-                .route(&source.history, source.configuration, &scope, &method)?;
+                .route(&source.history, source.configuration, &scope, &method)?,
+        };
         route.history_hint = dispatch.binding_hint(&route)?.or(route.history_hint.take());
         let (class, _) = scope
             .split_once(':')
@@ -483,22 +583,20 @@ pub(crate) fn rpc_authorized(
             .and_then(|n| n.checked_add(8192))
             .ok_or(CommandFailure::Overloaded)?;
         let lease = source.host.admit(source.group, bytes)?;
-        let input = if let Some(authority) = &event_authority {
-            super::event_stream::validate_target(&scope, authority)?;
-            authority.validate_operator_target(&scope, &method)?;
-            super::consensus::native_rpc::encode_event_request(
+        let input = match event {
+            Some(authority) => super::consensus::native_event_rpc::encode(
+                &scope,
                 name.as_deref(),
-                &args,
+                &method,
                 authority,
-                None,
+                &args,
                 route.max_input_bytes,
-            )?
-        } else {
-            super::consensus::native_rpc::encode_request(
+            )?,
+            None => super::consensus::native_rpc::encode_request(
                 name.as_deref(),
                 &args,
                 route.max_input_bytes,
-            )?
+            )?,
         };
         anyhow::ensure!(
             source
@@ -667,6 +765,7 @@ async fn run(
                 intent.route.contract.clone(),
                 intent.input.clone(),
                 options.clone(),
+                intent.route.admission,
             )
             .await;
         let not_admitted = result

@@ -121,6 +121,14 @@ pub(in crate::raft) struct CellCommandValue {
 
 impl CellCommandCall {
     pub fn encode(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
+        self.encode_kind(limit, b"CLGCCQ01")
+    }
+
+    pub fn encode_event(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
+        self.encode_kind(limit, b"CLGCEQ01")
+    }
+
+    fn encode_kind(&self, limit: usize, magic: &[u8; 8]) -> Result<Vec<u8>, TransportError> {
         let r = &self.request;
         if self.route_epoch == 0 || self.birth_digest == [0; 32] {
             return Err(TransportError::Identity);
@@ -133,7 +141,7 @@ impl CellCommandCall {
         {
             return Err(TransportError::Protocol);
         }
-        let mut body = b"CLGCCQ01".to_vec();
+        let mut body = magic.to_vec();
         body.extend_from_slice(&r.id.client.bytes());
         body.extend_from_slice(&r.id.sequence().to_be_bytes());
         body.extend_from_slice(&self.route_epoch.to_be_bytes());
@@ -160,11 +168,19 @@ impl CellCommandCall {
     }
 
     pub fn decode(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
+        Self::decode_kind(bytes, limit, b"CLGCCQ01")
+    }
+
+    pub fn decode_event(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
+        Self::decode_kind(bytes, limit, b"CLGCEQ01")
+    }
+
+    fn decode_kind(bytes: &[u8], limit: usize, magic: &[u8; 8]) -> Result<Self, TransportError> {
         if bytes.len() > limit {
             return Err(TransportError::Limit);
         }
         let mut body = Reader(bytes);
-        if body.take(8)? != b"CLGCCQ01" {
+        if body.take(8)? != magic {
             return Err(TransportError::Protocol);
         }
         let id = command_id(&mut body)?;

@@ -7,6 +7,14 @@ pub async fn activate(cluster: &ManagedCluster, archive_name: &str) -> Result<Gr
     activate_at(cluster, archive_name, 0).await
 }
 
+pub async fn activate_namespace(
+    cluster: &ManagedCluster,
+    index: usize,
+    archive_name: &str,
+) -> Result<GroupHistory> {
+    activate_at(cluster, archive_name, index).await
+}
+
 pub async fn activate_at(
     cluster: &ManagedCluster,
     archive_name: &str,
@@ -130,6 +138,14 @@ pub async fn grant(cluster: &ManagedCluster) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub async fn restart_with_groups(cluster: &mut ManagedCluster, groups: usize) -> Result<()> {
+    ensure!(
+        groups == 1 + cluster.fixtures[0].additional_namespaces.len(),
+        "retained namespace group count"
+    );
+    restart(cluster).await
 }
 
 pub async fn restart(cluster: &mut ManagedCluster) -> Result<()> {

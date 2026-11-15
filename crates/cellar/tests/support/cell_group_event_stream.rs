@@ -74,11 +74,17 @@ pub fn registration() -> Result<()> {
     }
     ensure!(owner.raft_event_stream(definition()).is_err());
     let (_, valid) = application()?;
-    for fault in ["name", "principal", "duplicate"] {
-        let (candidate, _) = application()?;
+    let (named, named_options) = application_with_selector(true)?;
+    named.validate_configuration(&named_options)?;
+    ensure!(
+        named.validate_configuration(&valid).is_err(),
+        "admitted a changed binding after registration"
+    );
+
+    for fault in ["principal", "duplicate"] {
+        let (candidate, _) = application_with_selector(false)?;
         let mut invalid = valid.clone();
         match fault {
-            "name" => invalid.stream_bindings[0].resource.id = None,
             "principal" => invalid.stream_bindings[0].principal = "other-application".into(),
             "duplicate" => invalid
                 .stream_bindings
@@ -295,6 +301,14 @@ impl Cell for Caller {
 }
 
 fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    let (app, options) = application_with_selector(false)?;
+    app.validate_configuration(&options)?;
+    Ok((app, options))
+}
+
+fn application_with_selector(
+    named: bool,
+) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
     let mut class =
         RaftClass::new("Counter", 1, [171; 32])?.initializer([172; 32], |_, _| Ok(()))?;
     for (index, name) in [
@@ -375,7 +389,9 @@ fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptio
     let mut options = configuration::options(SCRIPT);
     options.do_classes = vec!["Counter".into()];
     options.stream_bindings = vec![binding().into()];
-    app.validate_configuration(&options)?;
+    if named {
+        options.stream_bindings[0].resource.id = None;
+    }
     Ok((app, options))
 }
 
@@ -529,6 +545,9 @@ async fn call_options(
 }
 
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug")
+        .try_init();
     for rooted in [false, true] {
         eprintln!("EventStream RustFS={real_rustfs} extents={rooted} Axum={external}: START");
         let store = Arc::new(if real_rustfs {
@@ -586,6 +605,9 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
             .run(async {
                 named_service::activate_at(&cluster, "stream-archive", 0).await?;
                 named_service::activate_at(&cluster, "catalog-archive", 1).await?;
+                for (index, node) in cluster.nodes.iter().enumerate() {
+                    node.activate_event_resources().await.with_context(|| format!("initial explicit event activation node={index}"))?;
+                }
                 let source = CellHistory {
                     cluster: cluster.history.cluster,
                     namespace: cluster.history.namespace,
@@ -688,6 +710,9 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
                         .store(false, Ordering::Release)
                 })
                 .await?;
+                for (index, node) in cluster.nodes.iter().enumerate() {
+                    node.activate_event_resources().await.with_context(|| format!("outbox recovery event activation node={index}"))?;
+                }
                 let records = cellar::asyncrt::timeout(Duration::from_secs(20), async {
                     loop {
                         let observed =
@@ -812,6 +837,9 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
                 );
                 let mut first = redelivered;
                 named_service::restart(&mut cluster).await?;
+                for (index, node) in cluster.nodes.iter().enumerate() {
+                    node.activate_event_resources().await.with_context(|| format!("inbox recovery event activation node={index}"))?;
+                }
                 let effects = call(&cluster, &sink, &mut sequence, "Effects", json!(null)).await?;
                 ensure!(
                     serde_json::from_slice::<u64>(&effects.result)? == 2,

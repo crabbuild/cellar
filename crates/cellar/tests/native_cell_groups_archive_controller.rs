@@ -453,6 +453,45 @@ async fn s3_enrollment_requires_the_original_archived_creation() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_enrollment_output_waits_for_serving_authority_without_reinitialization() -> Result<()> {
+    for rooted in [false, true] {
+        for expire in [false, true] {
+            Box::pin(runtime_fixture::enrollment_output_during_apply(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                expire,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_enrollment_output_waits_for_serving_authority_without_reinitialization(
+) -> Result<()> {
+    for rooted in [false, true] {
+        for expire in [false, true] {
+            Box::pin(runtime_fixture::enrollment_output_during_apply(
+                rooted,
+                rustfs::store(
+                    if expire {
+                        "enrollment-output-expiry"
+                    } else {
+                        "enrollment-output-progress"
+                    },
+                    rooted,
+                )?,
+                expire,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn s3_enrollment_deadlines_preserve_resolved_ownership() -> Result<()> {
     for rooted in [false, true] {
         for cancel in [false, true] {
@@ -516,6 +555,35 @@ async fn s3_receipt_lookup_tracks_archived_observations() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn new_s3_receipt_bypasses_inflight_archive_maintenance() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_newer_receipt_bypasses_inflight_maintenance(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_new_s3_receipt_bypasses_inflight_archive_maintenance() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_newer_receipt_bypasses_inflight_maintenance(
+                rooted,
+                rustfs::store("foreground-archive-maintenance", rooted)?,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn late_s3_receipt_reuses_completed_background_verification() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(
@@ -524,6 +592,31 @@ async fn late_s3_receipt_reuses_completed_background_verification() -> Result<()
                 Arc::new(object_store::memory::InMemory::new()),
             ),
         )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn idle_s3_observation_reuses_completed_verification() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_idle_observation_reuses_verification(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_idle_s3_observation_reuses_completed_verification() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_idle_observation_reuses_verification(
+            rooted,
+            rustfs::store("idle-observation-verification", rooted)?,
+        ))
         .await?;
     }
     Ok(())

@@ -127,6 +127,21 @@ pub enum TransportError {
     Closed,
 }
 
+impl TransportError {
+    /// A read-only transport failure carries no mutation disposition. Keep this
+    /// translation out of command submission: a lost write reply remains
+    /// ambiguous even when the transport is unavailable.
+    pub(crate) fn for_read(self) -> Self {
+        match self {
+            Self::Io(cause) => {
+                tracing::debug!(target: "cellar::raft::query_transport", %cause, "read transport unavailable");
+                Self::Query(cellar_logic::consensus::CommandFailure::Unavailable)
+            }
+            error => error,
+        }
+    }
+}
+
 impl std::fmt::Display for TransportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Raft transport: {self:?}")

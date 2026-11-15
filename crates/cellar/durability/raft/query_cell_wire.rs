@@ -2,6 +2,7 @@
 
 //! Logical cell query payloads on the existing authenticated query framing.
 use super::*;
+use crate::application::consensus::QueryAdmission;
 use crate::raft::cell_groups::{CellQueryConsistency, CellQueryRequest, CellQueryResponse};
 use crate::raft::leader_advice::LeaderAdvice;
 use crate::raft::version::{CellVersionObservation, CellVersionToken};
@@ -9,6 +10,7 @@ use cellar_logic::{cell_group::CellHistory, consensus::ProposalId};
 
 pub(in crate::raft) struct CellQueryCall {
     pub request: CellQueryRequest,
+    pub admission: QueryAdmission,
     pub timeout_ms: u64,
     pub route_epoch: u64,
     pub birth_digest: [u8; 32],
@@ -35,7 +37,20 @@ impl CellQueryCall {
         {
             return Err(TransportError::Protocol);
         }
-        let mut body = b"CLGCQQ01".to_vec();
+        let mut body = match self.admission {
+            QueryAdmission::Public => b"CLGCQQ01".to_vec(),
+            QueryAdmission::Event(minimum) => {
+                if !matches!(request.consistency, CellQueryConsistency::Linearizable) {
+                    return Err(TransportError::Protocol);
+                }
+                let mut body = b"CLGCEY01".to_vec();
+                body.push(match minimum {
+                    cellar_logic::consensus::Durability::Quorum => 0,
+                    cellar_logic::consensus::Durability::S3 => 1,
+                });
+                body
+            }
+        };
         body.extend_from_slice(&request.invocation.bytes());
         body.extend_from_slice(&self.route_epoch.to_be_bytes());
         body.extend_from_slice(&self.birth_digest);
@@ -72,13 +87,30 @@ impl CellQueryCall {
     }
 
     pub fn decode(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
+        Self::decode_inner(bytes, limit, false)
+    }
+
+    pub fn decode_event(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
+        Self::decode_inner(bytes, limit, true)
+    }
+
+    fn decode_inner(bytes: &[u8], limit: usize, event: bool) -> Result<Self, TransportError> {
         if bytes.len() > limit {
             return Err(TransportError::Limit);
         }
         let mut body = Reader(bytes);
-        if body.take(8)? != b"CLGCQQ01" {
+        if body.take(8)? != if event { b"CLGCEY01" } else { b"CLGCQQ01" } {
             return Err(TransportError::Protocol);
         }
+        let admission = if event {
+            QueryAdmission::Event(match body.byte()? {
+                0 => cellar_logic::consensus::Durability::Quorum,
+                1 => cellar_logic::consensus::Durability::S3,
+                _ => return Err(TransportError::Protocol),
+            })
+        } else {
+            QueryAdmission::Public
+        };
         let invocation = ProposalId::new(body.array()?).map_err(|_| TransportError::Identity)?;
         let route_epoch = u64::from_be_bytes(body.array()?);
         let birth_digest = body.array()?;
@@ -111,6 +143,9 @@ impl CellQueryCall {
             _ => return Err(TransportError::Protocol),
         };
         let timeout_ms = u64::from_be_bytes(body.array()?);
+        if event && !matches!(consistency, CellQueryConsistency::Linearizable) {
+            return Err(TransportError::Protocol);
+        }
         if !(1..=3_600_000).contains(&timeout_ms) {
             return Err(TransportError::Protocol);
         }
@@ -120,6 +155,7 @@ impl CellQueryCall {
             return Err(TransportError::Protocol);
         }
         Ok(Self {
+            admission,
             request: CellQueryRequest {
                 invocation,
                 contract,

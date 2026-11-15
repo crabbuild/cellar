@@ -480,6 +480,7 @@ impl NativeWorker {
                 .application
                 .resolve_raft_class(crate::deploy::KV_CLASS)
                 .is_ok(),
+            raft_event: self.application.uses_raft_primitives(),
             ..Default::default()
         });
         io.native_event
@@ -2201,21 +2202,24 @@ pub(crate) fn event_rpc(
     args: RpcData,
     authority: crate::application::event_stream::Authority,
 ) -> HandlerFuture<RpcData> {
-    let call_scope = crate::host_rpc::CallScope::in_context(context, None, None);
     if context.raft_storage.is_some() {
-        return crate::application::cell_bindings::rpc_authorized(
+        return crate::application::cell_bindings::event_rpc(
             context,
             scope,
             name,
             method,
             args,
-            call_scope,
-            Some(authority),
+            crate::application::consensus::native_event_rpc::Authority::Event(authority),
         );
     }
-    if context.identity().is_none() && context.state.raft_cell_classes.is_some() {
+    if context.state.raft_event {
         return crate::application::consensus::native_ingress::event_rpc(
-            context, scope, name, method, args, call_scope, authority,
+            context,
+            scope,
+            name,
+            method,
+            args,
+            crate::application::consensus::native_event_rpc::Authority::Event(authority),
         );
     }
     if let Err(error) = context
@@ -2246,6 +2250,26 @@ pub(crate) fn catalog_rpc(
     method: String,
     args: RpcData,
 ) -> HandlerFuture<RpcData> {
+    if context.raft_storage.is_some() {
+        return crate::application::cell_bindings::event_rpc(
+            context,
+            scope,
+            Some(name),
+            method,
+            args,
+            crate::application::consensus::native_event_rpc::Authority::Catalog(authority),
+        );
+    }
+    if context.state.raft_event {
+        return crate::application::consensus::native_ingress::event_rpc(
+            context,
+            scope,
+            Some(name),
+            method,
+            args,
+            crate::application::consensus::native_event_rpc::Authority::Catalog(authority),
+        );
+    }
     if let Err(error) = context
         .check_turn()
         .and_then(|()| authority.validate_target(&scope, &method))

@@ -128,60 +128,68 @@ pub(in crate::application) fn event_service(
     catalog: bool,
 ) -> Result<RaftClass, RegistrationError> {
     use crate::application::event_stream as events;
-    let name = if catalog {
-        crate::deploy::EVENT_CATALOG_CLASS
-    } else {
-        crate::deploy::EVENT_STREAM_CLASS
-    };
     let mut identity = Sha256::new();
-    identity.update(b"cellar-raft-event-provision-1");
+    if catalog {
+        identity.update(b"cellar-raft-event-catalog-enrollment-1");
+    } else {
+        identity.update(b"cellar-raft-event-provision-1");
+    }
     identity.update(
         serde_json::to_vec(definitions)
             .map_err(|_| RegistrationError::Invalid("stream definitions"))?,
     );
-    let mut class = RaftClass::event_service(name)?
-        .initializer(identity.finalize().into(), |_, _| Ok(()))?
+    let initial_definitions = definitions.to_vec();
+    let initial_principal = configuration.script.clone();
+    let mut class = RaftClass::event_service(catalog)?
+        .initializer(identity.finalize().into(), move |cell, tx| {
+            if catalog {
+                let storage = tx.storage()?;
+                events::catalog::open(&storage)?;
+                for definition in &initial_definitions {
+                    if cell.cell.as_str() == events::catalog_scope(&definition.resource)? {
+                        events::catalog::provision_storage(
+                            &storage,
+                            &events::Authority::deployment(&initial_principal, definition)?,
+                            definition,
+                            &events::raft::operation(&initial_principal, definition)?,
+                            i64::try_from(tx.inputs().now_unix_millis)?,
+                        )?;
+                    }
+                }
+            }
+            Ok(())
+        })?
         .durable_callbacks()?;
-    let methods: &[&str] = if catalog {
-        &[
-            "__catalogConfigure",
-            "__catalogStatus",
-            "__catalogRetire",
-            "__catalogRetirementStatus",
-        ]
-    } else {
-        &[
-            "__streamConfigure",
-            "__streamAppend",
-            "__streamSeal",
-            "__streamRetirementCheck",
-            "__streamRetire",
-            "__streamRead",
-            "__streamResolve",
-            "__streamNext",
-            "__streamAck",
-            "__streamRetry",
-            "__streamExtend",
-            "__streamSubscriptionStatus",
-            "__streamSubscriptions",
-            "__streamSources",
-            "__streamSubscriptionChange",
-            "__streamAudit",
-            "__streamOperationStatus",
-            "__streamDescribe",
-        ]
-    };
-    for method in methods {
-        let mut hash = Sha256::new();
-        hash.update(b"cellar-raft-event-operation-1");
-        hash.update(method);
-        class = class.cell_rpc(*method, hash.finalize().into())?;
-    }
     class = class.query(
         super::sql_ingress_identity::OPERATION,
-        Sha256::digest(b"cellar-event-ingress-sequence-1").into(),
+        super::sql_ingress_identity::native_digest(),
         |query, input| query.sql_ingress_sequence(input),
     )?;
+    for definition in definitions {
+        use base64::Engine;
+        let authority = events::Authority::deployment(&configuration.script, definition)
+            .map_err(|_| RegistrationError::Invalid("stream provisioning authority"))?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(
+            serde_json::to_vec(definition)
+                .map_err(|_| RegistrationError::Invalid("stream definition"))?,
+        );
+        let args = crate::application::encode_rpc(&cellar_native::clone::StructuredValue::from_json(serde_json::json!([{"operation":"00000000000000000000000000000001","definition":encoded}])).map_err(|_| RegistrationError::Invalid("stream configuration"))?).map_err(|_| RegistrationError::Invalid("stream configuration RPC"))?;
+        let scope = events::catalog_scope(&definition.resource)
+            .map_err(|_| RegistrationError::Invalid("stream catalog scope"))?;
+        let name = events::catalog_name(&definition.resource)
+            .map_err(|_| RegistrationError::Invalid("stream catalog name"))?;
+        let frame = super::native_event_rpc::encode_ingress(
+            &scope,
+            Some(&name),
+            "__catalogConfigure",
+            authority.into(),
+            &args,
+            usize::MAX,
+            [1; 16],
+        )
+        .map_err(|_| RegistrationError::Invalid("stream configuration envelope"))?;
+        class.event_configuration_bytes = class.event_configuration_bytes.max(frame.len());
+    }
     let definitions: Arc<[events::Definition]> = definitions.to_vec().into();
     let principal = configuration.script.clone();
     let mut bindings = Vec::new();

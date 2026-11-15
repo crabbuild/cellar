@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "350784fc9befc043cd1d11f4e535c1c05332d8685992dd3ba6d81452ca5f32c3"
+    "crates/cellar/application/mod.rs": "4436c4945059d576ff7c3c0ff6de990b83915480aaa000db34f020f1ce000511"
   },
   "entries": [
     {
@@ -216,13 +216,20 @@
         "cellar::sdk::event_stream::Subscription::next_with_id",
         "cellar::sdk::event_stream::Subscription::ack",
         "cellar::sdk::event_stream::Subscription::retry",
-        "cellar::sdk::event_stream::Subscription::extend_until"
+        "cellar::sdk::event_stream::Subscription::extend_until",
+        "cellar::sdk::consensus::RaftCells::activate_event_generation",
+        "cellar::sdk::Node::activate_event_resources"
       ],
       "owners": [
         "crates/cellar/application/event_stream/mod.rs",
         "crates/cellar/application/event_stream/client.rs",
         "crates/cellar/application/event_stream/subscription.rs",
-        "crates/cellar/application/event_stream/schema.sql"
+        "crates/cellar/application/event_stream/schema.sql",
+        "crates/cellar/application/event_stream/activation.rs",
+        "crates/cellar/application/consensus/native_event_rpc.rs",
+        "crates/cellar/application/consensus/native_ingress.rs",
+        "crates/cellar/application/consensus/group_client/event_activation.rs",
+        "crates/cellar/node/event_resources.rs"
       ],
       "schemas": [
         "Records, lanes and consumer checkpoints"

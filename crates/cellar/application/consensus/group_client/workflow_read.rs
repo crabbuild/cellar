@@ -10,19 +10,6 @@ use crate::raft::completion::RuntimeError;
 use anyhow::Context as _;
 use rand::RngCore as _;
 
-fn retryable_read_admission(error: &anyhow::Error) -> bool {
-    let dispatch = error
-        .downcast_ref::<Arc<CellDispatchError>>()
-        .map(AsRef::as_ref)
-        .or_else(|| error.downcast_ref::<CellDispatchError>());
-    matches!(
-        dispatch,
-        Some(CellDispatchError::Runtime(
-            RuntimeError::NotReady | RuntimeError::Overloaded
-        ))
-    )
-}
-
 impl RaftCells {
     pub(crate) fn workflow_read(
         &self,
@@ -200,7 +187,7 @@ impl RaftCells {
                     }
                     .await;
                     match result {
-                        Err(error) if retryable_read_admission(&error) => {
+                        Err(error) if super::read_admission::retryable(&error) => {
                             // A cold selected image may not be locally ready yet.
                             // Only typed read admission refusals retry; the outer
                             // original timer and source permit remain authoritative.
@@ -223,33 +210,5 @@ impl RaftCells {
                 result=operation=>result,
             }
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn read_retries_only_typed_admission_after_context_wrapping() {
-        for error in [RuntimeError::NotReady, RuntimeError::Overloaded] {
-            let wrapped = anyhow::Error::from(Arc::new(CellDispatchError::Runtime(error)))
-                .context("Workflow resource history discovery");
-            assert!(retryable_read_admission(&wrapped));
-        }
-        for error in [
-            RuntimeError::Closed,
-            RuntimeError::DeadlineExceeded,
-            RuntimeError::NotFound,
-        ] {
-            assert!(!retryable_read_admission(
-                &CellDispatchError::Runtime(error).into()
-            ));
-        }
-        let fenced = CellDispatchError::Execution(crate::raft::execution::ExecutionError::Refused(
-            CommandFailure::Unavailable,
-        ));
-        assert!(!retryable_read_admission(&fenced.into()));
-        assert!(!retryable_read_admission(&anyhow::anyhow!("NotReady")));
     }
 }

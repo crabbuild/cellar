@@ -11,6 +11,13 @@ type VerificationCallback = Box<
     dyn FnOnce(&crate::storage::ImmutableQuery, &CellVersion) -> anyhow::Result<Vec<u8>> + Send,
 >;
 
+pub(crate) struct RegisteredQuery {
+    pub class: Arc<crate::application::consensus::RaftClass>,
+    pub contract: crate::application::consensus::OperationContract,
+    pub input: Vec<u8>,
+    pub admission: crate::application::consensus::QueryAdmission,
+}
+
 enum Callback {
     Effects {
         class: Arc<crate::application::consensus::RaftClass>,
@@ -26,6 +33,7 @@ enum Callback {
     Registered {
         class: Arc<crate::application::consensus::RaftClass>,
         contract: crate::application::consensus::OperationContract,
+        admission: crate::application::consensus::QueryAdmission,
         input: Box<[u8]>,
     },
 }
@@ -76,9 +84,14 @@ pub struct CellSqlQueryResult {
     replica: cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory>,
     observation: crate::raft::version::CellVersionObservation,
     _bytes: Arc<Bytes>,
+    _archive: Option<Box<crate::raft::cell_groups::S3OutputProof>>,
 }
 
 impl CellSqlQueryResult {
+    pub(crate) fn retain_archive(&mut self, proof: Box<crate::raft::cell_groups::S3OutputProof>) {
+        self._archive = Some(proof);
+    }
+
     pub fn replica(
         &self,
     ) -> &cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory> {
@@ -225,19 +238,33 @@ impl CellGroupSqlPool {
         contract: crate::application::consensus::OperationContract,
         input: Vec<u8>,
     ) -> Result<CellSqlQueryResult, ExecutionError> {
-        self.query_registered_retained(options, authority, class, contract, input, None)
-            .await
+        self.query_registered_retained(
+            options,
+            authority,
+            RegisteredQuery {
+                class,
+                contract,
+                input,
+                admission: crate::application::consensus::QueryAdmission::Public,
+            },
+            None,
+        )
+        .await
     }
 
     pub(crate) async fn query_registered_retained(
         &self,
         options: CellSqlOptions,
         authority: CellReadAuthority,
-        class: Arc<crate::application::consensus::RaftClass>,
-        mut contract: crate::application::consensus::OperationContract,
-        input: Vec<u8>,
+        request: RegisteredQuery,
         retention: Option<ReadRetention>,
     ) -> Result<CellSqlQueryResult, ExecutionError> {
+        let RegisteredQuery {
+            class,
+            mut contract,
+            input,
+            admission,
+        } = request;
         if contract.operation.len() > 128 {
             return Err(ExecutionError::Registration(
                 crate::application::consensus::RegistrationError::Invalid("class/operation name"),
@@ -254,6 +281,7 @@ impl CellGroupSqlPool {
                 Callback::Registered {
                     class,
                     contract,
+                    admission,
                     input: input.into_boxed_slice(),
                 },
                 retention,
@@ -415,14 +443,16 @@ pub(super) fn run(
         class,
         contract,
         input,
+        admission,
     } = &query.callback
     {
-        crate::raft::execution::validate_registered_query(
+        crate::raft::execution::validate_admitted_query(
             class,
             contract,
             input,
             query.authority.route().schema_digest,
             query.options.limits(),
+            *admission,
         )?;
     }
     let database = match (&query.options, query.authority.image()) {
@@ -495,8 +525,15 @@ pub(super) fn run(
             class,
             contract,
             input,
+            admission,
         } => class
-            .invoke_cell_query(&contract, &observation, database, &input)
+            .invoke_cell_query(
+                &contract,
+                &observation,
+                database.with_result_limit(query.options.limits().max_result_bytes),
+                &input,
+                admission,
+            )
             .map(Output::Query)
             .map_err(crate::raft::execution::storage),
         Callback::Receipt {
@@ -552,6 +589,7 @@ pub(super) fn run(
             replica,
             observation,
             _bytes: query.bytes,
+            _archive: None,
         }),
         Output::Receipt(receipt) => CellSqlOutcome::ReceiptLookedUp(CellSqlReceiptLookup {
             receipt,

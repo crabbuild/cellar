@@ -429,6 +429,7 @@ fn cell_observation() -> crate::raft::version::CellVersionObservation {
 
 fn cell_call(consistency: crate::raft::cell_groups::CellQueryConsistency) -> cell::CellQueryCall {
     cell::CellQueryCall {
+        admission: crate::application::consensus::QueryAdmission::Public,
         request: crate::raft::cell_groups::CellQueryRequest {
             invocation: ProposalId::new([91; 16]).unwrap(),
             contract: OperationContract {
@@ -697,6 +698,132 @@ fn command_call() -> command::CellCommandCall {
         timeout_ms: 1000,
         route_epoch: 3,
         birth_digest: [74; 32],
+    }
+}
+
+#[test]
+fn private_event_commands_bind_purpose_and_refuse_public_command_bodies() {
+    let call = command_call();
+    let body = call.encode_event(4096).unwrap();
+    let decoded = command::CellCommandCall::decode_event(&body, 4096).unwrap();
+    assert_eq!(decoded.encode_event(4096).unwrap(), body);
+    assert!(command::CellCommandCall::decode(&body, 4096).is_err());
+    assert!(command::CellCommandCall::decode_event(&call.encode(4096).unwrap(), 4096).is_err());
+    for end in 0..body.len() {
+        assert!(command::CellCommandCall::decode_event(&body[..end], 4096).is_err());
+    }
+    let read = Route::new_shared(
+        identity(1).node_identity(),
+        "node-1",
+        &identity(2),
+        "node-2",
+        &cell_observation().version.history,
+        [9; 32],
+    )
+    .unwrap();
+    let event = read.for_event_command().unwrap();
+    assert!(event.is_event_command());
+    assert!(event.requires_command_grant());
+    assert!(!event.is_command());
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let request = RequestHead::new(event, 4, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    for purpose in [
+        "Query",
+        "EventQuery",
+        "Command",
+        "BindingRetirement",
+        "Enrollment",
+        "Receipt",
+        "Name",
+    ] {
+        let mut value = serde_json::to_value(&request).unwrap();
+        value["route"]["purpose"] = serde_json::json!(purpose);
+        let changed = FrameHead {
+            prefix: head.prefix,
+            header: serde_json::to_vec(&value).unwrap(),
+            tag: head.tag,
+            payload_len: head.payload_len,
+        };
+        assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+    }
+}
+
+#[test]
+fn private_event_queries_authenticate_purpose_and_minimum_without_public_admission() {
+    use crate::application::consensus::QueryAdmission;
+    use crate::raft::cell_groups::CellQueryConsistency;
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    for minimum in [Durability::Quorum, Durability::S3] {
+        let mut call = cell_call(CellQueryConsistency::Linearizable);
+        let public = call.encode(4096).unwrap();
+        assert!(cell::CellQueryCall::decode_event(&public, 4096).is_err());
+        call.admission = QueryAdmission::Event(minimum);
+        let bytes = call.encode(4096).unwrap();
+        assert!(cell::CellQueryCall::decode(&bytes, 4096).is_err());
+        let decoded = cell::CellQueryCall::decode_event(&bytes, 4096).unwrap();
+        assert!(decoded.admission == call.admission);
+        assert_eq!(decoded.encode(4096).unwrap(), bytes);
+        for end in 0..bytes.len() {
+            assert!(cell::CellQueryCall::decode_event(&bytes[..end], 4096).is_err());
+        }
+        let route = Route::new_shared(
+            identity(1).node_identity(),
+            "node-1",
+            &identity(2),
+            "node-2",
+            &cell_observation().version.history,
+            [9; 32],
+        )
+        .unwrap()
+        .for_event_query()
+        .unwrap();
+        assert!(route.requires_command_grant());
+        assert!(!route.is_event_command());
+        let request = RequestHead::new(route, 4, &bytes);
+        let head = request_head(&auth, &[3; 32], &request, &bytes, &options).unwrap();
+        for purpose in [
+            "Query",
+            "Command",
+            "EventCommand",
+            "Enrollment",
+            "Receipt",
+            "Name",
+        ] {
+            let mut value = serde_json::to_value(&request).unwrap();
+            value["route"]["purpose"] = serde_json::json!(purpose);
+            let changed = FrameHead {
+                prefix: head.prefix,
+                header: serde_json::to_vec(&value).unwrap(),
+                tag: head.tag,
+                payload_len: head.payload_len,
+            };
+            assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+        }
+        let mut changed = bytes;
+        changed[8] = 9;
+        assert!(cell::CellQueryCall::decode_event(&changed, 4096).is_err());
+        call.request.consistency = CellQueryConsistency::Stale;
+        assert!(call.encode(4096).is_err());
+    }
+}
+
+#[test]
+fn read_transport_unavailability_preserves_security_and_mutation_failures() {
+    assert_eq!(
+        TransportError::Io("offline".into()).for_read(),
+        TransportError::Query(CommandFailure::Unavailable)
+    );
+    for error in [
+        TransportError::Authentication,
+        TransportError::Identity,
+        TransportError::Protocol,
+        TransportError::CommandRejected(CommandFailure::Unavailable),
+        TransportError::Timeout,
+    ] {
+        assert_eq!(error.clone().for_read(), error);
     }
 }
 

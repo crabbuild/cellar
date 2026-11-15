@@ -3,12 +3,15 @@
 //! An authenticated reply owns its S3 output until the physical writer finishes.
 use super::TransportError;
 use crate::application::consensus::CommandFailure;
-use crate::raft::cell_groups::{CellCommandResponse, CellReceiptResponse, CellSqlEnrollment};
+use crate::raft::cell_groups::{
+    CellCommandResponse, CellQueryResponse, CellReceiptResponse, CellSqlEnrollment,
+};
 use crate::raft::leader_advice::{LeaderAdvice, MutationDisposition};
 use crate::raft::query_wire as wire;
 use cellar_logic::consensus::Durability;
 
 enum Owner {
+    Query { _response: Box<CellQueryResponse> },
     Command { _response: Box<CellCommandResponse> },
     Enrollment { _response: Box<CellSqlEnrollment> },
     Receipt { _response: Box<CellReceiptResponse> },
@@ -20,6 +23,20 @@ pub(super) struct Reply {
 }
 
 impl Reply {
+    pub(super) fn query(
+        result: Result<CellQueryResponse, CommandFailure>,
+        advice: Option<&LeaderAdvice>,
+        limit: usize,
+    ) -> Result<Self, TransportError> {
+        let bytes = wire::cell::encode_cell_result(&result, advice, limit)?;
+        Ok(Self {
+            bytes,
+            _owner: result.ok().map(|response| Owner::Query {
+                _response: Box::new(response),
+            }),
+        })
+    }
+
     pub(super) fn plain(bytes: Vec<u8>) -> Self {
         Self {
             bytes,

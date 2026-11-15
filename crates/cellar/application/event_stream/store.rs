@@ -72,6 +72,15 @@ pub(crate) fn authority(context: &Context, action: Action) -> Result<Authority> 
         .event_authority
         .clone()
         .ok_or_else(|| error(ErrorCode::Forbidden, "event RPC has no host authority"))?;
+    let scope = &context
+        .identity()
+        .ok_or_else(|| error(ErrorCode::Forbidden, "event RPC requires a system cell"))?
+        .scope;
+    validate_authority(scope, &authority, action)?;
+    Ok(authority)
+}
+
+pub(crate) fn validate_authority(scope: &str, authority: &Authority, action: Action) -> Result<()> {
     authority.validate()?;
     if authority.action != action {
         return Err(error(
@@ -79,12 +88,7 @@ pub(crate) fn authority(context: &Context, action: Action) -> Result<Authority> 
             "event RPC action does not match its authority",
         ));
     }
-    let scope = &context
-        .identity()
-        .ok_or_else(|| error(ErrorCode::Forbidden, "event RPC requires a system cell"))?
-        .scope;
-    super::validate_target(scope, &authority)?;
-    Ok(authority)
+    super::validate_target(scope, authority)
 }
 
 pub(crate) fn authorize<'a>(
@@ -159,6 +163,10 @@ pub(crate) fn clock(db: &Storage) -> Result<i64> {
 
 pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
     let caller = authority(context, Action::Resolve)?;
+    resolve_read(&context.storage()?, &caller, body)
+}
+
+pub(crate) fn resolve_read(db: &Storage, caller: &Authority, body: &Value) -> Result<Value> {
     let encoded = body["binding"]
         .as_str()
         .context("binding resolution request missing")?;
@@ -177,9 +185,8 @@ pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
     }
     let binding: super::Binding = serde_json::from_slice(&bytes)?;
     binding.validate()?;
-    let db = context.storage()?;
-    let (definition, _) = load(&db)?;
-    let grant = authorize(&definition, &caller, Action::Resolve, None)?;
+    let (definition, _) = load(db)?;
+    let grant = authorize(&definition, caller, Action::Resolve, None)?;
     if binding.principal != caller.principal
         || binding.grant != caller.grant
         || binding.resource != definition.resource
@@ -198,7 +205,7 @@ pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
     }
     for name in &binding.subscriptions {
         if db
-            .system_sql(
+            .system_sql_read(
                 "SELECT id FROM __sys_stream_subscriptions WHERE name=? AND state!='deleted'",
                 &[name.clone().into()],
             )?
@@ -216,7 +223,7 @@ pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
 }
 
 pub(crate) fn load_state(db: &Storage) -> Result<(Definition, SqlRow)> {
-    let present = db.system_sql(
+    let present = db.system_sql_read(
         "SELECT name FROM sqlite_schema WHERE type='table' AND name='__sys_stream'",
         &[],
     )?;
@@ -227,7 +234,7 @@ pub(crate) fn load_state(db: &Storage) -> Result<(Definition, SqlRow)> {
         ));
     }
     let row = db
-        .system_sql("SELECT * FROM __sys_stream WHERE singleton=1", &[])?
+        .system_sql_read("SELECT * FROM __sys_stream WHERE singleton=1", &[])?
         .into_iter()
         .next()
         .ok_or_else(|| error(ErrorCode::NotInitialized, "stream is not provisioned"))?;
@@ -672,8 +679,19 @@ pub(crate) fn append(context: &Context, body: &Value) -> Result<Value> {
 pub(crate) fn read(context: &Context, body: &Value) -> Result<Value> {
     let caller = authority(context, Action::Read)?;
     let db = context.storage()?;
-    let (definition, row) = load(&db)?;
-    authorize(&definition, &caller, Action::Read, None)?;
+    read_selected(&db, &caller, body, command_result_limit()?)
+}
+
+/// Read the retained interval of one selected image. Expiry and reclamation
+/// belong to committed maintenance; inspection cannot advance that frontier.
+pub(crate) fn read_selected(
+    db: &Storage,
+    caller: &Authority,
+    body: &Value,
+    result_limit: usize,
+) -> Result<Value> {
+    let (definition, row) = load(db)?;
+    authorize(&definition, caller, Action::Read, None)?;
     let earliest = number(&row, "earliest_offset")?;
     let next = number(&row, "next_offset")?;
     let requested = match body.get("next") {
@@ -693,8 +711,10 @@ pub(crate) fn read(context: &Context, body: &Value) -> Result<Value> {
         failure.data = json!({"earliest":earliest.to_string()});
         return Err(failure.into());
     }
-    let (count, budget) = budgets(body)?;
-    let records = records(&db, requested, next - 1, count, budget)?;
+    // A selected query has no asynchronous command dispatch capability. Its
+    // owner supplies the response bound; only the command wrapper captures one.
+    let (count, budget) = budgets_for_result(body, result_limit)?;
+    let records = records(db, requested, next - 1, count, budget)?;
     let cursor = records
         .last()
         .map(|row| {
@@ -710,6 +730,17 @@ pub(crate) fn read(context: &Context, body: &Value) -> Result<Value> {
 }
 
 pub(crate) fn budgets(body: &Value) -> Result<(usize, usize)> {
+    budgets_for_result(body, command_result_limit()?)
+}
+
+fn command_result_limit() -> Result<usize> {
+    crate::storage::capture_raft_dispatch()?
+        .map(|dispatch| dispatch.result_limit())
+        .transpose()
+        .map(|limit| limit.unwrap_or(usize::MAX))
+}
+
+fn budgets_for_result(body: &Value, result_limit: usize) -> Result<(usize, usize)> {
     let limits = crate::application::limits::current().events;
     let count = match body.get("max_records") {
         Some(value) => value
@@ -725,11 +756,9 @@ pub(crate) fn budgets(body: &Value) -> Result<(usize, usize)> {
         None => limits.batch_bytes() as u64,
     }
     .min(limits.batch_bytes() as u64) as usize;
-    if let Some(dispatch) = crate::storage::capture_raft_dispatch()? {
-        // Base64, structured-value framing, cursors and lease receipts must fit
-        // the owning command's retained reply as well as the caller's budget.
-        budget = budget.min(dispatch.result_limit()?.saturating_sub(4096) / 4 * 3);
-    }
+    // Base64, structured-value framing, cursors and lease receipts must fit
+    // the selected reader/command's retained reply and the caller's budget.
+    budget = budget.min(result_limit.saturating_sub(4096) / 4 * 3);
     if count == 0 || budget == 0 {
         return Err(error(
             ErrorCode::InvalidRequest,
@@ -748,7 +777,7 @@ pub(crate) fn records(
     count: usize,
     budget: usize,
 ) -> Result<Vec<Value>> {
-    let rows = db.system_sql("SELECT offset,size FROM __sys_stream_events WHERE offset>=? AND offset<=? ORDER BY offset LIMIT ?",
+    let rows = db.system_sql_read("SELECT offset,size FROM __sys_stream_events WHERE offset>=? AND offset<=? ORDER BY offset LIMIT ?",
         &[first.into(),last.into(),i64::try_from(count)?.into()])?;
     let mut records = Vec::new();
     let mut size = 0usize;
@@ -771,7 +800,7 @@ pub(crate) fn records(
             }
             break;
         }
-        let payload = db.system_sql(
+        let payload = db.system_sql_read(
             "SELECT envelope FROM __sys_stream_events WHERE offset=?",
             &[offset.into()],
         )?;

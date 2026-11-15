@@ -11,13 +11,11 @@ const FORMAT: u8 = 1;
 
 pub(crate) fn has_ingress_nonce(input: &[u8]) -> bool {
     input.starts_with(&[b'C', b'R', b'P', b'C', FORMAT, 3])
-        || input.starts_with(&[b'C', b'R', b'P', b'C', FORMAT, 5])
 }
 
 pub(crate) struct Request {
     pub name: Option<String>,
     pub args: RpcData,
-    pub event_authority: Option<crate::application::event_stream::Authority>,
 }
 
 #[derive(Clone, Copy)]
@@ -113,55 +111,16 @@ pub(crate) fn encode_request(
     Ok(output)
 }
 
-/// Only the framework event adapter supplies provenance, outside application arguments.
-pub(crate) fn encode_event_request(
-    name: Option<&str>,
-    args: &RpcData,
-    authority: &crate::application::event_stream::Authority,
-    nonce: Option<[u8; 16]>,
-    max_bytes: usize,
-) -> Result<Vec<u8>> {
-    authority.validate()?;
-    let encoded = serde_json::to_vec(authority)?;
-    let overhead = encoded
-        .len()
-        .checked_add(4 + nonce.map_or(0, |_| 16))
-        .context("event authority size")?;
-    let request = encode_request(
-        name,
-        args,
-        max_bytes
-            .checked_sub(overhead)
-            .ok_or(super::CommandFailure::Overloaded)?,
-    )?;
-    let mut output = request[..5].to_vec();
-    output.push(if nonce.is_some() { 5 } else { 4 });
-    if let Some(nonce) = nonce {
-        output.extend(nonce);
-    }
-    write(&mut output, &encoded)?;
-    output.extend(&request[6..]);
-    Ok(output)
-}
-
 pub(crate) fn decode_request(input: &[u8]) -> Result<Request> {
     let purpose = *input.get(5).context("truncated native RPC purpose")?;
     ensure!(
-        purpose == 1 || purpose == 3 || purpose == 4 || purpose == 5,
+        purpose == 1 || purpose == 3,
         "invalid native RPC request purpose"
     );
     let mut reader = Reader::new(input, purpose)?;
-    if purpose == 3 || purpose == 5 {
+    if purpose == 3 {
         reader.take(16)?;
     }
-    let event_authority = if purpose == 4 || purpose == 5 {
-        let authority: crate::application::event_stream::Authority =
-            serde_json::from_slice(reader.bytes()?)?;
-        authority.validate()?;
-        Some(authority)
-    } else {
-        None
-    };
     let name = match reader.byte()? {
         0 => None,
         1 => {
@@ -173,11 +132,23 @@ pub(crate) fn decode_request(input: &[u8]) -> Result<Request> {
     };
     let args = reader.value(ValuePurpose::Argument)?;
     reader.finish()?;
-    Ok(Request {
-        name,
-        args,
-        event_authority,
-    })
+    Ok(Request { name, args })
+}
+
+/// Borrow a query request's framing and unchanged name/argument bytes. An
+/// ingress nonce belongs to the original command fingerprint, not its read
+/// probe. The selected query decoder still validates the complete payload.
+pub(super) fn query_request_parts(input: &[u8]) -> Result<(&[u8], &[u8])> {
+    let purpose = *input.get(5).context("truncated native RPC purpose")?;
+    ensure!(
+        purpose == 1 || purpose == 3,
+        "invalid native RPC request purpose"
+    );
+    let mut reader = Reader::new(input, purpose)?;
+    if purpose == 3 {
+        reader.take(16)?;
+    }
+    Ok((&[b'C', b'R', b'P', b'C', FORMAT, 1], reader.0))
 }
 
 /// Independent ingress calls with identical SQL still have different retained

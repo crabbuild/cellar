@@ -20,7 +20,7 @@ pub(crate) struct CellRpcDispatch {
 }
 
 pub(crate) struct CellRpcEnvironment<'a> {
-    pub system: bool,
+    pub admission: CommandAdmission,
     pub activation: &'a mut Option<crate::application::consensus::CellRpcActivation>,
     pub reserve: &'a mut dyn FnMut() -> Result<(), ExecutionError>,
     pub dispatch: Option<CellRpcDispatch>,
@@ -121,14 +121,14 @@ impl CellPrivateExecutor {
         independent: bool,
         environment: CellRpcEnvironment<'_>,
     ) -> Result<CellRpcStart, ExecutionError> {
-        let contract = super::super::registered::validate(
+        let contract = super::super::registered::validate_admission(
             self.options.limits,
             self.options.application_digest,
             &self.authority.cell().version.history,
             &attempt.request,
             class,
             input,
-            environment.system,
+            environment.admission,
         )?;
         let mut preparation = match self.prepare_stage(&attempt, allow_new)? {
             StageAdmission::Duplicate(receipt) => return Ok(CellRpcStart::Duplicate(receipt)),
@@ -154,6 +154,10 @@ impl CellPrivateExecutor {
                     .map(|activation| activation.resources()),
             )
             .map_err(private_failure)?;
+        // Entry already proves this committed image under Quorum. Capture the
+        // baseline before maintenance and constructors: any private writes or
+        // schema changes still require a checkpoint before dependent reads.
+        transaction.mark_quorum_read_base(attempt.request.durability == Durability::Quorum);
         if let Some(CellRpcDispatch {
             domain,
             deadline,

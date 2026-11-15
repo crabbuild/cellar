@@ -264,8 +264,12 @@ struct Entry {
     fatal: bool,
     stopping: bool,
     retry_at: u64,
+    // Armed only by a new foreground batch, consumed by publication launch.
+    // Returned proof work must not renew an immediate retry.
+    foreground_wake: bool,
     waiters: Vec<settlement::Request>,
     proof_queued: bool,
+    proof_retry: Option<(LogIndex, u64)>,
 }
 
 pub(super) struct PublicationCompleted {
@@ -281,6 +285,7 @@ pub(super) struct PublicationCompleted {
 pub(super) struct ProofCompleted {
     group: GroupHistory,
     waiters: Vec<settlement::Request>,
+    retry_cut: Option<LogIndex>,
 }
 
 pub(super) enum Completed {
@@ -297,11 +302,14 @@ pub(super) struct Manager {
     proof_job: Option<BoxFuture<'static, ProofCompleted>>,
     proof_group: Option<GroupHistory>,
     proof_queue: VecDeque<GroupHistory>,
-    proof_retry_at: u64,
-    // Keep one completed verification through pending predecessor cleanup so
-    // covered late requests can share it. Drop it before new verification;
-    // no physical pin is cached for idle groups.
-    handoff: Option<(GroupHistory, CellGroupArchiveCoverage)>,
+    // One node-wide completed verification lets covered observations share the
+    // actual admitted proof across idle gaps and predecessor cleanup. It stays
+    // charged to its original physical bank. A publication launch takes it and
+    // drops it before new verification; retirement and shutdown also clear it.
+    handoff: Option<(
+        GroupHistory,
+        Arc<crate::raft::cell_groups::archive::CachedCoverage>,
+    )>,
 }
 
 impl Manager {
@@ -345,8 +353,10 @@ impl Manager {
                 fatal: false,
                 stopping: false,
                 retry_at: 0,
+                foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
+                proof_retry: None,
             },
         );
         self.queue.push_back(group);
@@ -393,8 +403,10 @@ impl Manager {
                 fatal: false,
                 stopping: false,
                 retry_at: 0,
+                foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
+                proof_retry: None,
             },
         );
         self.queue.push_back(group);
@@ -434,6 +446,7 @@ impl Manager {
         // Further waiters share that attempt and its bounded retry schedule.
         if entry.waiters.is_empty() {
             entry.retry_at = 0;
+            entry.foreground_wake = true;
         }
         entry.waiters.push(request);
         if !entry.proof_queued {
@@ -464,7 +477,7 @@ impl Manager {
     }
 
     fn launch_proof(&mut self, now: u64) {
-        if self.proof_job.is_some() || now < self.proof_retry_at {
+        if self.proof_job.is_some() {
             return;
         }
         for _ in 0..self.proof_queue.len() {
@@ -491,10 +504,19 @@ impl Manager {
                     continue;
                 }
             };
+            let index = coverage.marker().position().index;
+            if entry
+                .proof_retry
+                .is_some_and(|(cut, retry_at)| cut == index && now < retry_at)
+            {
+                entry.proof_queued = true;
+                self.proof_queue.push_back(group);
+                continue;
+            }
             let mut selected = Vec::new();
             let mut waiting = Vec::new();
             for request in entry.waiters.drain(..) {
-                if selected.len() < 32 && request.may_reuse(coverage.marker().position().index) {
+                if selected.len() < 32 && request.may_reuse(index) {
                     selected.push(request);
                 } else {
                     waiting.push(request);
@@ -543,7 +565,17 @@ impl Manager {
                         }
                     }
                 }
-                ProofCompleted { group, waiters }
+                // Uncovered outputs remember this cut and cannot select it
+                // again. Only a retry of the same physical proof needs backoff.
+                let retry_cut = waiters
+                    .iter()
+                    .any(|request| request.may_reuse(index))
+                    .then_some(index);
+                ProofCompleted {
+                    group,
+                    waiters,
+                    retry_cut,
+                }
             }));
             break;
         }
@@ -568,7 +600,9 @@ impl Manager {
             }
             return;
         }
-        let uncovered = !completed.waiters.is_empty();
+        entry.proof_retry = completed
+            .retry_cut
+            .map(|cut| (cut, now.saturating_add(shared.limits.retry_interval_ms)));
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
         if !entry.waiters.is_empty() {
@@ -582,14 +616,8 @@ impl Manager {
                 self.proof_queue.push_back(completed.group);
             }
         }
-        // Busy reads may retry the same cut, but never spin independently of
-        // the existing shared controller timer. Uncovered outputs remember the
-        // cut they inspected and require a newer one for another proof batch.
-        self.proof_retry_at = if uncovered {
-            now.saturating_add(shared.limits.retry_interval_ms)
-        } else {
-            now
-        };
+        // The shared timer bounds busy retries for this exact group/cut. A
+        // newer verified cut, or another group, must not inherit that delay.
     }
 
     pub fn launch(&mut self, runtime: &CellGroupRuntime, shared: &Shared, now: u64) {
@@ -609,6 +637,7 @@ impl Manager {
                 self.queue.push_back(group);
                 continue;
             }
+            entry.foreground_wake = false;
             entry.dirty = false;
             let observed_head = shared
                 .archives
@@ -633,7 +662,7 @@ impl Manager {
                 .handoff
                 .take()
                 .filter(|(selected, _)| *selected == group)
-                .map(|(_, coverage)| coverage);
+                .and_then(|(_, coverage)| coverage.take());
             tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                 group = ?group.group, stage = "launch", waiters = count);
             settlement::prune(&mut waiters, now);
@@ -785,7 +814,7 @@ impl Manager {
             .registration
             .publisher
             .retry_interval_ms(shared.limits.retry_interval_ms);
-        let unexamined_waiters = !entry.waiters.is_empty();
+        settlement::prune(&mut entry.waiters, now);
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
         let mut statuses = shared
@@ -829,6 +858,12 @@ impl Manager {
                 status.error = Some(Arc::new(error));
             }
         }
+        if entry.foreground_wake && !entry.fatal {
+            // A new batch arrived after this publication consumed its wake.
+            // The older completion must not overwrite that immediate attempt.
+            // Proof-lane requeues never arm this one-shot wakeup.
+            entry.retry_at = 0;
+        }
         if entry.context.is_some() || entry.fatal {
             entry.activation.take();
         }
@@ -843,10 +878,13 @@ impl Manager {
         } else if !entry.waiters.is_empty() {
             entry.dirty = true;
         }
-        if !closing && !entry.fatal && (unexamined_waiters || completed.maintenance_pending) {
-            self.handoff = completed
-                .coverage
-                .map(|coverage| (completed.group, coverage));
+        if !closing && !entry.fatal && !entry.stopping {
+            self.handoff = completed.coverage.map(|coverage| {
+                let cache = crate::raft::cell_groups::archive::CachedCoverage::new(coverage);
+                entry.registration.tails.remember_idle(&cache);
+                entry.registration.checkpoints.remember_archive_idle(&cache);
+                (completed.group, cache)
+            });
         }
         if !entry.waiters.is_empty() && !entry.proof_queued {
             entry.proof_queued = true;

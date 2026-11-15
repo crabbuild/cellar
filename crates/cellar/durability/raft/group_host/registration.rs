@@ -139,6 +139,10 @@ pub(crate) async fn prepare(
             );
         }
         class.validate_shared_host(&config.host)?;
+        class.validate_event_host(
+            &config.host,
+            crate::asyncrt::services().cell_limits().events,
+        )?;
         anyhow::ensure!(
             class.schema_digest() == registration.namespace.schema_digest,
             "compiled namespace schema mismatch"

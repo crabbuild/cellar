@@ -89,7 +89,7 @@ impl Cell for Interleaved {
     }
 }
 
-fn command(client: u8, sequence: u64, durability: Durability) -> Result<CommandOptions> {
+pub(super) fn command(client: u8, sequence: u64, durability: Durability) -> Result<CommandOptions> {
     let now = u64::try_from(cellar::asyncrt::wall_ms())?;
     Ok(CommandOptions {
         durability,
