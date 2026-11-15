@@ -64,12 +64,17 @@ RustFS; broader recovery and independent-target-S3 activation still fail.
 Stateful metadata queries and fresh retained activation are implemented at
 `aa6b3700`, but its native and RustFS campaigns fail cold startup. The hint-only
 correction at `2216aa23` passes its build/static gates yet fails four of five
-public controls. A compiled adapter is not complete primitive support.
+public controls. Catalog coalescing at `c7ed340c` also passes build/static gates
+but fails four of six controls: registration and Fleet conformance pass, while
+all four shared-group selections fail initial activation. One RustFS configuration
+commits after 2,839 ms, then immutable reader admission returns `Overloaded`.
+A compiled adapter is not complete primitive support.
 
-1. **Close EventStream startup, consumption and recovery progress.** Qualify the
-   catalog coalescing candidate against the unchanged native/RustFS cases.
+1. **Close EventStream startup, consumption and recovery progress.** Qualify
+   bounded immutable reader-admission retries against the unchanged native/RustFS
+   cases, then resolve configuration latency at its owning source/target boundary.
    Retained images establish two child receipts for the same configuration input;
-   coalesce live reconciliation before allocating duplicate child identities and
+   The implemented reservation coalesces live reconciliation before allocating duplicate child identities and
    re-arm the same durable obligation safely. Poll only current status for the
    original operation, within the original activation deadline. A local history
    hint can select an optimization but never replace current authority/proof.

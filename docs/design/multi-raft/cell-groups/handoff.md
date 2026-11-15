@@ -20,14 +20,27 @@ native cohort 165 is FAILED at 21/25 and RustFS cohort 166 is FAILED at 0/6.
 The hint-only correction `2216aa23` also remains FAILED at 1/5 public controls.
 Do not substitute their build/unit passes for public feature acceptance.
 
-Candidate `aa591bc2` integrates the catalog coalescing change prepared in the
+Source `aa591bc2` integrates the catalog coalescing change prepared in the
 isolated `cg17-catalog-work` worktree. It shares one bounded live reservation per
 catalog resource, preserves the pending operation and original child identities,
 and polls fresh activation metadata without resubmitting the mutation or extending
-the original deadline. Compile and qualify the candidate before publishing a
-runtime pass. Preserve stale/completed-operation retry fences, independent S3
-proof and all original public assertions. The isolated worktree is archived after its
-needed changes were integrated and retained.
+the original deadline. All 18 selected owning units pass at `d25d9727` in the
+unoptimized dev test profile. The full-history reservation scope and stricter
+refusal assertions follow at `c7ed340c`; do not relabel the earlier units as that
+source. Its optimized build, strict Clippy and repository checks pass, but public
+control 174 is **FAILED: 2/6**. Registration and Fleet conformance pass; all four
+shared-group selections fail initial materialized activation, leaving extents
+unrun. RustFS named configuration commits after 2,839 ms and then receives typed
+metadata-reader `Overloaded`; the other controls exceed their original budgets.
+The 22-file backup and retained failed disks are verified. Coalescing does not
+establish a public startup pass.
+
+The current follow-up adds only bounded immutable reader-admission retries,
+sharing Workflow's typed `NotReady`/`Overloaded` rule. Qualify that source before
+claiming progress through the public gate. Preserve stale/completed-operation
+retry fences, original deadlines, independent S3 proof and all public assertions.
+Configuration latency remains a separate investigation. The isolated worktree
+is archived after its needed changes were integrated and retained.
 
 After public EventStream progress, finish interruption/retention and Queue load,
 remaining SQL/KV/time/Workflow lifecycle, payload/provider adapters and the complete

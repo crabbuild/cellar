@@ -75,8 +75,31 @@ contribution. Candidate `aa591bc2` coalesces shared-group ingress/maintenance us
 the existing bounded live dispatch reservation, re-arms only the same pending
 operation and polls current activation status without resubmitting configuration.
 Its SQL/protocol tests cover monotonic retry, stale/completed-operation fencing,
-unknown-history creation and refusal of historical/superseded readiness.
-The candidate still requires compilation and current-source qualification.
+unknown-history creation and refusal of historical/superseded readiness. At
+`d25d9727`, all **18 selected owning units pass** in the unoptimized dev test
+profile with assertions and overflow checks enabled. Follow-up `c7ed340c` scopes
+the reservation to the complete logical history, including cluster, namespace
+and incarnation, and requires the negative protocol tests' specific refusal.
+Those follow-up changes are not relabeled as the earlier unit run.
+
+At `c7ed340c`, the locked optimized public/Fleet build, strict Clippy and all
+repository checks pass. Cohort `CG-17-event-coalesce-c7ed340c-174` is nevertheless
+**FAILED: 2/6**. Registration and ordinary Fleet conformance pass. Native named
+and explicit recovery, RustFS named and independent-target-S3 cases all fail
+initial materialized activation; their extent branches remain unrun. The RustFS
+named configuration command succeeds after 2,839 ms, then its immutable metadata
+query fails with typed `Runtime(Overloaded)`. The other three controls exceed
+their original activation deadlines. Coalescing alone has not closed startup.
+The 22-file evidence backup, frozen binaries and all failed voter disks are
+retained and verified.
+
+The next follow-up retries only typed temporary reader admission (`NotReady` or
+`Overloaded`) for private immutable EventStream metadata, using the same rule as
+Workflow. It retains the original absolute deadline, source proof, current target
+authorization and independent S3 coverage; quota, fencing, security and mutation
+failures do not acquire a new retry rule. Compilation and runtime qualification
+of that follow-up remain separate gates. Configuration latency and consumption
+progress remain open even if reader admission succeeds.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS

@@ -124,67 +124,91 @@ impl RaftCells {
                 ))
             };
             let operation = async {
-                let history = match route.history_hint {
-                    Some(history) => history,
-                    None => {
-                        let options = QueryOptions {
-                            timeout: remaining()?,
-                            ..Default::default()
+                let mut backoff_ms = 10;
+                loop {
+                    remaining()?;
+                    let result = async {
+                        let history = match route.history_hint.clone() {
+                            Some(history) => history,
+                            None => {
+                                let options = QueryOptions {
+                                    timeout: remaining()?,
+                                    ..Default::default()
+                                };
+                                let found = if source_proven {
+                                    owner
+                                        .resolve_cell_history_direct(
+                                            route.cluster,
+                                            route.namespace,
+                                            route.cell.clone(),
+                                            options,
+                                        )
+                                        .await
+                                } else {
+                                    owner
+                                        .resolve_cell_history(
+                                            route.cluster,
+                                            route.namespace,
+                                            route.cell.clone(),
+                                            options,
+                                        )
+                                        .await
+                                };
+                                found?.ok_or(RuntimeError::NotFound)?
+                            }
                         };
-                        let found = if source_proven {
-                            owner
-                                .resolve_cell_history_direct(
-                                    route.cluster,
-                                    route.namespace,
-                                    route.cell,
-                                    options,
-                                )
-                                .await
-                        } else {
-                            owner
-                                .resolve_cell_history(
-                                    route.cluster,
-                                    route.namespace,
-                                    route.cell,
-                                    options,
-                                )
-                                .await
+                        let response = owner
+                            .handle
+                            .core
+                            .host
+                            .cell(history)?
+                            .query_routed_admitted(
+                                CellQueryRequest {
+                                    invocation,
+                                    contract: route.contract.clone(),
+                                    input: input.clone(),
+                                    consistency: CellQueryConsistency::Linearizable,
+                                },
+                                CellRoutingLimits {
+                                    timeout: remaining()?,
+                                    max_attempts: 4,
+                                },
+                                CellQueryRouting::Automatic,
+                                QueryAdmission::Event(route.durability),
+                            )?
+                            .response()
+                            .await?;
+                        remaining()?;
+                        anyhow::ensure!(
+                            response.result().len() <= route.max_result_bytes,
+                            CommandFailure::Overloaded
+                        );
+                        let result = native_rpc::decode_response(response.result())?;
+                        let RpcData::Structured(bytes) = result else {
+                            anyhow::bail!(CommandFailure::CorruptState);
                         };
-                        found?.ok_or(RuntimeError::NotFound)?
+                        let retained =
+                            crate::rpc_reservation::Reservation::shared(Arc::new(response));
+                        Ok(RpcData::Structured(retained.retain_bytes(bytes)))
                     }
-                };
-                let response = owner
-                    .handle
-                    .core
-                    .host
-                    .cell(history)?
-                    .query_routed_admitted(
-                        CellQueryRequest {
-                            invocation,
-                            contract: route.contract,
-                            input,
-                            consistency: CellQueryConsistency::Linearizable,
-                        },
-                        CellRoutingLimits {
-                            timeout: remaining()?,
-                            max_attempts: 4,
-                        },
-                        CellQueryRouting::Automatic,
-                        QueryAdmission::Event(route.durability),
-                    )?
-                    .response()
-                    .await?;
-                remaining()?;
-                anyhow::ensure!(
-                    response.result().len() <= route.max_result_bytes,
-                    CommandFailure::Overloaded
-                );
-                let result = native_rpc::decode_response(response.result())?;
-                let RpcData::Structured(bytes) = result else {
-                    anyhow::bail!(CommandFailure::CorruptState);
-                };
-                let retained = crate::rpc_reservation::Reservation::shared(Arc::new(response));
-                Ok(RpcData::Structured(retained.retain_bytes(bytes)))
+                    .await;
+                    match result {
+                        Err(error) if super::read_admission::retryable(&error) => {
+                            // A cold selected image can temporarily refuse a
+                            // reader. Retry only immutable admission, retaining
+                            // the original deadline, authority and source proof.
+                            remaining()?;
+                            let now = owner.handle.domain.mono_ms()?;
+                            owner
+                                .handle
+                                .domain
+                                .sleep_until(now.saturating_add(backoff_ms).min(deadline))?
+                                .await;
+                            backoff_ms = (backoff_ms * 2).min(100);
+                        }
+                        result => return result,
+                    }
+                }
             };
             let timer = owner.handle.domain.sleep_until(deadline)?;
             crate::asyncrt::select_biased! { "original EventStream metadata deadline";

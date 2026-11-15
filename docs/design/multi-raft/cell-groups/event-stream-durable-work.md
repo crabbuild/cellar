@@ -27,7 +27,10 @@ Ordinary RPC bytes and public command discovery cannot supply event provenance.
 Pure metadata reads use pinned linearizable images for activation and stateful
 callers, with separate archive coverage at an S3 minimum. Stateful callers prove
 preceding source writes before dispatch; metadata reads do not allocate child
-mutation identities or initialize target cells. Retained shared-group activation
+mutation identities or initialize target cells. Typed temporary reader admission
+(`NotReady`/`Overloaded`) retries within the same absolute deadline, with fresh
+target authorization and coverage checks. Fencing, malformed input, quota and
+mutation failures remain refusals. Retained shared-group activation
 skips configuration only after a fresh authorized catalog read proves the exact
 active definition. A local history hint chooses whether to attempt that read;
 unknown catalogs go directly through creation without an extra strong absence

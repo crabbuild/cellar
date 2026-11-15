@@ -128,6 +128,7 @@ mod names;
 mod node;
 mod observation;
 mod origins;
+mod read_admission;
 mod recovery;
 mod repair;
 mod scoped_dispatch;
