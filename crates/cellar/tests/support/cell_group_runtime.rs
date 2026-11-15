@@ -919,9 +919,9 @@ pub(super) use sql::{
     follower_acquires_published_prefix, full_backend_outage, output_during_apply, s3_commands,
     s3_deadline, s3_enrollment, s3_enrollment_deadline,
     s3_late_receipt_uses_completed_verification, s3_missing_sibling, s3_namespace_minimum,
-    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
-    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
-    s3_response_precedes_hold_retirement,
+    s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
+    s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
+    s3_remote_slow_delivery, s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
 };
 pub(super) use sql::{
     background_admission, command_admission_starts_before_poll, command_waits_for_apply,

@@ -261,6 +261,125 @@ pub(crate) async fn s3_response_precedes_hold_retirement(
     closed
 }
 
+/// A newly waiting output must not inherit an older job's maintenance delay.
+pub(crate) async fn s3_newer_receipt_bypasses_inflight_maintenance(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let mut h = Harness::configured_resources(
+        rooted,
+        store,
+        2,
+        Durability::Quorum,
+        None,
+        None,
+        Some(Resources::SlowMaintenance),
+    )
+    .await?;
+    let previous = h.controllers[0]
+        .archive_status(h.route.history)?
+        .context("archive status")?
+        .published
+        .context("initial archived cut")?
+        .position()
+        .index;
+    let gate = h.remote.hold_publication_after(previous.get());
+
+    struct Release(Arc<archive_controller::archive_store::Gate>);
+
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.0.release.notify_one();
+        }
+    }
+
+    let release = Release(gate.clone());
+    let work = async {
+        let first = h
+            .command(1, b"first-cut", Durability::S3, Duration::from_secs(5))
+            .await?;
+        tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+        let newer = h
+            .command(2, b"newer-cut", Durability::Quorum, Duration::from_secs(5))
+            .await?
+            .response()
+            .await?;
+        let version = newer.observation().version;
+        anyhow::ensure!(
+            newer
+                .local_receipt()
+                .context("newer local receipt")?
+                .position
+                .index
+                .get()
+                > gate.publication_index.load(Ordering::Acquire),
+            "held publication must not cover the newly waiting receipt"
+        );
+        drop(newer);
+        let mut lookup = h
+            .lookup(
+                h.receipt_request(2, b"newer-cut", Durability::S3)?,
+                Duration::from_secs(5),
+            )
+            .await?;
+        let selection = lookup
+            .select(
+                &h.fixture.runtimes[0],
+                &h.fixture.appliers[&(0, h.route.history)].0,
+                h.fixture.cell_options(&h.cell).await?,
+            )
+            .await?;
+        let mut response = Box::pin(selection.response());
+        anyhow::ensure!(
+            tokio::time::timeout(Duration::from_millis(30), response.as_mut())
+                .await
+                .is_err(),
+            "an older unpublished cut cannot prove the newer receipt"
+        );
+        // The proof and this command use the same controller channel. Completion
+        // establishes admission while the older publication is still held.
+        let barrier = h
+            .command(
+                3,
+                b"admission-barrier",
+                Durability::Quorum,
+                Duration::from_secs(5),
+            )
+            .await?
+            .response()
+            .await?;
+        drop(barrier);
+        gate.release.notify_one();
+        let first = first.response().await?;
+        anyhow::ensure!(first.durability() == Durability::S3);
+        drop(first);
+        let response = response
+            .await
+            .context("new foreground proof inherited the old maintenance delay")?;
+        anyhow::ensure!(response.durability() == Durability::S3);
+        anyhow::ensure!(response.observation().version.sequence >= version.sequence);
+        anyhow::ensure!(
+            response.receipt().context("new archived receipt")?.result() == b"newer-cut"
+        );
+        h.token(&response).await?;
+        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 3);
+        drop((response, lookup));
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    drop(release);
+    if work.is_err() {
+        h.fixture.cluster._root.disable_cleanup(true);
+        eprintln!(
+            "retained inflight archive disk: {}",
+            h.fixture.cluster._root.path().display()
+        );
+    }
+    let closed = h.close().await;
+    work?;
+    closed
+}
+
 /// A proof arriving during background publication must consume its already
 /// verified physical cut, without downloading that same checkpoint again.
 pub(crate) async fn s3_late_receipt_uses_completed_verification(
