@@ -193,7 +193,9 @@ impl Resolution {
                 self.started,
             )
             .map_err(name_routing_failure)?;
+        tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="name-route-start", ?invocation, cell=%self.candidate.cell.as_str());
         let mut attempt = session.begin().await.map_err(name_routing_failure)?;
+        tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="name-route-ready", ?invocation, cell=%self.candidate.cell.as_str());
         let mut previous = None;
         let mut next = 0;
         loop {
@@ -260,6 +262,7 @@ impl Resolution {
             attempt
                 .limit_query_deadline(deadline)
                 .map_err(name_routing_failure)?;
+            tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="name-attempt", ?invocation, history=?route.history, ?member, is_local=local==Some(member), ordinal=attempt.ordinal(), slice_ms=slice);
             let selected = if local == Some(member) {
                 self.owner
                     .handle
@@ -280,6 +283,7 @@ impl Resolution {
                     .map(|response| response.record().cloned())
                     .map_err(|error| CellDispatchError::Transport(error.for_read()))
             };
+            tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="name-result", ?invocation, success=selected.is_ok(), error=?selected.as_ref().err());
             match selected {
                 Ok(record) => {
                     self.live()?;
