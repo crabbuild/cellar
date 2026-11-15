@@ -27,6 +27,96 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 filesystem, Blob and retained payload roots
+
+Production source `759a1400` includes updated `origin/main` at `0e925f6b`.
+It adds durable upload and command-to-archive ownership for immutable external
+bytes, independent Blob provider installation, and filesystem lifecycle and
+fenced disk-loss coverage. Follow-up `5ca4d5fa` changes only the shared Blob
+multipart fixture to use a valid 5-MiB non-final S3 part, retaining complete-byte,
+replacement and ordering assertions. These are component gates, not full CG-17
+or release acceptance.
+
+Filesystem qualification checks transactional business/file state, descriptor
+authority, autonomous orphan collection, archive outage, S3-backed RF3 voter
+replacement, an actual local read on the replacement, park/first-read wake,
+retained restart, original receipt replay and minority refusal. The separate
+disaster fixture fences the old owners, loses every voter disk and verifies
+restored filesystem bytes and fresh writes. Both image forms pass.
+
+Blob operations follow proven shared-group turns and retain their original
+invocation/deadline. Read-only provider calls can reuse an unchanged source
+proof; mutations require an ordered step. A host can install its provider with
+`HostServices::configure_blob_store` without enabling legacy Fleet ownership.
+Provider refusal and an actual lost PUT reply do not reexecute the native
+handler. Mutable Blob objects retain their provider's independent recovery
+contract; a cell archive does not back up that bucket.
+
+The [payload contract](payload-storage.md) distinguishes pending locators from
+confirmed bytes. Durable command handoffs protect the interval before a selected
+archive adopts a dependency. Recovery verifies actual complete bodies through
+explicit namespace/backend capabilities, and rechecks before import. Collection
+protects retained recovery cuts, pending owners and entered readers. Irreversible
+allocation tombstones prevent resurrection and delayed DELETE/PUT confusion.
+Unknown uploads and reader pins need explicit owner reconciliation; clocks never
+retire them. Collection remains an explicit API rather than a scheduled policy.
+
+All six owning RustFS cases pass, with materialized and extent images for the
+five group cases. The immutable payload protocol case has no Raft voters.
+
+| Suite | Source | Cases passed | Elapsed test command seconds |
+| --- | --- | --- | --- |
+| `ordinary-filesystem` | `759a1400` | 2 | 98.922, 109.723 |
+| `filesystem-disaster` | `759a1400` | 1 | 11.168 |
+| `external-payload-recovery` | `759a1400` | 1 | 5.071 |
+| `immutable-payloads` | `759a1400` | 1 | 1.130 |
+| `ordinary-blob` | `5ca4d5fa` | 1 | 54.393 |
+
+The records and frozen executable hashes are under
+`/Volumes/Workspace/crabbuild-target/cellar-payload-759a1400-rustfs-<suite>-01/`
+and `cellar-payload-5ca4d5fa-rustfs-ordinary-blob-01/`. The latter executable is
+`e3c2a85475b4aa89a95013dd37d772bfe34aa6edf0b25bfbc07a46f7bdd8fc96`.
+The locked Rust 1.98.1 test profile uses optimization 1, debug assertions and
+overflow checks, no incremental cache, and serial case execution.
+
+The native cohort at `759a1400` records **nine passes and one failure**. Filesystem,
+Blob, both recovery gates and fragmented 25-MiB publication pass. Warm-KV's
+materialized phase passes its 25-MiB put/get; its extent phase times out on the
+fourth small operator GET before entering the large-transfer phase. That failure
+and its unknown outcome remain open. The corrected multipart fixture then passes
+all three native Blob/provider checks at `5ca4d5fa`. Seventeen owning payload,
+dependency-retirement and receipt unit tests pass at `bbf3e906`; their code is
+unchanged by the subsequent configuration/provider fixes. No entire KV family,
+first-response latency bound or complete integrated native cohort is claimed.
+
+Failed controls remain under the `06421cdc-native-01`, `bbf3e906-native-01`,
+`9e4e139a-controls-01`, `39c0812a-native-02` and `759a1400-native-01` directories
+with the `cellar-payload-` prefix on that workspace volume. They exposed fixture
+effect-summary drift, retired-voter status races, unordered Raft configuration
+comparison, repeated Blob read checkpoints, provider/legacy-lease coupling and
+invalid S3 multipart test inputs. Movement can still lose a remote response;
+the test reconciles the exact command identity on the current leader. Deadline
+failures are retained without increasing their budgets or attributing them to
+an unproven cause. A host restart lost earlier default-temp voter directories;
+later managed failures retain their disks on the workspace volume. Low-level
+constructor failures do not all retain raw disks.
+
+Strict affected library/test Clippy, repository formatting/layout, documentation,
+native dependency checks and the partial primitive catalog pass. The
+`--no-default-features` selection passes both native Blob/provider tests and the
+immutable payload protocol test. The Python tooling suite completes 108 tests:
+107 pass and one existing test is skipped. The catalog remains partial
+at 18 entries, 210 public symbols and 4,872 required rows. Format markers stay 1;
+matching binaries and fresh compatible namespaces are required for the internal
+KV/private-work cutover.
+
+The owned RustFS backend is pinned and limited to one vCPU and 2 GiB without
+extra swap. RF3 voters have separate TLS endpoints and disks but share a native
+process. Independent 1-vCPU/2-GiB voter containers, provider-process recovery,
+sustained load, automatic unknown-owner cleanup and the combined lifecycle/release
+matrix remain separate gates. Full-plan acceptance stays **13/17 tasks and
+147/195 cases**.
+
 ## CG-17 EventStream publishing, subscriptions and outbox
 
 Source `5eb62ed9` connects the [shared EventStream adapter](event-stream-durable-work.md)
