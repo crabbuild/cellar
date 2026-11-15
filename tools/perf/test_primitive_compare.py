@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
+import threading
 import unittest
 import urllib.error
 from unittest.mock import patch
@@ -43,6 +44,19 @@ def rows(family='sql'):
                        queue_settlement_verified=True,
                        queue_metric_observations={str(entity):{'round':1,'metrics':metric}
                                                   for entity,metric in enumerate(metrics)})
+        elif phase != 'read':
+            row['prefix'] = f'fixture.{phase}'
+            acknowledged = [{'entity': sequence - 1, 'key': row['prefix'] + '.0',
+                             'identity': f"{row['prefix']}.0.{sequence}",
+                             'value_sha256': hashlib.sha256(value_for(f"{row['prefix']}.0.{sequence}").encode()).hexdigest()}
+                            for sequence in [1, 2]]
+            row.update(producer_workers=[{'worker': 0, 'attempts': 2, 'acknowledged': 2}],
+                       acknowledged_writes=acknowledged, unconfirmed_writes=[], verified_keys=2,
+                       readback_probe_pending=None, readback_probe_complete=True,
+                       readback_observations=[{'entity': item['entity'], 'key': item['key'],
+                           'expected_identity': item['identity'], 'expected_sha256': item['value_sha256'],
+                           'observed_type': 'str', 'observed_sha256': item['value_sha256'],
+                           'matching_unconfirmed_identities': []} for item in acknowledged])
         result.append(row)
     return result
 
@@ -128,6 +142,30 @@ class ComparisonEvidenceTests(unittest.TestCase):
             else:row['queue_settlement_verified']=False
             with self.subTest(mutation=mutation),self.assertRaises(ValueError):
                 validate_rows(value,'queue',self.args)
+
+    def test_sql_kv_write_ledgers_cannot_be_missing_or_manipulated(self):
+        for family in ['sql', 'kv']:
+            validate_rows(rows(family), family, self.args)
+            for mutation in ['missing', 'worker-count', 'worker-bool', 'ack-identity', 'ack-entity',
+                             'ack-hash', 'duplicate-key', 'missing-readback', 'observed-hash',
+                             'observed-type', 'pending-probe', 'incomplete-probe', 'unconfirmed-write']:
+                value = rows(family)
+                row = value[1]
+                if mutation == 'missing': row.pop('acknowledged_writes')
+                elif mutation == 'worker-count': row['producer_workers'][0]['acknowledged'] = 1
+                elif mutation == 'worker-bool': row['producer_workers'][0]['worker'] = False
+                elif mutation == 'ack-identity': row['acknowledged_writes'][0]['identity'] = 'foreign'
+                elif mutation == 'ack-entity': row['acknowledged_writes'][0]['entity'] = 12
+                elif mutation == 'ack-hash': row['acknowledged_writes'][0]['value_sha256'] = '00' * 32
+                elif mutation == 'duplicate-key': row['acknowledged_writes'][1] = copy.deepcopy(row['acknowledged_writes'][0])
+                elif mutation == 'missing-readback': row['readback_observations'].pop()
+                elif mutation == 'observed-hash': row['readback_observations'][0]['observed_sha256'] = '00' * 32
+                elif mutation == 'observed-type': row['readback_observations'][0]['observed_type'] = 'bytes'
+                elif mutation == 'pending-probe': row['readback_probe_pending'] = {'entity': 0}
+                elif mutation == 'incomplete-probe': row['readback_probe_complete'] = False
+                else: row['unconfirmed_writes'] = [copy.deepcopy(row['acknowledged_writes'][0])]
+                with self.subTest(family=family, mutation=mutation), self.assertRaises(ValueError):
+                    validate_rows(value, family, self.args)
 
     def test_kernel_limits_are_checked_against_requested_profile(self):
         source=f'cpu.max\n100000 100000\nmemory.max\n{2*GIB}\nmemory.swap.max\n0\ncpu.stat\nusage_usec 12\nmemory.current\n1024\nmemory.peak\n2048\nmemory.events\noom 0\noom_kill 0\nmemory.stat\nanon 512\n'
@@ -254,6 +292,107 @@ class ComparisonEvidenceTests(unittest.TestCase):
         self.assertEqual(result['errors'][0]['mutation_outcome'],'unconfirmed')
         self.assertEqual(result['errors'][0]['sequence'],1)
         self.assertEqual(len(value_for('any identity')),256)
+
+    def test_sql_kv_failures_keep_producer_and_readback_evidence(self):
+        for family in ['sql', 'kv']:
+            for failure in ['overwrite', 'constructor', 'partial']:
+                with self.subTest(family=family, failure=failure):
+                    clock, database, instances, writes, reads = [100.0], {}, [], [], []
+                    class FailingClient:
+                        def __init__(self, *_):
+                            instances.append(self)
+                            if failure == 'constructor' and len(instances) == 2:
+                                raise ValueError('verifier unavailable')
+                        def close(self): pass
+                        def request(self, node, operation, body):
+                            if operation == 'write':
+                                writes.append(dict(body))
+                                database[body['entity'], body['key']] = body['value']
+                                clock[0] += .01 if failure == 'overwrite' else 2 if failure == 'constructor' else .6
+                                if failure == 'overwrite' and len(writes) == 25:
+                                    raise TimeoutError('response lost after possible commit')
+                                return True
+                            reads.append(dict(body))
+                            if failure == 'partial' and len(reads) == 2:
+                                raise TimeoutError('readback unavailable')
+                            return database[body['entity'], body['key']]
+                    with patch('primitive_load.Client', FailingClient), patch('primitive_load.time.monotonic', side_effect=lambda: clock[0]):
+                        row = window(['a', 'b', 'c'], 'secret', family, 'proof', 'write', 1, 1)
+                    self.assertFalse(row['verified'])
+                    count = 24 if failure == 'overwrite' else 1 if failure == 'constructor' else 2
+                    self.assertEqual(len(row['acknowledged_writes']), count)
+                    self.assertFalse(row['readback_probe_complete'])
+                    if failure == 'overwrite':
+                        self.assertEqual(len(writes), 25)
+                        self.assertEqual(row['successful_requests'], 24)
+                        self.assertEqual(row['errors'][0]['sequence'], 25)
+                        self.assertEqual(row['errors'][0]['mutation_outcome'], 'unconfirmed')
+                        observation = row['readback_observations'][0]
+                        self.assertEqual(observation['expected_identity'], 'proof.0.1')
+                        self.assertEqual(observation['expected_sha256'], hashlib.sha256(value_for('proof.0.1').encode()).hexdigest())
+                        self.assertEqual(observation['observed_sha256'], hashlib.sha256(value_for('proof.0.25').encode()).hexdigest())
+                        self.assertEqual(observation['matching_unconfirmed_identities'], ['proof.0.25'])
+                        self.assertIn('write readback mismatch', row['verification_error'])
+                    elif failure == 'partial':
+                        self.assertEqual(len(row['readback_observations']), 1)
+                        self.assertEqual(row['readback_probe_pending'],
+                                         {'entity': 1, 'key': 'proof.0', 'expected_identity': 'proof.0.2'})
+                    else:
+                        self.assertEqual(row['readback_observations'], [])
+                        self.assertIsNone(row['readback_probe_pending'])
+
+    def test_sql_kv_write_readback_qualifies_with_wrapped_worker_keys(self):
+        for family in ['sql', 'kv']:
+            for concurrency in [1, 4, 16]:
+                with self.subTest(family=family, concurrency=concurrency):
+                    clock, database, lock = [100.0], {}, threading.Lock()
+                    class VerifiedClient:
+                        def __init__(self, *_): pass
+                        def close(self): pass
+                        def request(self, node, operation, body):
+                            with lock:
+                                if operation == 'write':
+                                    database[body['entity'], body['key']] = body['value']
+                                    clock[0] += 1 / (32 * concurrency)
+                                    return True
+                                if body['key'] == 'readseed':
+                                    clock[0] += 1 / (32 * concurrency)
+                                    return value_for('readseed')
+                                return database[body['entity'], body['key']]
+                    observed = []
+                    with patch('primitive_load.Client', VerifiedClient), patch('primitive_load.time.monotonic', side_effect=lambda: clock[0]):
+                        for phase in ['warmup', 'write', 'read']:
+                            row = window(['a', 'b', 'c'], 'secret', family, 'healthy.' + phase, phase, concurrency, 1)
+                            row.update(family=family, repeat=0)
+                            observed.append(row)
+                    validate_rows(observed, family, SimpleNamespace(repetitions=1, concurrency=[concurrency], warmup=1, seconds=1))
+                    for row in observed[:2]:
+                        self.assertTrue(row['readback_probe_complete'])
+                        self.assertEqual(sum(p['acknowledged'] for p in row['producer_workers']), row['successful_requests'])
+                        self.assertEqual(len(row['acknowledged_writes']), row['verified_keys'])
+
+    def test_sql_kv_complete_readback_of_wrong_or_missing_value_still_fails(self):
+        for family in ['sql', 'kv']:
+            for observed in ['wrong value', None]:
+                with self.subTest(family=family, observed=observed):
+                    clock = [100.0]
+                    class MismatchedClient:
+                        def __init__(self, *_): pass
+                        def close(self): pass
+                        def request(self, node, operation, body):
+                            if operation == 'write':
+                                clock[0] += 2
+                                return True
+                            return observed
+                    with patch('primitive_load.Client', MismatchedClient), patch('primitive_load.time.monotonic', side_effect=lambda: clock[0]):
+                        row = window(['a', 'b', 'c'], 'secret', family, 'mismatch', 'write', 1, 1)
+                    self.assertFalse(row['verified'])
+                    self.assertEqual(row['errors'], [])
+                    self.assertTrue(row['readback_probe_complete'])
+                    self.assertEqual(row['readback_observations'][0]['matching_unconfirmed_identities'], [])
+                    self.assertEqual(row['readback_observations'][0]['observed_sha256'],
+                                     hashlib.sha256(observed.encode()).hexdigest() if observed is not None else None)
+                    self.assertIn('write readback mismatch', row['verification_error'])
 
     def test_queue_failures_keep_producer_and_partial_verifier_ledgers(self):
         for failure in ['constructor', 'delivery', 'metrics', 'partial-metrics', 'unknown-enqueue']:

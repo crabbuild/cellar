@@ -75,6 +75,59 @@ def validate_queue_ledger(row):
                 'invalid Queue settlement counts')
 
 
+def validate_write_ledger(row):
+    require(type(row.get('concurrency')) is int, 'invalid write concurrency')
+    require(isinstance(row.get('prefix'), str) and row['prefix'], 'missing write identity prefix')
+    require(row.get('readback_probe_complete') is True and row.get('readback_probe_pending') is None,
+            'incomplete write readback probes')
+    require(row.get('unconfirmed_writes') == [], 'unconfirmed write ledger cannot qualify')
+    workers = row.get('producer_workers')
+    require(isinstance(workers, list) and len(workers) == row['concurrency'], 'missing write producer')
+    expected, total = {}, 0
+    for worker, producer in enumerate(workers):
+        require(isinstance(producer, dict) and type(producer.get('worker')) is int
+                and producer['worker'] == worker and type(producer.get('attempts')) is int
+                and type(producer.get('acknowledged')) is int
+                and producer['attempts'] == producer['acknowledged'] >= 0, 'write producer accounting mismatch')
+        count = producer['acknowledged']
+        total += count
+        # There are 24 entities, so the last 24 successful calls include the
+        # latest acknowledgement for every key this worker can reach.
+        for sequence in range(max(1, count - 23), count + 1):
+            entity = ((sequence - 1) * row['concurrency'] + worker) % 24
+            key, identity = f"{row['prefix']}.{worker}", f"{row['prefix']}.{worker}.{sequence}"
+            value = hashlib.sha256(identity.encode()).hexdigest() * 4
+            expected[entity, key] = {'entity': entity, 'key': key, 'identity': identity,
+                                     'value_sha256': hashlib.sha256(value.encode()).hexdigest()}
+    require(total == row['attempts'] == row['successful_requests'], 'write totals differ from producers')
+    acknowledged = row.get('acknowledged_writes')
+    require(isinstance(acknowledged, list) and len(acknowledged) == len(expected), 'missing acknowledged write')
+    observed_keys = set()
+    for acknowledged_write in acknowledged:
+        require(isinstance(acknowledged_write, dict) and type(acknowledged_write.get('entity')) is int
+                and isinstance(acknowledged_write.get('key'), str), 'invalid acknowledged write key')
+        key = acknowledged_write['entity'], acknowledged_write['key']
+        require(key not in observed_keys and acknowledged_write == expected.get(key), 'write identity/body mismatch')
+        observed_keys.add(key)
+    observations = row.get('readback_observations')
+    require(isinstance(observations, list) and len(observations) == len(expected)
+            and type(row.get('verified_keys')) is int and row['verified_keys'] == len(expected),
+            'missing write readback observation')
+    observed_keys = set()
+    for observation in observations:
+        require(isinstance(observation, dict) and type(observation.get('entity')) is int
+                and isinstance(observation.get('key'), str), 'invalid write readback key')
+        key = observation['entity'], observation['key']
+        acknowledged_write = expected.get(key)
+        require(key not in observed_keys and acknowledged_write is not None, 'duplicate/foreign readback key')
+        expected_observation = {'entity': key[0], 'key': key[1], 'expected_identity': acknowledged_write['identity'],
+                                'expected_sha256': acknowledged_write['value_sha256'], 'observed_type': 'str',
+                                'observed_sha256': acknowledged_write['value_sha256'],
+                                'matching_unconfirmed_identities': []}
+        require(observation == expected_observation, 'write readback identity/body mismatch')
+        observed_keys.add(key)
+
+
 def save(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
@@ -122,6 +175,8 @@ def validate_rows(rows, family, args):
             require(row['enqueue_and_drain_seconds'] >= row['elapsed_seconds']
                     and math.isclose(row['enqueue_messages_per_second'], row['acknowledged_messages'] / row['elapsed_seconds'], rel_tol=1e-10)
                     and math.isclose(row['verified_messages_per_second_including_drain'], row['acknowledged_messages'] / row['enqueue_and_drain_seconds'], rel_tol=1e-10), 'Queue rate accounting mismatch')
+        elif row['phase'] != 'read':
+            validate_write_ledger(row)
 
 
 class Engine:

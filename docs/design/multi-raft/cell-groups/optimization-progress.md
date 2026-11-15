@@ -4225,3 +4225,33 @@ increase; these counters alone do not identify why the seeded leader hint is
 unusable. The bounded named-counter failure context preserves this distinction
 without relaxing assertions or granting authority. Full-suite interaction and
 the remaining SQL/KV/Queue, recovery, authority and feature-mode gates stay open.
+
+### Full native primitive follow-up and SQL/KV evidence, 2026-11-15 UTC
+
+The original complete native primitive target now passes at repair source
+`9f483e79`: **37 passed, zero failed and 41 explicit ignores**, in 3,222.81
+seconds. All owners join and compiler inputs remain unchanged through the run.
+SQL/KV, Queue callbacks/four-in-flight/load, source-proof dispatch, activation
+caching, name discovery, retained binding restart and Workflow controls execute
+with their original bounds and assertions. The eight earlier primitive failures
+at `f8917ffe` are unreproduced in this new run; no isolated cause or performance
+improvement is inferred. Ignored RustFS controls remain unrun. This is native
+in-process qualification, separate from the failed constrained comparison and
+the still-failing removed-member protocol-cut oracle.
+
+After that owner joins, Python repair source `467e179f` adds SQL/KV producer and
+partial readback evidence. Six controls reproduce missing records on the prior
+client: a lost-response overwrite, verifier construction failure and partial
+readback failure in each API. Twenty-six tampered ledgers are incorrectly
+accepted by the earlier validator. The repaired controller derives latest keys
+and deterministic hashes from per-worker acknowledgement counts, reconciling
+every completed readback. Wrong/missing values and incomplete probes still
+fail. A body matching an uncertain attempt is not an exact receipt or commit
+proof; request failures remain unqualified and cause no fresh-ID retry.
+
+All 340 performance tests run successfully with one existing skip, including
+19 owning controls, and documentation/whitespace checks pass. Only the three
+Python files and performance guide differ from the native run's compiler
+manifest; all other inputs, including Rust, are byte-identical. Earlier frozen
+windows and their evidence gaps remain unchanged. Real constrained throughput,
+latency, membership/recovery cuts and combined OPT/CG acceptance remain open.

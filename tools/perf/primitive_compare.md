@@ -101,6 +101,17 @@ not a per-message delivery latency measurement. Failed or ambiguous mutations
 stop the worker and retain their original identities; they are never replaced
 with fresh-ID retries. Empty, failed, short or incomplete windows cannot qualify.
 
+SQL/KV write rows retain per-worker acknowledgement counts, the latest acknowledged
+identity and value hash for each key, and unconfirmed attempted identities before
+verification starts. Readback records retain expected/observed hashes, value
+types and the pending key when a probe fails. A value matching an uncertain
+attempt is a body comparison, not an exact receipt or commit proof; that window
+remains failed. A complete probe round still requires every value to match.
+The controller independently derives each worker's latest keys and deterministic
+value hashes, then reconciles producer counts and every readback observation.
+Missing, duplicated or inconsistent evidence refuses qualification. Historical
+artifacts retain their original matching client and verifier scope.
+
 Queue rows retain acknowledged message hashes and every attempted batch before
 verification starts. Delivery and per-queue metrics observations carry probe
 rounds and completion flags, preserving partial replies if a later probe fails.

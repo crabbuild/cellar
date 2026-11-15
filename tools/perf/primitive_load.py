@@ -90,7 +90,7 @@ def window(hosts, token, family, prefix, phase, concurrency, seconds):
                         for message in messages:
                             expected[message['id']] = hashlib.sha256(message['value'].encode()).hexdigest()
                     elif phase != 'read':
-                        expected[(entity, key)] = value
+                        expected[(entity, key)] = (identity, value)
                 except Exception as error:
                     elapsed = (time.monotonic_ns() - entered) // 1000
                     failures.append({'worker': worker_id, 'sequence': sequence, 'entity': entity,
@@ -126,6 +126,18 @@ def window(hosts, token, family, prefix, phase, concurrency, seconds):
                    delivery_probe_complete=False, delivery_set_verified=False,
                    queue_metric_observations={}, queue_metrics_probe_round=0,
                    queue_metrics_probe_complete=False, queue_settlement_verified=False)
+    elif phase != 'read':
+        row.update(producer_workers=[{'worker': worker, 'attempts': len(result[0]),
+                                      'acknowledged': len(result[1])}
+                                     for worker, result in enumerate(results)],
+                   acknowledged_writes=[{'entity': entity, 'key': key, 'identity': identity,
+                                         'value_sha256': hashlib.sha256(value.encode()).hexdigest()}
+                                        for (entity, key), (identity, value) in expected.items()],
+                   unconfirmed_writes=[{'entity': error['entity'], 'key': f"{prefix}.{error['worker']}",
+                                        'identity': error['identity'],
+                                        'value_sha256': hashlib.sha256(value_for(error['identity']).encode()).hexdigest()}
+                                       for error in errors],
+                   readback_observations=[], readback_probe_pending=None, readback_probe_complete=False)
     client = None
     try:
         client = Client(hosts, token)
@@ -177,9 +189,23 @@ def window(hosts, token, family, prefix, phase, concurrency, seconds):
             require(all(metric['backlog'] == 0 and metric['dead'] == 0 for metric in metrics), 'Queue backlog or dead-letter messages remain')
             row['queue_settlement_verified'] = True
         elif phase != 'read':
-            for index, ((entity, key), value) in enumerate(expected.items()):
-                require(client.request(index + 1, 'read', {'entity': entity, 'key': key}) == value, 'write readback mismatch')
+            for index, ((entity, key), (identity, value)) in enumerate(expected.items()):
+                row['readback_probe_pending'] = {'entity': entity, 'key': key,
+                                                'expected_identity': identity}
+                observed = client.request(index + 1, 'read', {'entity': entity, 'key': key})
+                observed_hash = hashlib.sha256(observed.encode()).hexdigest() if isinstance(observed, str) else None
+                observation = {'entity': entity, 'key': key, 'expected_identity': identity,
+                               'expected_sha256': hashlib.sha256(value.encode()).hexdigest(),
+                               'observed_type': type(observed).__name__, 'observed_sha256': observed_hash,
+                               'matching_unconfirmed_identities': [item['identity'] for item in row['unconfirmed_writes']
+                                   if item['entity'] == entity and item['key'] == key
+                                   and item['value_sha256'] == observed_hash]}
+                row['readback_observations'].append(observation)
+                row['readback_probe_pending'] = None
+                row['readback_probe_complete'] = index + 1 == len(expected)
+                require(observed == value, 'write readback mismatch: ' + json.dumps(observation, sort_keys=True))
             row['verified_keys'] = len(expected)
+            row['readback_probe_complete'] = True
         require(not errors, 'request failures retained; this window is not qualified')
         require(len(successful) > 0 and elapsed >= seconds, 'incomplete offered measurement interval')
         row['verified'] = True
