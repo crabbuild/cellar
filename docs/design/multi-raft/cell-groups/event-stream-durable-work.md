@@ -83,6 +83,15 @@ routing selectors. It grants no leadership, read, absence or enrollment proof;
 each selected destination still performs the ordinary fresh quorum read under
 the original deadline. Stale or missing vote hints retain normal fallbacks.
 
+After a proven root, a parked callback reacquires its cell writer before
+refreshing its applied cell image. This continuation retains the original ready
+barrier and live owner/route/history/leader fence; unrelated committed apply work
+does not require another whole-group barrier. Reconciliation alone grants no
+execution permission. New application entry keeps full group readiness, and
+checkpoint/final settlement keeps its original durability proofs and deadlines.
+The continuation regression passes native and real RustFS in both image modes;
+public activation and multi-step request deadlines remain unqualified.
+
 Foreground S3 batches own one publication wake across an older job's completion;
 publication launch consumes it, and proof-lane requeues cannot renew it. Busy
 proof backoff applies to the exact physical group/cut. An uncovered read remembers

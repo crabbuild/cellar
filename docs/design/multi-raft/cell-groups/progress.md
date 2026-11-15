@@ -29,6 +29,64 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Fetched main `189edd9a` remains included. **Runtime source `0af5a562` fixes
+parked RPC continuation starvation behind unrelated committed group apply.**
+The invocation first reacquires its cell writer, then refreshes its exact
+applied cell image using the original ready barrier and live owner, route,
+history and leader fence. A reconciliation observation alone cannot authorize
+execution. New application entry still waits for the complete committed group
+cut; final writes, S3 proofs, deadlines and mutation ambiguity are unchanged.
+
+The regression holds an actual manifest-directory sync for another cell after
+its entry commits. A checkpointed callback must resume while that tail remains
+unapplied; its final write still follows ordered Raft apply. Receipt replay must
+return the same version/result without invoking the handler twice. Baseline
+`c74e394d` fails at the callback boundary in
+`CG-17-rpc-progress-red-218-c74e394d`; its disks/logs/binary are retained.
+Earlier fixture-registration failures in cohorts 216/217 are setup failures,
+not reproductions of the callback bug.
+
+All **four focused native selections pass** in
+`CG-17-rpc-progress-fast-223-0af5a562`: the new regression in both image modes,
+new-command apply readiness, original admission deadlines, and ordinary
+same-cell interleaving under Quorum/S3. The interleaving control retains rollback,
+leader-loss, uncertain identity, retained restart and stop checks.
+
+Follow-up `CG-17-rpc-progress-public-224-0af5a562` is **FAILED: 3/7 selections
+pass**. The new real-RustFS regression passes both image modes, and both native
+and RustFS SDK source-proof controls pass their original image/minimum matrix.
+All four selected public EventStream controls fail:
+
+- Native named `Consume` returns an ambiguous deadline failure.
+- Native explicit activation exceeds its initial metadata-read deadline.
+- RustFS named activation exceeds its initial materialized-image deadline.
+- RustFS explicit activation exceeds its initial metadata-read deadline.
+
+This establishes the private continuation fix, not a fix for the complete public
+pipeline. The seven-selection cohort differs from the older sixteen-selection
+cohort below; do not compare their pass fractions as a performance result.
+Queue load, Axum, independent-target-S3 and the full family/recovery matrix are
+not rerun or accepted by this follow-up. Twelve failed public voter disks and
+verified evidence/binary backups remain retained.
+
+The locked optimized build, strict library/all-test Clippy, formatting, layout,
+native dependency and documentation checks pass. The physical-gate regression
+uses two SQL workers so its synchronous disk pause does not occupy the callback
+worker. Existing public/SDK/interleaving controls retain one SQL worker per
+voter. Voters share one process and separate workspace disks; RustFS is limited
+to one CPU/two GiB. This is a progress/fencing qualification, not an independent
+Linux-voter release or latency benchmark. All runtime/compiler jobs are terminal;
+the owned RustFS container/VM are verified stopped and the object volume remains.
+
+**Next:** close cold activation and the remaining multi-step Quorum deadline
+under the original budgets, then interrupted binding recovery and Queue load.
+Checkpoint completion still uses whole-group readiness; inspect and reproduce
+that boundary before extending this fix. Its role in the public failures is
+unproven. Acceptance remains **13/17 tasks and 147/195 cases**; full compatibility,
+combined recovery/release qualification and hard cutover remain open.
+
+## Previous archive wake checkpoint
+
 Fetched main `189edd9a` remains included. **Runtime source `d0c27fca` fixes two
 archive-progress interleavings** without changing a deadline, durability proof,
 quota, format or assertion:

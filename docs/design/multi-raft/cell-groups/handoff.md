@@ -4,76 +4,73 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current merged-source activation checkpoint
+## Current merged-source callback checkpoint
 
 Main `189edd9a` remains included in the primary checkout
 `/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar`, branch
 `codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170).
-Runtime source is `d0c27fca`; see the
+Runtime source is `0af5a562`; see the
 [current evidence](progress.md#current-integration-checkpoint).
 Older instructions below are historical.
 
-Delivered this checkpoint: preserve a newly admitted foreground archive wake
-across an older publication's completion; consume it once at publication launch;
-keep proof-lane requeues from rearming it; and scope busy proof backoff to its
-physical group/cut. Newer coverage is eligible immediately. Output settlement
-still verifies exact receipt/version, current birth, independent source/target
-minima and retained physical coverage under original deadlines.
+Delivered: parked RPCs refresh their applied cell root after reacquiring the
+writer, retaining the original ready barrier and live owner/route/history/leader
+fence. Unrelated committed apply no longer requires another whole-group barrier
+for that continuation. New entry keeps full readiness. Checkpoint/final proofs,
+original deadlines and uncertain mutation identities are unchanged.
 
-The new regression fails on `9ed8472f`. One-shot source `29a773b2` still fails;
-`bb2038a9` captures required cut 6 versus published cut 7 at failure. Final source
-passes both native image modes and both real-RustFS image modes. All **12 archive
-controls**, locked optimized build, strict library/all-test Clippy and repository
-checks pass. No temporary production probes were added; failure-only test context
-records the required/published cut without changing the timed trigger.
+The actual directory-sync regression fails at `c74e394d` and passes native and
+real RustFS in both image modes at the final source. All four native progress,
+apply-readiness, deadline and interleaving selections pass. Native and RustFS SDK
+source-proof matrices pass. Locked optimized compilation, strict library/all-test
+Clippy and repository checks pass.
 
-**Public qualification remains FAILED: 7/16.** Passing: real-RustFS Axum
-independent-S3, registration/Fleet, both SDK source-proof and both name-discovery
-controls. The same EventStream/SDK cases pass 7/14 versus prior source `3e900c3a`
-12/14; both added Queue load controls fail. Do not claim stable public behavior,
-a speedup, completed S3 recovery or full primitive support from the archive pass.
+**Selected public follow-up remains FAILED: 3/7.** Its passes are the RustFS
+regression and both SDK controls. Native named Consume still returns an ambiguous
+deadline error; native explicit and both RustFS EventStream selections fail
+initial activation. This is a different selection set from the older 7/16
+campaign, not a measured speedup or a full public acceptance result.
 
-**Next feature delivery: isolate and fix Quorum callback/activation progress.**
+**Next feature priorities:**
 
-1. Native named Quorum `Consume` fails. Copied retained source images show Next
-   settled, Ack pending and parent RPC step 3/4; the requested child minimum is
-   Quorum. There is no Ack receipt in that voter's retained images, which does
-   not establish noncommit on other voters. Verify the live committed manifest
-   and isolate source checkpoint/proof, target dispatch/fresh quorum, SQL
-   admission and parked-frame resumption. Preserve original command identities.
-   Build a deterministic multi-step, multi-group, one-SQL-worker regression before
-   further routing hints or broad qualification. Qualify bounded pending-proof
-   handoff between groups as part of this investigation.
-2. Cold activation fails for native Axum/native explicit and RustFS native-S3;
-   RustFS explicit materialized Read still exceeds its original budget. Keep the
-   current failures separate from the corrected archive interleavings.
-3. Queue load fails producer sequence 11 (native) and 10 (RustFS); full drain and
-   528-message delivery are unproven. After request progress is stable, finish
-   interrupted binding/delivery/ack and safe sequence sealing, long polling,
-   retention/recreation and the complete primitive lifecycle/recovery matrix.
+1. Close cold activation/metadata-read progress and the remaining multi-step
+   Quorum deadline within original budgets. Trace source checkpoint completion,
+   target dispatch and final settlement using exact parent/child identities.
+   `wait_checkpoint` still uses full group readiness; reproduce that boundary
+   before extending the per-cell continuation change. Its role in these public
+   failures is not established. Do not repeat broad campaigns or add routing
+   hints as a substitute for a focused failing boundary.
+2. Finish autonomous interrupted binding/delivery/ack recovery and safe unused
+   sequence sealing. Preserve ambiguity; retained images alone do not establish
+   whether a child committed. The latest inspection in the previous checkpoint
+   is historical, not a live manifest for this source.
+3. Close Queue load and shared startup, then the complete SQL/KV, durable time,
+   Workflow, filesystem/payload/provider and movement/recovery family matrix.
+   Queue was not rerun here; the last `d0c27fca` load controls fail producer
+   sequences 11/10 before full delivery of the 528-message campaigns.
 
 Records under `.cellar/cell-groups-evidence/`:
-`CG-17-s3-inflight-red-9ed8472f-202`, `CG-17-s3-inflight-green-29a773b2-206`,
-`CG-17-s3-inflight-diagnostic-bb2038a9-208`,
-`CG-17-s3-inflight-green-d0c27fca-209`,
-`CG-17-event-join-d0c27fca-210`, `CG-17-archive-inflight-d0c27fca-211`.
-The public/archive backups verify 32/27 files and retain 27 failed public voter
-disks. Failed regression roots/binaries are retained separately. Copied-voter
-inspection is `CG-17-quorum-consume-inspection-d0c27fca-212` under this checkout's
-target `qualification/`. Older unit/Blob/payload/consensus results retain their
-own source pins and are not current-source runtime acceptance.
+`CG-17-rpc-progress-red-218-c74e394d`,
+`CG-17-rpc-progress-fast-223-0af5a562`,
+`CG-17-rpc-progress-public-224-0af5a562`.
+The red baseline retains three disks; the public follow-up retains twelve.
+The fixture setup failures at 216/217 retain six separate startup disks and do
+not reproduce the callback bug. Frozen binaries and verified evidence backups
+are in this checkout target's `qualification/` directory.
 
 Ignored drivers/profile are in `.cellar/cg17-payload-01/`; all jobs are terminal.
-Use `event-read-state.json` for exact handles and stage status. No tracked edits
-during formatter/compiler or source-pinned runtime; no own compilers during public
-qualification. Preserve failed controls, original budgets and all proof fences.
+Use `event-read-state.json` for handles and exact phase status. No tracked edits
+during formatter/compiler or source-pinned runtime; no own compilers during
+runtime qualification. Preserve failed controls, original budgets and fences.
 
 Owned RustFS is `.cellar/cg17-payload-01/canonical-backend-179`, owner
 `cellar-multi-raft-0809a242624d22c7`, one CPU/two GiB. Container and its dedicated
-Colima VM are verified stopped; the owned object volume remains. Voters share one
-process, separate workspace disks and one SQL worker each. Counts remain
-**13/17 tasks and 147/195 cases**. Full CG-13/17/15/16 gates and historical evidence
-restoration/current-source requalification remain required before hard cutover.
+Colima VM are verified stopped; the owned object volume remains. Voters share
+one process and separate workspace disks. The synchronous physical-gate test
+uses two SQL workers; existing public/SDK/interleaving controls retain one per
+voter. Counts remain **13/17 tasks and 147/195 cases**. Full CG-13/17/15/16 gates,
+historical evidence restoration/current-source requalification and hard cutover
+remain open.
 
 ## Historical immutable EventStream query checkpoint
 

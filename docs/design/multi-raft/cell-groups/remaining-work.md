@@ -57,39 +57,40 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `189edd9a`. Runtime `d0c27fca` preserves one foreground publication wake and
-scopes busy proof retry to the exact group/cut, so newer coverage can proceed.
-The regression passes native and real RustFS in both image modes, and all 12
-archive controls pass. The optimized build, strict library/all-test Clippy and
-repository checks also pass. Original deadlines, quotas and proofs are unchanged.
+main `189edd9a`. Runtime `0af5a562` fixes parked callback starvation behind
+unrelated committed group apply. A resumed invocation reacquires its writer and
+uses its exact applied cell image with the original ready barrier and live
+owner/route/history/leader fence. New application entry still requires complete
+group readiness. The regression fails at `c74e394d` and passes native/real RustFS
+in both image modes. All four focused native controls, both SDK source-proof
+matrices, the optimized build, strict library/all-test Clippy and repository
+checks pass. Original deadlines and durability proofs are unchanged.
 
-**Public qualification remains FAILED: 7/16.** The EventStream/SDK subset passes
-7/14 versus earlier `3e900c3a` 12/14; two added Queue load controls both fail.
-Passing are RustFS Axum independent-S3, registration/Fleet, both ordinary SDK
-source-proof and both name-discovery controls. Cold activation, named Quorum
-Consume, explicit RustFS Read and Queue producer deadlines remain. Their cause
-is not established; the component archive pass does not close public progress.
+**Selected follow-up remains FAILED: 3/7.** Its passes are the new RustFS
+regression and both SDK controls. Native named Consume still times out
+ambiguously; native explicit and both RustFS EventStream selections fail initial
+activation. This is not the older sixteen-case cohort and does not qualify full
+public progress. Queue, Axum, independent-target-S3 and combined recovery/release
+are not rerun or accepted by this follow-up. Earlier archive wake/retry fixes and
+their twelve passing controls retain source pin `d0c27fca`.
 
-1. **Fix Quorum request/continuation and cold activation progress.** Copied native
-   Quorum source images show a settled Next, pending Ack and parent RPC step 3/4.
-   The child requests Quorum, with no Ack receipt found in that voter's retained
-   images. Verify the live committed manifest; absence in these artifacts is not
-   noncommit. Isolate source checkpoint/proof, target dispatch/fresh quorum, SQL
-   admission and parked-frame resumption using a deterministic multi-step,
-   multi-group, one-SQL-worker regression. Qualify bounded pending-proof handoff
-   across groups. Avoid further unproven routing changes or repeated broad runs
-   as a substitute for a focused failing seam. Preserve the original identities,
-   source/target minima, proof ownership, deadlines and mutation ambiguity.
-   Initial activation and explicit RustFS materialized Read still need their
-   original-budget gates. Then finish autonomous interrupted binding/delivery/ack,
-   safe unused-sequence sealing, long polling, deletion/recreation and retention
-   through movement and fresh-incarnation recovery. The
-   [EventStream contract](event-stream-durability.md) keeps separate source,
-   destination and output boundaries.
+1. **Close cold activation and the remaining multi-step Quorum deadline.**
+   Parked continuation progress now has a failing baseline and passing physical
+   apply regression. Initial activation/metadata reads and complete Consume
+   requests still miss their original budgets. Isolate source checkpoint
+   completion, target dispatch and final settlement with exact parent/child
+   identities. `wait_checkpoint` still waits for whole-group readiness; reproduce
+   its role before extending the continuation fix. Do not infer noncommit from
+   one voter's retained images, weaken proof, extend deadlines or repeat broad
+   campaigns in place of a focused failing boundary. Then finish autonomous
+   interrupted binding/delivery/ack recovery, safe unused-sequence sealing, long
+   polling, deletion/recreation and retention through movement and fresh-history
+   recovery. The [EventStream contract](event-stream-durability.md) keeps separate
+   source, destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
-   and fault oracles, then resolve current producer sequence 11 (native) and 10
-   (RustFS) deadlines, plus the older final-drain failures, under unchanged load
-   and budgets. Full delivery of the 528-message campaigns is not established.
+   and fault oracles, then resolve the last `d0c27fca` producer sequence 11
+   (native) and 10 (RustFS) deadlines, plus the older final-drain failures, under
+   unchanged load and budgets. Full delivery of the 528-message campaigns is not established.
    Qualify both image forms.
    Resolve the managed trust-refresh failure and qualify concurrent boot
    reconciliation. General failed-startup joining and disk retention are now
