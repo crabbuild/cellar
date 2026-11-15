@@ -679,8 +679,14 @@ pub(crate) fn append(context: &Context, body: &Value) -> Result<Value> {
 pub(crate) fn read(context: &Context, body: &Value) -> Result<Value> {
     let caller = authority(context, Action::Read)?;
     let db = context.storage()?;
-    let (definition, row) = load(&db)?;
-    authorize(&definition, &caller, Action::Read, None)?;
+    read_selected(&db, &caller, body)
+}
+
+/// Read the retained interval of one selected image. Expiry and reclamation
+/// belong to committed maintenance; inspection cannot advance that frontier.
+pub(crate) fn read_selected(db: &Storage, caller: &Authority, body: &Value) -> Result<Value> {
+    let (definition, row) = load(db)?;
+    authorize(&definition, caller, Action::Read, None)?;
     let earliest = number(&row, "earliest_offset")?;
     let next = number(&row, "next_offset")?;
     let requested = match body.get("next") {
@@ -701,7 +707,7 @@ pub(crate) fn read(context: &Context, body: &Value) -> Result<Value> {
         return Err(failure.into());
     }
     let (count, budget) = budgets(body)?;
-    let records = records(&db, requested, next - 1, count, budget)?;
+    let records = records(db, requested, next - 1, count, budget)?;
     let cursor = records
         .last()
         .map(|row| {
@@ -755,7 +761,7 @@ pub(crate) fn records(
     count: usize,
     budget: usize,
 ) -> Result<Vec<Value>> {
-    let rows = db.system_sql("SELECT offset,size FROM __sys_stream_events WHERE offset>=? AND offset<=? ORDER BY offset LIMIT ?",
+    let rows = db.system_sql_read("SELECT offset,size FROM __sys_stream_events WHERE offset>=? AND offset<=? ORDER BY offset LIMIT ?",
         &[first.into(),last.into(),i64::try_from(count)?.into()])?;
     let mut records = Vec::new();
     let mut size = 0usize;
@@ -778,7 +784,7 @@ pub(crate) fn records(
             }
             break;
         }
-        let payload = db.system_sql(
+        let payload = db.system_sql_read(
             "SELECT envelope FROM __sys_stream_events WHERE offset=?",
             &[offset.into()],
         )?;

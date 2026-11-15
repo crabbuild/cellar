@@ -17,6 +17,7 @@ pub(crate) fn is_metadata(method: &str) -> bool {
             | "__catalogResolveName"
             | "__catalogResolve"
             | "__streamResolve"
+            | "__streamRead"
             | "__streamSubscriptionStatus"
     )
 }
@@ -47,6 +48,7 @@ pub(crate) fn invoke(context: &QueryContext<'_>, input: &[u8]) -> anyhow::Result
             &request.method,
             &request.authority,
             &body,
+            context.result_limit(),
         )
     });
     let Output::Rpc(result) = event_stream::broker::reply(result)? else {

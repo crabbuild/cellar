@@ -279,6 +279,10 @@ pub struct QueryContext<'a> {
 }
 
 impl QueryContext<'_> {
+    pub(super) fn result_limit(&self) -> usize {
+        self.frame.database().result_limit()
+    }
+
     pub(super) fn sql_ingress_sequence(&self, input: &[u8]) -> anyhow::Result<Vec<u8>> {
         let QueryVersion::Cell(observation) = self.version else {
             anyhow::bail!(super::CommandFailure::UnsupportedCapability);

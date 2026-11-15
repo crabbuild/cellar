@@ -46,6 +46,14 @@ receipts. Configuration checks the actual compiled envelope against the host
 profile; append batching intersects that profile with policy limits and image
 capture still gates source output. No capacity limit is raised automatically.
 
+Retained-record reads also use the private immutable query contract. They check
+the current read grant and lifecycle, then paginate the selected image's stored
+retention frontier without advancing its clock or running maintenance. A read
+allocates no command identity, receipt or new log entry. Source writes are still
+proved before a bound read, and an S3 target still requires independently verified
+archive coverage of the selected version. Cursor expiry and byte/count limits
+match ordinary Fleet reads; lease acquisition and acknowledgment remain commands.
+
 This reconciliation requires its own combined-source qualification. Earlier
 branch results below do not establish the merged candidate's runtime behavior.
 

@@ -147,7 +147,7 @@ async fn catalog_configuration_join_reads_exact_intent_without_rearming_or_deliv
         let authority = crate::application::consensus::native_event_rpc::Authority::Event(caller);
         let before = db.system_sql("SELECT * FROM __sys_event_catalog", &[])?;
         let receipts = db.system_sql("SELECT * FROM __sys_event_catalog_receipts", &[])?;
-        let read = || super::super::metadata::read(&db, &scope, "__catalogConfigureReceipt", &authority, &body);
+        let read = || super::super::metadata::read(&db, &scope, "__catalogConfigureReceipt", &authority, &body, usize::MAX);
         for _ in 0..2 {
             let pending = read()?;
             assert_eq!(pending["state"], "creating");
@@ -162,7 +162,7 @@ async fn catalog_configuration_join_reads_exact_intent_without_rearming_or_deliv
         assert_eq!(read().unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::DestinationDeleted);
         let mut absent = body.clone();
         absent["operation"] = json!("f".repeat(32));
-        let refused = super::super::metadata::read(&db, &scope, "__catalogConfigureReceipt", &authority, &absent).unwrap_err();
+        let refused = super::super::metadata::read(&db, &scope, "__catalogConfigureReceipt", &authority, &absent, usize::MAX).unwrap_err();
         assert_eq!(refused.downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::DestinationDeleted);
         Ok(())
     }).await
@@ -193,6 +193,137 @@ async fn catalog_configuration_join_refuses_changed_body_caller_grant_and_operat
         assert_eq!(read(&caller, &body).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::Forbidden);
         Ok(())
     }).await
+}
+
+#[tokio::test]
+async fn retained_read_observes_one_frontier_without_mutating_stream_or_work() -> Result<()> {
+    run_case(|db, definition| {
+        let mut caller = status_caller(&definition)?;
+        caller.action = Action::Read;
+        let scope = super::super::cell_scope(&definition.resource)?;
+        let read = |body: &Value| {
+            super::super::metadata::read(
+                &db,
+                &scope,
+                "__streamRead",
+                &super::super::super::consensus::native_event_rpc::Authority::Event(caller.clone()),
+                body,
+                usize::MAX,
+            )
+        };
+        let before = db.system_sql_read("SELECT * FROM __sys_stream", &[])?;
+        let work = deadline(&db)?;
+        let page = read(&json!({"max_records":1,"max_bytes":1}))?;
+        assert_eq!(page["earliest"], "1");
+        assert_eq!(page["end"], "3");
+        assert_eq!(page["next"], "2");
+        assert_eq!(page["records"], json!([{"offset":"1","envelope":"YQ=="}]));
+        assert_eq!(read(&json!({"next":"2"}))?["next"], "3");
+        assert_eq!(read(&json!({"next":"3"}))?["records"], json!([]));
+        let invalid = read(&json!({"next":"4"})).unwrap_err();
+        assert_eq!(
+            invalid
+                .downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::InvalidCursor
+        );
+        assert_eq!(
+            db.system_sql_read("SELECT * FROM __sys_stream", &[])?,
+            before
+        );
+        assert_eq!(deadline(&db)?, work);
+        assert_eq!(
+            db.system_sql_read("SELECT offset FROM __sys_stream_events", &[])?
+                .len(),
+            2
+        );
+        // Only committed maintenance can move the frontier. A cursor that was
+        // valid in an earlier image must then report the new earliest offset.
+        db.system_sql("DELETE FROM __sys_stream_events WHERE offset=1", &[])?;
+        db.system_sql("UPDATE __sys_stream SET earliest_offset=2", &[])?;
+        let expired = read(&json!({"next":"1"})).unwrap_err();
+        let expired = expired
+            .downcast_ref::<super::super::DeliveryError>()
+            .unwrap();
+        assert_eq!(expired.code, ErrorCode::CursorExpired);
+        assert_eq!(expired.data["earliest"], "2");
+        db.system_sql(
+            "UPDATE __sys_stream_events SET size=4,envelope=? WHERE offset=2",
+            &[SqlValue::Blob(vec![b'a'; 4])],
+        )?;
+        let bounded = super::super::metadata::read(
+            &db,
+            &scope,
+            "__streamRead",
+            &super::super::super::consensus::native_event_rpc::Authority::Event(caller),
+            &json!({}),
+            4100,
+        )
+        .unwrap_err();
+        assert_eq!(
+            bounded
+                .downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::BatchTooSmall
+        );
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn retained_read_requires_current_read_grant_and_live_resource() -> Result<()> {
+    run_case(|db, definition| {
+        let mut caller = status_caller(&definition)?;
+        caller.action = Action::Read;
+        let scope = super::super::cell_scope(&definition.resource)?;
+        let read = |scope: &str, caller: &Authority| {
+            super::super::metadata::read(
+                &db,
+                scope,
+                "__streamRead",
+                &super::super::super::consensus::native_event_rpc::Authority::Event(caller.clone()),
+                &json!({}),
+                usize::MAX,
+            )
+        };
+        let refusal = |failure: anyhow::Error, code| {
+            assert_eq!(
+                failure
+                    .downcast_ref::<super::super::DeliveryError>()
+                    .unwrap()
+                    .code,
+                code
+            )
+        };
+        read(&scope, &caller)?;
+        let mut wrong_action = caller.clone();
+        wrong_action.action = Action::Consume;
+        refusal(
+            read(&scope, &wrong_action).unwrap_err(),
+            ErrorCode::Forbidden,
+        );
+        assert!(read("__EventStream:foreign", &caller).is_err());
+        let mut revoked = definition.clone();
+        revoked.grants[0].read = false;
+        db.system_sql(
+            "UPDATE __sys_stream SET definition=?",
+            &[serde_json::to_string(&revoked)?.into()],
+        )?;
+        refusal(read(&scope, &caller).unwrap_err(), ErrorCode::Forbidden);
+        db.system_sql(
+            "UPDATE __sys_stream SET definition=?,lifecycle='deleted'",
+            &[serde_json::to_string(&definition)?.into()],
+        )?;
+        refusal(
+            read(&scope, &caller).unwrap_err(),
+            ErrorCode::DestinationDeleted,
+        );
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test]

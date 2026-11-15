@@ -14,6 +14,7 @@ pub(crate) fn read(
     method: &str,
     authority: &Authority,
     body: &Value,
+    result_limit: usize,
 ) -> Result<Value> {
     match (method, authority) {
         ("__catalogStatus", Authority::Event(caller)) => {
@@ -31,6 +32,17 @@ pub(crate) fn read(
         ("__streamResolve", Authority::Event(caller)) => {
             store::validate_authority(scope, caller, Action::Resolve)?;
             store::resolve_read(db, caller, body)
+        }
+        ("__streamRead", Authority::Event(caller)) => {
+            store::validate_authority(scope, caller, Action::Read)?;
+            // Query frames have no command dispatch capability. Preserve its
+            // pagination headroom using this reader's actual response bound,
+            // before copying any payloads from the selected image.
+            let (_, requested) = store::budgets(body)?;
+            let mut body = body.clone();
+            body["max_bytes"] =
+                serde_json::json!(requested.min(result_limit.saturating_sub(4096) / 4 * 3));
+            store::read_selected(db, caller, &body)
         }
         ("__streamSubscriptionStatus", Authority::Event(caller)) => {
             // The status reader admits only Consume/Administer and checks the

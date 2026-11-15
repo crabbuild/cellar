@@ -527,7 +527,13 @@ pub(super) fn run(
             input,
             admission,
         } => class
-            .invoke_cell_query(&contract, &observation, database, &input, admission)
+            .invoke_cell_query(
+                &contract,
+                &observation,
+                database.with_result_limit(query.options.limits().max_result_bytes),
+                &input,
+                admission,
+            )
             .map(Output::Query)
             .map_err(crate::raft::execution::storage),
         Callback::Receipt {

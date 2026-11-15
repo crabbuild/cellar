@@ -164,7 +164,7 @@ async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result
             let storage = tx.storage()?;
             let observed = event_stream::metadata::read(
                 &storage, cell.cell.as_str(), "__catalogConfigureReceipt",
-                &Authority::Event(caller.clone()), &body,
+                &Authority::Event(caller.clone()), &body, usize::MAX,
             )?;
             assert_eq!(observed["state"], "creating");
             assert_eq!(observed["operation"], body["operation"]);
@@ -356,6 +356,7 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
         "__catalogResolveName",
         "__catalogResolve",
         "__streamResolve",
+        "__streamRead",
         "__streamSubscriptionStatus",
     ] {
         assert!(is_metadata(method));
@@ -364,7 +365,6 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
         "__catalogConfigure",
         "__catalogRetire",
         "__streamConfigure",
-        "__streamRead",
         "__streamNext",
         "__streamAck",
         "__streamRetry",
