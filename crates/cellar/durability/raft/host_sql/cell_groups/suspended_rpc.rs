@@ -556,7 +556,11 @@ impl Cells {
                     Poll::Pending => {
                         self.suspended.push_back(rpc);
                         timer.finish(true);
-                        return false;
+                        // Waiting for this cell's writer is not a completed
+                        // work quantum. Another callback may already be ready
+                        // without a new queue entry or wake. Finish this bounded
+                        // pass before letting the owner serve queued work/idle.
+                        continue;
                     }
                     Poll::Ready(Err(error)) => {
                         timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
