@@ -20,7 +20,9 @@ mod receipts;
 #[path = "cell_group_s3_remote.rs"]
 mod remote;
 use super::*;
-pub(crate) use enrollment::{enrollment_output_during_apply, s3_enrollment, s3_enrollment_deadline};
+pub(crate) use enrollment::{
+    enrollment_output_during_apply, s3_enrollment, s3_enrollment_deadline,
+};
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
