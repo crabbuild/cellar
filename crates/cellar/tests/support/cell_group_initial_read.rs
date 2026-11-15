@@ -247,7 +247,10 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
 pub async fn qualify(real: bool) -> Result<()> {
     for rooted in [false, true] {
         let store = if real {
-            Arc::new(catalog_fault::Store::around(rustfs::store("initial-read", rooted)?))
+            Arc::new(catalog_fault::Store::around(rustfs::store(
+                "initial-read",
+                rooted,
+            )?))
         } else {
             Arc::new(catalog_fault::Store::default())
         };
