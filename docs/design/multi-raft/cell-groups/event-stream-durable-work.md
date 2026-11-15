@@ -76,6 +76,12 @@ cannot create a campaign loop. Recovery, membership and park fences still refuse
 admission, and ordinary election timers remain the fallback. Stale reads do not
 trigger this optimization. Name-discovery session expiry keeps the same typed
 deadline failure as its original outer timer, without changing mutation ambiguity.
+Automatic name discovery may contact the candidate named by a local durable vote
+before an idle follower. This reorders only the existing trusted candidate set,
+keeps the hint fixed through the route's attempt bank and preserves local/explicit
+routing selectors. It grants no leadership, read, absence or enrollment proof;
+each selected destination still performs the ordinary fresh quorum read under
+the original deadline. Stale or missing vote hints retain normal fallbacks.
 
 This reconciliation requires its own combined-source qualification. Earlier
 branch results below do not establish the merged candidate's runtime behavior.

@@ -350,7 +350,6 @@ impl CellGroupOwner {
                     .conf_state
                     .voters_outgoing
                     .contains(&cache.hard_state.vote));
-        tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="owner-start", history=?current.marker().route().history, member=group.identity().member.get(), term=cache.hard_state.term, vote=cache.hard_state.vote, startup_read_candidate, waking_after=?waking_after);
         drop(cache);
         current
             .require_checkpoint(&group)
@@ -2180,7 +2179,6 @@ impl CellGroupOwner {
             return Ok(false);
         }
         self.startup_read_candidate = false;
-        tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="startup-campaign", history=?self.group.identity().scope, member=self.group.identity().member.get(), term=self.node.raft.term);
         self.campaign()?;
         Ok(true)
     }

@@ -268,7 +268,7 @@ pub async fn qualify_target_s3(external: bool) -> Result<()> {
 
 async fn qualify_host(real_rustfs: bool, external: bool, target_minimum: Durability) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::group_archive=debug,cellar::raft::event_activation_probe=debug,cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_groups::controller::effects=debug")
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_groups::controller::effects=debug")
         .with_test_writer()
         .try_init();
     for rooted in [false, true] {

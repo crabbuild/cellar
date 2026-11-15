@@ -193,24 +193,38 @@ impl Resolution {
                 self.started,
             )
             .map_err(name_routing_failure)?;
-        tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="name-route-start", ?invocation, cell=%self.candidate.cell.as_str());
         let mut attempt = session.begin().await.map_err(name_routing_failure)?;
-        tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="name-route-ready", ?invocation, cell=%self.candidate.cell.as_str());
         let mut previous = None;
         let mut next = 0;
+        let mut preferred = None;
         loop {
             self.live()?;
             let route = attempt.route().clone();
-            if previous != Some(route.history) {
+            let new_route = previous != Some(route.history);
+            if new_route {
                 previous = Some(route.history);
                 next = 0;
+                preferred = None;
             }
             let local = match self.owner.handle.core.log.cell_group(&route.history) {
-                Ok(group) => Some(group.identity().member),
+                Ok(group) => {
+                    if new_route && matches!(self.options.routing, QueryRouting::Automatic) {
+                        let cache = group
+                            .read()
+                            .map_err(|error| CellDispatchError::Runtime(error.into()))?;
+                        let vote = cache.hard_state.vote;
+                        if cache.conf_state.voters.contains(&vote)
+                            || cache.conf_state.voters_outgoing.contains(&vote)
+                        {
+                            preferred = MemberId::new(vote).ok();
+                        }
+                    }
+                    Some(group.identity().member)
+                }
                 Err(LogError::NotFound) => None,
                 Err(error) => return Err(CellDispatchError::Runtime(error.into())),
             };
-            let mut members = self.members(&route, local).await?;
+            let mut members = self.members(&route, local, preferred).await?;
             if let QueryRouting::Replicas {
                 leader_fallback: true,
                 ..
@@ -262,7 +276,6 @@ impl Resolution {
             attempt
                 .limit_query_deadline(deadline)
                 .map_err(name_routing_failure)?;
-            tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="name-attempt", ?invocation, history=?route.history, ?member, is_local=local==Some(member), ordinal=attempt.ordinal(), slice_ms=slice);
             let selected = if local == Some(member) {
                 self.owner
                     .handle
@@ -283,7 +296,6 @@ impl Resolution {
                     .map(|response| response.record().cloned())
                     .map_err(|error| CellDispatchError::Transport(error.for_read()))
             };
-            tracing::debug!(target:"cellar::raft::event_activation_probe", probe="DEBUG-cg17-recovery", phase="name-result", ?invocation, success=selected.is_ok(), error=?selected.as_ref().err());
             match selected {
                 Ok(record) => {
                     self.live()?;
@@ -314,6 +326,7 @@ impl Resolution {
         &self,
         route: &cellar_logic::cell_group::GroupRoute,
         local: Option<MemberId>,
+        preferred: Option<MemberId>,
     ) -> Result<Vec<MemberId>, CellDispatchError> {
         match &self.options.routing {
             QueryRouting::Local => Ok(local.into_iter().collect()),
@@ -340,6 +353,18 @@ impl Resolution {
                     if !members.contains(&member) {
                         members.push(member);
                     }
+                }
+                // The last durable vote is only a liveness hint. On retained
+                // startup its candidate can start the ordinary election before
+                // an idle follower consumes a read attempt. Never add a peer:
+                // current destination membership, grants and quorum still check
+                // the request, and all other trusted candidates retain order.
+                // Keep this hint fixed for the route so a later vote cannot
+                // move an untried peer behind the retry cursor.
+                if let Some(index) =
+                    preferred.and_then(|member| members.iter().position(|m| *m == member))
+                {
+                    members[..=index].rotate_right(1);
                 }
                 Ok(members)
             }
