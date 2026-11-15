@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "497815307b7c611021cefea97caaca3a264da7e2449f9ea6b5437109065aa3fc"
+    "crates/cellar/application/mod.rs": "350784fc9befc043cd1d11f4e535c1c05332d8685992dd3ba6d81452ca5f32c3"
   },
   "entries": [
     {
@@ -208,6 +208,7 @@
       "id": "event-stream",
       "family": "event-stream",
       "symbols": [
+        "cellar::sdk::Registry::raft_event_stream",
         "cellar::sdk::event_stream::Stream",
         "cellar::sdk::event_stream::Stream::configure",
         "cellar::sdk::event_stream::Stream::read",
@@ -222,7 +223,11 @@
         "crates/cellar/application/event_stream/mod.rs",
         "crates/cellar/application/event_stream/client.rs",
         "crates/cellar/application/event_stream/subscription.rs",
-        "crates/cellar/application/event_stream/schema.sql"
+        "crates/cellar/application/event_stream/schema.sql",
+        "crates/cellar/application/mod.rs",
+        "crates/cellar/application/consensus/native_services.rs",
+        "crates/cellar/application/consensus/native_rpc.rs",
+        "crates/cellar/application/event_stream/raft.rs"
       ],
       "schemas": [
         "Records, lanes and consumer checkpoints"
@@ -237,8 +242,8 @@
         "native",
         "axum"
       ],
-      "permission": "Separate publish, read, consume and admin grants",
-      "proof": "Target append or checkpoint receipt",
+      "permission": "Trusted compiled resource ownership, separate publish/read/consume/admin grants and authenticated namespace origins",
+      "proof": "Target namespace Quorum/S3 append or checkpoint receipt, independent of source outbox proof",
       "ordering": "Ordered lanes, stable deliveries and generation-specific settlement",
       "recovery": "Recover records, checkpoints and original subscription receipts",
       "case": "primitives_event_stream_outbox_inbox_replay",

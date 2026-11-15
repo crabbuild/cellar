@@ -191,9 +191,13 @@ impl Storage {
         let payload =
             crate::application::event_stream::encoding::payload(&event, limits.event_bytes())?;
         if self.is_raft() {
-            let history = crate::storage::capture_raft_dispatch()?
-                .ok_or(consensus::CommandFailure::UnsupportedCapability)?
-                .source_history()?;
+            let dispatch = crate::storage::capture_raft_dispatch()?
+                .ok_or(consensus::CommandFailure::UnsupportedCapability)?;
+            let history = dispatch.source_history()?;
+            let input_limit = dispatch.event_wire_limit(
+                &crate::application::event_stream::cell_scope(&stream.binding.resource)?,
+                "__streamAppend",
+            )?;
             crate::storage::outbox::emit_raft(
                 &stream.binding,
                 E::VERSION,
@@ -201,6 +205,7 @@ impl Storage {
                 payload,
                 limits,
                 &history,
+                input_limit,
             )
         } else {
             crate::storage::outbox::emit(scope, &stream.binding, E::VERSION, key, payload, limits)

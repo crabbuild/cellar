@@ -191,6 +191,7 @@ pub(crate) fn emit_raft(
     payload: serde_json::Value,
     limits: Limits,
     history: &cellar_logic::cell_group::CellHistory,
+    input_limit: usize,
 ) -> anyhow::Result<()> {
     emit_with_history(
         RAFT_STORAGE_SCOPE,
@@ -199,7 +200,7 @@ pub(crate) fn emit_raft(
         key,
         payload,
         limits,
-        Some(history),
+        Some((history, input_limit)),
     )
 }
 
@@ -210,29 +211,19 @@ fn emit_with_history(
     key: String,
     payload: serde_json::Value,
     limits: Limits,
-    history: Option<&cellar_logic::cell_group::CellHistory>,
+    raft_source: Option<(&cellar_logic::cell_group::CellHistory, usize)>,
 ) -> anyhow::Result<()> {
     binding.validate()?;
     anyhow::ensure!(binding.publish, "event stream publication is forbidden");
     limits.validate()?;
     let now_ms = crate::asyncrt::wall_ms();
     anyhow::ensure!(now_ms >= 0, "event creation time must be nonnegative");
+    let history = raft_source.map(|(history, _)| history);
     let source = history.map_or(scope, |history| history.cell.as_str());
     let expected_owner = source_owner(source, history);
-    // Ordinary SDK sources carry route metadata. Raw internal command tests
-    // exercise the source primitive before a destination adapter is installed.
-    let input_limit = if history.is_some() {
-        crate::storage::capture_raft_dispatch()?
-            .map(|dispatch| {
-                dispatch.event_wire_limit(
-                    &crate::application::event_stream::cell_scope(&binding.resource)?,
-                    "__streamAppend",
-                )
-            })
-            .transpose()?
-    } else {
-        None
-    };
+    // The public adapter validates the executing source and destination route.
+    // The journal enforces its wire bound without acquiring an async permit.
+    let input_limit = raft_source.map(|(_, limit)| limit);
     let raft = command::with(|_| ()).is_some();
     anyhow::ensure!(
         raft == history.is_some(),
