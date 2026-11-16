@@ -510,6 +510,10 @@ pub(super) mod apply;
 pub(crate) use apply::apply_images;
 pub(crate) use apply::committed_apply_reuses_verified_preview;
 
+#[path = "cell_group_prepared_apply.rs"]
+mod prepared_apply;
+pub(crate) use prepared_apply::{verified_preparation_handoff, PreparationCase};
+
 #[path = "cell_group_sql_apply_faults.rs"]
 mod apply_faults;
 pub(crate) use apply_faults::physical::{FaultFileSystem, Faults};

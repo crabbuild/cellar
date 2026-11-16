@@ -554,6 +554,42 @@ async fn committed_apply_reuses_verified_materialized_preview() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn verified_materialized_preparation_passes_to_committed_apply() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Live)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn verified_extent_preparation_passes_to_committed_apply() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Live)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn expired_materialized_preparation_requires_independent_replay() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Expired)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn expired_extent_preparation_requires_independent_replay() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Expired)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn corrupt_materialized_preparation_refuses_committed_apply() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Corrupt)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn corrupt_extent_preparation_refuses_committed_apply() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Corrupt)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_cell_receipt_not_group_progress() -> Result<()> {
     runtime_fixture::cell_receipts(true).await
 }
