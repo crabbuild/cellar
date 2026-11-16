@@ -657,7 +657,6 @@ pub(crate) fn authority_failure(error: RuntimeError) -> ExecutionError {
     match error {
         RuntimeError::Overloaded => ExecutionError::Refused(CommandFailure::Overloaded),
         RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Closed => {
-            tracing::debug!(target: "cellar::raft::sql_ingress", ?error, "DEBUG-cg17-restart-read-573 execution-authority");
             ExecutionError::Refused(CommandFailure::Unavailable)
         }
         other => storage(other),

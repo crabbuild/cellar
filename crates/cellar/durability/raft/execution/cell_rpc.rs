@@ -196,10 +196,7 @@ impl CellPrivateExecutor {
         }
         let future = transaction.turn(|tx| {
             command::maintain(&attempt, preparation.maintenance.take(), tx)?;
-            self.authority.check().map_err(|error| {
-            tracing::debug!(target: "cellar::raft::sql_ingress", cell = self.authority.cell().version.history.cell.as_str(), ?error, "DEBUG-cg17-restart-read-573 rpc-check-authority");
-            authority_failure(error)
-        })?;
+            self.authority.check().map_err(authority_failure)?;
             class.start_cell_rpc(
                 &contract,
                 CommandTarget {

@@ -50,13 +50,15 @@ impl super::Host for Host {
         let reply = (|| -> Result<_> {
             anyhow::ensure!(principal == "app");
             authority.validate_target(&scope, Some(&name), method)?;
-            let (expected, value) = self
-                .replies
-                .lock()
-                .unwrap()
-                .pop_front()
+            let mut replies = self.replies.lock().unwrap();
+            let expected = replies
+                .front()
+                .map(|(method, _)| *method)
                 .ok_or_else(|| anyhow::anyhow!("unexpected activation call {method}"))?;
             anyhow::ensure!(method == expected, "expected {expected}, observed {method}");
+            let (_, value) = replies
+                .pop_front()
+                .ok_or_else(|| anyhow::anyhow!("activation reply disappeared"))?;
             Ok(value)
         })();
         Box::pin(async move { reply })
@@ -87,6 +89,111 @@ fn definition() -> Definition {
         }],
         subscriptions: vec![],
     }
+}
+
+fn binding_declaration(named: bool) -> (super::super::Binding, BindingConfig) {
+    let binding = super::super::Binding {
+        environment: "EVENTS".into(),
+        resource: definition().resource,
+        principal: "app".into(),
+        grant: "owner".into(),
+        publish: false,
+        read: true,
+        subscriptions: vec![],
+        administer: false,
+    };
+    let mut declaration = BindingConfig::from(binding.clone());
+    if named {
+        declaration.resource.id = None;
+    }
+    (binding, declaration)
+}
+
+#[tokio::test]
+async fn named_adoption_uses_its_current_catalog_proof_but_still_checks_the_partition() -> Result<()>
+{
+    let (binding, named) = binding_declaration(true);
+    let active = json!({"state":"active","resource":binding.resource,"revision":"1"});
+    // Name resolution already proved current catalog lifecycle and all captured
+    // grant capabilities. A second catalog read is unavailable in this host.
+    let host = Host {
+        known: false,
+        replies: std::sync::Mutex::new(
+            vec![
+                (super::super::name_resolution::METHOD, active.clone()),
+                ("__streamResolve", active.clone()),
+            ]
+            .into(),
+        ),
+    };
+    assert_eq!(
+        configure(&host, &[], &[named]).await?,
+        vec![binding.clone()]
+    );
+    assert!(host.replies.lock().unwrap().is_empty());
+    // An explicit UUID supplies no catalog proof. It cannot use the same
+    // shortcut; both independently authorized authorities must still be read.
+    let (_, explicit) = binding_declaration(false);
+    let missing_catalog = Host {
+        known: false,
+        replies: std::sync::Mutex::new(vec![("__streamResolve", active.clone())].into()),
+    };
+    assert!(configure(&missing_catalog, &[], &[explicit.clone()])
+        .await
+        .is_err());
+    let explicit_host = Host {
+        known: false,
+        replies: std::sync::Mutex::new(
+            vec![
+                ("__catalogResolve", active.clone()),
+                ("__streamResolve", active),
+            ]
+            .into(),
+        ),
+    };
+    assert_eq!(
+        configure(&explicit_host, &[], &[explicit]).await?,
+        vec![binding]
+    );
+    assert!(explicit_host.replies.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn catalog_adoption_never_replaces_partition_lifecycle_or_resource_identity() -> Result<()> {
+    for named in [false, true] {
+        let (binding, declaration) = binding_declaration(named);
+        let active = json!({"state":"active","resource":binding.resource,"revision":"1"});
+        for field in ["state", "resource"] {
+            let mut refused = active.clone();
+            if field == "state" {
+                refused["state"] = json!("retiring");
+            } else {
+                refused["resource"]["id"] = json!("f".repeat(32));
+            }
+            let catalog_method = if named {
+                super::super::name_resolution::METHOD
+            } else {
+                "__catalogResolve"
+            };
+            let host = Host {
+                known: false,
+                replies: std::sync::Mutex::new(
+                    vec![
+                        (catalog_method, active.clone()),
+                        ("__streamResolve", refused),
+                    ]
+                    .into(),
+                ),
+            };
+            assert!(configure(&host, &[], &[declaration.clone()]).await.is_err());
+            assert!(
+                host.replies.lock().unwrap().is_empty(),
+                "partition check was skipped"
+            );
+        }
+    }
+    Ok(())
 }
 
 #[tokio::test]

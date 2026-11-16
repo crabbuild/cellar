@@ -611,7 +611,6 @@ impl CellGroupSqlPool {
 
     fn admit(&self) -> Result<(), ExecutionError> {
         if self.inner.closing.load(Ordering::Acquire) {
-            tracing::debug!(target: "cellar::raft::sql_ingress", "DEBUG-cg17-restart-read-573 sql-pool-closed");
             return Err(unavailable());
         }
         Ok(())
