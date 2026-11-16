@@ -31,15 +31,16 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
       CARGO_INCREMENTAL: "0"
-      CARGO_TARGET_DIR: ${{ runner.temp }}/cellar-disaster-target
-      TMPDIR: ${{ runner.temp }}/native-failure-fixtures
     steps:
       - uses: actions/checkout@v6
+      - name: Configure private build and fixture paths
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-failure-fixtures"
+          printf 'CARGO_TARGET_DIR=%s\nTMPDIR=%s\n' "$RUNNER_TEMP/cellar-disaster-target" "$RUNNER_TEMP/native-failure-fixtures" >> "$GITHUB_ENV"
       - name: Install the SDK Rust toolchain
         run: rustup toolchain install 1.98.1 --profile minimal
       - name: Build the existing disaster target
         run: |
-          mkdir -p "$TMPDIR"
           cargo test --locked -p cellar --all-features --test native_cell_groups_disaster --no-run
           # Finish compilation writeback before entering original-budget voters.
           # The test retains all of its existing file/directory syncs and limits.

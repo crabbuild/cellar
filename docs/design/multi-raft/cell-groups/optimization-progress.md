@@ -152,6 +152,15 @@ all constrained primitive, authority, recovery, movement and complete CG/OPT
 release gates remain open. This wave changes no production runtime code or
 original RustFS/Colima state and qualifies no throughput or percentile gain.
 
+The first focused-workflow publication, `24894dd8`, fails GitHub validation
+before any job or test starts. Actionlint 1.7.12 independently reproduces both
+invalid job-level `runner.temp` expressions. The correction creates fixture
+paths during setup and exports target/temp paths through `GITHUB_ENV`; Rust,
+profile, business budgets, test selection and artifact allowlist remain unchanged.
+The [workflow validation follow-up](disaster-workflow-validation-2026-11-16.json)
+retains that failed run and source hashes plus the passing corrected lint.
+Runtime execution remains unqualified at this checkpoint.
+
 ### Earlier component checkpoints
 
 The explicit SQL read path uses `Database::prepare_read_only` and the existing
