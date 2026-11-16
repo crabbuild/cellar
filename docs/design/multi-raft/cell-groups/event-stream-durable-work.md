@@ -84,6 +84,21 @@ activation; a broker image alone grants no binding readiness. The broker
 initializer has a distinct contract digest for this hard cutover. Format markers
 stay at 1; no old-template reader or data migration is provided.
 
+For a declaration needing configuration, activation prepares only a broker
+birth concurrently with catalog reconciliation. Node and embedded SDK hosts
+share this helper; Fleet preparation is a no-op. There are at most two concurrent
+operations per declaration, with declarations still sequential. The helper uses
+existing authorization, metadata admission, name lookup and ordinary enrollment
+under the original absolute deadline. New enrollment verifies the exact cell,
+creation token, schema and required durability proof. An uncertain enrollment
+keeps its identity and joins only a fresh name observation; it never invents a
+new candidate or retries creation under a new token. An existing locator skips
+preparation only. Preparation neither updates existing broker configuration nor
+grants readiness. Failed/cancelled activation may leave a non-serving birth;
+combined cleanup and recovery qualification remains open. The serial-baseline
+regression and 101 owning tests pass at `f0647e010`; public qualification remains
+FAILED3/10, so this is no claim of deadline improvement or complete family support.
+
 Fresh catalog creation can acknowledge its compiled provisioning intent from
 the request's owned enrollment response. The exact nonce-independent wire binds
 scope, resource, caller, operation and definition. History, creation, schema and

@@ -4,44 +4,40 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current broker creation delivery
+## Current parallel broker bootstrap delivery
 
 Main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `5fa5bf8a3` commits
-the declared broker configuration, grants, subscriptions and captured clock in
-its private creation image. Existing broker rows remain untouched. Catalog
-readiness, normal child configure command/receipt, independent target durability
-and all current fences remain. Named adoption proof reuse and atomic first-fetch
-identity/lease selection are retained. The new broker initializer digest is a
-hard compatibility boundary; format markers stay 1, with no old-data migration.
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `f0647e010` overlaps
+bounded create-only broker preparation and normal catalog reconciliation for
+Node and embedded SDK activation. Existing locators skip only preparation;
+current catalog/broker authorization and independent proofs still decide readiness.
+An uncertain creation never changes its candidate or proposal. Prepared births
+can outlive failed/cancelled activation without serving; combined cleanup and
+recovery still require qualification. Broker creation state and its initializer
+contract boundary from `5fa5bf8a3` remain. Original budgets and fixtures are unchanged.
 
-Valid baseline 612 at `cb46662f` fails on missing broker state before callback.
-Final **100 owning checks pass**, with the regression source byte-identical.
-Locked build, strict Clippy and repository checks pass. Earlier compile/invalid
-fixture preparations do not count. Public fixtures, budgets and quotas remain.
+The unchanged regression fails at serial baseline `46b2eb395`; final **101 owning
+tests**, locked build, strict Clippy and repository checks pass. **Public cohort
+645 is FAILED, 3/10**: ordinary native lifecycle, registration and Fleet pass;
+seven selections fail initial activation or Consume. Native Axum and RustFS
+ordinary Consume enter target dispatch with 2,834/2,867 ms remaining, then expire.
+Investigate target execution/checkpoint/proof stages before changing discovery.
+Preserve exact unknown mutation identities. Do not repeat unchanged campaigns
+merely to obtain a pass or extend their budgets.
 
-**Current selected public cohort 618 is FAILED, 7/10.** Ordinary native/Axum and
-real-RustFS lifecycle, native publication/outbox recovery, registration and Fleet
-reference pass. RustFS publication/outbox recovery fails at subscription pause/
-resume `Change` sequence 18, ambiguously exceeding its deadline. Both direct
-native and Axum independent-target-S3 selections fail initial materialized-image
-activation on node 0. Nine failed voter disks are preserved. Keep the ambiguous
-operation's identity and reconcile it; do not invent a fresh retry identity.
+Diagnostic 630 separately localized cold configure scheduling/history costs;
+it did not reach `Change` and grants no acceptance. Its six failed disks remain.
+Temporary probes are removed. Aggregate 648 verifies current evidence, frozen
+binaries and 21 public-failure disks. Owned RustFS/VM are stopped, objects retained.
+A compiler appeared at campaign end; its effect is unproven. Prior 7/10 and 9/10
+are historical, and the full cohort remains last FAILED6/16 at `6c876b46`.
 
-The creation-state gap is fixed at its owning boundary; public deadline causes
-remain unproven. Earlier 9/10 at `0653bf668` and the full cohort's last FAILED6/16
-at `6c876b46` are separate historical scopes, not current acceptance. The native
-post-restart Read refusal did not reproduce; do not claim its cause/fix. No
-probes or public budget changes are present. Actual qualification started after
-the blocking compiler finished and build writeback was flushed.
-
-Next: close S3 cold activation and subscription administration, then Queue public
-producer deadlines. Finish the combined EventStream fault/lifecycle matrix and
-remaining primitives, CG-13/15 recovery/release, then CG-16 cutover. Counts stay
-**13/17 tasks, 147/195 cases**. Aggregate 621 verifies current evidence and nine
-failed disks; owned RustFS/VM are stopped with objects retained. Exact pins and
-scope are in [progress](progress.md#current-integration-checkpoint) and ignored
-`.cellar/cg17-payload-01/event-read-state.json`.
+Next: target Consume progress and autonomous activation; then subscription
+administration and Queue production; then combined EventStream lifecycle,
+remaining primitives, CG-13/15 recovery/release and CG-16 cutover. Counts stay
+**13/17 tasks, 147/195 cases**. No full primitive family is accepted. See
+[progress](progress.md#current-integration-checkpoint) and ignored
+`.cellar/cg17-payload-01/event-read-state.json` for exact evidence pins.
 
 ## Previous proven binding-writer delivery
 

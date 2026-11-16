@@ -29,54 +29,56 @@ for the next delivery.
 
 ## Current integration checkpoint
 
-Main `16c45b266` is included. **Runtime `5fa5bf8a3` installs a declared broker's
-configuration, grants, subscription identities and captured clock in its own
-creation image.** Catalog intent retains its separate creation transaction.
-Broker creation needs no native activation; existing broker rows, including
-retired incarnations, are preserved. Catalog reconciliation, its ordinary child
-configure command/receipt, current binding proofs and target minimum durability
-still gate readiness. Named catalog-proof reuse and atomic first-fetch identity/
-lease selection remain. Original fences, quotas and deadlines are unchanged.
+Main `16c45b266` is included. **Runtime `f0647e010` overlaps create-only
+preparation of a declared EventStream broker with catalog reconciliation.**
+Node and embedded SDK activation share this path. Each declaration admits at
+most those two operations; declarations remain sequential. An existing locator
+skips preparation only. New creation validates the exact cell, creation token,
+schema and minimum durability proof. An unknown enrollment keeps its original
+candidate/token and observes current name resolution instead of issuing a new
+creation identity. The ordinary catalog/broker checks still gate binding adoption.
 
-The broker initializer has a new contract digest. Format markers remain at 1;
-there is no old-template reader, silent reinterpretation or migration. This is a
-hard compatibility boundary for broker registration, not an online conversion.
+This builds on `5fa5bf8a3`, which installs configuration, grants, subscription
+identities and captured time in the broker creation image. Existing broker rows
+remain untouched. Its distinct initializer digest is a hard registration boundary;
+format markers stay 1, with no migration or old-template reader. Preparation can
+leave a non-serving birth if catalog reconciliation fails or the caller cancels.
+It grants no application readiness; combined cleanup/recovery remains unqualified.
+Original deadlines, quotas, source/child receipts and target proofs remain.
 
-The valid pre-feature baseline `cb46662f` fails because no declared stream exists
-before callback entry. Final **100 owning checks pass**: 83 EventStream, 13
-wire/authority and four enrollment-intent tests. The regression source is
-byte-identical before/after the feature. It requires creation rollback, captured
-time and stable subscription identities on re-entry. Earlier private-module
-compile and invalid-retention fixture attempts are excluded from acceptance.
+**101 owning tests pass**: 84 EventStream, 13 wire/authority and four enrollment
+intent tests. The unchanged concurrency regression fails at serial baseline
+`46b2eb395` because catalog work runs before broker preparation is polled; the
+final coordinator lets both operations progress without dropping preparation.
 Locked build, strict library/all-test Clippy and format/layout/dependency/docs
 checks pass under the original non-incremental opt1/assertion settings.
 
-**Current focused public cohort 618 is FAILED, 7/10.** Ordinary native/Axum and
-real-RustFS EventStream lifecycle pass both image modes. Native publication/
-outbox recovery, registration and Fleet reference pass. Three selections fail:
-real-RustFS publication/outbox recovery reaches subscription pause/resume
-administration, then sink `Change` sequence 18 expires with an ambiguous
-`Runtime(DeadlineExceeded)`; direct native and Axum independent-target-S3 cases
-expire at initial materialized-image activation on node 0. Nine failed voter
-disks are retained. Do not retry the ambiguous mutation under a new identity.
+**Current focused public cohort 645 is FAILED, 3/10.** Ordinary native lifecycle
+passes both image modes; registration and Fleet reference pass. Seven selections
+fail: native and RustFS explicit publication/outbox activation; native Axum,
+RustFS ordinary and RustFS Axum Consume; and direct native/Axum independent-target-S3
+initial materialized-image activation. The native Axum and RustFS ordinary Consume
+attempts start with 2,834/2,867 ms of their original 3,000 ms remaining, then expire
+inside target execution. Preserve ambiguous identities and investigate the target's
+execution/checkpoint/proof path. Twenty-one failed voter disks are retained.
 
-This proves the creation-state behavior, not a fix for the public deadlines.
-The earlier 9/10 at `0653bf668` is a separate historical result; no speedup,
-regression cause or timing stability is established by comparing the counts.
-The earlier native post-restart sink Read refusal remains unproven as fixed,
-although current native recovery passes. No temporary probes or public fixture
-changes are introduced. The compiler preflight initially refused another
-checkout's live build; the actual campaign started after it finished and build
-output was flushed.
+Separate diagnostic 630 at `ee7c8bd5` measured cold configure entering scheduled
+work at 986/927 ms and resolving target history at 2,064/1,805 ms in two failures.
+It did not reach subscription `Change` or enable activation-exchange traces.
+Its six failed disks and frozen probes are retained separately; probes are absent
+from the delivered source. This localized serial startup costs and motivated
+parallel preparation; it does not prove the cause of Consume or a deadline fix.
 
-Aggregate 621 verifies current frozen records/binaries and nine failed disks.
-Owned RustFS/VM are stopped with objects retained. RF3 voters share one process
-on separate workspace disks; RustFS uses one CPU/two GiB. This selected run does
-not replace the complete 16-case cohort's last result, FAILED6/16 at `6c876b46`.
-Counts remain **13/17 tasks, 147/195 cases**. Next: independent-S3 cold activation
-and subscription administration deadlines, Queue producer progress, EventStream's
-combined lost-reply/transfer/generation/pruning/slow-consumer matrix, then the
-remaining primitive/recovery/release gates and hard cutover.
+Aggregate 648 verifies frozen records/binaries, causal regression and 21 failed
+disks. The public preflight observed no compiler; an external compiler was seen
+at the end. Its overlap or effect is unproven. Owned RustFS/VM are stopped with
+objects retained. RF3 voters share one process on separate disks; RustFS uses one
+CPU/two GiB. Historical 7/10 and 9/10 results establish neither stability nor a
+regression cause. The complete 16-case cohort was not repeated; its last result
+is FAILED6/16 at `6c876b46`. Counts remain **13/17 tasks, 147/195 cases**.
+Next: actual target Consume progress and autonomous activation, then subscription
+administration, Queue production and the combined primitive/recovery/release gates.
+Full primitive support and hard cutover remain open.
 
 ## Previous proven binding-writer checkpoint
 
