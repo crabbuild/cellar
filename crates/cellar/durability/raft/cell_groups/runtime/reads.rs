@@ -85,7 +85,7 @@ impl ReadKind {
     }
 
     pub(super) fn cell_linearizable(&self) -> bool {
-        matches!(self, Self::Cell(_, CellReadConsistency::Linearizable))
+        matches!(self, Self::Cell(_, consistency) if consistency.is_linearizable())
     }
 
     fn forwards_read_index(&self) -> bool {
@@ -196,6 +196,10 @@ impl Reads {
                 .ok_or(RuntimeError::Overloaded)?;
             let membership = matches!(request.kind, ReadKind::Membership { .. });
             let cell_read = request.kind.cell_linearizable();
+            let delayed_cell = matches!(
+                request.kind,
+                ReadKind::Cell(_, CellReadConsistency::LinearizableAfter(_))
+            );
             let mut context = if membership || cell_read {
                 let mut context = if membership {
                     MEMBERSHIP_PREFIX
@@ -225,6 +229,11 @@ impl Reads {
                             Err(RuntimeError::NotReady) => None,
                             Err(error) => return Err(error),
                         }
+                    } else if delayed_cell {
+                        // Keep the forwarded cell framing, but park before
+                        // ReadIndex. The worker starts a fresh quorum barrier
+                        // only after this exact logical version advances.
+                        None
                     } else if cell_read {
                         // The worker gathers already queued cell reads before
                         // initiating one fresh barrier for this exact generation.
