@@ -5,7 +5,7 @@
 use super::{CellGroupProposal, PreparedGroupManifest};
 use crate::application::consensus::group_protocol::{CellGroupEntry, GroupCommand};
 use crate::raft::budget::{Budget, Permit};
-use crate::raft::completion::RuntimeError;
+use crate::raft::completion::{entry_digest, entry_position, RuntimeError};
 use cellar_logic::{
     cell_group::CellId,
     consensus::{LogIndex, LogPosition, ProposalId},
@@ -51,6 +51,26 @@ pub(super) struct ProposalAdmission {
 }
 
 impl ProposalAdmission {
+    /// Only this leader's exact admitted mutation can certify an independent
+    /// pending cell. Enrollment, control and inherited entries cannot do so.
+    pub(super) fn independent_mutation(&self, entry: &raft::prelude::Entry, cell: &CellId) -> bool {
+        if entry.get_entry_type() != raft::prelude::EntryType::EntryNormal || entry.data.is_empty()
+        {
+            return false;
+        }
+        let Some(other) = self.positions.get(&LogIndex::new(entry.index)) else {
+            return false;
+        };
+        self.cells.get(other).is_some_and(|accepted| {
+            accepted
+                .candidate
+                .mutation_cell()
+                .is_some_and(|other| other != cell)
+                && accepted.acceptance.position == entry_position(entry)
+                && entry_digest(entry).is_ok_and(|digest| digest == accepted.acceptance.digest)
+        })
+    }
+
     pub(super) fn check(
         &self,
         entry: &CellGroupEntry<'_>,
@@ -199,5 +219,83 @@ impl ProposalAdmission {
         self.cells.clear();
         self.positions.clear();
         self.enrollments = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cellar_logic::{
+        cell_group::GroupHistory,
+        consensus::{ClusterId, GroupId, IncarnationId, NamespaceId},
+    };
+    use raft::prelude::{Entry, EntryType};
+
+    #[test]
+    fn pending_preparation_requires_exact_other_cell_mutation() {
+        let other = CellId::new("Counter:other").unwrap();
+        let target = CellId::new("Counter:target").unwrap();
+        let entry = Entry {
+            index: 3,
+            term: 2,
+            data: b"already validated mutation".to_vec().into(),
+            ..Default::default()
+        };
+        let mut admission = ProposalAdmission::default();
+        assert!(!admission.independent_mutation(&entry, &target));
+        admission.accept(
+            Candidate {
+                cell: other.clone(),
+                proposal: ProposalId::new([1; 16]).unwrap(),
+                payload: Sha256::digest(&entry.data).into(),
+                enrollment: false,
+            },
+            CellGroupProposal {
+                group: GroupHistory {
+                    cluster: ClusterId::new([1; 16]).unwrap(),
+                    namespace: NamespaceId::new([2; 16]).unwrap(),
+                    group: GroupId::new([3; 16]).unwrap(),
+                    incarnation: IncarnationId::new([4; 16]).unwrap(),
+                },
+                position: entry_position(&entry),
+                digest: entry_digest(&entry).unwrap(),
+            },
+            Budget::new(4096, 1).acquire(4096).unwrap(),
+        );
+        assert!(admission.independent_mutation(&entry, &target));
+        assert!(!admission.independent_mutation(&entry, &other));
+        for changed in [
+            Entry {
+                term: 3,
+                ..entry.clone()
+            },
+            Entry {
+                index: 4,
+                ..entry.clone()
+            },
+            Entry {
+                data: b"different mutation".to_vec().into(),
+                ..entry.clone()
+            },
+            Entry {
+                entry_type: EntryType::EntryConfChangeV2,
+                ..entry.clone()
+            },
+            Entry {
+                data: Vec::new().into(),
+                ..entry.clone()
+            },
+        ] {
+            assert!(!admission.independent_mutation(&changed, &target));
+        }
+        admission
+            .cells
+            .get_mut(&other)
+            .unwrap()
+            .candidate
+            .enrollment = true;
+        assert!(!admission.independent_mutation(&entry, &target));
+        admission.clear();
+        assert!(!admission.independent_mutation(&entry, &target));
     }
 }

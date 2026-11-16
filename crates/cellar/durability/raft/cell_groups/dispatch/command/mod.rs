@@ -562,7 +562,7 @@ impl CellCommandInvocation {
         options: CellSqlOptions,
     ) -> Result<CellCommandPreparation, CellDispatchError> {
         let authority = runtime
-            .execution_authority(attempt.route().history, self.cell.clone())
+            .preparation_authority(attempt.route().history, self.cell.clone())
             .await
             .map_err(CellDispatchError::Runtime)?;
         if authority.route() != attempt.route() {

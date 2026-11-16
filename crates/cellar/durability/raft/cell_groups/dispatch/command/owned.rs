@@ -338,11 +338,12 @@ impl CellCommandInvocation {
         }
     }
 
-    // A sampled ready leader can commit another cell's entry before this
-    // command asks for execution authority. Wait for that durable apply prefix
-    // without minting a SQL producer, spending another routing attempt or
-    // weakening the owner's applied == committed check. Once physical SQL may
-    // have entered, the existing exact-producer reconciliation owns the result.
+    // A sampled ready leader can acquire an uncertified or same-cell pending
+    // entry before this command requests private preparation. Wait without
+    // minting a producer or spending another routing attempt. Certified other
+    // cells can overlap preparation, but acknowledgement still requires exact
+    // contiguous durable apply. After SQL entry, exact-producer reconciliation
+    // owns the result.
     async fn prepare_when_applied(
         &mut self,
         attempt: &CellRouteAttempt,

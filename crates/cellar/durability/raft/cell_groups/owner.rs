@@ -562,6 +562,49 @@ impl CellGroupOwner {
         )
     }
 
+    /// A new private command can overlap unrelated committed SQL work. The
+    /// current-term applied barrier and every normal serving fence still hold;
+    /// the complete unapplied suffix must consist of exact, durably logged
+    /// mutations admitted by this leader for other cells. This is neither a
+    /// read barrier nor permission to acknowledge or skip contiguous apply.
+    pub(crate) fn preparation_authority(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<super::CellExecutionAuthority, RuntimeError> {
+        let status = self.status()?;
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        if !status.ready {
+            return Err(RuntimeError::NotReady);
+        }
+        let pending = status
+            .committed
+            .get()
+            .checked_sub(status.applied.index.get())
+            .ok_or(RuntimeError::NotReady)?;
+        if pending > self.options.max_events as u64 {
+            return Err(RuntimeError::NotReady);
+        }
+        let cache = self.group.read()?;
+        if (status.applied.index.get() + 1..=status.committed.get()).any(|index| {
+            cache.entries.get(&index).is_none_or(|entry| {
+                entry.term != status.term.get()
+                    || !self.proposals.independent_mutation(entry, &cell.cell)
+            })
+        }) {
+            return Err(RuntimeError::NotReady);
+        }
+        drop(cache);
+        super::CellExecutionAuthority::new(
+            self.group.clone(),
+            &self.current,
+            cell,
+            status.term,
+            self.leader_term.clone(),
+        )
+    }
+
     pub(crate) fn next_effect(
         &self,
         now: u64,
