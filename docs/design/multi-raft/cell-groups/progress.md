@@ -29,67 +29,72 @@ for the next delivery.
 
 ## Current integration checkpoint
 
-Latest main `16c45b266` is included. **Runtime and qualification source
-`d5af055628` combine eligible leader SQL commit metadata with durable applied-root
-publication.** Every newly committed entry must have its exact live retained SQL
-preparation, within the existing owner event quantum. Followers, membership,
-control entries and missing/expired preparations retain their original separate
-commit-metadata persistence. Term/vote changes, log entries and snapshots still
-sync first.
+Latest main `16c45b266` is included. **Qualified runtime `0a6fb57b67` lets internal
+event metadata select a retained cell history from a live local voter's applied
+tree after verified, bounded namespace routing.** This is a locator only. The
+actual metadata query still obtains a fresh quorum ReadIndex and the target's
+independent minimum durability proof. Missing local enrollments use ordinary
+quorum name discovery. Public name discovery and absence observations retain
+their full quorum cuts. Source checkpoint, history/schema, membership and serving
+fences remain; no task, cache, format, deadline or quota is added.
 
-A private live ticket permits image preparation before commit-only metadata is
-published. It binds the exact local group/engine lease, durable term/vote and log
-entry; a foreign replica's ticket is refused. The ticket grants no serving
-permission. Actual image/page sync and atomic root/hard-state persistence still
-precede execution authority and successful output. Read barriers remain available
-while apply catches up; new writes wait for the actual committed prefix to apply.
-No task, cache, format, quota or deadline is added. The previously delivered
-`LinearizableAfter` API, verified preparation handoff and parallel bootstrap remain.
+**43 current-source integration selections and 190 units pass.** The new owning
+regression passes native/real RustFS and both image forms: **four configurations**.
+After retained restart with cold namespace routes, it checks no separate name
+selection, fresh destination reads, ordinary public name absence and refusal after
+two voters stop. It settles restart elections before the cost oracle; it is not a
+cold-election latency gate. The unchanged fixture fails at baseline `b9e487500`
+on the independent name-ReadIndex predicate. That negative covers native
+materialized images and aborts before extents. Final production differs only in
+the two resolver files and the applied-hint contract comment. The observation
+counter records enrollment-selection attempts after a group quorum cut.
 
-**41 current-source integration checks and 180 units pass.** Three new cases cover
-both image formats, a held physical root sync that refuses early authority/output,
-and a foreign-replica ticket. Existing controls cover followers, membership,
-crash/restart, matching-log replay, read barriers, receipts, fairness, preparation
-corruption/expiry and archive safety. Locked build, strict Cellar library/all-test
-Clippy, formatting, layout, dependency and docs checks pass.
+The 41 existing controls cover commit/root sync, membership, follower and change
+reads, receipts/restart, fairness, preparation corruption/expiry and archive safety.
+Units also cover typed name deadlines, metadata admission and performance
+observations. Locked build, strict Cellar library/all-test Clippy, formatting,
+layout, dependency and docs checks pass. Leader commit/root batching,
+`LinearizableAfter`, exact preparation handoff and parallel bootstrap remain.
 
-Negative control 710 fails both required independent-metadata-barrier checks.
-Final fixtures preserve that predicate but correct the held-sync oracle to actual
-execution authority/receipt settlement and bound pending waits; they are not
-byte-identical. An overly broad candidate failed nine existing controls; all nine
-pass unchanged at the final source. Those failures, the excluded hung fixture
-attempts and the initial backend HTTP 503 remain recorded. Temporary Consume
-probes are removed. Diagnostic 707 localizes serial target/source settlement cost,
-without establishing an exclusive timing cause.
+Diagnostic 726 fails materialized inbox restart activation: catalog discovery
+returns `NotReady` at 2,253/2,818/2,963 ms, before any SQL/query stage starts for that
+invocation. This differs from 719's extent outbox failure and establishes no
+exclusive cause for it. All temporary probes are removed.
 
-**The complete original public cohort 719 is FAILED, 13/16.** Seven of eight
-EventStream selections pass, including ordinary native/Axum delivery, real-RustFS
-publication/subscription recovery and both independent target-S3 ingresses. The
-native publication/subscription case passes materialized images, then times out
-reactivating node 0 after outbox restart with extent images. SDK source-proof and
-current-history dispatch pass native/RustFS, as do registration and Fleet.
+**The complete original public cohort 735 is FAILED, 7/16.** SDK source-proof and
+current-history dispatch pass native/RustFS, as do registration and Fleet. Only
+the ordinary RustFS/Axum EventStream selection passes. Seven EventStream selections
+fail: native/Axum Consume time out with ambiguous sequence **2** after target entry
+with **2,745/2,803 ms** remaining; explicit native/RustFS activation fails initially
+at node 0; ordinary RustFS fails extent-image initial activation; both independent
+target-S3 ingresses fail materialized initial activation.
 
-Both Queue loads fail during materialized-image production: native sequence **9**
-and RustFS sequence **12** have ambiguous outcomes. Their target attempts start
-with **2,899/2,915 ms** of the original three-second budget remaining. Neither load
-emits a completed 528-message result; extent load is not reached. Preserve those
-identities and earlier uncertain calls rather than allocating replacement commands.
+Both Queue loads fail materialized production: native sequence **17**, RustFS
+sequence **12**, both ambiguous with **2,945/2,999 ms** of the original three-second
+budget remaining at target entry. Neither emits a completed 528-message result;
+extent load is not reached. Preserve those complete identities and earlier
+uncertain calls. These are current blockers, not accepted primitive families.
 
-Aggregate 721 verifies frozen source/binaries/logs and **nine failed public voter
-disks**, plus retained diagnostic, negative-control and excluded fixture evidence.
-The rejected broad controls have frozen logs/executables but no retained roots in
-their original records. Public compiler pre/post snapshots are empty; they establish
-no exclusive latency cause. Owned RustFS/VM are stopped with objects retained.
-Voters are in-process RF3 on separate workspace disks; RustFS uses one CPU/two GiB.
-These passes do not establish timing stability or independent-Linux-voter release.
+Four counterbalanced frozen baseline/current native/Axum trials 735b all pass.
+They use the same current binary that failed those cases in the complete cohort.
+They do not replace that result or establish stability, exclusive cause, absence
+of performance regression or speedup. Historical 719's 13/16 is not current
+acceptance. The next change must target actual activation and command execution/
+settlement, rather than repeat unchanged campaigns to seek a pass.
 
-Counts remain **13/17 tasks, 147/195 cases**. Full plan validation still lacks the
-historical ignored `CG-01-06-gates-e32115aa-02/CG-01-record.json`; ordinary docs
-checks pass. Next: native extent outbox restart activation and Queue target
-execution/settlement under original budgets, then combined primitive/recovery and
-independent-voter release qualification. Complete existing autonomous recovery
-and safe sequence sealing; do not duplicate them or repeat unchanged campaigns
-merely to seek a pass.
+Aggregate 738 verifies frozen records/binaries, byte-identical owning fixtures,
+unchanged original public bodies and **27 retained failed public voter disks**,
+plus retained baseline/diagnostic failures. Public and paired compiler pre/post
+snapshots are empty. Owned RustFS/VM are stopped with objects retained. Voters
+share one native process on separate workspace disks; RustFS uses one CPU/two GiB.
+This remains below independent-Linux-voter release scope.
+
+Counts remain **13/17 tasks, 147/195 cases**. The generated implementation index
+is current; full plan validation still lacks historical ignored
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`. Ordinary docs checks pass. Next:
+close activation/Consume/Queue within original budgets, autonomous binding recovery
+and safe sequence sealing, then complete primitive lifecycle/recovery and the
+CG-13/15/16 combined release and hard cutover gates.
 
 ## Previous proven binding-writer checkpoint
 

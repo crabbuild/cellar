@@ -6,6 +6,26 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Retained event metadata history
+
+Qualified runtime `0a6fb57b67` selects a present local applied enrollment after
+verified namespace routing for internal event metadata. The result is a locator,
+never read/serving/durability authority. The actual query still gets fresh quorum
+and independent target S3 proof. Missing records and ordinary public name/absence
+observations retain full quorum discovery. Existing admission, source checkpoints,
+fences, deadlines, quotas and marker 1 remain; no cache/task is introduced.
+
+The byte-identical baseline owning fixture fails the redundant name-cut predicate
+in native materialized mode. Final native/real-RustFS tests pass both images,
+including fresh destination reads, public absence and quorum-loss refusal. Election
+setup is settled before the cost oracle. Current-source qualification is **43
+integration selections and 190 units**, plus strict Clippy and repository checks.
+The complete original public cohort 735 is **FAILED, 7/16**. Four frozen baseline/
+current native/Axum paired trials all pass, including the current failed binary;
+they do not replace the cohort or establish stability, exclusive cause, absence
+of regression, measured speedup or an accepted OPT/primitive/release package.
+See the [current checkpoint](progress.md#current-integration-checkpoint).
+
 ## Leader commit/root publication
 
 Qualified runtime `d5af055628` combines commit-only metadata with applied-root

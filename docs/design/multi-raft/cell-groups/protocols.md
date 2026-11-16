@@ -114,6 +114,16 @@ authority nor permission to restore the initial image over newer mutations.
 
 ## Routed read RPC
 
+Internal event metadata discovery may select a present enrollment from a live
+local voter's applied manifest after bounded, verified namespace range routing.
+This supplies only the logical history to address. The actual metadata query still
+obtains fresh quorum authority and its independent target minimum proof before
+activation or output. Missing local records fall back to ordinary name discovery;
+public name and absence observations always retain their own quorum cut. No local
+manifest or routing hint is a successful metadata read or an activation proof.
+`cell_name_quorum_selections` counts enrollment-selection attempts after a group
+ReadIndex, including rejected selections; it is not a successful-read counter.
+
 Use the existing node-owned query lane, with independent control/data progress,
 bounded peer/node admission and joined physical shutdown. Authenticate both the
 physical group and logical cell histories, schema, route epoch, birth identity,

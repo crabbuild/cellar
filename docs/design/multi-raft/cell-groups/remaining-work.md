@@ -57,50 +57,55 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Qualified runtime `d5af055628` combines leader-only
-commit metadata with applied-root sync for a bounded prefix of exact live SQL
-preparations. Followers, membership/control entries and missing/expired
-preparations keep their original barriers. A private local-engine ticket permits
-preparation, never serving; actual image/page and atomic root/hard-state sync still
-gate authority/output. Read barriers remain available during apply; new writes
-wait for the actual committed prefix. Budgets, quotas and marker 1 remain.
-`LinearizableAfter`, verified preparation handoff and parallel bootstrap remain
-delivered.
+latest main `16c45b266`. Qualified runtime `0a6fb57b67` lets internal event metadata
+select a retained local applied history behind verified namespace routing. This
+is only a locator: actual metadata still requires fresh quorum and independent
+target S3 proof. Public name/absence cuts, source proof and all serving fences
+remain. No new task/cache/format/deadline/quota is introduced. Commit/root batching,
+`LinearizableAfter`, exact preparation handoff and parallel bootstrap remain.
 
-**41 integration checks and 180 units pass**, including both image forms, held
-physical-sync refusal, foreign tickets, membership/follower/restart, read barriers,
-receipts and physical/archive guards. Locked build, strict library/all-test Clippy
-and repository checks pass. The original negative metadata-barrier predicates fail
-at baseline. Final fixture oracle/wait corrections are recorded; nine existing
-controls that rejected a broader candidate now pass unchanged.
+**43 integration selections and 190 units pass.** The new owning regression
+passes native/RustFS and both images, including fresh-query and quorum-loss guards.
+Its byte-identical baseline fails the redundant name-cut predicate in native
+materialized mode; extents are not reached there. Election setup is separately
+settled before the cost oracle. Locked build, strict library/all-test Clippy and
+repository checks pass. This qualifies retained history selection, not a complete
+primitive or request-latency fix.
 
-**Complete original public cohort 719 remains FAILED, 13/16.** Seven of eight
-EventStream selections pass. Native publication/subscription passes materialized
-images, then fails extent-image outbox restart activation at node 0. Both Queue
-loads fail materialized production: native sequence **9**, RustFS sequence **12**,
-both ambiguous. Target execution starts with **2,899/2,915 ms** of the original
-three-second budget remaining. Neither completes 528 messages and extents are not
-reached. SDK source-proof/current histories pass native/RustFS; registration and
-Fleet pass. Preserve these and earlier unknown identities.
+**Complete original public cohort 735 is FAILED, 7/16.** SDK source-proof/current
+histories pass native/RustFS; registration and Fleet pass. Only ordinary
+RustFS/Axum passes among eight EventStream selections. Native/Axum Consume time out
+with ambiguous sequence **2** outcomes; the other EventStream failures are initial
+activation, including ordinary RustFS extents and both independent target-S3
+ingresses. Queue loads fail materialized production: native **17**, RustFS **12**,
+both ambiguous despite **2,945/2,999 ms** remaining at target entry. Neither completes
+528 messages; extent load is not reached. Preserve complete identities and earlier
+unknown outcomes.
+
+Four frozen baseline/current native/Axum counterbalanced trials all pass, using the
+current failed cohort's exact binary. They do not replace the 7/16 result or prove
+stability, exclusive cause, absence of regression or speedup. Prior 13/16 remains
+historical. Diagnostic 726 identifies one different retained activation failure in
+history discovery before SQL; its probes are removed.
 
 The next feature priorities are:
 
-1. Close extent-image retained outbox activation, including autonomous work after
-   all nodes restart and current independent catalog/broker proofs.
-2. Close Queue target execution and durable settlement under the original load
-   budgets. Reconcile existing uncertain calls and qualify safe sequence sealing;
-   do not regenerate command identities or enlarge timeouts.
-3. Complete combined primitive lifecycle/recovery, then CG-13/15's managed recovery
-   and independent-voter release matrix and CG-16's final cutover.
+1. Close public activation and actual Consume/Queue execution and durable
+   settlement within original budgets. Distinguish writer admission, exact
+   receipt progress and archive/apply scheduling using the failed paths.
+2. Complete existing autonomous binding reconciliation and safe sequence
+   retirement/sealing. Recover uncertain calls with their original history,
+   identity and inputs; do not regenerate commands or extend deadlines.
+3. Complete the combined primitive lifecycle/recovery matrix, then CG-13/15's
+   managed recovery and independent-voter release gates and CG-16's final cutover.
 
-Aggregate 721 verifies frozen evidence and nine failed public voter disks, plus
-retained diagnostic/negative/excluded fixture records. Some rejected broad-control
-fixtures have logs/executables but no retained disks. Owned RustFS/VM are stopped,
-objects retained. In-process RF3 and RustFS at one CPU/two GiB remain below release
-scope; empty compiler snapshots establish no exclusive latency attribution.
-Counts stay **13/17 tasks, 147/195 cases**. Full plan validation still lacks the
-historical CG-01 ignored evidence file; ordinary docs checks pass. No full-family,
-release or hard-cutover acceptance is added.
+Aggregate 738 verifies frozen evidence, byte-identical owning fixtures, unchanged
+original public bodies and 27 failed public voter disks, plus baseline/diagnostic
+retention. Owned RustFS/VM are stopped, objects retained. Native RF3 shares a
+process and separate disks; RustFS uses one CPU/two GiB. Counts remain **13/17 tasks,
+147/195 cases**. The generated index is current; full validation still lacks the
+historical CG-01 ignored evidence file. No full-family, release or hard-cutover
+acceptance is added. Do not repeat unchanged broad campaigns merely to seek a pass.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for

@@ -4,53 +4,54 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current commit/root publication delivery
+## Current retained metadata delivery
 
 Latest main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime and qualified source
-`d5af055628` combine leader commit-only metadata with applied-root publication
-only for a bounded prefix of exact live SQL preparations. Followers, membership,
-control entries and absent/expired preparations keep their original persistence
-barriers. Term/vote, log and snapshot sync remain. The private local-engine commit
-ticket permits preparation only; physical image/page and atomic root/hard-state
-sync still precede authority and successful output. Reads retain protocol barriers
-while apply catches up; new writes wait for the actual committed prefix.
-Original budgets, quotas and marker 1 remain. `LinearizableAfter`, exact preparation
-handoff and parallel bootstrap remain delivered.
+[#174](https://github.com/crabbuild/cellar/pull/174). Qualified runtime `0a6fb57b67`
+lets internal event metadata use an applied local enrollment after verified
+namespace routing. It grants only a history locator; the actual query still needs
+fresh quorum and independent target S3 proof. Missing local records, public name
+discovery and absence keep ordinary quorum cuts. Source proof, schema/history,
+membership and serving fences remain. No task/cache/format/deadline/quota is added.
+Commit/root batching and `LinearizableAfter` remain delivered.
 
-**41 integration checks and 180 units pass**, including both images, held physical
-sync/no early settlement, foreign-ticket refusal, follower/membership/restart,
-read barriers, receipts, preparation corruption/expiry and archive safety. Locked
-build, strict library/all-test Clippy and repository checks pass. Negative 710
-fails both original metadata-barrier predicates; later fixture oracle/wait fixes
-are recorded, so do not claim byte-identical fixtures. Nine controls rejected an
-overly broad candidate and all pass unchanged on the final source. Excluded hung
-fixtures and initial backend setup failure remain preserved; probes are removed.
+**43 integration selections and 190 units pass.** New native/real-RustFS regressions
+pass both images, checking retained cold-route selection, fresh destination reads,
+public name absence and refusal without quorum. Election setup is settled before
+the cost oracle. The byte-identical baseline fixture fails the redundant name-cut
+predicate in native materialized mode; it does not reach extents. Current controls
+cover physical sync, membership/follower/restart, reads/receipts, preparation and
+archive safety. Strict library/all-test Clippy, locked build and repository checks
+pass. Diagnostic 726 localizes a materialized inbox restart failure to history
+discovery before SQL; it is not proof of 719's extent outbox cause. Probes are gone.
 
-**Complete original public cohort 719 is FAILED, 13/16.** Seven EventStream
-selections pass, including real-RustFS publication/subscription recovery and both
-independent-S3 ingresses. Native publication/subscription passes materialized
-images but fails extent-image outbox restart activation at node 0. Both Queue
-loads fail materialized production: native sequence **9**, RustFS sequence **12**,
-both ambiguous with target attempts starting at **2,899/2,915 ms** remaining.
-Neither emits a completed 528-message result; extents are unrun. SDK source-proof,
-current histories, registration and Fleet pass. Preserve original identities,
-earlier uncertain calls and all **nine failed public voter disks**.
+**Complete original public cohort 735 is FAILED, 7/16.** Only ordinary RustFS/Axum
+passes among the eight EventStream selections. Native/Axum Consume have ambiguous
+sequence **2** outcomes; the other failures are initial activation, including
+ordinary RustFS extents and both target-S3 ingresses. SDK source-proof/history,
+registration and Fleet pass. Queue fails materialized production: native **17**,
+RustFS **12**, both ambiguous. Target entry retains **2,945/2,999 ms** of the
+original three-second budget. Neither load completes 528 messages; extents are
+unrun. Preserve those full identities, earlier uncertain calls and all **27 failed
+public voter disks**.
 
-Aggregate 721 verifies frozen evidence. Some rejected broad control fixtures did
-not retain disks; do not claim otherwise. Owned RustFS/VM are stopped, objects
-retained. In-process RF3 and RustFS at one CPU/two GiB do not qualify independent
-Linux voters. Empty compiler snapshots and historical/isolated passes establish
-no exclusive speedup or timing stability.
+The four frozen baseline/current native/Axum counterbalanced trials 735b all pass,
+including the current cohort's exact binary. They do not waive 735, prove timing
+stability or exclude a performance regression. Historical 13/16 is not current
+acceptance. Aggregate 738 verifies source, logs, executables, owning-fixture identity
+and original public bodies. Owned RustFS/VM are stopped; objects and failures are
+retained. In-process RF3 with RustFS1CPU2GiB is not independent-voter release.
 
-Next close native extent outbox restart activation and Queue target execution/
-settlement under original budgets, then complete primitive lifecycle, CG-13/15
-recovery/release and CG-16 cutover. Finish existing autonomous reconciliation and
-safe sequence sealing rather than duplicating them. Counts remain **13/17 tasks,
-147/195 cases**. Full plan validation retains the missing historical CG-01 file;
-ordinary docs checks pass. See [progress](progress.md#current-integration-checkpoint),
+Next deliver bounded activation and actual Consume/Queue execution/settlement,
+including autonomous recovery and safe sequence sealing for uncertain bindings.
+Use the failed cases to distinguish writer admission, exact durable receipt and
+archive/apply scheduling before changing those contracts. Do not repeat unchanged
+broad campaigns to seek a pass. Then finish all primitive families, CG-13/15
+recovery/release and CG-16 cutover. Counts stay **13/17 tasks, 147/195 cases**.
+The generated index is current; full validation still lacks historical CG-01
+evidence. See [progress](progress.md#current-integration-checkpoint),
 [priorities](remaining-work.md#primitive-delivery-priority) and ignored
-`.cellar/cg17-payload-01/event-read-state.json` for exact pins and preserved failures.
+`.cellar/cg17-payload-01/restart-activation-state-724.json` for exact current pins.
 
 ## Previous proven binding-writer delivery
 
