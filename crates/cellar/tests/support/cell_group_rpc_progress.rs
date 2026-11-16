@@ -293,7 +293,7 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) ->
                             ensure!(status.applied.index < status.committed, "held unrelated committed apply");
                             let contract = source.contract("Prepare")?;
                             let mut command = Box::pin(source.command(&contract, b"{}".to_vec(), options.clone()));
-                            tokio::select! {
+                            cellar::asyncrt::select! {
                                 result = &mut command => anyhow::bail!("command completed before preparation: {result:?}"),
                                 result = cellar::asyncrt::timeout(Duration::from_secs(1), gates[0].entered.notified()) => {
                                     result.context("new cell preparation blocked by unrelated committed apply")?;
