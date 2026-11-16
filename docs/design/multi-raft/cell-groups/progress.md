@@ -29,6 +29,72 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `16c45b266` was pulled and is already included. **Runtime `a0fe85d1`
+creates immutable archive objects conditionally before reading them back.** It
+removes the speculative missing GET for fresh generation objects. Every PUT
+outcome, including a lost response or create conflict, still requires bounded
+length/hash-checked GET confirmation. Local locator validation precedes I/O;
+inherited reuse, independent physical publication, current fences and original
+budgets/capacities remain. No new task, cache or format is introduced.
+
+The unchanged archive regression fails at `9daa1f4d` on the missing-GET oracle
+and passes **2/2 selections, eight configurations** at `a0fe85d1`: native/real
+RustFS, both images and denied/allowed confirmation. It verifies lost PUT
+responses, conflicting retries, corruption refusal without overwrite, denied
+confirmation and independently recovered SQL/LTX images. Binding controls are
+**5/6**: both read regressions and SDK source-proof selections and native named
+bindings pass. RustFS named bindings report all four configurations; only the
+materialized S3 source fails, at command 7 after retained restart. Its final child
+returns after 4668 ms of the original five-second budget. The other three named
+configurations pass. The earlier source-S3 failures remain recorded; this is not
+stability or comparative speedup evidence.
+
+**The complete original public cohort is 14/16 at this runtime.** Both SDK and
+history-resolution controls, ordinary EventStream native/Axum ingress on native
+storage and real RustFS, RustFS publication/subscription/outbox recovery, target-S3
+Axum, registration, Queue load and the ordinary Fleet reference pass. The two
+remaining failures are:
+
+- Native publication/subscription/outbox recovery: retained event activation at
+  node 0 in the extents image times out; materialized passes.
+- RustFS independent-target-S3 native ingress: initial event activation at node 0
+  in the materialized image times out; later image coverage is not established.
+
+**Queue load passes all four backend/image configurations.** Each verifies 528
+acknowledged deliveries and 528 unique message IDs, including 16 messages admitted
+while archive writes are denied and 512 steady-load messages. The original four
+producers, two in-flight requests, eight ordinary slots and two callback slots
+remain. Real RustFS reports batch p99 1200 ms (materialized) / 1183 ms (extents),
+with load/drain times 33685 / 33842 ms. These are scoped observations, not an
+independent-voter release benchmark or a before/after speedup claim.
+
+Seven archive compatibility controls pass: competing registry CAS on both
+backends, uncertain publication, missing/forged tails, unproved S3 output refusal,
+real-store dependencies and reclamation/restart. **Full backend-outage
+qualification remains open.** The first runner omitted its external controller;
+with the controller attached, an old assertion rejects a successful warm-route
+Quorum command. RO-07 permits known-route service while checked authority remains
+valid. A proposed cold-receiver fixture (`b882dd2f`) still receives the caller's
+verified route and fails the same assertion; it is withdrawn by `ce8c08ae`.
+No assertion is relaxed. The final tracked tree is identical to tested runtime
+`a0fe85d1`. A genuine cold-discovery boundary and the full outage matrix still need
+qualification; the controller restored the same backend after both failed runs.
+
+Aggregate `CG-17-immutable-create-aggregate-443-ce8c08ae` verifies source equality,
+frozen binaries/logs/backups, Queue observations and **nine retained failed voter
+disks**. Locked build, strict library/all-test Clippy, formatting, layout and
+native-dependency checks pass. All jobs are terminal; owned RustFS/VM are stopped
+with objects retained. RF3 voters share one process and separate workspace disks;
+RustFS uses one CPU/two GiB. Counts stay **13/17 tasks, 147/195 cases**. No complete
+primitive family or release/hard cutover is accepted.
+
+Next: retained outbox/inbox readiness and independent-target-S3 cold activation;
+then bounded consecutive source-S3 proof/settlement work after restart, autonomous
+interrupted bindings/delivery/ack recovery and safe unused-sequence sealing.
+Complete primitive lifecycle/recovery and CG-13/17/15/16 gates remain required.
+
+## Previous binding-read checkpoint
+
 Main `16c45b266` remains included. **Runtime `df36b88c` preserves an already
 clean Quorum source-read watermark through verified binding completion.** Only
 protected receipt/lane bookkeeping may advance that watermark. A following pure

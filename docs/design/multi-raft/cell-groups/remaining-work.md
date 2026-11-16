@@ -57,50 +57,52 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `df36b88c` preserves an already clean Quorum source-read
-watermark through verified protected binding completion. A following pure query
-avoids an extra checkpoint solely for receipt/lane bookkeeping. Application/schema
-writes, failed completion, S3, cursor/local-state restrictions, current authority
-and full final-output/subsequent-mutation proofs remain. No task, cache, capacity
-or format change is introduced. **17 owning tests pass.** The physical RF3 version
-oracle fails before the fix and passes native and isolated real RustFS, both images
-and clean/dirty/S3 controls, with exact child effects and final parent receipts.
+pulled main `16c45b266`. Runtime `a0fe85d1` creates fresh immutable archive objects
+conditionally before mandatory bounded length/hash GET confirmation. The causal
+missing-GET oracle fails before the change; native/real-RustFS regressions pass
+both images and confirmation faults, including lost responses, conflicts,
+corruption and independent physical publication. Final tree `ce8c08ae` is identical
+to tested runtime after withdrawing an unsuccessful fixture-only candidate.
 
-**Combined qualification remains FAILED.** Cohort 413 fails materialized RustFS
-S3 parent sequence 3; unchanged isolated control 414 passes. Guards 415 are **7/8**:
-materialized RustFS named-binding source S3 sequence 3 times out, while its other
-three configurations and both initial-read, interleaving and interrupted recovery
-selections pass. The last child returns after 3543 ms of the original five seconds,
-leaving less than 1.5 seconds for final source settlement. The current-source public
-cohort was skipped by this failure. The last complete public result is **7/16 at
-`c5f59695`**, not current acceptance. Both S3 failures remain retained; isolated or
-instrumented passes establish neither stability nor an exclusive cause or speedup.
+**The original public cohort is 14/16.** Ordinary native/Axum EventStream paths
+pass both backends/images. Queue load passes all four configurations with 528
+acknowledged/unique deliveries each and original quotas, including archive-write
+outage messages. RustFS publication/outbox recovery passes. Remaining public
+failures are native retained outbox activation (extents/node 0) and RustFS native
+independent-target-S3 cold activation (materialized/node 0). Binding controls are
+5/6: only materialized RustFS source-S3 retained-restart command 7 fails; its final
+child returns at 4668 ms of the original five seconds. No stability or comparative
+speedup is established.
+
+Seven archive safety controls pass. Full backend-outage qualification remains
+open: an old assertion expects warm-route Quorum refusal, while RO-07 allows
+known routes with current checked authority. A cold receiver still receives the
+caller's verified route; that failed fixture candidate was reverted. No assertion
+is relaxed. Qualify genuine cold discovery and the complete backend outage.
+All failures remain recorded; the complete primitive/release gate remains open.
 
 Earlier catalog enrollment joining, bounded suspended scanning, exact checkpoint
 receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retain
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
-1. **Reduce consecutive S3 source checkpoint and final-output costs.** Close the
-   materialized S3 deadline in the new binding/read control and ordinary named
-   bindings. Preserve the original five-second budget and exact birth, route,
-   physical custody, coverage, version/witness and stored receipt checks. Improve
-   bounded publication/physical-verification reuse or incremental replay instead
-   of weakening durability, extending deadlines or repeatedly running the public
-   matrix. Retained final-receipt images are diagnostic, not proof of timely
-   archival or current serving state. An unchanged isolated S3 pass does not close
-   the failure. Qualify both images and the combined source/target minima.
-2. **Close the complete public EventStream and Queue paths.** After the S3 owning
-   controls pass, run one complete current-source SDK/native/Axum cohort. The
-   historical `c5f59695` cohort reaches Axum Consume and retained inbox activation
-   but fails their deadlines; four RustFS EventStream paths fail cold activation.
-   Queue fails native producer 11/RustFS producer 9, and neither 528-message
-   delivery oracle is established. Keep current readiness and source/target proofs,
-   original quotas and unknown mutation identities. Finish autonomous interrupted
-   binding/delivery/ack recovery, safe unused-sequence sealing, long polling,
-   deletion/recreation and retention through movement/fresh-history recovery.
-   Sequence hints remain optional work-reduction candidates, not a demonstrated
-   solution to commands entering with nearly their full budgets. Resolve managed
-   trust refresh and concurrent boot reconciliation. The
+1. **Close retained outbox/inbox readiness and target-S3 cold activation.** Fix
+   the two current public failures under original deadlines and quotas. Retained
+   source obligations must autonomously resume after restart, while catalog,
+   broker, named binding, current birth and destination proofs still gate
+   readiness. Independent target-S3 minima must complete initial activation on
+   native ingress as well as Axum. Ordinary EventStream and Queue load now pass
+   the scoped cohort; their complete lifecycle matrices remain required.
+2. **Reduce consecutive S3 source proof and final-output costs.** Close the
+   materialized S3 named-binding deadline after restart. Preserve the original
+   five-second budget, exact birth/route, physical custody, coverage,
+   version/witness and stored receipt checks. Reduce bounded replay/settlement
+   work without weakening proofs or repeatedly running unchanged broad matrices.
+   Retained images do not establish timely archival or current serving state.
+   Qualify genuine cold discovery and full backend outage, then both images and
+   all source/target minima. Finish autonomous interrupted binding/delivery/ack
+   recovery, safe unused-sequence sealing, long polling, deletion/recreation and
+   retention through movement/fresh-history recovery. Preserve unknown mutation
+   identities. Resolve trust refresh and concurrent boot reconciliation; the
    [EventStream contract](event-stream-durability.md) keeps source, destination
    and output boundaries separate.
 3. **Complete bindings, durable time and Workflow lifecycle.** Qualify independent

@@ -4,7 +4,46 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current binding-read delivery
+## Current immutable archive delivery
+
+Main `16c45b266` was pulled; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `a0fe85d1` removes the
+speculative GET before fresh immutable archive conditional creates. Mandatory
+bounded length/hash GET confirmation, collision/non-overwrite protection,
+independent physical publication, fences and original budgets remain. The final
+`ce8c08ae` tracked tree is identical to the tested runtime.
+
+Causal archive baseline fails; unchanged regressions pass **2/2, eight
+configurations** across native/real RustFS, both images and confirmation faults.
+Binding controls are **5/6**: materialized RustFS source-S3 command 7 times out
+after retained restart; the other three named configurations, both read
+regressions, both SDK controls and native named bindings pass.
+
+The original public cohort is **14/16**. Ordinary native/Axum EventStream paths
+pass both backends/images. Queue load passes all four configurations, each with
+528 acknowledged/unique deliveries and original quotas; real-store batch p99 is
+1200/1183 ms. RustFS publication/outbox recovery also passes. Remaining public
+failures: native retained outbox activation (extents, node 0) and RustFS native
+independent-target-S3 cold activation (materialized, node 0).
+
+Seven archive safety selections pass. Full backend outage remains OPEN: the
+initial runner lacked its controller, then the controlled case failed an old
+warm-route discovery-refusal assertion. The cold-receiver candidate also failed
+because the caller supplies a verified route; it was reverted. No assertion was
+relaxed. Qualify the actual cold-discovery boundary and full backend outage.
+Preserve all failed controls and unknown mutation identities.
+
+Aggregate 443 verifies frozen evidence, identical final/runtime trees and nine
+retained failed voter disks. Build, strict library/all-test Clippy and repository
+checks pass. Jobs are terminal; owned RustFS/VM are stopped, objects retained.
+In-process RF3 with RustFS1CPU2GiB is not independent-voter release qualification.
+Counts remain **13/17, 147/195**. Next: retained readiness and independent-target-S3
+cold activation, source-S3 settlement under original five seconds, interrupted
+binding/delivery/ack recovery, safe unused-sequence sealing and remaining
+primitive/CG-13/17/15/16 gates. See [progress](progress.md#current-integration-checkpoint)
+and ignored `.cellar/cg17-payload-01/event-read-state.json` for exact records.
+
+## Previous binding-read delivery
 
 Main `16c45b266` remains included; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `df36b88c` keeps an
