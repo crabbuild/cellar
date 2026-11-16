@@ -122,22 +122,19 @@ pub(crate) async fn verified_preparation_handoff(
                 .await??;
         }
         let mut held = BTreeMap::new();
-        let domain = fixture.cluster.domain.clone();
-        domain
-            .run(async {
-                cellar::asyncrt::timeout(Duration::from_secs(5), async {
-                    loop {
-                        fixture.pump(&[route.history], &mut held).await?;
-                        if held.contains_key(&route.history) {
-                            return Ok::<_, anyhow::Error>(());
-                        }
-                        cellar::asyncrt::sleep(Duration::from_millis(1)).await;
-                    }
-                })
-                .await
-                .context("committed apply not delivered")?
-            })
-            .await??;
+        // This external host harness owns the network pump, like apply_images;
+        // production work remains on the fixture's execution domain.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                fixture.pump(&[route.history], &mut held).await?;
+                if held.contains_key(&route.history) {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .context("committed apply not delivered")??;
         let committed = held
             .remove(&route.history)
             .context("held committed apply")?;
