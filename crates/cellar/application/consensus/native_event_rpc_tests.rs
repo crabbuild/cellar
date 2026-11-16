@@ -198,6 +198,7 @@ async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result
 #[tokio::test]
 async fn event_stream_enrollment_installs_declared_state_and_subscriptions_atomically() -> Result<()>
 {
+    use crate::application::storage::SqlValue;
     use cellar_logic::{
         cell_group::{CellHistory, CellId},
         consensus::{ClusterId, IncarnationId, NamespaceId},
@@ -241,24 +242,24 @@ async fn event_stream_enrollment_installs_declared_state_and_subscriptions_atomi
                 storage.system_sql("SELECT 1 FROM sqlite_schema WHERE name='__sys_stream'", &[])?.len() == 1,
                 "broker enrollment did not install its declared stream before callback entry",
             );
-            let (observed, row) = event_stream::store::load(&storage)?;
-            assert_eq!(observed, definition);
-            assert_eq!(event_stream::store::text(&row, "lifecycle")?, "active");
-            assert_eq!(event_stream::store::number(&row, "logical_ms")?, 1234);
-            assert_eq!(event_stream::store::number(&row, "next_offset")?, 1);
-            assert_eq!(event_stream::store::text(&row, "config_operation")?, event_stream::raft::operation("shop", &definition)?);
-            assert_eq!(event_stream::store::text(&row, "config_principal")?, "shop");
-            assert_eq!(event_stream::store::text(&row, "config_grant")?, "owner");
+            let row = storage.system_sql("SELECT * FROM __sys_stream WHERE singleton=1", &[])?.remove(0);
+            assert_eq!(row.get("definition"), Some(&SqlValue::Text(serde_json::to_string(&definition)?)));
+            assert_eq!(row.get("lifecycle"), Some(&SqlValue::Text("active".into())));
+            assert_eq!(row.get("logical_ms"), Some(&SqlValue::Integer(1234)));
+            assert_eq!(row.get("next_offset"), Some(&SqlValue::Integer(1)));
+            assert_eq!(row.get("config_operation"), Some(&SqlValue::Text(event_stream::raft::operation("shop", &definition)?)));
+            assert_eq!(row.get("config_principal"), Some(&SqlValue::Text("shop".into())));
+            assert_eq!(row.get("config_grant"), Some(&SqlValue::Text("owner".into())));
             let subscriptions = storage.system_sql("SELECT * FROM __sys_stream_subscriptions", &[])?;
             assert_eq!(subscriptions.len(), 1);
-            assert_eq!(event_stream::store::text(&subscriptions[0], "name")?, "projection");
-            assert_eq!(event_stream::store::number(&subscriptions[0], "checkpoint")?, 0);
+            assert_eq!(subscriptions[0].get("name"), Some(&SqlValue::Text("projection".into())));
+            assert_eq!(subscriptions[0].get("checkpoint"), Some(&SqlValue::Integer(0)));
             Ok((row, subscriptions))
         })?;
         database.transaction(crate::storage::CommandInputs {now_unix_millis:2234, ..inputs}, |tx| {
             class.invoke_initializer(&cell, tx)?;
             let storage = tx.storage()?;
-            let (_, row) = event_stream::store::load(&storage)?;
+            let row = storage.system_sql("SELECT * FROM __sys_stream WHERE singleton=1", &[])?.remove(0);
             assert_eq!(row, initial.0, "re-entry changed the configured stream or clock");
             assert_eq!(storage.system_sql("SELECT * FROM __sys_stream_subscriptions", &[])?, initial.1,
                 "re-entry changed subscription identities or generations");
