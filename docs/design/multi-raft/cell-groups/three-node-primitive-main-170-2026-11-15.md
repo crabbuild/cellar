@@ -106,3 +106,46 @@ runtime configuration, environment responses, private keys and raw node/store lo
 Both artifacts pass scanning against 41 actual private representations with zero
 matches. Inclusive phase timings overlap; SQL publish counts producer completion checks,
 not physical applier failures.
+
+## Foreground-only cadence SQL quorum re-verification
+
+Public commit `12eacc18`, compiler input `1d75a95f` and frozen source `bfa06775`
+produce Linux image `aecb101f`. Both owning libraries and both node binaries
+rebuild with the previous image's exact Rust compiler, lab profile and load-client
+bytes. The complete native/archive suites and nine selected RustFS controls pass
+at this source. These are separate from the earlier twelve-case image above.
+
+SQL quorum now passes all 18 windows with zero request errors. All three nodes
+exit cleanly without lease-expiry, panic, OOM or restart observations. Source and
+engine identities remain unchanged. This completes the original C1/4/16 and two
+reversed repetitions at five-second operation/callback/lease bounds, five-second
+warmups and 30-second timed windows, with three 1 vCPU / 2 GiB RF3 voters, three
+groups and 24 entities. It is not an isolated causal before/after speedup claim;
+the earlier SQL quorum case is incomplete and receives no aggregate rate.
+
+| C | Operation | Requests/s | p50 / p95 / p99 ms |
+| --- | --- | --- | --- |
+| 1 | write | 20.67 | 38.71 / 88.89 / 124.22 |
+| 1 | read | 16.23 | 49.62 / 108.58 / 314.55 |
+| 4 | write | 24.27 | 144.45 / 314.99 / 576.50 |
+| 4 | read | 22.86 | 156.04 / 315.62 / 636.65 |
+| 16 | write | 20.21 | 583.48 / 1904.30 / 2499.04 |
+| 16 | read | 19.17 | 650.21 / 1940.54 / 2700.83 |
+
+The owner stops before KV because free disk falls to 3.34 GiB, below the unchanged
+6 GiB pre-case reserve. KV and Queue are unmeasured, not failed workload cases.
+The exact original RustFS instance is restored and ready HTTP 200; all owners
+join. The corrected cache postcheck reclaims only the unused private target cache
+`8cz7yr40ln7gzdehcqorfod03` and verifies all 60 preceding participant containers,
+60 named volumes, runtime images and original backend remain unchanged. The
+first postcheck fails before any cache mutation because Docker refuses the
+`--verbose`/`--format` flag combination; its empty comparison remains retained.
+This launcher correction changes no framework or workload bytes.
+
+See the [SQL assessment](three-node-primitive-main-170-2026-11-15.cadence-sql.json)
+and [compressed raw capsule](three-node-primitive-main-170-2026-11-15.cadence-sql.raw.json.gz).
+They exclude configuration, environments, private keys and raw node/store logs;
+eight actual private representations scan with zero matches. Existing twelve-case
+failures retain their original source. The VM remains 160 GiB throughout
+this measurement; no expansion is included in its evidence. Complete mode comparison and
+broader CG/OPT qualification remain open.

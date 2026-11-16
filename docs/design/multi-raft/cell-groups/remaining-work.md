@@ -41,7 +41,10 @@ The [main-170 matrix](three-node-primitive-main-170-2026-11-15.md) uses main
 SQL/KV/Queue mode cases finish on the original three 1 vCPU / 2 GiB nodes and
 five-second operation/callback/lease limits. Four pass and eight fail, with
 51 request errors. This is the latest complete mode matrix; earlier records
-below retain their own source and scope.
+below retain their own source and scope. The later `1d75a95f` cadence candidate
+passes SQL quorum's 18 windows without errors; its KV/Queue cases are held by
+the unchanged disk reserve. See the [current-source SQL checkpoint](three-node-primitive-main-170-2026-11-15.md#foreground-only-cadence-sql-quorum-re-verification).
+That scoped pass does not replace the older full matrix.
 
 | Priority | Required outcome |
 | --- | --- |

@@ -837,20 +837,127 @@
     "execution": "Actual native tool results, checkout-specific existing xtask executable, Rust1.98.1 and unique writable CARGO_TARGET_DIR. Full documentation recheck follows final ledger/export updates."
   },
   "linux": {
-    "status": "MATERIALIZING_PARENT",
+    "status": "BUILT",
     "source_revision": "bfa067759fcaeebd41e06e0e06f67bd1e304c2fd",
-    "source_digest": "1d75a95fc5364e040ca2e881d560548fe56f01c43a08af662d464e3adff0b8ab"
+    "source_digest": "1d75a95fc5364e040ca2e881d560548fe56f01c43a08af662d464e3adff0b8ab",
+    "image": "sha256:aecb101fd0e4dc268e0464c65d690a2a153937399d3b992b718f2a859b6301b2",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+    "selected_artifacts": [
+      {
+        "name": "cellar_ltx",
+        "kind": [
+          "lib"
+        ],
+        "fresh": false,
+        "profile": {
+          "opt_level": "s",
+          "debuginfo": "line-tables-only",
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        }
+      },
+      {
+        "name": "cellar",
+        "kind": [
+          "lib"
+        ],
+        "fresh": false,
+        "profile": {
+          "opt_level": "s",
+          "debuginfo": "line-tables-only",
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        }
+      },
+      {
+        "name": "cellar-perf-raft",
+        "kind": [
+          "bin"
+        ],
+        "fresh": false,
+        "profile": {
+          "opt_level": "s",
+          "debuginfo": "line-tables-only",
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        }
+      },
+      {
+        "name": "cellar-perf-baseline",
+        "kind": [
+          "bin"
+        ],
+        "fresh": false,
+        "profile": {
+          "opt_level": "s",
+          "debuginfo": "line-tables-only",
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        }
+      }
+    ],
+    "source_manifest_verified": true,
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "postcheck": {
+      "status": "PASSED",
+      "compiler_profiles_verified": true,
+      "unchanged_client": true,
+      "participant_descriptors_unchanged": true,
+      "images_unchanged": true,
+      "retained_case_participants": 60,
+      "retained_named_volumes": 60,
+      "removed_cache_records": [
+        "8cz7yr40ln7gzdehcqorfod03"
+      ],
+      "disk_before": {
+        "available_bytes": 3978829824,
+        "total_bytes": 168502136832
+      },
+      "disk_after": {
+        "available_bytes": 7039549440,
+        "total_bytes": 168502136832
+      },
+      "original_backend_ready_http_status": 200,
+      "awake_joined": true
+    },
+    "launcher_attempts": [
+      {
+        "status": "FAILED",
+        "scope": "Postcheck01 fails before cache mutation because Docker rejects --verbose together with --format. The first comparison owner has no stages. Corrected postcheck02 passes; no framework, compiler, workload or profile change."
+      }
+    ]
   },
   "qualification_limits": [
     "Before controls fail with materialized images; the extent before loops are not reached. After controls exercise both image forms. Test wall times include setup/forced waiting and are not operation speedup measurements.",
     "The four fast controls are repeated in the11 focused controls and full native suites; they are not added to distinct full-suite pass counts.",
     "Only default Cellar library/archive-controller/archive suites and nine selected real-RustFS cases are qualified here. Other ignores, full feature/SDK/Axum/daemon, authority, crash/recovery/movement and complete CG/OPT gates remain open.",
-    "Linux metadata reports its actual state at export; an in-progress build supplies no measured runtime or performance qualification.",
-    "The earlier12-case image362f78db has four passes/eight failures and51 request errors. It does not contain this candidate. No complete four-mode or isolated before/after throughput/latency gain is established."
+    "The earlier12-case image362f78db has four passes/eight failures and51 request errors. It does not contain this candidate. No complete four-mode or isolated before/after throughput/latency gain is established.",
+    "Matching Linux source/compiler/profile/client checks pass and SQL quorum completes18 windows with zero errors. KV/Queue are held by the unchanged disk guard. No complete current-source three-API/four-mode or isolated optimization gain is established."
   ],
   "privacy_scan": {
-    "actual_private_representations": 43,
+    "actual_private_representations": 46,
     "credential_matches": 0,
     "excluded": "Runtime configurations, environment responses, private keys and raw node/store/native test log text."
-  }
+  },
+  "current_source_sql_quorum": {
+    "status": "PASSED",
+    "verified_windows": 18,
+    "request_errors": 0,
+    "source_inputs_unchanged": true,
+    "engine_unchanged": true,
+    "node_lease_expiry_or_panic_observed": false,
+    "all_three_qualified": false,
+    "unmeasured_families": [
+      "kv",
+      "queue"
+    ],
+    "unmeasured_reason": "Free disk3585523712 bytes is below the unchanged6GiB pre-case reserve. Original backend restored ready200 and owners joined.",
+    "assessment": "three-node-primitive-main-170-2026-11-15.cadence-sql.json"
+  },
+  "updated_at": "2026-11-16T02:08:14.342098+00:00"
 }

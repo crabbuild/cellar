@@ -4870,10 +4870,26 @@ focused controller controls repeat subsets of those suites. Strict all-target
 Cellar Clippy, format/layout and native-dependency checks pass. Nine selected
 real-RustFS cases pass both image forms on the same executables; unselected
 ignores remain open. See the [source-specific qualification](capacity-cadence-qualification-2026-11-16.json).
-The matching Linux build is in progress. This is not yet constrained performance
-qualification.
+The matching Linux image and scoped SQL result are recorded below. The remaining
+current-source APIs and complete constrained matrix remain unqualified.
 
 The complete [four-mode matrix](three-node-primitive-main-170-2026-11-15.md)
 retains its earlier `362f78db` image and four-pass/eight-failure outcome. It does
 not contain this foreground-only candidate. The new fix does not establish the
 cause of those lease/deadline failures or close any complete CG/OPT package.
+
+### Matching Linux image and current SQL quorum result
+
+The matching Linux image `aecb101f` binds frozen source `bfa06775` and compiler
+input `1d75a95f` to public `12eacc18`. Both owning libraries and both binaries
+rebuild with exactly the previous compiler/lab profile/client. SQL quorum passes
+all 18 original windows, with zero request errors and clean node exits without
+lease-expiry/panic/OOM/restarts. This does not qualify the held KV/Queue cases or
+an isolated speedup against the earlier incomplete SQL case.
+
+The [source-specific SQL result](three-node-primitive-main-170-2026-11-15.md#foreground-only-cadence-sql-quorum-re-verification)
+records rates/percentiles and the separate storage-preflight refusal. After the
+SQL case, 3.34 GiB free is below the unchanged 6 GiB guard. No remaining case
+starts; the exact original RustFS is restored ready and all owners join. This
+owner changes no VM resource; its evidence remains bound to the 160 GiB VM. Earlier
+native/backend/cadence checks retain their original source and scopes.
