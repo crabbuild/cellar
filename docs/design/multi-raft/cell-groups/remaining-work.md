@@ -80,6 +80,15 @@ The renamed catalogue owner is now corrected to `resource_read.rs`; catalogue
 admission, 13 coverage-guard tests and 44 design-plan tests pass locally, without
 changing task/case acceptance. The other failures remain open.
 
+Bounded failure snapshots at test-only input `abc75976` show that the earlier
+payload-store outage stops one archive owner in each group with
+`Archive(Payload(Storage(...)))`; peers then report `Busy`, and the later PUT
+denial counter remains 136. The identical outage-reaching failure occurs in
+frozen pre-change and component binaries. Repair this archive-progress path
+through exact existing payload-pin/adoption identities and fresh proof checks;
+keep missing/corrupt data and failed journal barriers terminal. The three local
+native container-capacity passes do not reproduce its separate hosted failure.
+
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |

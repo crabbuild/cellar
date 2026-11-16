@@ -92,6 +92,20 @@ Catalogue admission, all 13 coverage-guard tests and all 44 design-plan tests
 pass after that pointer correction. This changes no task/case acceptance and
 does not repair the separate native disaster or container capacity failures.
 
+The follow-up at test-only input `abc75976` retains bounded snapshots before
+shutdown. Frozen pre-change `ac4a18e9` and component `2ac6b776` KV binaries each
+pass once and fail once at the same materialized archive-outage oracle. The
+final snapshot records a denial counter unchanged at 136: a source archive
+owner and a target archive owner are stopped on `Archive(Payload(Storage(...)))`
+from the earlier injected payload-store error, while their peers report `Busy`.
+This identifies a concrete archive-progress failure path, not a repaired retry
+contract. Exact payload-pin/adoption reconciliation and terminal corruption,
+missing-data and journal errors must remain protected in a repair. Native-only
+named-container capacity passes three local repetitions and leaves its hosted
+JS/Node failure unqualified. See the qualification's `kv_outage_followup` for
+source scopes, retained failures, snapshots and checks. No production behavior
+changes in this diagnostic follow-up, and no isolated latency gain is claimed.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 

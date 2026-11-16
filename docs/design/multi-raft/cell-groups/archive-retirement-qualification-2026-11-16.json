@@ -1291,5 +1291,369 @@
     "actual_private_representations": 46,
     "credential_matches": 0,
     "excluded": "Credentials, runtime configurations, keys, environment responses, raw native/node/store/job logs and native fixture data."
+  },
+  "kv_outage_followup": {
+    "status": "INVESTIGATED_NO_REPAIR",
+    "generated_at": "2026-11-16T11:17:44.345756+00:00",
+    "before_source_digest": "ac4a18e9ef14ed2c2ac65d2c69afc893e03672cffd239fa0e8a9377ef2137230",
+    "candidate_source_digest": "2ac6b77678ee94be0fddd392375bf2913c3d7af7b9b6839914fa247ad8a71d52",
+    "same_kv_fixture_sha256": "3e899a1323a19f4f4fdd4a4c1abadafabc7f6d605a2554d1637e51ef6c33299a",
+    "control_steps": [
+      {
+        "name": "before-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 106.62112895800965,
+        "log_sha256": "61b8cbf7bd16a96fc2cafe295c63486c90bd1056c4c1a760f5f59b51362e3640",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "retained_directories": 0,
+        "retained_regular_files": 0
+      },
+      {
+        "name": "after-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 103.6237513750093,
+        "log_sha256": "d99ff53a61336c6926e25724f997a9de1189b14dc3e5b939a469061e69d5f826",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "retained_directories": 0,
+        "retained_regular_files": 0
+      },
+      {
+        "name": "after-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 105.82796195799892,
+        "log_sha256": "0969b429195902c6f9e6a5b713b4ecb235f953fb0390937a2049d6f9d826a4a7",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "retained_directories": 3,
+        "retained_regular_files": 979
+      },
+      {
+        "name": "before-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 109.14841795898974,
+        "log_sha256": "66118eda58e0f778675d4e588cdf398baf2d58daf4cef6dae1369321e9286f6e",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "retained_directories": 3,
+        "retained_regular_files": 975
+      }
+    ],
+    "control_interpretation": "Each frozen version passes once and fails once at the identical materialized archive-outage-reaching oracle. Extent iterations pass. This establishes occurrence before the candidate, not a proven unrelated cause or release pass.",
+    "first_diagnostic": {
+      "source_digest": "ef760b58ebd4d0d1aac937ee4caf4e3c3ce732462cdff79942a22ed991d2e9ae",
+      "status": "FAILED",
+      "steps": [
+        {
+          "name": "axum-kv-1",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 108.73808841701248,
+          "log_sha256": "d3d30a6ed93f1f91dc4a2a4c1596fb1621591badaf0a78a8bfa7eb5360dc9d28",
+          "footer": [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ],
+          "failure_snapshots": 2,
+          "retained_directories": 3,
+          "retained_regular_files": 967
+        }
+      ],
+      "observations": [
+        {
+          "case": "kv-source-archive-outage",
+          "nodes": [
+            {
+              "node_ordinal": 0,
+              "committed_index": 81,
+              "published_index": 75,
+              "archive_owner": null,
+              "denied_archive_writes": 137,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            },
+            {
+              "node_ordinal": 1,
+              "committed_index": 81,
+              "published_index": 75,
+              "archive_owner": null,
+              "denied_archive_writes": 0,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            },
+            {
+              "node_ordinal": 2,
+              "committed_index": 81,
+              "published_index": 75,
+              "archive_owner": null,
+              "denied_archive_writes": 0,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            }
+          ]
+        },
+        {
+          "case": "kv-target-archive-outage",
+          "nodes": [
+            {
+              "node_ordinal": 0,
+              "committed_index": 145,
+              "published_index": 133,
+              "archive_owner": null,
+              "denied_archive_writes": 137,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            },
+            {
+              "node_ordinal": 1,
+              "committed_index": 145,
+              "published_index": 133,
+              "archive_owner": null,
+              "denied_archive_writes": 0,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            },
+            {
+              "node_ordinal": 2,
+              "committed_index": 145,
+              "published_index": 133,
+              "archive_owner": null,
+              "denied_archive_writes": 0,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            }
+          ]
+        }
+      ]
+    },
+    "final_diagnostic": {
+      "source_digest": "abc7597687e149ed8d5690d70998b41191234b496b5a3afe3c9555209d081ee6",
+      "status": "FAILED",
+      "steps": [
+        {
+          "name": "axum-kv-1",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 106.06981270899996,
+          "log_sha256": "f955cb3ff1acba16aa32d785c6b83b5c448be2c6fcd954baac22e1a03e52ef9b",
+          "footer": [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ],
+          "failure_snapshots": 0,
+          "retained_directories": 0,
+          "retained_regular_files": 0
+        },
+        {
+          "name": "axum-kv-2",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 106.26904316600121,
+          "log_sha256": "01e579fd7c7410aa348229a5cee94ae2f137e3e804d087852b4e5c0bb79e6fdd",
+          "footer": [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ],
+          "failure_snapshots": 2,
+          "retained_directories": 3,
+          "retained_regular_files": 1380
+        }
+      ],
+      "observations": [
+        {
+          "denials": {
+            "after": 136,
+            "before": 136
+          }
+        },
+        {
+          "case": "kv-source-archive-outage",
+          "nodes": [
+            {
+              "node_ordinal": 0,
+              "committed_index": 82,
+              "published_index": 75,
+              "archive_owner": {
+                "attempts": 5,
+                "error": "Archive(Payload(Storage(Generic { store: \"catalog-test\", source: Custom { kind: Other, error: \"lost store response\" } })))",
+                "stopped": true
+              },
+              "denied_archive_writes": 136,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            },
+            {
+              "node_ordinal": 1,
+              "committed_index": 82,
+              "published_index": 75,
+              "archive_owner": {
+                "attempts": 66,
+                "error": "Archive(Busy)",
+                "stopped": false
+              },
+              "denied_archive_writes": 0,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            },
+            {
+              "node_ordinal": 2,
+              "committed_index": 82,
+              "published_index": 75,
+              "archive_owner": {
+                "attempts": 65,
+                "error": "Archive(Busy)",
+                "stopped": false
+              },
+              "denied_archive_writes": 0,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            }
+          ]
+        },
+        {
+          "case": "kv-target-archive-outage",
+          "nodes": [
+            {
+              "node_ordinal": 0,
+              "committed_index": 145,
+              "published_index": 133,
+              "archive_owner": {
+                "attempts": 83,
+                "error": "Archive(Busy)",
+                "stopped": false
+              },
+              "denied_archive_writes": 136,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            },
+            {
+              "node_ordinal": 1,
+              "committed_index": 145,
+              "published_index": 133,
+              "archive_owner": {
+                "attempts": 3,
+                "error": "Archive(Payload(Storage(Generic { store: \"catalog-test\", source: Custom { kind: Other, error: \"lost store response\" } })))",
+                "stopped": true
+              },
+              "denied_archive_writes": 0,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            },
+            {
+              "node_ordinal": 2,
+              "committed_index": 145,
+              "published_index": 133,
+              "archive_owner": {
+                "attempts": 69,
+                "error": "Archive(Busy)",
+                "stopped": false
+              },
+              "denied_archive_writes": 0,
+              "queued_or_running_sql": 0,
+              "retained_read_pins": 0,
+              "retained_commands": 0
+            }
+          ]
+        }
+      ],
+      "executable": {
+        "sha256": "3f5df37364640e703bd4762f50865c2afeee580b1234880181beffdc1e4e1109",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "changed_compiler_inputs_from_component": [
+      "crates/cellar/tests/support/cell_group_kv.rs",
+      "crates/cellar/tests/support/cell_group_managed_diagnostics.rs"
+    ],
+    "scope": "Only test observations change. Capture snapshots after the unchanged original timeout and before joined shutdown. Preserve the previous published-archive observation field and add attempts/stopped/error. Production, proof, identities, budgets, resources and refusal/data assertions are unchanged. All failed disks and shared objects remain. New observations cannot replace the original failed owners.",
+    "checks": [
+      {
+        "name": "focused-strict-clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 8.659946333005792
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 109.66606920800405
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.26417658299033064
+      },
+      {
+        "name": "documentation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8626060829992639
+      },
+      {
+        "name": "native-dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.44024399999761954
+      },
+      {
+        "name": "plan",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.3319349999947008
+      }
+    ],
+    "native_capacity_reproduction": {
+      "status": "NOT_REPRODUCED",
+      "source_digest": "f6f76857834f2d1f4b6cc981639db032054594fc717396e5950ab44765d4c5b5",
+      "runs": 3,
+      "interpretation": "Only temporary disk retention differs. All three native-only capacity fixture runs pass; they do not reproduce or repair hosted JS/Node capacity failure. Retention edit removed. Original provider assertions and deadlines remain."
+    },
+    "limits": "Host-native functional diagnosis with concurrent external compiler activity observed during diagnostic/static phases; no complete host isolation or throughput/latency result. Broader enrollment, performance, lifecycle, SDK and release gates remain open."
   }
 }

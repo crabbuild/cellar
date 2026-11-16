@@ -760,7 +760,7 @@ async fn run(
                 .await?;
             sequence += 1;
             public_ok(&cluster, 0, "Read").await?;
-            cellar::asyncrt::timeout(TIMEOUT, async {
+            let archive_outage = cellar::asyncrt::timeout(TIMEOUT, async {
                 while cluster.fixtures[0]
                     .store
                     .denied_group_archive_writes
@@ -770,8 +770,22 @@ async fn run(
                     cellar::asyncrt::sleep(Duration::from_millis(20)).await;
                 }
             })
-            .await
-            .context("archive outage did not reach the actual PUT adapter")?;
+            .await;
+            if archive_outage.is_err() {
+                eprintln!("KV_ARCHIVE_OUTAGE_COUNTS {}", json!({
+                    "before": denied,
+                    "after": cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire),
+                }));
+                managed_fixture::diagnostics::record(&cluster, "kv-source-archive-outage").await;
+                managed_fixture::diagnostics::record_parts(
+                    &cluster.hosts,
+                    &cluster.fixtures,
+                    kv_group,
+                    "kv-target-archive-outage",
+                )
+                .await;
+            }
+            archive_outage.context("archive outage did not reach the actual PUT adapter")?;
             cluster.fixtures[0]
                 .store
                 .deny_group_archive_writes

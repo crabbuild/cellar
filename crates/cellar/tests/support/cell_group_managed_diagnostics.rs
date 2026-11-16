@@ -7,7 +7,7 @@ pub async fn record(cluster: &ManagedCluster, label: &str) {
     record_parts(&cluster.hosts, &cluster.fixtures, cluster.history, label).await;
 }
 
-pub(super) async fn record_parts(
+pub(crate) async fn record_parts(
     hosts: &[RaftCells],
     fixtures: &[Fixture],
     history: GroupHistory,
@@ -50,18 +50,30 @@ pub(super) async fn record_parts(
             Ok(group) => group,
             Err(error) => return serde_json::json!({"group_error": format!("{error:?}")}),
         };
-        let archive = group
-            .archive_status()
+        let archive_status = group.archive_status();
+        let archive = archive_status
+            .as_ref()
             .ok()
-            .flatten()
-            .and_then(|status| status.published)
+            .and_then(Option::as_ref)
+            .and_then(|status| status.published.as_ref())
             .map(|manifest| format!("{:?}", manifest.position()));
+        let archive_owner = match archive_status {
+            Ok(Some(status)) => serde_json::json!({
+                "attempts": status.attempts, "stopped": status.stopped,
+                "error": status.error.as_ref().map(|error| format!("{error:?}")),
+            }),
+            Ok(None) => serde_json::Value::Null,
+            Err(error) => serde_json::json!({"status_error": format!("{error:?}")}),
+        };
         let status = tokio::time::timeout(
             Duration::from_millis(500),
             group.observe(Duration::from_millis(500)),
         )
         .await;
-        serde_json::json!({"status": format!("{status:?}"), "published_archive": archive})
+        serde_json::json!({
+            "status": format!("{status:?}"), "published_archive": archive,
+            "archive_owner": archive_owner,
+        })
     }))
     .await;
     for (sample, status) in samples.iter_mut().zip(observed) {
