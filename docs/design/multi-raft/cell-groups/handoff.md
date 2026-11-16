@@ -4,7 +4,49 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current immutable archive delivery
+## Current retained-target delivery
+
+Main `16c45b266` remains included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `2b4ae45e` tries one
+fresh existing-history lookup after a proven pre-initializer refusal. A different
+retained creator must still be committed in the source before child dispatch.
+The candidate's own creation proof, uncertain identities, ordinary command
+admission and all current fences remain; original budgets/capacities are unchanged.
+
+**Causal regression passes four configurations.** Removing only the fallback at
+`f2b43cf7` fails the discovery oracle; native/real-RustFS and both images pass at
+`2b4ae45e`. Test/backend source is identical. Two namespaces, different leaders,
+one SQL worker/voter and eight lazy enrollment reservations exercise actual full
+admission. Exact parent receipt/replay, child effect and initialization counts
+remain. Earlier fixture failures are not causal evidence; no assertion was relaxed.
+Temporary activation probes are removed.
+
+**Current complete public result is FAILED, 8/16.** SDK source-proof/history,
+registration, native Queue, target-S3 Axum and Fleet reference pass. Seven
+EventStream selections fail initial activation/Consume. RustFS Queue passes
+the materialized 528-message case, then extents drain/wait expires. Historical 14/16 at `a0fe85d1` is not
+current acceptance. Paired frozen pre-feature/current native ordinary/Axum controls
+both pass 2/2; the current controls use the failed cohort's exact binary. This does
+not establish stability, exclusive attribution or speedup.
+
+Compatibility cohort 455 at `055c2183` is 5/6; its production files match final `2b4ae45e`. Both
+Quorum named configurations, interrupted recovery and read regressions pass;
+RustFS source-S3 materialized command 3/extents command 7 deadline failures remain. Instrumented cohort 450
+passes and 451 fails before the feature remain diagnostic. Native initial configure
+consumed 2.1 of three seconds before polling expired; this does not prove the retained cause.
+Full backend-outage/cold-discovery qualification remains open.
+
+Aggregate 480 verifies frozen evidence, exact source differences and 48 retained
+failed disks. Locked build, strict all-test/library Clippy and repository checks
+pass. All jobs are terminal; owned RustFS/VM are stopped, objects retained.
+In-process RF3 with RustFS using one CPU/two GiB is not independent-voter release qualification.
+Counts remain **13/17 tasks, 147/195 cases**. Next: combined activation/Consume/extents
+Queue drain, bounded source-S3 publication/verification, all primitive lifecycle/
+recovery and CG-13/17/15/16 gates. Preserve original budgets and unknown identities.
+See [progress](progress.md#current-integration-checkpoint) and ignored
+`.cellar/cg17-payload-01/event-read-state.json` for exact records.
+
+## Previous immutable archive delivery
 
 Main `16c45b266` was pulled; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `a0fe85d1` removes the

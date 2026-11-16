@@ -57,41 +57,49 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-pulled main `16c45b266`. Runtime `a0fe85d1` creates fresh immutable archive objects
-conditionally before mandatory bounded length/hash GET confirmation. The causal
-missing-GET oracle fails before the change; native/real-RustFS regressions pass
-both images and confirmation faults, including lost responses, conflicts,
-corruption and independent physical publication. Final tree `ce8c08ae` is identical
-to tested runtime after withdrawing an unsuccessful fixture-only candidate.
+main `16c45b266`. Runtime `2b4ae45e` adds one fresh retained-target lookup after a
+known pre-initializer refusal. A different creator still needs durable source
+selection before child dispatch; the candidate's own proof, uncertain identities,
+normal command admission and current fences remain. A causal public regression
+fails with only the fallback removed and passes native/real RustFS and both images
+at final source: four configurations with original eight-slot admission, one SQL
+worker/voter, exact parent replay and one child effect/initialization.
 
-**The original public cohort is 14/16.** Ordinary native/Axum EventStream paths
-pass both backends/images. Queue load passes all four configurations with 528
-acknowledged/unique deliveries each and original quotas, including archive-write
-outage messages. RustFS publication/outbox recovery passes. Remaining public
-failures are native retained outbox activation (extents/node 0) and RustFS native
-independent-target-S3 cold activation (materialized/node 0). Binding controls are
-5/6: only materialized RustFS source-S3 retained-restart command 7 fails; its final
-child returns at 4668 ms of the original five seconds. No stability or comparative
-speedup is established.
+**The complete original public cohort is FAILED, 8/16.** SDK source-proof/history,
+registration, native Queue, target-S3 Axum and Fleet reference pass. Seven
+EventStream selections fail initial activation or Consume. RustFS Queue passes
+the materialized 528-message/unique-ID oracle, then extents drain/wait expires. The previous
+14/16 at `a0fe85d1` is historical, not current acceptance. Frozen pre-feature/current
+native ordinary/Axum controls both pass 2/2 with identical test/backend source;
+current controls use the failed cohort's binary. These do not erase failures or
+establish stability, an exclusive regression cause or speedup.
 
-Seven archive safety controls pass. Full backend-outage qualification remains
-open: an old assertion expects warm-route Quorum refusal, while RO-07 allows
-known routes with current checked authority. A cold receiver still receives the
-caller's verified route; that failed fixture candidate was reverted. No assertion
-is relaxed. Qualify genuine cold discovery and the complete backend outage.
-All failures remain recorded; the complete primitive/release gate remains open.
+Compatibility cohort 455 is 5/6 at `055c2183`, with production identical to final `2b4ae45e`; later
+changes add the causal fixture. Both named Quorum configurations, interrupted
+recovery and read regressions pass. RustFS named source-S3 materialized command 3/extents command 7
+still exceed original budgets. Before this feature, instrumented cohort 450 passes and 451
+fails both selected activation cases. Native initial configure took 2.1 of three seconds,
+then polling expired. Shared-worker/provisioning and S3 proof phase costs remain
+investigation boundaries, not established exclusive causes.
+
+Full backend-outage/cold-discovery qualification retains its previous assertion
+gap. All failed controls remain recorded. The complete primitive/release gate is
+open; the new pressure regression closes one behavior, not a complete family.
 
 Earlier catalog enrollment joining, bounded suspended scanning, exact checkpoint
 receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retain
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
-1. **Close retained outbox/inbox readiness and target-S3 cold activation.** Fix
-   the two current public failures under original deadlines and quotas. Retained
-   source obligations must autonomously resume after restart, while catalog,
-   broker, named binding, current birth and destination proofs still gate
-   readiness. Independent target-S3 minima must complete initial activation on
-   native ingress as well as Axum. Ordinary EventStream and Queue load now pass
-   the scoped cohort; their complete lifecycle matrices remain required.
+1. **Stabilize combined activation, Consume and Queue drain.** Close the seven
+   current EventStream activation/Consume failures and real-store extents Queue
+   drain under original deadlines and quotas. Retained source obligations must
+   autonomously resume, while catalog, broker, named binding, current birth and
+   destination proofs still gate readiness. Measure phase costs and shared-worker
+   scheduling at the failing boundaries; preserve the source with nearly its full
+   remaining budget at Consume. Independent target-S3 native cold activation is
+   still open. The isolated pre-feature/current native passes do not replace the
+   combined failure. Run another broad cohort after an implemented change or a
+   controlled finding justifies it; repeated unchanged campaigns do not close it.
 2. **Reduce consecutive S3 source proof and final-output costs.** Close the
    materialized S3 named-binding deadline after restart. Preserve the original
    five-second budget, exact birth/route, physical custody, coverage,

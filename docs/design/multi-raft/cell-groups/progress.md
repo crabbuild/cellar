@@ -29,6 +29,75 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `16c45b266` remains included. **Runtime `2b4ae45e` tries one fresh retained
+history lookup after a proven pre-initializer enrollment refusal.** A different
+creator can join through the existing durable source-selection checkpoint before
+business dispatch. The original candidate still needs its creation proof;
+ambiguous failures retain their existing identity/reconciliation policy. Matching,
+missing or failed observations do not authorize a new selection. Existing target
+command admission and all source/target fences remain. No task, cache, capacity,
+timeout or format is added.
+
+**The new public regression has a causal failure/pass result.** At `f2b43cf7`,
+with only this fallback removed, it fails because no read-only discovery starts
+while enrollment admission is full. At `2b4ae45e`, native and real RustFS pass both
+image forms: **2/2 selections, four configurations**. All tracked inputs differ
+only in `application/cell_bindings.rs`; the test and backend adapter are identical.
+The fixture uses two real namespaces, different group leaders and one SQL worker
+per voter. Eight unpolled enrollment futures retain the target's original eight
+admission slots without entering its controller. An actual nonambiguous Overloaded
+probe proves the bank is full. Backend reads hold the namespace while node metadata
+admission is observed; reservations are released only after discovery starts.
+The original parent receipt/replay, exactly one child effect and exactly one
+initialization are required. Commands enter their controller at construction, so
+the earlier fixture using unpolled command futures was invalid and is retained as
+a prerequisite failure. Class-registration and self-transfer setup failures are
+also retained; none is causal evidence and no assertion was relaxed.
+
+**The original public cohort is FAILED, 8/16 at this runtime.** Both SDK source-proof
+and history-resolution selections, registration, native Queue load, independent
+target-S3 Axum and ordinary Fleet reference pass. Seven EventStream selections
+fail initial activation or Consume deadlines. Real-RustFS Queue completes the
+materialized 528-message/unique-ID oracle, then the extents drain/wait phase expires;
+its complete selector fails. Native Queue passes both images with 528 acknowledged
+and unique deliveries each. Original producer/admission/deadline limits remain.
+The previous 14/16 at `a0fe85d1` is historical, not this revision's acceptance.
+
+Focused counterfactuals run the frozen pre-feature `f2b43cf7` executable and the
+current `2b4ae45e` executable on the same original native ordinary/Axum EventStream
+cases. **Both are 2/2**, with identical test/adapter source and only the production
+fallback different. The current controls use the same binary as the failed public
+cohort. They establish neither stability, an exclusive regression attribution nor
+a speedup; the full 8/16 failure remains. Before the feature, instrumented cohort
+450 passed both selected activation cases and cohort 451 failed both. Its native
+initial catalog configuration took about 2.1 seconds of three, then status polling
+expired. This is an investigation boundary, not an exclusive retained-failure cause.
+All temporary probes are removed.
+
+Compatibility cohort 455 is **5/6 at `055c2183`**, whose production files are
+identical to final `2b4ae45e`; the causal fixture/adapter was added later. Native
+named bindings, both interrupted retained-recovery selectors and both binding-read
+regressions pass. RustFS named bindings pass both Quorum configurations but fail
+source-S3 materialized command 3 and extents command 7. The source-S3 proof/settlement
+cost remains open. Full backend-outage qualification also retains its previous
+warm-route assertion/cold-discovery gap.
+
+Aggregate `CG-17-retained-binding-aggregate-480-2b4ae45e` verifies source equivalence,
+frozen executables/logs/backups, exact causal inputs and **48 retained failed voter
+disks**. Locked build, strict library/all-test Clippy, formatting, layout and native
+dependency checks pass. Jobs are terminal; owned RustFS/VM are stopped with objects
+retained. RF3 voters share one process and separate workspace disks; RustFS uses
+one CPU/two GiB. Counts stay **13/17 tasks, 147/195 cases**; no complete primitive
+family or release/hard cutover is accepted.
+
+Next: combined initial/retained activation, Consume and extents Queue drain;
+then consecutive source-S3 checkpoint/final-output proof and physical verification
+costs under original budgets. Complete primitive APIs/lifecycles, cold-discovery/
+backend-outage coverage and CG-13/17/15/16 remain required. Do not substitute isolated
+passes for the combined gate or change unknown mutation identities.
+
+## Previous immutable archive checkpoint
+
 Main `16c45b266` was pulled and is already included. **Runtime `a0fe85d1`
 creates immutable archive objects conditionally before reading them back.** It
 removes the speculative missing GET for fresh generation objects. Every PUT
