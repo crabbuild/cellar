@@ -415,8 +415,9 @@ impl CellPrivateExecutor {
             )
             .map_err(ExecutionError::Protocol)?;
         // Prepare the same physical result that committed apply will select.
-        // Neither this deterministic name nor its live pin grants publication;
-        // apply still independently replays the entry and persists its marker.
+        // Neither this deterministic name nor its live pin grants publication.
+        // Only the exact input proof can avoid replay; apply still verifies the
+        // destination and persists its committed marker.
         let preview = super::images::cell_preview_id(
             &self.authority.cell().version.history,
             sequence.get(),

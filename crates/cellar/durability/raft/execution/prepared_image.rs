@@ -93,7 +93,7 @@ mod tests {
     fn preparation_requires_the_same_live_owner_history_and_term() {
         let owner = Arc::new(());
         let history = group();
-        let term = Term::new(1).unwrap();
+        let term = Term::new(1);
         let binding = Binding::new(owner.clone(), history, term, b"complete encoded transition");
         assert!(binding.accepts(
             &owner.clone(),
@@ -105,7 +105,7 @@ mod tests {
         assert!(!binding.accepts(
             &owner,
             history,
-            Term::new(2).unwrap(),
+            Term::new(2),
             b"complete encoded transition"
         ));
         for changed in [
@@ -134,7 +134,7 @@ mod tests {
     fn preparation_fingerprint_covers_every_supplied_input_byte() {
         let owner = Arc::new(());
         let history = group();
-        let term = Term::new(1).unwrap();
+        let term = Term::new(1);
         let bytes = b"complete encoded transition";
         let binding = Binding::new(owner.clone(), history, term, bytes);
         for index in 0..bytes.len() {
