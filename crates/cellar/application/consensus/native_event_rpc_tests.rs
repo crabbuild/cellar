@@ -195,6 +195,81 @@ async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result
     result
 }
 
+#[tokio::test]
+async fn event_stream_enrollment_installs_declared_state_and_subscriptions_atomically() -> Result<()>
+{
+    use cellar_logic::{
+        cell_group::{CellHistory, CellId},
+        consensus::{ClusterId, IncarnationId, NamespaceId},
+    };
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let mut definition = definition();
+        definition.subscriptions.push(event_stream::SubscriptionDefinition {
+            name: "projection".into(),
+            start: event_stream::Start::Earliest,
+            required: true,
+        });
+        let cell = CellHistory {
+            cluster: ClusterId::new([1; 16])?,
+            namespace: NamespaceId::new([2; 16])?,
+            cell: CellId::new(event_stream::cell_scope(&definition.resource)?)?,
+            incarnation: IncarnationId::new([3; 16])?,
+        };
+        let options = super::super::NativeCellConfiguration::default().options("shop");
+        let configuration = super::super::AdmittedCellConfiguration::from_options(&options)?;
+        let class = super::super::native_services::event_service(
+            &configuration, std::slice::from_ref(&definition), false,
+        )?;
+        let root = tempfile::tempdir()?;
+        let mut database = crate::storage::CommandDatabase::open(
+            &root.path().join("stream.sqlite"), None, 4 << 20,
+        )?;
+        let inputs = crate::storage::CommandInputs {now_unix_millis:1234, random:[4;32]};
+        let rejected: Result<()> = database.transaction(inputs, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            anyhow::bail!("creation did not commit")
+        });
+        assert!(rejected.is_err());
+        assert_eq!(database.framework().query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name IN ('__sys_stream','__sys_stream_subscriptions','__sys_work','__sys_raft_native_work')", [], |r| r.get::<_, u64>(0),
+        )?, 0);
+        let initial = database.transaction(inputs, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            let storage = tx.storage()?;
+            anyhow::ensure!(
+                storage.system_sql("SELECT 1 FROM sqlite_schema WHERE name='__sys_stream'", &[])?.len() == 1,
+                "broker enrollment did not install its declared stream before callback entry",
+            );
+            let (observed, row) = event_stream::store::load(&storage)?;
+            assert_eq!(observed, definition);
+            assert_eq!(event_stream::store::text(&row, "lifecycle")?, "active");
+            assert_eq!(event_stream::store::number(&row, "logical_ms")?, 1234);
+            assert_eq!(event_stream::store::number(&row, "next_offset")?, 1);
+            assert_eq!(event_stream::store::text(&row, "config_operation")?, event_stream::raft::operation("shop", &definition)?);
+            assert_eq!(event_stream::store::text(&row, "config_principal")?, "shop");
+            assert_eq!(event_stream::store::text(&row, "config_grant")?, "owner");
+            let subscriptions = storage.system_sql("SELECT * FROM __sys_stream_subscriptions", &[])?;
+            assert_eq!(subscriptions.len(), 1);
+            assert_eq!(event_stream::store::text(&subscriptions[0], "name")?, "projection");
+            assert_eq!(event_stream::store::number(&subscriptions[0], "checkpoint")?, 0);
+            Ok((row, subscriptions))
+        })?;
+        database.transaction(crate::storage::CommandInputs {now_unix_millis:2234, ..inputs}, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            let storage = tx.storage()?;
+            let (_, row) = event_stream::store::load(&storage)?;
+            assert_eq!(row, initial.0, "re-entry changed the configured stream or clock");
+            assert_eq!(storage.system_sql("SELECT * FROM __sys_stream_subscriptions", &[])?, initial.1,
+                "re-entry changed subscription identities or generations");
+            Ok(())
+        })?;
+        Ok(())
+    }).await?;
+    domain.shutdown().await;
+    result
+}
+
 #[test]
 fn private_event_request_retains_authority_and_global_name() -> Result<()> {
     let definition = definition();
