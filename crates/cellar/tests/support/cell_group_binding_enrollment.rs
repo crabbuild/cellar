@@ -84,13 +84,13 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     let child_control = control.clone();
     let application = Arc::new(
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
-            .raft_cell(parent.clone(), move |context, _| {
+            .raft_cell(parent, move |context, _| {
                 Ok(Arc::new(Bound {
                     storage: context.storage()?,
                     control: parent_control.clone(),
                 }))
             })?
-            .raft_cell(child.clone(), move |context, _| {
+            .raft_cell(child, move |context, _| {
                 Ok(Arc::new(Bound {
                     storage: context.storage()?,
                     control: child_control.clone(),
@@ -103,7 +103,10 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     application.validate_deployment(&configuration::deployment(declared.clone()))?;
     let mut fixture = Fixture::with_definition_policies(
         rooted,
-        vec![(parent, Durability::Quorum), (child, Durability::Quorum)],
+        vec![
+            (application.resolve_raft_class("Parent")?, Durability::Quorum),
+            (application.resolve_raft_class("Counter")?, Durability::Quorum),
+        ],
         application,
         store.clone(),
     )
