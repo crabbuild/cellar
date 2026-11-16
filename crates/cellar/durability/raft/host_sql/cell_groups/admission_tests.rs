@@ -135,17 +135,6 @@ async fn queued_writers_precede_callback_resume_and_cancel_without_refunding_phy
         admission.reserve(&cell, group, 1024),
         Err(ExecutionError::Busy)
     ));
-    assert!(!first.contended());
-    let waiting = admission.note_writer_wait(&cell)?;
-    assert!(
-        first.contended(),
-        "a synchronous writer must be able to force yielding"
-    );
-    drop(waiting);
-    assert!(
-        !first.contended(),
-        "cancelled waiters must release their dependency"
-    );
     let (control, control_bytes) = control.await?;
     assert!(resumed.as_mut().now_or_never().is_none());
     drop(control);
@@ -224,6 +213,17 @@ async fn writer_release_wakes_waiters_without_raft_apply() -> anyhow::Result<()>
         admission.reserve(&cell, group, 1024),
         Err(ExecutionError::Busy)
     ));
+    assert!(!first.contended());
+    let waiting = admission.note_writer_wait(&cell)?;
+    assert!(
+        first.contended(),
+        "a synchronous writer must be able to force yielding"
+    );
+    drop(waiting);
+    assert!(
+        !first.contended(),
+        "cancelled waiters must release their dependency"
+    );
     // No group exists and no Raft apply can wake this waiter. Parking must
     // publish local progress even while the original physical bytes stay held.
     first.park()?;
