@@ -22,6 +22,12 @@ These acknowledgement guarantees differ. Public reads retain their respective
 production binding implementation; this benchmark does not establish equivalent
 read algorithms or failure guarantees.
 
+SQL reads use `Database::prepare_read_only`: Raft reads an already enrolled
+database through a fresh linearizable quorum barrier without a target mutation;
+Fleet and bucket retain owner routing. Historical results using `prepare` for
+SQL reads keep their recorded source and algorithm. A measured gain requires
+matched runs with these source and read-path differences recorded.
+
 SQL and KV each use 24 service identities in three Raft groups of eight cells.
 Queue uses 24 queues and their 24 declared dead-letter cells in three groups of
 16. Each group has the same three voters. Readiness checks the complete enrolled
@@ -85,8 +91,9 @@ The default matrix covers all three APIs and all four acknowledgement modes:
 concurrency 1, 4 and 16; two repetitions with reversed concurrency order; five
 seconds warmup and 30 seconds per measured operation. SQL/KV each have separate
 write and read windows. Payload values contain exactly 256 ASCII bytes. SQL uses
-a prepared upsert/read, KV uses public text put/get, and Queue sends eight text
-messages per batch through a real consumer. Application message identities and
+a prepared upsert and an explicitly read-only prepared query, KV uses public
+text put/get, and Queue sends eight text messages per batch through a real
+consumer. Application message identities and
 payload hashes verify callback observations; Queue metrics additionally require
 zero source backlog and zero dead-letter messages after settlement. Duplicate
 callbacks are counted separately. The callback observer is bounded to one

@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Value-only Workflow resources use the existing linearizable pinned reader.
+//! Value-only SQL and Workflow resources use the linearizable pinned reader.
 
 use super::super::CommandFailure;
 use super::*;
@@ -11,16 +11,16 @@ use anyhow::Context as _;
 use rand::RngCore as _;
 
 impl RaftCells {
-    pub(crate) fn workflow_read(
+    pub(crate) fn resource_read(
         &self,
         admitted: crate::outbound_rpc::Admitted,
         call_scope: crate::host_rpc::CallScope,
         deadline: u64,
-        configuration: [u8; 32],
+        configuration: Option<[u8; 32]>,
     ) -> HandlerFuture<RpcData> {
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
-            let route = self.handle.core.host.workflow_read_route(
+            let route = self.handle.core.host.resource_read_route(
                 None,
                 configuration,
                 &admitted.scope,
@@ -59,14 +59,14 @@ impl RaftCells {
         let owner = self.internal_observer();
         Box::pin(async move {
             let (route, input, timeout, held) = prepared?;
-            let operation = owner.query_workflow_resource(route, input, timeout, false);
+            let operation = owner.query_resource(route, input, timeout, false);
             let operation = crate::runtime::cancellation::receive(
                 call_scope.parent_cancellation.as_ref(),
                 call_scope.signal.as_ref(),
                 operation,
             );
             let timer = owner.handle.domain.sleep_until(deadline)?;
-            let response = crate::asyncrt::select_biased! { "original Workflow resource deadline";
+            let response = crate::asyncrt::select_biased! { "original resource read deadline";
                 _=timer=>Err(anyhow::Error::from(RuntimeError::DeadlineExceeded)),
                 result=operation=>result,
             }?;
@@ -88,7 +88,7 @@ impl RaftCells {
     /// The route is minted by this host's compiled binding authorization. Source
     /// callers enter only after their existing dispatch task proves its root;
     /// ingress discovery retains the ordinary callback/admission checks.
-    pub(super) fn query_workflow_resource(
+    pub(super) fn query_resource(
         &self,
         route: Route,
         input: Vec<u8>,
@@ -109,7 +109,7 @@ impl RaftCells {
                 .checked_add(u64::try_from(timeout.as_millis())?)
                 .ok_or(RuntimeError::DeadlineExceeded)?;
             let mut id = [0; 16];
-            crate::asyncrt::rng("workflow-resource-read").fill_bytes(&mut id);
+            crate::asyncrt::rng("resource-read").fill_bytes(&mut id);
             Ok((deadline, super::super::ProposalId::new(id)?))
         })();
         Box::pin(async move {
@@ -159,13 +159,13 @@ impl RaftCells {
                                 };
                                 found
                                     .map_err(anyhow::Error::from)
-                                    .context("Workflow resource history discovery")?
+                                    .context("resource history discovery")?
                                     .ok_or(RuntimeError::NotFound)?
                             }
                         };
                         let result = owner
                             .cell(history)
-                            .context("Workflow resource handle")?
+                            .context("resource handle")?
                             .query_direct(
                                 invocation,
                                 &route.contract,
@@ -177,7 +177,7 @@ impl RaftCells {
                                 },
                             )
                             .await
-                            .context("Workflow pinned resource query")?;
+                            .context("pinned resource query")?;
                         remaining()?;
                         anyhow::ensure!(
                             result.result.len() <= route.max_result_bytes,
@@ -205,7 +205,7 @@ impl RaftCells {
                 }
             };
             let timer = owner.handle.domain.sleep_until(deadline)?;
-            crate::asyncrt::select_biased! { "bounded Workflow pinned read";
+            crate::asyncrt::select_biased! { "bounded resource pinned read";
                 _=timer=>Err(anyhow::Error::from(RuntimeError::DeadlineExceeded)),
                 result=operation=>result,
             }

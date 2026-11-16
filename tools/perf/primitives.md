@@ -30,8 +30,9 @@ python3 tools/perf/primitives.py \
 Each image mode, materialized and extents, gets fresh local data volumes and a separate
 remote prefix. Each repetition measures concurrency one and four; the second
 reverses their order. A two-second warmup precedes each cohort. SQL upserts and
-reads use prepared statements. KV uses public text put/get. Each worker owns a
-key in one database or KV partition, with a sequence marker and a 256-byte base
+reads use prepared statements, with `prepare_read_only` for SQL reads. KV uses
+public text put/get. Each worker owns a key in one database or KV partition,
+with a sequence marker and a 256-byte base
 payload. Returned reads and final acknowledged values must match exactly.
 These overwrite workloads deliberately measure contention on a small working
 set, rather than database growth or large-object performance.

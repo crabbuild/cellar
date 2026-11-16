@@ -311,11 +311,19 @@ enum ReadAccess {
     Event(Box<super::consensus::native_event_rpc::Authority>),
 }
 
-fn read_resource(scope: &str, method: &str) -> bool {
-    scope
-        .split_once(':')
-        .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
-        && super::workflow::read_operation(method).is_some()
+pub(crate) fn read_operation(scope: &str, method: &str) -> Option<&'static str> {
+    let (class, _) = scope.split_once(':')?;
+    if class == crate::deploy::SQL_CLASS {
+        super::sql::read_operation(method)
+    } else if crate::deploy::is_workflow_class(class) {
+        super::workflow::read_operation(method)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn read_resource(scope: &str, method: &str) -> bool {
+    read_operation(scope, method).is_some()
 }
 
 pub(crate) fn resource_rpc(

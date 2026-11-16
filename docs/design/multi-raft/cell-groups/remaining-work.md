@@ -51,6 +51,13 @@ diagnostic still exhausts its original enrollment budget. Its
 [source-specific record](enrollment-resolution-qualification-2026-11-16.json)
 does not establish a constrained-node throughput/latency gain.
 
+SQL now has an explicit `prepare_read_only` path through fresh quorum selection
+and a pinned image, preserving the writable API and source-write proofs. The
+benchmark uses it for SQL point reads. Its
+[component qualification](sql-readonly-qualification-2026-11-16.json) does not
+replace the constrained matrix or close the remaining enrollment, lease-progress
+and release gates.
+
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |

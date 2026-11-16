@@ -31,6 +31,18 @@ Implementation starts from `d0c2873f` (the shared cell-group runtime merged into
 execution, archive/lifecycle ownership and persistence work. None of OPT-01
 through OPT-08 is accepted as complete by this record.
 
+The explicit SQL read path uses `Database::prepare_read_only` and the existing
+linearizable pinned-image reader. It preserves source-write proof admission,
+refuses cold targets without enrollment, and keeps writable prepared statements
+on their original path. Read-only `first()` and result refusals can stop early;
+writable `INSERT ... RETURNING` still drains completely. The primitive benchmark
+selects the new API for its SQL point reads. See the
+[SQL read qualification](sql-readonly-qualification-2026-11-16.json) for compiler
+inputs, native/SDK/Axum/backend coverage, failed controls and test limits.
+This does not establish an end-to-end speedup or close an OPT/CG release gate.
+The original constrained SQL/KV/Queue matrix and rooted-128 enrollment gap remain
+separate priorities.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 

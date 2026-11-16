@@ -1,0 +1,545 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-16T05:50:27.613054+00:00",
+  "component_status": "PASSED",
+  "source_digest": "2ebc380e734f932284600dd0412aa45da9d272dcafb6d7c8189c9e06ae5b2e41",
+  "source_inputs": 3452,
+  "base_revision": "9ab7ab71c4e172a2b4a094e70b7d9b69896b7413",
+  "integrated_main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "mechanism": "Explicit ReadOnlyStatement requests use fresh linearizable quorum selection and an immutable pinned image for already-enrolled Raft SQL databases. They do not append a target command or enrollment. Source-bound requests retain their preceding write proof. SQLite authorizes each read request before stepping. Only explicitly read-only first() and result refusals can stop early; legacy writable prepared statements still drain to completion.",
+  "public_contract": [
+    "Database::prepare_read_only returns a distinct ReadOnlyStatement with bind, bind_json, all, first and raw. It cannot join a writable batch or session.",
+    "One RPC request contains exactly one statement. SQLite rejects writes, transaction control and connection-changing PRAGMAs before execution. Existing protected metadata and parameter, row, byte, cancellation and admission checks remain.",
+    "ReadResultSet and ReadMeta omit writer/primary status; a follower can serve the selected image. Cold or undeclared databases are refused without enrollment.",
+    "Other durability backends retain owner routing with the same SQLite read-only enforcement. The benchmark SQL read now explicitly selects this API; old recorded algorithms remain distinct."
+  ],
+  "before_first_stop": {
+    "status": "REPRODUCED",
+    "source_digest": "405065786841107210e622b8653b654b478d63c9afba7058d656ca5232257c4d",
+    "stages": [
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 5.400035499988007,
+        "log_sha256": "1e4cc1fcb93d162632f790bc49193b7bc1cbc644eed60b3d7381d1cf66b590dc"
+      },
+      {
+        "name": "regression-1",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.04568345799634699,
+        "log_sha256": "ad33f39de13fdb7f309158151e8d0d7a5995bc9142262e11b3f3776d64d3281a"
+      },
+      {
+        "name": "regression-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.038687749998643994,
+        "log_sha256": "2f8c45cac2d58fde079ae1a3c7b4f18f2c9208fabb5d76c095e9ca7f23634acf"
+      }
+    ],
+    "oracle": "A SELECT returns a valid first row and raises integer overflow only on a later row. The initial read-only path incorrectly drained past first(); both runtime repetitions failed with that later-row error.",
+    "retained_directories": 2,
+    "retained_regular_files": 10,
+    "retained_bytes": 426768,
+    "test_byte_limit": "The early-first query and expectation remain in the final test. Other controls were added; complete before/after test-file byte identity is not claimed."
+  },
+  "after": {
+    "source_digest": "4cedc17e416cf152b34c1937c937127f3b7644295f43366dafe4efb2064c42d3",
+    "byte_identity_to_final": "Production, SDK, other test and benchmark inputs are byte-identical; only the final SQL RF3 fixture adds all-node read-only checks after retained restart.",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "stages": [
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 38.40085870900657,
+        "log_sha256": "5eb89a7a8450b1d4b1a2a22862ccb7f73628f2926d707df134f27a8a799d07d7"
+      },
+      {
+        "name": "full-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 95.85036075000244,
+        "log_sha256": "3330a412b0bf9c5138198a4a7f6e06bfaf54aa486356786e538f8c7001420d7c",
+        "footer": [
+          "ok",
+          "1229",
+          "0",
+          "2"
+        ]
+      },
+      {
+        "name": "full-cell-limits",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.206343834011932,
+        "log_sha256": "dacd378cf4d9fd9cfd4c395876d9ea104b0d8e4bac755be4603529ea08e8eb96",
+        "footer": [
+          "ok",
+          "5",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "ordinary-sql-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.07247475000622217,
+        "log_sha256": "3164c658b7e887211e267941f613696ac0f75ec9d398ab483d85204ac87664c4",
+        "footer": [
+          "ok",
+          "2",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "ordinary-sql-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.06242158300301526,
+        "log_sha256": "608498c4fa12e274ce4e7825bfa155a46eedd62bfe54f8ff03a738685dbde585",
+        "footer": [
+          "ok",
+          "2",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "raft-native-sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 69.343781167001,
+        "log_sha256": "89cc8ce374d27bada7deb918ddfd10f680d896a008ae068a5484396dffae8257",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "raft-axum-sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 70.64275133400224,
+        "log_sha256": "7d4e24dd2fa9dfc026ba95c33a45b2a36eae85cc64dbab36adf13c75bb4249b1",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "workflow-read",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 58.36410883298959,
+        "log_sha256": "dcdfe140be9e3a736ed6f0afee1b0769532817c40ead22fe50c22244bbdabc88",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "cellar-perf-raft-primitive-bindings",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.08086441599880345,
+        "log_sha256": "8307981d78ca4d0c407a152714d2f2d1f63ac986e9f5334add468b2ddf36d115",
+        "footer": [
+          "ok",
+          "2",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "cellar-perf-baseline-primitive-bindings",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.12943070800974965,
+        "log_sha256": "e2cd54db13f1489e44df5e353ba9df780d3cf137eec100bd115aaa16a0585e05",
+        "footer": [
+          "ok",
+          "2",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "native-values",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 60.16100566700334,
+        "log_sha256": "779ad805350b7404a67c893fbfe1747eeb6dfe8d020a4289c9709e0313c8e177",
+        "footer": [
+          "ok",
+          "3",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "strict-clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 603.7368557919981,
+        "log_sha256": "8aa1f5fedf110bc44ff547d808d5396fae399fdb2b28cb29bc6933b4d87aaba7"
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 108.5503848750086,
+        "log_sha256": "41073d865c112337850571459c2ec160568979f3224f68f28b9bc3de8082da17"
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.3454019169876119,
+        "log_sha256": "20b3af289c5a16bc44ae3c0834e1679a5d000386031a9d71ce865f9e81d3d6f9"
+      }
+    ],
+    "executables": {
+      "native_cell_limits": {
+        "sha256": "4eb56bfe66e352086d253a961b0a2b66229cc986dd7211daa031f75083879d7a",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar-perf-baseline": {
+        "sha256": "a7b766390647023a582c7016a1662272b200d31d6c9a2d951167d227fe1d580f",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_sql": {
+        "sha256": "94259f9f6474c8cf19cfd97275d04f41672627549162ce36200bf2925178921b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar": {
+        "sha256": "f8e3104839fc8725316ad65cabe851acd684ab54c1df9982f630490eafe3c58b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar-perf-raft": {
+        "sha256": "d8feac1e30b66f2833580708b61de09a4f0c6af298fde2e48186115044e993bb",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "9a997622e1d9f82e45dbb7b0691c023330fcdd21b85dc5c5470fee52e0117460",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "runtime_oracles": [
+      "Explicit SDK/wire read results, binding copies, bytes, NULL/no-row/missing-column and read metadata.",
+      "Mutation, transaction, PRAGMA, multi-statement, wrong-parameter, protected-system-table and multi-result-budget refusals; ordinary writes remain usable.",
+      "Read-only first() does not evaluate a later failing row; all() still evaluates it. Legacy INSERT RETURNING first() commits both writes.",
+      "Lowered row and byte limits refuse read-only results. A byte refusal stops before a later arithmetic error; the next query works.",
+      "Native/Axum RF3 fixtures in materialized and extent forms: reads through all three nodes return committed rows without advancing target term, applied index or committed index.",
+      "Source command writes before its read; existing source-proof admission is reused. Undeclared/cold reads do not enroll. Reads refuse after two voter owners stop.",
+      "Existing Workflow status read/checkpoint/restart regression, complete core/native-value libraries, native cell limits and both primitive benchmark binding-validation targets."
+    ],
+    "counting": "Ordinary native SQL is repeated twice; these are the same two tests. Each selected SQL RF3 case internally exercises both image forms. Selected Workflow and benchmark cases do not qualify their entire integration/tool targets."
+  },
+  "final_restart_fixture": {
+    "source_digest": "2ebc380e734f932284600dd0412aa45da9d272dcafb6d7c8189c9e06ae5b2e41",
+    "status": "PASSED",
+    "stages": [
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 47.46452262499952,
+        "log_sha256": "7a2c1b68a39a5d1c85d4a20fa893905a5925fb28f7fa9018569afa97f59b4f5d"
+      },
+      {
+        "name": "raft-native-sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 71.99125687500054,
+        "log_sha256": "7189ab128c08f59432c69ae8d8ba333e16e410c31a5211a4508591a8450309ee",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "raft-axum-sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 71.82476870800019,
+        "log_sha256": "9f30e5e8d0a827ed65b0267d21a4689bb37b6fb05c2e6c8b5e50610d3d321f26",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "strict-clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 11.18035266699735,
+        "log_sha256": "26599bff99c470f8cd71231a1dfcfed1814dcc9a8f54ec73a7559ff27f9fe17e"
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 104.30595604100381,
+        "log_sha256": "41073d865c112337850571459c2ec160568979f3224f68f28b9bc3de8082da17"
+      }
+    ],
+    "executables": {
+      "native_cell_groups_primitives": {
+        "sha256": "3f48349145f5478a4b9b982d736f247c0fda818700233d884764eeb8273b18a8",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "only_changed_input": [
+      "crates/cellar/tests/support/cell_group_sql_bindings.rs"
+    ],
+    "unchanged_production_and_other_test_inputs": true,
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "oracle": "All three ingress nodes use the new read-only SQL API again after retained restart; exact committed rows remain readable in native/Axum and both image forms."
+  },
+  "rustfs": {
+    "status": "PASSED",
+    "source_digest": "2ebc380e734f932284600dd0412aa45da9d272dcafb6d7c8189c9e06ae5b2e41",
+    "stages": [
+      {
+        "name": "ordinary-readonly-sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 74.21064612500777,
+        "log_sha256": "7a08c57b5a31d8b01d4a46bd5b8f78da7b6005ed9bcae963c3075355d1ee57a5",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "axum-readonly-sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 74.45912300000782,
+        "log_sha256": "905defb66051495f6bd1b8fcc8ff5073ce783aad8cea1d888c653397db27cbcf",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "image_configurations": 4,
+    "original_backend_unchanged": true,
+    "ready_http_status": 200,
+    "backend_limits": {
+      "cpus": 1000000000,
+      "memory": 2147483648,
+      "swap": 2147483648
+    },
+    "cli": {
+      "sha256": "6801293a8ef3499d6ab1ea685f7df493004f368aee7fab357fd771d4d1b2ec59",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "scope": "Host-native RF3 voters and real shared RustFS; native and Axum SQL fixtures in both image forms, original single SQL worker and four client-identity slots. Not constrained three-container throughput/latency."
+  },
+  "earlier_attempts": [
+    {
+      "name": "first combined native attempt",
+      "source_digest": "65a03fc2741054955c04b9cbf16c2c0de7e17ecb1957c3889ca0976694c0cc05",
+      "status": "FAILED",
+      "stages": [
+        {
+          "name": "compile",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 471.0607815419935,
+          "log_sha256": "571d7252f65bbd0ce170a48a485714a02d89019d27e175325925058f7edaf8d2"
+        },
+        {
+          "name": "ordinary-sql-1",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.051363124992349185,
+          "log_sha256": "ce50ee0dc42b5a56c0650e3e9d0e84d01c6f653bb5497fce4a885cbcf93c43ee",
+          "footer": [
+            "FAILED",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        {
+          "name": "ordinary-sql-2",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.04733091700472869,
+          "log_sha256": "1519e5c4fbd1f41153bbf17cd89a48884e955cce3bd11051a653c276937ffe0c",
+          "footer": [
+            "FAILED",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        {
+          "name": "raft-native-sql",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 68.95302295799775,
+          "log_sha256": "6cd3ac2a97aeadc8fc11402cd4c8dc890e4248b54f7769c8084e53cc9d368b87",
+          "footer": [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        },
+        {
+          "name": "raft-axum-sql",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 69.43268920799892,
+          "log_sha256": "103bbcc9d938c7b4a2e2904d1869608b5b77b0ef9120d3bb938766e7dce00082",
+          "footer": [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        },
+        {
+          "name": "workflow-read",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 55.607592291999026,
+          "log_sha256": "902111d6a730468691056ac0684639420ff05bffb7b54050fc0f1f09c249f7f4",
+          "footer": [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        }
+      ],
+      "disposition": "Raft native/Axum SQL and Workflow read cases passed. Ordinary SQL failed twice because the new multi-request refusal assertion checked transport failure rather than decoding the RPC error. The final assertion requires the decoded one-statement refusal. Four native directories, including failed disks, were copied and hash-verified."
+    },
+    {
+      "name": "second combined compile attempt",
+      "source_digest": "38ebab0e05e3547a43134090304cd6dae7991dfe012dccb1c216e3e6a7233fec",
+      "status": "FAILED",
+      "stages": [
+        {
+          "name": "compile",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 36.19429204201151,
+          "log_sha256": "add87d70652627e5acc51e10a5aae32430fe5458a4e92353c524b7a53f023ebc"
+        }
+      ],
+      "disposition": "Missing test-only anyhow Context trait import. No runtime tests started. Import corrected and final combined owner rerun."
+    }
+  ],
+  "retention_compile_attempt": {
+    "source_digest": "7111b8467f539189113cdcd3c97b626cb2bfd3a87f589521a801d8a867245a79",
+    "status": "FAILED",
+    "stages": [
+      {
+        "name": "compile",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 483.2591007919982,
+        "log_sha256": "2776a8960eec835e032e1eb36e89b54845014228e104efcb39a1e74291a89b0a"
+      }
+    ],
+    "disposition": "Test fixture cleanup setter returns unit; split allocation and setter into separate statements. No runtime tests ran. Production read implementation unchanged."
+  },
+  "limits": [
+    "No matched current Linux image, three-container SQL/KV/Queue or four-durability throughput/latency comparison or isolated end-to-end performance gain is qualified.",
+    "The last rooted128 enrollment diagnostic still failed its original60s total budget on source a8b26ff9; that gate is unresolved and was not rerun here. See enrollment-resolution-qualification-2026-11-16.json.",
+    "Full authority/read partition, physical-owner reclamation and once-only settlement, reserve-aware repeated movement, crash/wake/fenced-recovery and combined SDK/Axum/daemon/release matrices remain open. No complete OPT or CG release gate is closed.",
+    "VM remains at160GiB; the proposed240GiB expansion is not authorized or performed. Failed data, containers, volumes and images are preserved.",
+    "The earlier wire-absence fixture used the old automatic-temp cleanup harness; its logs, source manifest and executable remain, but those fixture databases were not retained. Subsequent native SQL and limit fixtures retain disks."
+  ],
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "credential_matches": 0,
+    "excluded": "Runtime configurations, environment responses, private keys and raw native/node/store log text."
+  }
+}

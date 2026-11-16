@@ -491,6 +491,9 @@ thread_local! {
     /// Host statements can use reserved tables. Other authorizer restrictions
     /// remain active, with a separate scope for framework transaction control.
     static USER_SQL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Read requests also run on ordinary writer connections. Keep the existing
+    // authorizer installed and scope the stronger policy to synchronous prepare.
+    static READ_ONLY_SQL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Only framework transaction statements may bypass transaction denial.
     /// Keep the authorizer installed: replacing it expires every prepared
     /// statement on the connection, including a warm application's queries.
@@ -512,6 +515,18 @@ fn as_storage_transaction<T>(callback: impl FnOnce() -> T) -> T {
 
 fn as_user_sql<T>(callback: impl FnOnce() -> T) -> T {
     with_sql_origin(true, callback)
+}
+
+fn as_read_only_sql<T>(callback: impl FnOnce() -> T) -> T {
+    struct Reset(bool);
+
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            READ_ONLY_SQL.with(|flag| flag.set(self.0));
+        }
+    }
+    let _reset = Reset(READ_ONLY_SQL.with(|flag| flag.replace(true)));
+    as_user_sql(callback)
 }
 
 /// Use only around fixed framework metadata queries, never handler callbacks
@@ -685,6 +700,12 @@ fn authorize_sql(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::
     // place that sees everything able to move a schema cookie. See
     // `SchemaCookie`.
     SQL_PREPARES.fetch_add(1, Ordering::Relaxed);
+
+    if READ_ONLY_SQL.with(std::cell::Cell::get)
+        && immutable::authorize_read_action(context) != Authorization::Allow
+    {
+        return Authorization::Deny;
+    }
 
     let prohibited = match context.action {
         AuthAction::Transaction { .. } | AuthAction::Savepoint { .. } => {
@@ -2656,10 +2677,9 @@ fn sql_result_limit_error() -> String {
 struct SqlStepped {
     rows: Vec<Vec<serde_json::Value>>,
     rows_read: u64,
-    /// The result refusal, when one fired. The statement still ran to
-    /// completion because its effects happen as its steps do. Stopping an
-    /// `INSERT ... RETURNING` at a bad result would silently lose the writes
-    /// that the remaining steps carry. Drain first, then refuse the result.
+    /// The result refusal, when one fired. Writable statements still drain:
+    /// stopping `INSERT ... RETURNING` could lose effects in later steps.
+    /// Explicitly read-only queries may stop once the refusal is known.
     over: Option<String>,
 }
 
@@ -2667,6 +2687,8 @@ struct SqlStepped {
 /// charging kept bytes against `budget`. The caller finalizes the statement
 /// on every path. `Some(keep)` explicitly truncates (`first()` keeps one);
 /// `None` materializes the full result and refuses overflow of the host budget.
+/// Only the separately authorized read path can stop after its first retained
+/// row or a result refusal; writable prepared statements still drain completely.
 unsafe fn sql_step_to_done(
     scope: &str,
     database: *mut rusqlite::ffi::sqlite3,
@@ -2685,6 +2707,11 @@ unsafe fn sql_step_to_done(
         over: None,
     };
     loop {
+        if READ_ONLY_SQL.with(std::cell::Cell::get)
+            && (stepped.over.is_some() || !reject_overflow && stepped.rows.len() >= keep)
+        {
+            return Ok(stepped);
+        }
         match rusqlite::ffi::sqlite3_step(statement) {
             rusqlite::ffi::SQLITE_ROW => {
                 stepped.rows_read += 1;
@@ -2954,6 +2981,10 @@ unsafe fn sql_run_prepared(
     }
     let readonly = rusqlite::ffi::sqlite3_stmt_readonly(statement) != 0;
     let columns = sql_cursor_columns(statement);
+    if READ_ONLY_SQL.with(std::cell::Cell::get) && (!readonly || columns.is_empty()) {
+        rusqlite::ffi::sqlite3_finalize(statement);
+        return Err(sql_error("read-only SQL requires a query"));
+    }
     let stepped = sql_step_to_done(
         scope,
         database,
@@ -3175,6 +3206,38 @@ fn sql_run_request(
     }
     let started = std::time::Instant::now();
     match request {
+        SqlRequest::ReadOnly { sql, params, first } => with(scope, |connection| {
+            as_read_only_sql(|| {
+                let mut budget = crate::application::limits::current()
+                    .sql
+                    .max_result_bytes
+                    .min(immutable::result_limit().unwrap_or(usize::MAX));
+                // SAFETY: this live connection outlives the helper, which
+                // finalizes its statement on every path. The read authorizer
+                // remains installed for preparation, tail checks and stepping.
+                let result = unsafe {
+                    sql_run_prepared(
+                        scope,
+                        connection,
+                        sql,
+                        params,
+                        first.then_some(1),
+                        &mut budget,
+                        started,
+                    )
+                }?;
+                Ok(SqlResponse::ReadOnly(cellar_native::sql::SqlReadResult {
+                    columns: result.columns,
+                    rows: result.rows,
+                    meta: cellar_native::sql::ReadMeta {
+                        duration: result.meta.duration,
+                        rows_read: result.meta.rows_read,
+                        size_after: result.meta.size_after,
+                    },
+                }))
+            })
+        })
+        .unwrap_or_else(|| Err(sql_error(format!("no db for {scope}")))),
         SqlRequest::Prepared { sql, params, first } => {
             let keep = first.then_some(1);
             with(scope, |connection| {

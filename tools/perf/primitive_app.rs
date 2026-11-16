@@ -222,7 +222,7 @@ async fn handle(
                             .bind_json([json!(key),json!(value)])?.run(&context).await?;
                         ensure!(result.meta.changes == 1, "SQL changed row count"); Ok(json!(true))
                     },
-                    "read" => Ok(json!(database.prepare("SELECT value FROM perf WHERE id=?").bind_json([json!(key)])?.first(&context, Some("value")).await?)),
+                    "read" => Ok(json!(database.prepare_read_only("SELECT value FROM perf WHERE id=?").bind_json([json!(key)])?.first(&context, Some("value")).await?)),
                     _ => anyhow::bail!("unknown SQL operation"),
                 }
             },

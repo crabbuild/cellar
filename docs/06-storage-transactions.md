@@ -15,6 +15,26 @@ Reads still pass through the framework's output proof and ownership checks.
 A declared SQL binding addresses a separate database. Updating that binding and
 the caller's cell storage does not form one transaction.
 
+Use `Database::prepare_read_only(sql)` for an explicitly read-only binding
+query. The returned `ReadOnlyStatement` supports `bind`, `bind_json`, `all`,
+`first` and `raw`. SQLite refuses mutations, transaction control and
+connection-changing PRAGMAs before execution. Each request contains one
+statement. `first` stops after its first row; `all` and `raw` retain the
+configured row and byte limits.
+
+For an already enrolled Raft database, this API reads an immutable image
+selected through a fresh linearizable quorum barrier. A stateful caller's
+preceding writes retain their required proof before the query can run. Reads
+through a follower still require a quorum; a cold database is refused without
+enrolling or initializing it. Other durability backends use ordinary owner
+routing with the same SQLite read-only checks.
+
+`all` returns a `ReadResultSet` whose `ReadMeta` reports duration, rows read and
+database size. It carries no writer or primary-status claim. Existing
+`prepare`, sessions, batches and writable statements keep their contracts;
+`prepare(...).first(...)` still completes the entire statement, including
+every write in `INSERT ... RETURNING`.
+
 Retained handles also require their original execution domain. Ordinary storage
 access and commit recheck admission even within an already-entered callback.
 Forced domain closure refuses new access and rolls back an unfinished transaction

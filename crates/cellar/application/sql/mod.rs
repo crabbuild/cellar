@@ -5,7 +5,13 @@
 //! Owner lookup, admission and durability remain host responsibilities.
 
 pub(crate) mod operator;
+mod read_only;
 mod wire;
+
+pub use read_only::ReadOnlyStatement;
+pub(crate) use read_only::{
+    read_operation, read_query, METHOD as READ_METHOD, OPERATION as READ_OPERATION,
+};
 
 use super::{
     decode_rpc, decode_rpc_result, encode_rpc, Cell, Context, HandlerFuture, Invocation, Output,
@@ -15,7 +21,7 @@ use crate::engine_api::{HttpResponse, RpcData};
 use cellar_native::sql::{
     shape, SqlPreparedRequest, SqlPreparedResult, SqlRequest, SqlResponse, PRIMARY_BOOKMARK,
 };
-pub use cellar_native::sql::{BindValue, Error, ExecResult, ResultSet};
+pub use cellar_native::sql::{BindValue, Error, ExecResult, ReadMeta, ReadResultSet, ResultSet};
 use futures_util::TryStreamExt;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -45,6 +51,12 @@ impl Database {
             bookmark: None,
         }
         .prepare(sql.into())
+    }
+
+    /// Prepare a query that cannot mutate SQL state. Raft uses a fresh
+    /// linearizable pinned image and requires an already enrolled database.
+    pub fn prepare_read_only(&self, sql: impl Into<String>) -> ReadOnlyStatement {
+        ReadOnlyStatement::new(self.clone(), sql.into())
     }
 
     pub async fn exec(&self, context: &Context, sql: impl Into<String>) -> Result<ExecResult> {
@@ -372,6 +384,7 @@ impl DatabaseCell {
         let result = match method {
             operator::METHOD => self.operator(input.first().unwrap_or(&Value::Null))?,
             "__sqlQuery" => self.query(input.first().unwrap_or(&Value::Null))?,
+            READ_METHOD => read_only::statements(&self.0, input.first().unwrap_or(&Value::Null))?,
             "__sqlBatch" => self.batch(input.first().unwrap_or(&Value::Null))?,
             "__sqlExec" => {
                 let SqlResponse::Exec {

@@ -143,9 +143,9 @@ impl Host for BindingHost {
         method: &str,
     ) -> anyhow::Result<Route> {
         let owner = self.owner()?;
-        Ok(owner.handle.core.host.workflow_read_route(
+        Ok(owner.handle.core.host.resource_read_route(
             Some(source),
-            configuration,
+            Some(configuration),
             scope,
             method,
             &owner.handle.core.log,
@@ -165,7 +165,7 @@ impl Host for BindingHost {
                         .ok_or(RuntimeError::DeadlineExceeded)?;
                     Ok(owner.query_event_resource(route, input, deadline, true))
                 } else {
-                    Ok(owner.query_workflow_resource(route, input, timeout, true))
+                    Ok(owner.query_resource(route, input, timeout, true))
                 }
             });
         Box::pin(async move { prepared?.await })

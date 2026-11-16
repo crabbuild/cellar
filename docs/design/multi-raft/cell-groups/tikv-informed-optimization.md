@@ -326,6 +326,13 @@ as a consumed, invocation-bound proof. A group applied index is not a substitute
 for the target cell's version. Pin the selected SQLite/LTX image through physical
 query completion, including after an async waiter expires.
 
+SQL bindings select this reader explicitly with
+`Database::prepare_read_only`, preserving source-write proof admission and
+requiring an already enrolled target. Ordinary `prepare`, sessions and batches
+retain their writable execution contract. Do not infer read intent from SQL
+text or enroll a database to satisfy a read. See the
+[SDK read contract](../../../06-storage-transactions.md).
+
 ReadIndex batching may combine reads admitted before one newly initiated barrier
 in the same group/configuration/term. Each read still waits for local apply and
 gets its own coherent image and resource owner. Reads arriving after that barrier

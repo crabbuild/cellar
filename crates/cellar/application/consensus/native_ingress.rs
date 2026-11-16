@@ -97,10 +97,7 @@ fn submit(
             context.identity().is_none(),
             CommandFailure::UnsupportedCapability
         );
-        let read = scope
-            .split_once(':')
-            .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
-            && crate::application::workflow::read_operation(&method).is_some();
+        let read = crate::application::cell_bindings::read_resource(&scope, &method);
         anyhow::ensure!(!resource || read, CommandFailure::UnsupportedCapability);
         if !resource {
             context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
@@ -170,11 +167,12 @@ fn submit(
             .with_reply_limit(call_scope.reply_limit());
         Ok(match native {
             Some(configuration) if read => {
-                owner.workflow_read(admitted, call_scope, deadline, configuration)
+                owner.resource_read(admitted, call_scope, deadline, Some(configuration))
             }
             Some(configuration) => {
                 owner.native_ingress(admitted, call_scope, deadline, configuration)
             }
+            None if read => owner.resource_read(admitted, call_scope, deadline, None),
             None => owner.sql_ingress(admitted, call_scope, deadline),
         })
     })();
