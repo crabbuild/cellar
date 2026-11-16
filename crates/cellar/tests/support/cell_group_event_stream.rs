@@ -176,6 +176,8 @@ impl Cell for Caller {
                         .collect::<Vec<_>>())
                 }
                 "Consume" => {
+                    let probe = cellar::asyncrt::mono_ms();
+                    eprintln!("DEBUG-cg17-execution-506 consume next start");
                     let subscription = self.0.subscription("fulfillment")?;
                     let Some(batch) = subscription
                         .next_with_id(
@@ -190,6 +192,10 @@ impl Cell for Caller {
                     else {
                         return Ok(Output::Rpc(RpcData::Json("null".into())));
                     };
+                    eprintln!(
+                        "DEBUG-cg17-execution-506 consume next returned {}",
+                        cellar::asyncrt::mono_ms().saturating_sub(probe)
+                    );
                     storage.tx(|tx| {
                         for record in &batch.records {
                             if tx.inbox("fulfillment")?.accept(record)? {
@@ -203,10 +209,26 @@ impl Cell for Caller {
                         Ok(())
                     })?;
                     // No acknowledgement can precede local Quorum/S3 proof.
+                    eprintln!(
+                        "DEBUG-cg17-execution-506 consume inbox sync start {}",
+                        cellar::asyncrt::mono_ms().saturating_sub(probe)
+                    );
                     storage.sync().await?;
+                    eprintln!(
+                        "DEBUG-cg17-execution-506 consume inbox sync end {}",
+                        cellar::asyncrt::mono_ms().saturating_sub(probe)
+                    );
                     let receipt = batch.receipt().encode()?;
                     if args["ack"].as_bool() == Some(true) {
+                        eprintln!(
+                            "DEBUG-cg17-execution-506 consume ack start {}",
+                            cellar::asyncrt::mono_ms().saturating_sub(probe)
+                        );
                         batch.ack(&context).await?;
+                        eprintln!(
+                            "DEBUG-cg17-execution-506 consume ack end {}",
+                            cellar::asyncrt::mono_ms().saturating_sub(probe)
+                        );
                     }
                     json!({"receipt":receipt,"expires_ms":batch.expires_at_ms,"effects":storage.get_json("effects")?,"records":batch.records.iter().map(|r|&r.event).collect::<Vec<_>>()})
                 }

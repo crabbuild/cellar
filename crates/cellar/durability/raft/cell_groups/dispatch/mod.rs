@@ -39,6 +39,41 @@ use cellar_logic::consensus::ProposalId;
 use sha2::{Digest, Sha256};
 use std::{fmt, sync::Arc};
 
+struct QueryProbe<'a> {
+    domain: &'a DomainToken,
+    node: String,
+    cell: &'a CellHistory,
+    invocation: ProposalId,
+    start: u64,
+    phase: usize,
+    at: [u64; 7],
+    event: bool,
+}
+
+impl QueryProbe<'_> {
+    fn mark(&mut self, phase: usize) {
+        self.phase = phase;
+        self.at[phase] = self
+            .domain
+            .mono_ms()
+            .unwrap_or(self.start)
+            .saturating_sub(self.start);
+    }
+}
+
+impl Drop for QueryProbe<'_> {
+    fn drop(&mut self) {
+        let elapsed = self
+            .domain
+            .mono_ms()
+            .unwrap_or(self.start)
+            .saturating_sub(self.start);
+        if self.event && (elapsed >= 50 || self.phase != 6) {
+            tracing::debug!(target: "cellar::raft::sql_ingress", node=%self.node, cell=%self.cell.cell.as_str(), invocation=?self.invocation, phase=self.phase, at=?self.at, elapsed_ms=elapsed, "DEBUG-cg17-execution-506 query phases");
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct CellDispatchLimits {
     /// Maximum retained group-range hints shared by this registration's clones.
@@ -717,6 +752,16 @@ impl CellQueryInvocation {
         retention: Option<crate::raft::host_sql::cell_groups::ReadRetention>,
     ) -> Result<CellQueryResponse, CellDispatchError> {
         let cell = &attempt.request().cell;
+        let mut probe = QueryProbe {
+            domain: &self.dispatcher.domain,
+            node: format!("{:?}", runtime.log().limits().node),
+            cell,
+            invocation: self.request.invocation,
+            start: self.dispatcher.domain.mono_ms().unwrap_or(0),
+            phase: 0,
+            at: [0; 7],
+            event: matches!(self.admission, QueryAdmission::Event(_)),
+        };
         let schema = self.dispatcher.class.schema_digest();
         let consistency = match &self.request.consistency {
             CellQueryConsistency::Stale => CellReadConsistency::Stale,
@@ -744,6 +789,7 @@ impl CellQueryInvocation {
                 .await
                 .map_err(CellDispatchError::Runtime)?;
         }
+        probe.mark(1);
         let authority = runtime
             .read_authority(
                 attempt.route().history,
@@ -753,6 +799,7 @@ impl CellQueryInvocation {
             )
             .await
             .map_err(CellDispatchError::Runtime)?;
+        probe.mark(2);
         if authority.route() != attempt.route() || authority.cell().version.history != *cell {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
@@ -783,6 +830,7 @@ impl CellQueryInvocation {
                     CellDispatchError::Execution(error)
                 }
             })?;
+        probe.mark(3);
         if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3) {
             let client = self
                 .dispatcher
@@ -797,10 +845,12 @@ impl CellQueryInvocation {
                     attempt.deadline_ms(),
                 )
                 .await?;
+            probe.mark(4);
             settled
                 .proof
                 .require_current(&self.dispatcher.domain, attempt.deadline_ms())
                 .await?;
+            probe.mark(5);
             selected = *settled.selected;
             selected.retain_archive(settled.proof);
         }
@@ -809,6 +859,7 @@ impl CellQueryInvocation {
             .keys
             .issue_cell(selected.observation(), schema, self.now().await?)
             .map_err(CellDispatchError::Version)?;
+        probe.mark(6);
         Ok(CellQueryResponse {
             selected: QuerySelection::Local(selected),
             token,
