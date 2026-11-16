@@ -1,0 +1,61 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+name: Cell-group disaster diagnostics
+
+on:
+  pull_request:
+    paths:
+      - "crates/cellar/**"
+      - "crates/cellar-logic/**"
+      - "crates/cellar-ltx/**"
+      - "crates/cellar-native/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/cell-group-disaster.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disaster:
+    name: Managed transition disaster target
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: "1.98.1"
+      CARGO_BUILD_JOBS: "1"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_PROFILE_TEST_OPT_LEVEL: "1"
+      CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
+      CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
+      CARGO_INCREMENTAL: "0"
+      CARGO_TARGET_DIR: ${{ runner.temp }}/cellar-disaster-target
+      TMPDIR: ${{ runner.temp }}/native-failure-fixtures
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the SDK Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Build the existing disaster target
+        run: |
+          mkdir -p "$TMPDIR"
+          cargo test --locked -p cellar --all-features --test native_cell_groups_disaster --no-run
+          # Finish compilation writeback before entering original-budget voters.
+          # The test retains all of its existing file/directory syncs and limits.
+          sync -f "$CARGO_TARGET_DIR"
+      - name: Run the original serial disaster sequence
+        # This focused Linux diagnostic supplements the full SDK matrix. It
+        # retains the same tests and never retries a failed case or mutation.
+        run: cargo test --locked -p cellar --all-features --test native_cell_groups_disaster -- --test-threads=1
+      - name: Preserve structured transition observations
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cell-group-disaster-observations
+          # Only the fixed metadata report is public. Databases, synthetic
+          # object bytes, memory manifests and operator audit files stay private.
+          path: ${{ runner.temp }}/native-failure-fixtures/**/transition-failure-observations.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

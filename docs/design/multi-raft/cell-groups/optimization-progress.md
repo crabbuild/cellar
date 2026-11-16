@@ -123,6 +123,35 @@ backend check still finds zero available bytes against the unchanged 6 GiB
 reserve, with the same original identity, resources, start and restart count.
 No constrained performance comparison, hosted repair or CG/OPT acceptance follows.
 
+### Node delivery source checkpoint and focused Linux feedback
+
+All three JavaScript CI jobs pass on published runtime source `f845e8a3`,
+including the full 100-case packaged-Node delivery loop. Its captured Node
+version is 24.22.2. Compiler input `a5246111` changes only local test retention
+and includes the emitted example; supplemental SDK input is `c5e2ee12`.
+All 100 local invocations of the same compatibility/counter/restart test pass
+using Node 24.13.1 and the original 250 ms handler, two-second Node turn,
+five-second actor operation and one-second lease budgets. No failed request is
+retried. These platform/patch-specific passes do not explain the earlier Node
+failure or prove a causal runtime repair.
+
+The test now retains its original directory on every exit. All 100 stores are
+kept in place and copied privately with twice-verified byte manifests; all 2,136
+packaged files are independently verified unchanged after execution. The
+[Node qualification](node-delivery-qualification-2026-11-16.json) pins source,
+SDK/npm/generated inputs, executable/profile hashes, every invocation, retained
+data and the three successful hosted jobs. Affected-target Clippy, Rust format
+and layout, dependencies, workflow YAML and all 44 design checks pass.
+
+The focused `cell-group-disaster.yml` workflow runs the existing serial disaster
+target independently on Linux with the SDK Rust/O1/assertion/overflow settings.
+It retains original test budgets and assertions, and uploads only the fixed
+structured transition report. It is unexecuted at this source checkpoint and
+supplements the full workspace/feature/Python matrix. Native/RPC failures and
+all constrained primitive, authority, recovery, movement and complete CG/OPT
+release gates remain open. This wave changes no production runtime code or
+original RustFS/Colima state and qualifies no throughput or percentile gain.
+
 ### Earlier component checkpoints
 
 The explicit SQL read path uses `Database::prepare_read_only` and the existing
