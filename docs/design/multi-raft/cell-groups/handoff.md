@@ -4,47 +4,43 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current materialized preview delivery
+## Current verified preparation delivery
 
 Main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `04956ab50` uses the
-committed apply image identity for materialized private mutation previews.
-Apply reuses that persistent generation but still independently replays supplied
-LTX, verifies/syncs bytes and publishes the committed manifest. Followers prepare
-their own images. Original budgets, quotas, minima and format remain. Broker
-creation state, initializer contract boundary and parallel bootstrap are retained.
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `0eeea3033` transfers
+an independently verified local initialization/mutation/RPC-checkpoint image into
+its exact committed apply ticket. The proof binds the complete input, live engine,
+group history and term. Producer and committed ticket own strong pins at their
+respective boundaries; command/proposal clones hold weak references. Apply still
+checks the physical inventory/result, actual destination bytes, sync, current
+commit and manifest publication. Expired preparations, foreign inventories,
+followers and archive/recovery independently replay. Budgets, quotas, minima and format remain.
 
-Baseline `0e4baa628` fails on four staged versus five applied leader generations;
-the unchanged final regression passes with four, pre-commit invisibility,
-independent followers and exact committed receipt/version checks. Fifteen
-execution/archive safety controls and 101 compatibility units pass. Locked build,
-Cellar strict library/all-test Clippy and repository checks pass; dependency
-warnings remain. Initial dirty-tree red-driver refusal is not acceptance.
+The baseline fails both real base-read denial oracles. The byte-identical causal
+fixture passes at feature `94217eaf4`; final changes only add post-ticket producer
+closure coverage and correct new unit fixture construction. **32 integration
+controls and 104 units pass.** Locked build and repository checks pass.
+Strict Cellar library/all-test Clippy passes; vendor/dependency warnings
+remain.
 
-**The complete public cohort 665 is FAILED, 6/16.** SDK source-proof and
-history selections pass native/RustFS, as do registration and Fleet reference.
-All eight EventStream selections fail activation or Consume. Native Queue fails
-ambiguous producer sequence 25; RustFS Queue has an untagged wait deadline, so do
-not label it a producer or final-drain failure without more evidence. Neither
-load emits a completed 528-message result. Preserve original unknown identities.
+**The complete original public cohort 682 is FAILED, 8/16.** SDK source-proof and
+current-history cases pass native/RustFS, plus registration, Fleet, native ordinary
+EventStream and RustFS Axum lifecycle. Six EventStream cases fail initial
+activation or Consume. Queue production times out ambiguously at native sequence
+14 and RustFS sequence 12; neither load completes 528 messages. Preserve those
+identities and the 24 failed public voter disks. Two causal baseline cluster roots
+also remain. Aggregate 686 verifies frozen evidence. Public compiler pre/post
+snapshots are empty; no latency stability or exclusive speedup claim follows.
+Owned RustFS/VM are stopped with objects retained.
 
-Diagnostic 653 predates the feature: one RustFS callback finishes at 2,515 ms
-then final settlement expires; another waits for its ack child after 1,917 ms.
-Writer restoration is immediate. Current code has no probes. Aggregate 668
-verifies records/binaries, 30 public failed disks, six diagnostic failed disks
-and one baseline cluster root. Owned RustFS/VM are stopped, objects retained.
-Public preflight compiler count is zero and postflight one; effect is unproven.
-The structural regression claims no quiescence or latency result.
-
-Next: complete checkpoint/apply progress under existing exact proofs, autonomous
-activation and Queue producer/wait recovery. Physical image names alone cannot
-skip incoming LTX verification. Further reuse needs an exact verified input and
-live owner/pin contract; see [optimization progress](optimization-progress.md#materialized-preview-and-apply).
-Do not repeat unchanged broad campaigns merely to find a pass. Finish combined
-primitive lifecycle, CG-13/15 recovery/release and CG-16 cutover. Counts remain
-**13/17 tasks, 147/195 cases**; no full primitive family is accepted. See
-[progress](progress.md#current-integration-checkpoint) and ignored
-`.cellar/cg17-payload-01/event-read-state.json` for exact pins.
+Next implement autonomous catalog/broker activation and interrupted child/Consume/
+Queue settlement under original budgets. The exact preparation handoff is delivered;
+do not keep treating it as missing or repeat unchanged broad campaigns. Complete
+primitive lifecycle, CG-13/15 recovery/release and CG-16 cutover remain. Counts stay
+**13/17 tasks, 147/195 cases**. Full plan validation retains the missing historical
+CG-01 evidence file; ordinary docs checks pass. See [progress](progress.md#current-integration-checkpoint),
+[priorities](remaining-work.md#primitive-delivery-priority) and ignored
+`.cellar/cg17-payload-01/event-read-state.json` for exact pins and preserved failures.
 
 ## Previous proven binding-writer delivery
 

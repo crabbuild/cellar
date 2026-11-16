@@ -57,30 +57,34 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `04956ab50` reuses a materialized leader preview's
-persistent generation during committed apply. Supplied LTX still replays
-independently, the destination is verified/synced, followers prepare separately,
-and commit/manifest/current-authority proofs still gate output. Broker creation
-state and parallel bootstrap remain. No format, budget, quota or minimum changes.
+main `16c45b266`. Runtime `0eeea3033` delivers typed verified-preparation handoff
+for initialization, mutations and RPC checkpoints in both image formats. Exact
+input/engine/history/term and inventory/result binding, physical destination
+verification, current commit and manifest publication remain. Commands/proposals
+hold weak references; committed apply takes strong custody. Cold/follower/archive/
+recovery independently replay. No format, deadline, quota, minimum, cache or task
+change.
 
-The unchanged baseline fails on four staged versus five applied leader
-generations; the final regression passes with four, pre-commit invisibility,
-independent followers and matching receipt/version. Fifteen execution/archive
-safety controls, 101 compatibility units, locked build, Cellar strict Clippy and
-repository checks pass. Dependency warnings remain. **Current complete public
-qualification is FAILED, 6/16.** Native/RustFS SDK dispatch and history resolution,
-registration and Fleet pass. All eight EventStream selections fail activation
-or Consume. Native Queue producer sequence 25 expires ambiguously; RustFS Queue
-reports an untagged wait deadline. Neither emits a completed 528-message result.
+The byte-identical physical fixture fails at baseline and passes at feature
+`94217eaf4`; final additions cover producer closure after ticket custody.
+**32 integration controls and 104 units pass.** Locked build and repository checks
+pass. Strict Cellar library/all-test Clippy passes; vendor/dependency warnings
+remain.
 
-Diagnostic 653 separately places one failure after the callback completes at
-2,515 ms and another in its acknowledgment child. Writer restoration is immediate.
-Its probes are removed; those timings are not current-source acceptance. Aggregate
-668 verifies frozen evidence, 30 failed public voter disks, six diagnostic disks
-and one baseline cluster root. Owned backend/VM are stopped with objects retained.
-Original public fixtures remain. Prior focused counts are historical, with no
-speedup or exclusive regression cause established. Counts remain **13/17 tasks,
-147/195 cases**; full primitive support and hard cutover remain open.
+**Complete original public cohort 682 remains FAILED, 8/16.**
+SDK source-proof/history, registration, Fleet, native ordinary EventStream and
+RustFS Axum lifecycle pass. Six EventStream selections fail activation/Consume.
+Native Queue producer sequence 14 and RustFS producer sequence 12 expire
+ambiguously; neither load completes 528 messages. Preserve original identities.
+
+Aggregate 686 verifies frozen evidence, 24 failed public voter disks and two
+baseline cluster roots. Owned backend/VM are stopped with objects retained. RF3
+voters share one process on separate workspace disks; RustFS uses one CPU/two GiB.
+Public pre/post compiler snapshots are empty; no exclusive timing improvement or
+stability is established. Prior 6/16 and focused results remain historical. Counts
+stay **13/17 tasks, 147/195 cases**. Full plan validation still lacks the historical
+CG-01 ignored evidence file; complete primitive/release and hard cutover gates
+remain open.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
@@ -158,21 +162,19 @@ Earlier catalog enrollment joining, bounded suspended scanning, exact checkpoint
 receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retain
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
-1. **Close checkpoint/apply progress, autonomous activation and Queue delivery.**
-   Consume's serial source proofs, child calls and final settlement still exceed
-   original budgets. Writer restoration is immediate in the diagnostic; the
-   persistent generation regression is fixed, but all eight current EventStream
-   public selections still fail. Further reuse of already verified preparation
-   must bind exact input bytes, history/version, live store owner and pins;
-   a cached filename/result cannot replace incoming LTX proof. Preserve follower,
-   recovery, corruption, cancellation and publication guarantees. Close initial
-   catalog/broker activation and failed/cancelled preparation recovery. Retain the
-   earlier ambiguous subscription `Change` sequence 18 and current native Queue
-   producer sequence 25 identities. Localize RustFS Queue's untagged wait before
-   attributing its failure to production or final drain; no complete load result
-   exists. Finish EventStream's lost-reply/transfer, generation, pruning and
-   slow-consumer/GC matrix. Run broader qualification after relevant implementation
-   or controlled findings, with original budgets and quotas.
+1. **Deliver autonomous activation and interrupted primitive progress.**
+   Exact local preparation handoff is implemented and physically qualified; do
+   not leave it listed as future work. Initial native/RustFS catalog/broker
+   activation still fails, while other EventStream cases expire inside Consume.
+   Make durable activation and child/ack settlement recover autonomously after
+   interrupted calls, joining original receipts and preserving unused-sequence
+   sealing and current owner/generation fences. Finish Queue producer progress
+   under original budgets; current ambiguous native sequence 14 and RustFS
+   sequence 12 must be reconciled unchanged. Neither load has a completed result.
+   Preserve earlier ambiguous subscription `Change` sequence 18 and all prior
+   uncertain identities. Finish lost-reply/transfer, generation, pruning and
+   slow-consumer/GC coverage. Broaden qualification after relevant implementation
+   changes or controlled findings, with original budgets and quotas.
 2. **Finish S3 binding stability and interrupted recovery.** Current named bindings
    pass all eight backend/image/source-minimum configurations; preserve earlier
    source-S3 deadline failures and establish combined lifecycle progress. Preserve

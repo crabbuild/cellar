@@ -8,29 +8,33 @@ CG acceptance and release qualification.
 
 ## Materialized preview and apply
 
-Runtime `04956ab50` prepares shared-cell materialized mutations under the same
-cell/incarnation, sequence and result identity selected by committed apply.
-A live preview pin protects that physical generation through settlement.
-The applier replays the incoming LTX into independently admitted scratch and
-verifies/syncs the existing destination; a name or cached result is not delta
-proof. Followers create their own generations. Manifest persistence and current
-Quorum/receipt authority still gate output. No format or capacity change occurs.
+Runtime `0eeea3033` delivers a typed handoff from independently verified private
+SQL preparation into committed apply, covering initialization, mutations and RPC
+checkpoints in materialized and extent images. A private witness binds the full
+encoded entry to the same live engine, group history and term. Pending producers
+own strong image pins; public command clones and accepted proposals hold weak
+references. Only an exact committed apply ticket upgrades custody. No payload
+copy, new cache/task or separate unbounded pin lifetime is introduced; metadata
+fits existing envelopes and images retain their original admission.
 
-The unchanged three-voter regression fails at `0e4baa628` with four staged and
-five applied leader generations; the final source keeps four. It also requires
-pre-commit invisibility, independent followers, matching committed versions and
-exact receipt. Fifteen execution/archive safety controls, including warm forged
-LTX refusal, and 101 compatibility units pass. The complete original public
-cohort remains FAILED6/16, so this supplies no latency improvement, complete OPT
-package or primitive-family acceptance. See the [current checkpoint](progress.md#current-integration-checkpoint).
+Apply requires matching input/owner and the same physical inventory/result. It
+rereads/verifies actual destination bytes and syncs before publishing the manifest.
+The witness proves the input/result relation, never commit or serving authority.
+Expired or foreign-inventory preparations independently replay, as do followers,
+cold restart and archive/recovery. Current commit/route/receipt fences and original
+budgets, quotas, minima and wire markers remain. The earlier materialized physical
+generation reuse is retained and extended to initialization.
 
-Repeated verification across private staging and apply remains. Reusing that
-work requires an explicit proof of the exact supplied input and result under the
-same live owner, with bounded pin custody through cancellation, apply and cleanup.
-Cold/recovery, mismatched inputs and physical corruption still require refusal
-or independent replay. The current change deliberately retains replay; it only
-eliminates a second persistent generation. These requirements are an opportunity
-for the next delivery, not evidence of a completed handoff or deadline fix.
+Both old-base read denial oracles fail at baseline `f31f24c41` and pass with the
+byte-identical fixture at feature `94217eaf4`. Final additions test producer closure
+after ticket custody; the original checks remain. Eight physical cases cover live
+reuse, expiry, actual destination corruption and transferred custody in both image
+forms. The complete integration controls pass **32/32**, including enrollment,
+leadership/cancellation, retained recovery and warm forged-LTX refusal; **104 units
+pass**. The original public cohort remains **FAILED, 8/16**, with six EventStream
+and two Queue load failures. These results establish a safe local I/O reduction,
+not latency stability, an exclusive speedup, full OPT or primitive-family acceptance.
+See the [current checkpoint](progress.md#current-integration-checkpoint).
 
 ## Recovery PR integration
 
