@@ -10,6 +10,7 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
     let work = async {
         let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
         let before = group.group_manifest()?.context("selected root")?;
+        let prior = fixture.runtimes[0].execution_authority(route.history, cell.clone()).await?;
         let mut executor = fixture.private_cell(&cell).await?;
         let (mut executor, prepared) = fixture.cluster.domain.blocking(move || -> Result<_> {
             let CellStageOutcome::Prepared(prepared) = executor.stage(cell_attempt(249)?, true, |tx| {
@@ -48,19 +49,21 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
         anyhow::ensure!(group.group_manifest()?.as_ref() == Some(&before));
         let gate = fixture.cluster.voters[0].gate.clone();
         let release = gate.arm(fault::HOLD_SYNC);
-        let mut publication = Box::pin(next.complete(&fixture.runtimes[0]));
-        tokio::time::timeout(Duration::from_secs(5), async {
-            cellar::asyncrt::select! {
-                result = &mut publication => anyhow::bail!("root publication escaped held sync: {result:?}"),
-                _ = gate.entered.notified() => Ok::<_, anyhow::Error>(()),
-            }
-        }).await??;
+        // Submission is not durable application. Hold the actual engine sync,
+        // then test the execution proof needed to settle the producer's receipt.
+        next.complete(&fixture.runtimes[0]).await?;
+        tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
         anyhow::ensure!(group.group_manifest()?.as_ref() == Some(&before));
         anyhow::ensure!(group.initial_state()?.hard_state.commit == before.position().index.get());
-        anyhow::ensure!(tokio::time::timeout(Duration::from_millis(30), &mut publication).await.is_err(),
-            "apply acknowledged before root/commit sync");
+        anyhow::ensure!(matches!(fixture.runtimes[0].execution_authority(route.history, cell.clone()).await,
+            Err(RuntimeError::NotReady)), "held root sync granted execution authority");
+        executor = fixture.cluster.domain.blocking(move || -> Result<_> {
+            anyhow::ensure!(matches!(executor.finish(prior),
+                Err(ExecutionError::Invalid("committed cell proposal/image"))),
+                "producer settled with the previous root while publication sync was held");
+            Ok(executor)
+        })?.await??;
         drop(release);
-        publication.await?;
         fixture.drive(Some(proposal.position.index)).await?;
         anyhow::ensure!(group.initial_state()?.hard_state.commit == proposal.position.index.get());
         anyhow::ensure!(group.group_manifest()?.context("published root")?.position() == proposal.position);
