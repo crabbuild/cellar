@@ -71,9 +71,13 @@ impl Cell for Reader {
                 anyhow::bail!("JSON RPC required");
             };
             if method == "Child" {
-                return Ok(Output::Rpc(RpcData::Json(
-                    update(&self.storage, 1)?.to_string(),
-                )));
+                let value = self.storage.tx(|tx| {
+                    let prior = tx.get_json("value")?.context("child value")?;
+                    let next = prior.as_i64().context("integer child value")? + 1;
+                    tx.put_json("value", &json!(next))?;
+                    Ok(next)
+                })?;
+                return Ok(Output::Rpc(RpcData::Json(value.to_string())));
             }
             let dirty: bool = serde_json::from_str(&input)?;
             let reply = context
