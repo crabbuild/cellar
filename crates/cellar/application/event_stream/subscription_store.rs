@@ -137,21 +137,42 @@ fn request_receipt(body: &Value) -> Result<Receipt> {
 }
 
 pub(crate) struct Fetch {
+    pub identity: super::SubscriptionIdentity,
     pub value: Option<Value>,
     pub retry_at_ms: Option<i64>,
 }
 
 pub(crate) fn next(context: &Context, body: &Value) -> Result<Fetch> {
     let (db, definition, name) = authorize(context, body)?;
+    next_from(&db, &definition, name, body, false)
+}
+
+/// The first fetch selects its incarnation in the same transaction as its
+/// lease. An existing identity remains mandatory on every subsequent poll.
+pub(crate) fn next_resolved(context: &Context, body: &Value) -> Result<Fetch> {
+    let (db, definition, name) = authorize(context, body)?;
+    next_from(&db, &definition, name, body, true)
+}
+
+pub(super) fn next_from(
+    db: &Storage,
+    definition: &Definition,
+    name: String,
+    body: &Value,
+    resolve: bool,
+) -> Result<Fetch> {
     let fetch_id = body["fetch_id"]
         .as_str()
         .ok_or_else(|| error(ErrorCode::InvalidRequest, "fetch identity is missing"))?;
     store::validate_id(fetch_id)?;
     let (count, budget) = store::budgets(body)?;
-    let now = store::clock(&db)?;
+    let now = store::clock(db)?;
     db.tx(|tx| {
         let sub = subscription(tx,&name)?;
-        super::lifecycle_store::check_identity(&definition,&sub,body)?;
+        if !resolve || !body["expected"].is_null() {
+            super::lifecycle_store::check_identity(definition,&sub,body)?;
+        }
+        let identity = super::lifecycle_store::identity(definition,&sub)?;
         let state = store::text(&sub,"state")?;
         if state=="paused" { return Err(error(ErrorCode::SubscriptionPaused,"subscription is paused")); }
         let (_,row) = store::load(tx)?;
@@ -164,7 +185,7 @@ pub(crate) fn next(context: &Context, body: &Value) -> Result<Fetch> {
             return Err(failure.into());
         }
         let id = store::text(&sub,"id")?;
-        if let Some((receipt,lease)) = live(tx,&definition,&sub)? {
+        if let Some((receipt,lease)) = live(tx,definition,&sub)? {
             if lease.expires_at_ms>now {
                 let saved = tx.system_sql("SELECT fetch_id FROM __sys_stream_leases WHERE subscription=?",&[id.clone().into()])?;
                 if store::text(&saved[0],"fetch_id")? != fetch_id {
@@ -176,18 +197,18 @@ pub(crate) fn next(context: &Context, body: &Value) -> Result<Fetch> {
                 if records.len() != usize::try_from(receipt.last-receipt.first+1)? {
                     return Err(error(ErrorCode::BatchTooSmall,"retry budgets cannot contain the original batch"));
                 }
-                return Ok(Fetch { value: Some(json!({"receipt":receipt.encode()?,"issued_ms":lease.issued_at_ms.to_string(),
+                return Ok(Fetch { identity, value: Some(json!({"receipt":receipt.encode()?,"issued_ms":lease.issued_at_ms.to_string(),
                     "expires_ms":lease.expires_at_ms.to_string(),"records":records})), retry_at_ms: None });
             }
             tx.system_sql("DELETE FROM __sys_stream_leases WHERE subscription=?",&[id.clone().into()])?;
         }
         policy::cursor(earliest,end,first).map_err(failure)?;
         let retry_at = store::number(&sub,"retry_at_ms")?;
-        if retry_at>now { return Ok(Fetch{value:None,retry_at_ms:Some(retry_at)}); }
+        if retry_at>now { return Ok(Fetch{identity,value:None,retry_at_ms:Some(retry_at)}); }
         let records = store::records(tx,first,end-1,count,budget)?;
         if records.is_empty() {
-            store::schedule(tx,&definition)?;
-            return Ok(Fetch{value:None,retry_at_ms:None});
+            store::schedule(tx,definition)?;
+            return Ok(Fetch{identity,value:None,retry_at_ms:None});
         }
         let last = integer(records.last().unwrap(),"offset")?;
         let generation = store::number(&sub,"next_lease_generation")?;
@@ -201,8 +222,8 @@ pub(crate) fn next(context: &Context, body: &Value) -> Result<Fetch> {
         tx.system_sql("INSERT INTO __sys_stream_leases(subscription,generation,token,fetch_id,first_offset,last_offset,issued_ms,expires_ms) VALUES(?,?,?,?,?,?,?,?)",
             &[id.clone().into(),generation.into(),receipt.token.clone().into(),fetch_id.into(),first.into(),last.into(),now.into(),expires.into()])?;
         tx.system_sql("UPDATE __sys_stream_subscriptions SET next_lease_generation=?,retry_at_ms=0 WHERE id=?",&[next_generation.into(),id.into()])?;
-        store::schedule(tx,&definition)?;
-        Ok(Fetch{value:Some(json!({"receipt":receipt.encode()?,"issued_ms":now.to_string(),"expires_ms":expires.to_string(),"records":records})),retry_at_ms:None})
+        store::schedule(tx,definition)?;
+        Ok(Fetch{identity,value:Some(json!({"receipt":receipt.encode()?,"issued_ms":now.to_string(),"expires_ms":expires.to_string(),"records":records})),retry_at_ms:None})
     })
 }
 

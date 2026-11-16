@@ -379,6 +379,7 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
         "__catalogRetire",
         "__streamConfigure",
         "__streamNext",
+        "__streamNextResolved",
         "__streamAck",
         "__streamRetry",
         "__streamExtend",

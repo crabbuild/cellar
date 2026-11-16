@@ -4,6 +4,7 @@
 use super::*;
 use crate::application::{storage::Resources, Activation};
 use crate::engine_api::{Compat, WorkerConfigOptions};
+use anyhow::Context as _;
 use std::sync::Arc;
 
 const SCOPE: &str = "__EventStream:retention-test";
@@ -116,6 +117,119 @@ fn status_caller(definition: &Definition) -> Result<Authority> {
         "source": "Counter:consumer",
         "action": Action::Consume,
     }))?)
+}
+
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn resolved_fetch_selects_identity_with_lease_and_replays_exact_batch() -> Result<()> {
+    run_case(|db, definition| {
+        let mut request = json!({"fetch_id":"a".repeat(32),"max_records":10,"max_bytes":100});
+        // The established operation still refuses an absent expected identity.
+        assert!(super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            false
+        )
+        .is_err());
+        let first = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )?;
+        let batch = first.value.context("first batch")?;
+        let receipt = super::super::Receipt::decode(batch["receipt"].as_str().unwrap())?;
+        assert_eq!(receipt.subscription, first.identity.id);
+        assert_eq!(receipt.incarnation, first.identity.generation);
+        request["expected"] = serde_json::to_value(&first.identity)?;
+        let replay = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )?;
+        assert_eq!(replay.identity, first.identity);
+        assert_eq!(replay.value, Some(batch));
+        request["fetch_id"] = json!("b".repeat(32));
+        let busy = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )
+        .err()
+        .context("competing lease accepted")?;
+        assert_eq!(
+            busy.downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::LeaseBusy
+        );
+        let leases = db.system_sql_read("SELECT count(*) AS n FROM __sys_stream_leases", &[])?;
+        assert_eq!(number(&leases[0], "n")?, 1);
+        let sub = db.system_sql_read(
+            "SELECT next_lease_generation AS n FROM __sys_stream_subscriptions",
+            &[],
+        )?;
+        assert_eq!(number(&sub[0], "n")?, 2);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn empty_resolved_fetch_rejects_reset_before_another_lease() -> Result<()> {
+    run_case(|db, definition| {
+        db.tx(|tx| {
+            tx.system_sql("DELETE FROM __sys_stream_events", &[])?;
+            tx.system_sql(
+                "UPDATE __sys_stream SET earliest_offset=3,rows=0,bytes=0",
+                &[],
+            )?;
+            tx.system_sql("UPDATE __sys_stream_subscriptions SET checkpoint=2", &[])?;
+            Ok(())
+        })?;
+        let mut request = json!({"fetch_id":"a".repeat(32),"max_records":10,"max_bytes":100});
+        let empty = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )?;
+        assert!(empty.value.is_none());
+        request["expected"] = serde_json::to_value(&empty.identity)?;
+        db.system_sql(
+            "UPDATE __sys_stream_subscriptions SET generation=?",
+            &["f".repeat(32).into()],
+        )?;
+        let reset = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )
+        .err()
+        .context("empty poll retargeted after reset")?;
+        assert_eq!(
+            reset
+                .downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::SubscriptionReset
+        );
+        let leases = db.system_sql_read("SELECT count(*) AS n FROM __sys_stream_leases", &[])?;
+        assert_eq!(number(&leases[0], "n")?, 0);
+        Ok(())
+    })
+    .await
 }
 
 fn acknowledgment_receipt(definition: &Definition) -> super::super::Receipt {

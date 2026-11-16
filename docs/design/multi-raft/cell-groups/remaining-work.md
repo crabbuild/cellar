@@ -142,8 +142,9 @@ their scoped checkpoints. Full primitive support and release cutover remain open
    destination proofs still gate readiness. Measure inside the target command:
    current Axum Consume starts with 2,999 of 3,000 ms remaining. Inspect autonomous
    catalog/broker readiness after initial history selection, not only enrollment
-   admission. RustFS Queue currently passes both images; retain that evidence and
-   the failed native producer. Independent target-S3 cold activation remains
+   admission. RustFS Queue currently completes materialized delivery, then fails
+   extents production; retain both that evidence and the failed native producer.
+   Independent target-S3 cold activation remains
    open. The isolated pre-feature/current native passes do not replace the
    combined failure. Run another broad cohort after an implemented change or a
    controlled finding justifies it; repeated unchanged campaigns do not close it.

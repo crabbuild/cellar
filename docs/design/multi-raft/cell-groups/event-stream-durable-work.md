@@ -46,6 +46,17 @@ receipts. Configuration checks the actual compiled envelope against the host
 profile; append batching intersects that profile with policy limits and image
 capture still gates source output. No capacity limit is raised automatically.
 
+Shared-group subscription fetches select their initial identity in the same
+authorized target transaction as lease acquisition. The committed result carries
+that identity even when the batch is empty. The caller validates identity, batch
+and receipt before pinning the handle, then supplies the pinned identity on every
+later poll; reset or recreation refuses instead of retargeting the wait. Exact
+child-command receipts and fetch IDs retain replay authority. First acquisition
+needs no separate subscription-status read, while target minimum durability,
+source checkpoints and the original request deadline still gate completion.
+Ordinary Fleet polling retains its existing status/read path. This protocol
+change still requires the complete public lifecycle/recovery qualification.
+
 A verified binding child completes only protected intent/receipt and lane
 bookkeeping in its source. If the source was already clean at Quorum, that
 successful completion preserves its application-state read watermark. A following
