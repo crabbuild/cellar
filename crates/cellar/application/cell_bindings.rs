@@ -737,7 +737,6 @@ async fn run(
                     .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
                     .await
                 {
-
                     if history != intent.candidate {
                         break Ok(history);
                     }
