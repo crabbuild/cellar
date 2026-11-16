@@ -132,7 +132,7 @@ pub(in crate::application) fn event_service(
     if catalog {
         identity.update(b"cellar-raft-event-catalog-enrollment-1");
     } else {
-        identity.update(b"cellar-raft-event-provision-1");
+        identity.update(b"cellar-raft-event-broker-enrollment-1");
     }
     identity.update(
         serde_json::to_vec(definitions)
@@ -142,22 +142,14 @@ pub(in crate::application) fn event_service(
     let initial_principal = configuration.script.clone();
     let mut class = RaftClass::event_service(catalog)?
         .initializer(identity.finalize().into(), move |cell, tx| {
-            if catalog {
-                let storage = tx.storage()?;
-                events::catalog::open(&storage)?;
-                for definition in &initial_definitions {
-                    if cell.cell.as_str() == events::catalog_scope(&definition.resource)? {
-                        events::catalog::provision_storage(
-                            &storage,
-                            &events::Authority::deployment(&initial_principal, definition)?,
-                            definition,
-                            &events::raft::operation(&initial_principal, definition)?,
-                            i64::try_from(tx.inputs().now_unix_millis)?,
-                        )?;
-                    }
-                }
-            }
-            Ok(())
+            events::raft::provision_storage(
+                &tx.storage()?,
+                cell.cell.as_str(),
+                &initial_definitions,
+                catalog,
+                &initial_principal,
+                i64::try_from(tx.inputs().now_unix_millis)?,
+            )
         })?
         .durable_callbacks()?;
     class = class.query(
