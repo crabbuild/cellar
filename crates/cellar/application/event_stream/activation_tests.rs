@@ -138,9 +138,11 @@ async fn named_adoption_uses_its_current_catalog_proof_but_still_checks_the_part
         known: false,
         replies: std::sync::Mutex::new(vec![("__streamResolve", active.clone())].into()),
     };
-    assert!(configure(&missing_catalog, &[], &[explicit.clone()])
-        .await
-        .is_err());
+    assert!(
+        configure(&missing_catalog, &[], std::slice::from_ref(&explicit))
+            .await
+            .is_err()
+    );
     let explicit_host = Host {
         known: false,
         replies: std::sync::Mutex::new(
@@ -186,7 +188,9 @@ async fn catalog_adoption_never_replaces_partition_lifecycle_or_resource_identit
                     .into(),
                 ),
             };
-            assert!(configure(&host, &[], &[declaration.clone()]).await.is_err());
+            assert!(configure(&host, &[], std::slice::from_ref(&declaration))
+                .await
+                .is_err());
             assert!(
                 host.replies.lock().unwrap().is_empty(),
                 "partition check was skipped"
