@@ -2,11 +2,9 @@
 
 //! A remote binding does not reopen an uncontended, already proven writer.
 
+use super::rpc_progress::physical;
 use super::*;
 use std::sync::atomic::AtomicBool;
-
-#[path = "raft_ltx_fault.rs"]
-mod physical;
 
 const SCRIPT: &str = "binding-writer-service";
 

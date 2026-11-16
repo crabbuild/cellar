@@ -8,7 +8,7 @@ use std::sync::Condvar;
 
 #[path = "raft_ltx_fault.rs"]
 #[allow(dead_code)]
-mod physical;
+pub(super) mod physical;
 
 struct PausedCell {
     storage: Storage,
