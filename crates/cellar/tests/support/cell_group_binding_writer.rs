@@ -131,6 +131,10 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     .await?;
     fixture.configuration = Some(declared);
     fixture.sql_workers = 1;
+    // The parent and outgoing child occupy the original two request slots.
+    // Admit this fixture's immutable observer as a third request within the
+    // unchanged 64-KiB bank. Ordinary public fixtures retain their limits.
+    fixture.ordinary_admission = Some((3, 64 * 1024));
     let faults = physical::Faults::new(
         std::path::PathBuf::from("unused-writer-fault-selection"),
         None,
@@ -238,7 +242,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                                 ..Default::default()
                             },
                         )
-                        .await?;
+                        .await.context("source-worker suspension observer")?;
                     ensure!(before.result == b"0");
                     drop(before);
                     control.deny.store(true, Ordering::Release);
