@@ -159,8 +159,48 @@ impl RegistryGate {
     }
 }
 
+/// Park actual backend reads for one namespace while an SDK metadata owner is
+/// observed. This does not replace bytes, routing, admission or quorum proofs.
+#[derive(Debug)]
+pub struct NamespaceReadGate {
+    namespace: String,
+    pending: AtomicBool,
+    pub entered: AtomicUsize,
+    resume: tokio::sync::Notify,
+}
+
+impl NamespaceReadGate {
+    pub fn new(namespace: String) -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            namespace,
+            pending: AtomicBool::new(true),
+            entered: AtomicUsize::new(0),
+            resume: tokio::sync::Notify::new(),
+        })
+    }
+
+    pub fn release(&self) {
+        self.pending.store(false, Ordering::Release);
+        self.resume.notify_waiters();
+    }
+
+    async fn wait(&self) {
+        self.entered.fetch_add(1, Ordering::AcqRel);
+        loop {
+            let resumed = self.resume.notified();
+            tokio::pin!(resumed);
+            resumed.as_mut().enable();
+            if !self.pending.load(Ordering::Acquire) {
+                return;
+            }
+            resumed.await;
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Store {
+    pub binding_namespace_reads: std::sync::Mutex<Option<std::sync::Arc<NamespaceReadGate>>>,
     external: Option<std::sync::Arc<dyn ObjectStore>>,
     gate_identity: std::sync::Arc<()>,
     pub deny_routing_metadata_reads: AtomicBool,
@@ -714,6 +754,10 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        let gate = self.binding_namespace_reads.lock().unwrap().clone();
+        if let Some(gate) = gate.filter(|gate| path.as_ref().contains(&gate.namespace)) {
+            gate.wait().await;
+        }
         if path.as_ref().contains("/cell-payloads-1/")
             && !path.as_ref().contains("/cell-payloads-1/ownership/")
         {
