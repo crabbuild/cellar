@@ -6,6 +6,32 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Materialized preview and apply
+
+Runtime `04956ab50` prepares shared-cell materialized mutations under the same
+cell/incarnation, sequence and result identity selected by committed apply.
+A live preview pin protects that physical generation through settlement.
+The applier replays the incoming LTX into independently admitted scratch and
+verifies/syncs the existing destination; a name or cached result is not delta
+proof. Followers create their own generations. Manifest persistence and current
+Quorum/receipt authority still gate output. No format or capacity change occurs.
+
+The unchanged three-voter regression fails at `0e4baa628` with four staged and
+five applied leader generations; the final source keeps four. It also requires
+pre-commit invisibility, independent followers, matching committed versions and
+exact receipt. Fifteen execution/archive safety controls, including warm forged
+LTX refusal, and 101 compatibility units pass. The complete original public
+cohort remains FAILED6/16, so this supplies no latency improvement, complete OPT
+package or primitive-family acceptance. See the [current checkpoint](progress.md#current-integration-checkpoint).
+
+Repeated verification across private staging and apply remains. Reusing that
+work requires an explicit proof of the exact supplied input and result under the
+same live owner, with bounded pin custody through cancellation, apply and cleanup.
+Cold/recovery, mismatched inputs and physical corruption still require refusal
+or independent replay. The current change deliberately retains replay; it only
+eliminates a second persistent generation. These requirements are an opportunity
+for the next delivery, not evidence of a completed handoff or deadline fix.
+
 ## Recovery PR integration
 
 PR [#166](https://github.com/crabbuild/cellar/pull/166) includes this implementation

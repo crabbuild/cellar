@@ -4,40 +4,47 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current parallel broker bootstrap delivery
+## Current materialized preview delivery
 
 Main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `f0647e010` overlaps
-bounded create-only broker preparation and normal catalog reconciliation for
-Node and embedded SDK activation. Existing locators skip only preparation;
-current catalog/broker authorization and independent proofs still decide readiness.
-An uncertain creation never changes its candidate or proposal. Prepared births
-can outlive failed/cancelled activation without serving; combined cleanup and
-recovery still require qualification. Broker creation state and its initializer
-contract boundary from `5fa5bf8a3` remain. Original budgets and fixtures are unchanged.
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `04956ab50` uses the
+committed apply image identity for materialized private mutation previews.
+Apply reuses that persistent generation but still independently replays supplied
+LTX, verifies/syncs bytes and publishes the committed manifest. Followers prepare
+their own images. Original budgets, quotas, minima and format remain. Broker
+creation state, initializer contract boundary and parallel bootstrap are retained.
 
-The unchanged regression fails at serial baseline `46b2eb395`; final **101 owning
-tests**, locked build, strict Clippy and repository checks pass. **Public cohort
-645 is FAILED, 3/10**: ordinary native lifecycle, registration and Fleet pass;
-seven selections fail initial activation or Consume. Native Axum and RustFS
-ordinary Consume enter target dispatch with 2,834/2,867 ms remaining, then expire.
-Investigate target execution/checkpoint/proof stages before changing discovery.
-Preserve exact unknown mutation identities. Do not repeat unchanged campaigns
-merely to obtain a pass or extend their budgets.
+Baseline `0e4baa628` fails on four staged versus five applied leader generations;
+the unchanged final regression passes with four, pre-commit invisibility,
+independent followers and exact committed receipt/version checks. Fifteen
+execution/archive safety controls and 101 compatibility units pass. Locked build,
+Cellar strict library/all-test Clippy and repository checks pass; dependency
+warnings remain. Initial dirty-tree red-driver refusal is not acceptance.
 
-Diagnostic 630 separately localized cold configure scheduling/history costs;
-it did not reach `Change` and grants no acceptance. Its six failed disks remain.
-Temporary probes are removed. Aggregate 648 verifies current evidence, frozen
-binaries and 21 public-failure disks. Owned RustFS/VM are stopped, objects retained.
-A compiler appeared at campaign end; its effect is unproven. Prior 7/10 and 9/10
-are historical, and the full cohort remains last FAILED6/16 at `6c876b46`.
+**The complete public cohort 665 is FAILED, 6/16.** SDK source-proof and
+history selections pass native/RustFS, as do registration and Fleet reference.
+All eight EventStream selections fail activation or Consume. Native Queue fails
+ambiguous producer sequence 25; RustFS Queue has an untagged wait deadline, so do
+not label it a producer or final-drain failure without more evidence. Neither
+load emits a completed 528-message result. Preserve original unknown identities.
 
-Next: target Consume progress and autonomous activation; then subscription
-administration and Queue production; then combined EventStream lifecycle,
-remaining primitives, CG-13/15 recovery/release and CG-16 cutover. Counts stay
-**13/17 tasks, 147/195 cases**. No full primitive family is accepted. See
+Diagnostic 653 predates the feature: one RustFS callback finishes at 2,515 ms
+then final settlement expires; another waits for its ack child after 1,917 ms.
+Writer restoration is immediate. Current code has no probes. Aggregate 668
+verifies records/binaries, 30 public failed disks, six diagnostic failed disks
+and one baseline cluster root. Owned RustFS/VM are stopped, objects retained.
+Public preflight compiler count is zero and postflight one; effect is unproven.
+The structural regression claims no quiescence or latency result.
+
+Next: complete checkpoint/apply progress under existing exact proofs, autonomous
+activation and Queue producer/wait recovery. Physical image names alone cannot
+skip incoming LTX verification. Further reuse needs an exact verified input and
+live owner/pin contract; see [optimization progress](optimization-progress.md#materialized-preview-and-apply).
+Do not repeat unchanged broad campaigns merely to find a pass. Finish combined
+primitive lifecycle, CG-13/15 recovery/release and CG-16 cutover. Counts remain
+**13/17 tasks, 147/195 cases**; no full primitive family is accepted. See
 [progress](progress.md#current-integration-checkpoint) and ignored
-`.cellar/cg17-payload-01/event-read-state.json` for exact evidence pins.
+`.cellar/cg17-payload-01/event-read-state.json` for exact pins.
 
 ## Previous proven binding-writer delivery
 

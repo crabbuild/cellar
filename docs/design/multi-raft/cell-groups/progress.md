@@ -29,56 +29,57 @@ for the next delivery.
 
 ## Current integration checkpoint
 
-Main `16c45b266` is included. **Runtime `f0647e010` overlaps create-only
-preparation of a declared EventStream broker with catalog reconciliation.**
-Node and embedded SDK activation share this path. Each declaration admits at
-most those two operations; declarations remain sequential. An existing locator
-skips preparation only. New creation validates the exact cell, creation token,
-schema and minimum durability proof. An unknown enrollment keeps its original
-candidate/token and observes current name resolution instead of issuing a new
-creation identity. The ordinary catalog/broker checks still gate binding adoption.
+Main `16c45b266` is included. **Runtime `04956ab50` uses the same exact
+cell/incarnation, mutation sequence and result identity for a materialized private
+preview and committed apply.** Apply reuses that persistent generation while
+independently replaying the incoming LTX into admitted scratch, then verifying
+and syncing the destination. Followers prepare their own images. Quorum commit,
+manifest publication, current ownership and exact receipts still gate output.
+Extent images retain their existing path. No wire format, deadline, quota or
+minimum durability changes. Declared broker creation state and bounded parallel
+bootstrap from the preceding delivery remain.
 
-This builds on `5fa5bf8a3`, which installs configuration, grants, subscription
-identities and captured time in the broker creation image. Existing broker rows
-remain untouched. Its distinct initializer digest is a hard registration boundary;
-format markers stay 1, with no migration or old-template reader. Preparation can
-leave a non-serving birth if catalog reconciliation fails or the caller cancels.
-It grants no application readiness; combined cleanup/recovery remains unqualified.
-Original deadlines, quotas, source/child receipts and target proofs remain.
+The unchanged regression fails at baseline `0e4baa628`: staging leaves four
+leader generations and committed apply allocates a fifth. Final apply keeps four.
+The test also checks pre-commit invisibility, independent follower preparation,
+equal committed versions and the exact receipt. **15 safety controls pass**:
+receipt reconciliation, leadership change, cancelled apply, sync failure and
+retained recovery in both images, plus five archive cases including forged LTX
+against warm destinations. **101 compatibility unit tests pass.** Locked build,
+Cellar library/all-test Clippy with denied warnings and repository checks pass;
+vendor/dependency warnings remain. The initial dirty-tree red-driver refusal is
+excluded; a clean, formatter-only follow-up rebuild supplies the valid baseline.
 
-**101 owning tests pass**: 84 EventStream, 13 wire/authority and four enrollment
-intent tests. The unchanged concurrency regression fails at serial baseline
-`46b2eb395` because catalog work runs before broker preparation is polled; the
-final coordinator lets both operations progress without dropping preparation.
-Locked build, strict library/all-test Clippy and format/layout/dependency/docs
-checks pass under the original non-incremental opt1/assertion settings.
+**Current complete public cohort 665 is FAILED, 6/16.** Native and RustFS SDK
+source-proof/recursive dispatch and current-history resolution, registration and
+Fleet reference pass. All eight EventStream selections fail initial activation
+or Consume. Native Queue fails at ambiguous producer sequence 25; RustFS Queue
+reports an untagged wait deadline whose exact substage remains open. Neither
+load selection emits a complete 528-message result. Thirty failed public voter
+disks are retained. Unknown mutation identities must be reconciled unchanged.
 
-**Current focused public cohort 645 is FAILED, 3/10.** Ordinary native lifecycle
-passes both image modes; registration and Fleet reference pass. Seven selections
-fail: native and RustFS explicit publication/outbox activation; native Axum,
-RustFS ordinary and RustFS Axum Consume; and direct native/Axum independent-target-S3
-initial materialized-image activation. The native Axum and RustFS ordinary Consume
-attempts start with 2,834/2,867 ms of their original 3,000 ms remaining, then expire
-inside target execution. Preserve ambiguous identities and investigate the target's
-execution/checkpoint/proof path. Twenty-one failed voter disks are retained.
+Diagnostic 653 at `77a17e8f` separately reproduces Consume failures before this
+feature. RustFS ordinary finishes its callback at 2,515 ms, then expires during
+final settlement; RustFS Axum enters its acknowledgment child at 1,917 ms and
+never receives its reply before expiry. Source writer restoration is immediate
+after available replies. Native Axum finishes both callbacks at 1,102/1,142 ms.
+These are diagnostic timings, not current-source latency acceptance. Its six
+failed voter disks and the baseline cluster root remain. Temporary probes are
+removed. This localizes serial checkpoint/child/final-proof work; it does not
+prove one exclusive cause or that allocation reuse fixes the deadlines.
 
-Separate diagnostic 630 at `ee7c8bd5` measured cold configure entering scheduled
-work at 986/927 ms and resolving target history at 2,064/1,805 ms in two failures.
-It did not reach subscription `Change` or enable activation-exchange traces.
-Its six failed disks and frozen probes are retained separately; probes are absent
-from the delivered source. This localized serial startup costs and motivated
-parallel preparation; it does not prove the cause of Consume or a deadline fix.
-
-Aggregate 648 verifies frozen records/binaries, causal regression and 21 failed
-disks. The public preflight observed no compiler; an external compiler was seen
-at the end. Its overlap or effect is unproven. Owned RustFS/VM are stopped with
-objects retained. RF3 voters share one process on separate disks; RustFS uses one
-CPU/two GiB. Historical 7/10 and 9/10 results establish neither stability nor a
-regression cause. The complete 16-case cohort was not repeated; its last result
-is FAILED6/16 at `6c876b46`. Counts remain **13/17 tasks, 147/195 cases**.
-Next: actual target Consume progress and autonomous activation, then subscription
-administration, Queue production and the combined primitive/recovery/release gates.
-Full primitive support and hard cutover remain open.
+Aggregate 668 verifies current frozen records/binaries, unchanged regression,
+safety controls and retained disks. Public compiler preflight observes zero;
+postflight observes one external compiler, with overlap/effect unproven. The
+structural regression's preflight observed two external compilers; no quiescence
+or latency acceptance is claimed for it. Owned RustFS/VM are stopped with objects
+retained. RF3 voters share one process on separate workspace disks; RustFS uses
+one CPU/two GiB. Prior focused 3/10, 7/10 and 9/10 are historical, and comparison
+of counts proves no speedup or regression cause. Counts remain **13/17 tasks,
+147/195 cases**. Full primitive/recovery/release qualification and hard cutover
+remain open. Next: reduce serial checkpoint/apply work under exact proofs, close
+autonomous activation and Queue producer/wait progress, then the combined
+EventStream lifecycle and remaining primitive/recovery gates.
 
 ## Previous proven binding-writer checkpoint
 
