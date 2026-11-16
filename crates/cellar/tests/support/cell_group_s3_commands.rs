@@ -39,7 +39,7 @@ pub(crate) use connection_idle::peer_connection_idle;
 
 #[path = "cell_group_s3_capacity.rs"]
 mod capacity;
-pub(crate) use capacity::s3_capacity_release;
+pub(crate) use capacity::{s3_background_capacity_cadence, s3_capacity_release};
 
 struct Harness {
     fixture: RuntimeCluster,
@@ -57,6 +57,7 @@ struct Harness {
 
 enum Resources {
     SlowMaintenance,
+    BackgroundCoalescing,
     Retention(CellGroupLogRetentionLimits),
     Storage {
         root: tempfile::TempDir,
@@ -142,6 +143,7 @@ impl Harness {
         send_buffer: Option<u32>,
         resources: Option<Resources>,
     ) -> Result<Self> {
+        let background_coalescing = matches!(resources, Some(Resources::BackgroundCoalescing));
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let initializations = Arc::new(AtomicUsize::new(0));
@@ -224,8 +226,13 @@ impl Harness {
             ))
             .await?
         };
-        let (archive, remote) =
+        let (mut archive, remote) =
             archive_controller::registration_minimum(&fixture, &route, rooted, minimum).await?;
+        if background_coalescing {
+            archive.publisher = CellGroupArchivePublisher::GroupLeader {
+                retry_interval_ms: 500,
+            };
+        }
         if send_buffer.is_some() {
             fixture.connect_tcp_with_query_buffer(send_buffer).await?;
         }

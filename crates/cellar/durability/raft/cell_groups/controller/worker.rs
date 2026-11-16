@@ -336,7 +336,10 @@ impl Worker {
             let capacity_armed = archive_capacity.is_some();
             crate::asyncrt::select! {
                 _ = self.shared.stop.notified() => return Ok(()),
-                group = async { archive_capacity.as_mut().expect("armed archive capacity").await }, if capacity_armed => self.archives.wake_capacity(group),
+                group = async { archive_capacity.as_mut().expect("armed archive capacity").await }, if capacity_armed => {
+                    let now = domain.mono_ms().map_err(|_| CellGroupControllerError::Closed)?;
+                    self.archives.wake_capacity(group, now);
+                },
                 _ = domain.wait_for_work() => return Err(CellGroupControllerError::Closed),
                 _ = timer => {
                     self.progress.send_replace(());

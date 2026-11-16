@@ -1,0 +1,856 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-16T01:02:19.796693+00:00",
+  "source_digest": "1d75a95fc5364e040ca2e881d560548fe56f01c43a08af662d464e3adff0b8ab",
+  "source_inputs": 3447,
+  "root_base_revision": "1d663425e4ae1eef4e73ec1190afe276f22b9119",
+  "integrated_main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "frozen_snapshot_revision": "bfa067759fcaeebd41e06e0e06f67bd1e304c2fd",
+  "mechanism": "Only live foreground S3 waiters capture failed physical admission. Deadline/cancellation pruning before batch selection, completion registration and capacity wake preserves configured background publication cadence. Real physical admission, authority, exact receipt/closure proof and original deadlines remain required.",
+  "before": {
+    "source_digest": "525cec94f6cee208ef98574251c7d928d13af32e1657ee3a473b996490cb29b7",
+    "production_revision": "1d663425e4ae1eef4e73ec1190afe276f22b9119",
+    "same_test_bytes": true,
+    "changed_inputs": [
+      {
+        "path": "crates/cellar/durability/raft/cell_groups/controller/archive/mod.rs",
+        "before": "e99b44440b77d3e0c0675f3f05d6cbb6f7e1d9cb3dd1c67c0d3306ab570316a2",
+        "after": "9f320d35fd6d4d7546e40a8dd9da5a5a1577a758804b16fec942b0c33808d2e2"
+      },
+      {
+        "path": "crates/cellar/durability/raft/cell_groups/controller/worker.rs",
+        "before": "d05dcb8d4666c4f6c21bae2a285851a04053b6d59f09b78d3d0cafa93922abf8",
+        "after": "e44b184b67324bb44b53c1f6b43e28062a11f51c04b2b2d1ee64abe7577f3b22"
+      }
+    ],
+    "executed_image_form": "materialized; failures stop the extent loops",
+    "background_attempts": [
+      {
+        "name": "background-cadence-1",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "background_credit_release_preserves_archive_cadence",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.5119612080015941,
+        "log_sha256": "9e04d44ddbf63856efcaa30ec0e076af81e9134dd7503c487126b55015314979"
+      },
+      {
+        "name": "background-cadence-2",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "background_credit_release_preserves_archive_cadence",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.49620120800682344,
+        "log_sha256": "3c06cf34eb7809ddcf01244e835fd7befc368986e04bbd20695fe6149bf21e0f"
+      }
+    ],
+    "expired_foreground": {
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+        "--exact",
+        "expired_s3_credit_release_preserves_archive_cadence",
+        "--test-threads=1",
+        "--show-output"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 5.546139875004883,
+      "log_sha256": "18a0936dc16e4216634491073b7bc9523fc66a5a4c82568304ed53323975b4d7",
+      "footer": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 5.54s"
+      ],
+      "source_inputs_unchanged": true,
+      "awake_joined": true
+    },
+    "preserved_fixtures": {
+      "fixtures": 3,
+      "regular_files": 156,
+      "retained_bytes": 577540
+    }
+  },
+  "native": {
+    "status": "PASSED",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "stages": [
+      {
+        "name": "compile",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--lib",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--test",
+          "native_cell_groups_archive",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1058.247398624997,
+        "log_sha256": "7c0e734d2a1fba5a1515187d34ea70a1d7e57c94fb06b3408b3ef0f9db6c77b3"
+      },
+      {
+        "name": "native_cell_groups_archive_controller-list",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--list"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.010065875001600944,
+        "log_sha256": "7ef9ee8ad6b94331b13343e228de01533210034bf095d36bea3dcf79ad37dc78"
+      },
+      {
+        "name": "native_cell_groups_archive_controller-ignored-list",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--list"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.007697458000620827,
+        "log_sha256": "cb8eedeca0e93577b616fd8490c8d50c73643cbf4f5dbe00adc36e92ff9b4b88"
+      },
+      {
+        "name": "cellar-list",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/cellar-9b3b2c2707c69b88",
+          "--list"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.01376400000299327,
+        "log_sha256": "fff2d1809c521be9a94fba23b8d17d2a38f008583049f24bcc7d645ac2f38f30"
+      },
+      {
+        "name": "cellar-ignored-list",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/cellar-9b3b2c2707c69b88",
+          "--ignored",
+          "--list"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.009125166994635947,
+        "log_sha256": "9a2a11d21a1b36e040f9e705a248f627beee276ce47747d3932fa6abad7f3ecf"
+      },
+      {
+        "name": "native_cell_groups_archive-list",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive-7a92a325ad7beaa6",
+          "--list"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.010991125003783964,
+        "log_sha256": "f04d5409266f6da2844f78555033ccb243879e6f4c37810da5a307162e5e4ff5"
+      },
+      {
+        "name": "native_cell_groups_archive-ignored-list",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive-7a92a325ad7beaa6",
+          "--ignored",
+          "--list"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.008759791002376005,
+        "log_sha256": "5b68944bf22f5f1f422001fb50a7105996710753179d519263f5d99a383670ca"
+      },
+      {
+        "name": "capacity-unit-1",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/cellar-9b3b2c2707c69b88",
+          "--exact",
+          "raft::cell_groups::archive::capacity::tests::a_wait_hint_does_not_keep_a_closed_bank_alive",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.009970708008040674,
+        "log_sha256": "29f978611778db083d1ed4d29c7c77a42b001250d616eb3e8e4ad666c01c992f",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "1230"
+        ]
+      },
+      {
+        "name": "capacity-unit-2",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/cellar-9b3b2c2707c69b88",
+          "--exact",
+          "raft::cell_groups::archive::capacity::tests::partial_byte_release_does_not_wake_an_unfitting_request",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.00904070799879264,
+        "log_sha256": "8154803ac1825ff70269e3680915b377eace0f5a7cd427310e1b559a064e2e7c",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "1230"
+        ]
+      },
+      {
+        "name": "capacity-unit-3",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/cellar-9b3b2c2707c69b88",
+          "--exact",
+          "raft::cell_groups::archive::capacity::tests::release_before_registration_survives_a_consumed_signal",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.009297791999415495,
+        "log_sha256": "eb5a9bad7353a653b95d379508bdb0354590da0b51ed3e3a0dbcafa978274565",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "1230"
+        ]
+      },
+      {
+        "name": "capacity-unit-4",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/cellar-9b3b2c2707c69b88",
+          "--exact",
+          "raft::cell_groups::archive::capacity::tests::tail_refusal_keeps_real_credit_with_its_last_owner",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.009165750001557171,
+        "log_sha256": "7d7eb92ed0265d1fc29e1533e7c20b646711fd97bdfc2ad2d62de201a02b871f",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "1230"
+        ]
+      },
+      {
+        "name": "background_credit_release_preserves_archive_cadence",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "background_credit_release_preserves_archive_cadence",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.2314791250100825,
+        "log_sha256": "785a122dd93da1f3569ec565b4c9a7fa73bb5d3b32cc804d474de31c040cdde6",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "64"
+        ]
+      },
+      {
+        "name": "expired_s3_credit_release_preserves_archive_cadence",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "expired_s3_credit_release_preserves_archive_cadence",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 11.227105792000657,
+        "log_sha256": "48122cdc9bd474993e551886184ca02ac5b1b970d6bb52a6398ab57d3660f617",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "64"
+        ]
+      },
+      {
+        "name": "s3_output_credit_release_wakes_original_request",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "s3_output_credit_release_wakes_original_request",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.101719124999363,
+        "log_sha256": "da9ecb45d6b4e32621a82b1af36cc940f3e0e5e4a5562e1bf2f21788793d6c0c",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "64"
+        ]
+      },
+      {
+        "name": "s3_checkpoint_credit_release_wakes_original_request",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "s3_checkpoint_credit_release_wakes_original_request",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9419037079933332,
+        "log_sha256": "04cb4b94bf673ddd172056f25eab049325f74371c353f292a0449614eab818e1",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "64"
+        ]
+      },
+      {
+        "name": "idle_s3_observation_reuses_completed_verification",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "idle_s3_observation_reuses_completed_verification",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.969865374994697,
+        "log_sha256": "1a00dc75fbd3e07f7863405e7e69638414c1025530946aa4625c8e6f5ee211bf",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "64"
+        ]
+      },
+      {
+        "name": "s3_command_requires_the_sibling_archive_dependencies",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "s3_command_requires_the_sibling_archive_dependencies",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.011830874995212,
+        "log_sha256": "ce80137165be537bb5f2a64644867f44ef501a5305c98553c22982a0e635ee9e",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "64"
+        ]
+      },
+      {
+        "name": "late_s3_receipt_reuses_completed_background_verification",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--exact",
+          "late_s3_receipt_reuses_completed_background_verification",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.0620923749957,
+        "log_sha256": "25cf4b7dcad494ea6a6a84f4a196af0c3267651c4931d356c35d8b366eaac54c",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0",
+          "0",
+          "64"
+        ]
+      },
+      {
+        "name": "cellar-full",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/cellar-9b3b2c2707c69b88",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 96.73083729099017,
+        "log_sha256": "88ca84f0c2c09f2dc4a533097dee22242cb3fac674c52f3d9fafa62d2120f1c7",
+        "footer": [
+          "ok",
+          "1229",
+          "0",
+          "2",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "native_cell_groups_archive_controller-full",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 154.16701975000615,
+        "log_sha256": "5e5c41aec5ab003027ae94d273982cbfeaac3a02a9c88c953fc54791ee8cda75",
+        "footer": [
+          "ok",
+          "35",
+          "0",
+          "30",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "native_cell_groups_archive-full",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive-7a92a325ad7beaa6",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 69.04636758301058,
+        "log_sha256": "cbae1f50c95429dce5b7ca21df0199bbc2b0e99b848aef57af679a6ac9e1c8ea",
+        "footer": [
+          "ok",
+          "40",
+          "0",
+          "10",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "strict-all-target-clippy",
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 633.6896698749915,
+        "log_sha256": "7bfddc4d62938408e8bda9c236fbcb9b3a255fb934ff42ecda048debd22027bf"
+      }
+    ],
+    "executables": {
+      "native_cell_groups_archive_controller": {
+        "sha256": "3828a12671130d183c1a33330df289495e98b5fa46bea34591d0a58908a91a35",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "inventory": {
+          "tests": 65,
+          "ignored": 30,
+          "ignored_names": [
+            "rustfs_archive_coverage_gates_local_compaction",
+            "rustfs_controller_archive_publishes_stable_cuts",
+            "rustfs_controller_archive_reconciles_exact_intent_and_joins_close",
+            "rustfs_controller_archive_reservation_recovers_after_immutable_response_loss",
+            "rustfs_follower_archiver_bootstraps_the_first_prefix",
+            "rustfs_follower_archiver_verifies_a_published_prefix_without_upload",
+            "rustfs_group_archive_requires_all_dependencies",
+            "rustfs_group_reclaim_restart_keeps_history",
+            "rustfs_idle_s3_observation_reuses_completed_verification",
+            "rustfs_late_s3_receipt_reuses_completed_background_verification",
+            "rustfs_new_s3_receipt_bypasses_inflight_archive_maintenance",
+            "rustfs_quorum_continues_bounded_s3_outage",
+            "rustfs_s3_command_deadlines_do_not_quarantine_committed_sql",
+            "rustfs_s3_command_requires_the_sibling_archive_dependencies",
+            "rustfs_s3_commands_require_exact_archived_results",
+            "rustfs_s3_enrollment_deadlines_preserve_resolved_ownership",
+            "rustfs_s3_enrollment_output_waits_for_serving_authority_without_reinitialization",
+            "rustfs_s3_enrollment_requires_the_original_archived_creation",
+            "rustfs_s3_namespace_minimum_cannot_be_downgraded",
+            "rustfs_s3_receipt_lookup_deadlines_refund_read_admission",
+            "rustfs_s3_receipt_lookup_honors_namespace_and_stored_minimums",
+            "rustfs_s3_receipt_lookup_preserves_typed_failures_and_result_admission",
+            "rustfs_s3_receipt_lookup_tracks_archived_observations",
+            "rustfs_s3_remote_deadlines_preserve_ambiguity_and_callbacks",
+            "rustfs_s3_remote_outputs_preserve_durability_and_creation",
+            "rustfs_s3_remote_slow_delivery_retains_proofs_and_bounds",
+            "rustfs_s3_replays_from_peer_archive_without_new_upload",
+            "rustfs_s3_response_precedes_previous_archive_hold_retirement",
+            "rustfs_short_archived_groups_checkpoint_and_recover_independently",
+            "rustfs_unproved_s3_responses_refuse"
+          ]
+        }
+      },
+      "cellar": {
+        "sha256": "7def33f341918865dceffd2b7e9c35bbdfa5c8358739f11e614ae936666d888c",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "inventory": {
+          "tests": 1231,
+          "ignored": 2,
+          "ignored_names": [
+            "raft::fleet_catalog::docker_isolation::tests::real_engine::docker_isolation_real_engine_samples_available_memory_and_retains_data",
+            "raft::fleet_catalog::docker_isolation::tests::real_engine::docker_isolation_real_engine_stops_paused_container_and_retains_data"
+          ]
+        }
+      },
+      "native_cell_groups_archive": {
+        "sha256": "b65bad32add91ce4d512e4ca7cca0e3b75f63b1cfbe4822a96ad34c49591493a",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "inventory": {
+          "tests": 50,
+          "ignored": 10,
+          "ignored_names": [
+            "disaster_fixture::activation::receipts::public::rustfs_sdk_recovery_owns_activation_after_erasing_voters",
+            "rustfs_archive_cancelled_waiter_keeps_physical_checkpoint",
+            "rustfs_external_payload_recovery_and_gc_preserve_retained_cuts_and_readers",
+            "rustfs_fenced_group_seed_new_incarnations",
+            "rustfs_filesystem_survives_fenced_all_voter_disk_loss",
+            "rustfs_group_archive_publication_survives_competing_registry_cas",
+            "rustfs_group_recovery_fence_intent_and_topology",
+            "rustfs_group_recovery_genesis_survives_lost_reply_and_restart",
+            "rustfs_group_recovery_import_rebinds_complete_cut",
+            "rustfs_group_recovery_publication_requires_seeded_quorum_activation"
+          ]
+        }
+      }
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true
+  },
+  "rustfs": {
+    "status": "PASSED",
+    "source_digest": "1d75a95fc5364e040ca2e881d560548fe56f01c43a08af662d464e3adff0b8ab",
+    "stages": [
+      {
+        "name": "archive-owner",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive-7a92a325ad7beaa6",
+          "--ignored",
+          "--exact",
+          "rustfs_archive_cancelled_waiter_keeps_physical_checkpoint",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.8287017090042355,
+        "log_sha256": "434ca8c50cb79d0ede8c0122174f6efc9163f483bc1b1eda4ba286484e311954",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "publication-cas",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive-7a92a325ad7beaa6",
+          "--ignored",
+          "--exact",
+          "rustfs_group_archive_publication_survives_competing_registry_cas",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.2686081670108251,
+        "log_sha256": "886c96877b2d46605cdb7134117e4cf2224f986a29b4aa9595c5482b1130a114",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "exact-s3",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_s3_commands_require_exact_archived_results",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.4833469160075765,
+        "log_sha256": "598b5db4556efd428e86f3bdc6b5857f6d93ccc2eef6b71210e836277fe6caa9",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "s3-deadline",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_s3_command_deadlines_do_not_quarantine_committed_sql",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 7.559674707998056,
+        "log_sha256": "791eb26de6919d758100efaf7c408a20604e00ce81b96ad4c69167b86f8e94a3",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "sibling-dependency",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_s3_command_requires_the_sibling_archive_dependencies",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.482035167005961,
+        "log_sha256": "a0705c4522c56896dfb5bd35aca7efa1487005ec776770d36f0d32f521a0bd7c",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "external-payload",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive-7a92a325ad7beaa6",
+          "--ignored",
+          "--exact",
+          "rustfs_external_payload_recovery_and_gc_preserve_retained_cuts_and_readers",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.6106810409983154,
+        "log_sha256": "25457ed74d19ddc6394bf81c9d8fd84ec6b8766d49638a0030c87ce0fa6de79d",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "idle-proved-output",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_idle_s3_observation_reuses_completed_verification",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.1647357499896316,
+        "log_sha256": "e536f4ddf63575cd166de3105ba1f7faa7c64510e723223dc5fffc3b36f1ca90",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "foreground-maintenance",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_new_s3_receipt_bypasses_inflight_archive_maintenance",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.464094416995067,
+        "log_sha256": "3402b63f441a4e70f522b1fabb58a52fd6e5092c82efe93355a2fa1cbfa0539f",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "late-receipt",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_late_s3_receipt_reuses_completed_background_verification",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.4238909160048934,
+        "log_sha256": "256cbc08b2df19f2e40a645f3ae08561f91f7e4efacd3949730b6082b74caa51",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "original_backend_unchanged": true,
+    "ready_http_status": 200,
+    "backend_limits": {
+      "cpus": 1000000000,
+      "memory": 2147483648,
+      "swap": 2147483648
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true
+  },
+  "static_checks": {
+    "status": "PASSED",
+    "source_digest": "1d75a95fc5364e040ca2e881d560548fe56f01c43a08af662d464e3adff0b8ab",
+    "checks": [
+      {
+        "name": "formatter-check",
+        "command": [
+          "cellar-xtask",
+          "fmt",
+          "--check"
+        ],
+        "exit_code": 0,
+        "rust_files": 2343
+      },
+      {
+        "name": "layout",
+        "command": [
+          "cellar-xtask",
+          "layout"
+        ],
+        "exit_code": 0,
+        "rust_files": 2343
+      },
+      {
+        "name": "native-dependencies",
+        "command": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ],
+        "exit_code": 0,
+        "reachable_packages": 496,
+        "javascript_engine": false
+      }
+    ],
+    "execution": "Actual native tool results, checkout-specific existing xtask executable, Rust1.98.1 and unique writable CARGO_TARGET_DIR. Full documentation recheck follows final ledger/export updates."
+  },
+  "linux": {
+    "status": "MATERIALIZING_PARENT",
+    "source_revision": "bfa067759fcaeebd41e06e0e06f67bd1e304c2fd",
+    "source_digest": "1d75a95fc5364e040ca2e881d560548fe56f01c43a08af662d464e3adff0b8ab"
+  },
+  "qualification_limits": [
+    "Before controls fail with materialized images; the extent before loops are not reached. After controls exercise both image forms. Test wall times include setup/forced waiting and are not operation speedup measurements.",
+    "The four fast controls are repeated in the11 focused controls and full native suites; they are not added to distinct full-suite pass counts.",
+    "Only default Cellar library/archive-controller/archive suites and nine selected real-RustFS cases are qualified here. Other ignores, full feature/SDK/Axum/daemon, authority, crash/recovery/movement and complete CG/OPT gates remain open.",
+    "Linux metadata reports its actual state at export; an in-progress build supplies no measured runtime or performance qualification.",
+    "The earlier12-case image362f78db has four passes/eight failures and51 request errors. It does not contain this candidate. No complete four-mode or isolated before/after throughput/latency gain is established."
+  ],
+  "privacy_scan": {
+    "actual_private_representations": 43,
+    "credential_matches": 0,
+    "excluded": "Runtime configurations, environment responses, private keys and raw node/store/native test log text."
+  }
+}

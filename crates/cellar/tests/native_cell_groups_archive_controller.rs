@@ -827,6 +827,28 @@ async fn s3_output_credit_release_wakes_original_request() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn background_credit_release_preserves_archive_cadence() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_background_capacity_cadence(
+            rooted, false,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn expired_s3_credit_release_preserves_archive_cadence() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_background_capacity_cadence(
+            rooted, true,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn s3_checkpoint_credit_release_wakes_original_request() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::s3_capacity_release(

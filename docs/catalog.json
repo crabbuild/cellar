@@ -914,6 +914,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-main-170-2026-11-15.md",
+      "title": "Three-node SQL, KV and Queue durability comparison",
+      "summary": "Record the complete constrained four-mode primitive matrix, failed correctness boundaries and descriptive passing results.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/three-node-primitive-main-172-2026-11-14.md",
       "title": "Main-172 three-node primitive verification",
       "summary": "Retain the complete frozen main-based control/candidate comparison and its failing correctness boundaries.",

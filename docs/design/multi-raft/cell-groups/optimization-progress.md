@@ -82,7 +82,19 @@ and its named RO/RL cases remain the acceptance contract:
 ### Priorities for completing the optimization
 
 The latest completed twelve-case comparison is the
-[main-173 campaign](three-node-primitive-main-173-2026-11-15.md), including main
+[main-170 capacity-wake matrix](three-node-primitive-main-170-2026-11-15.md),
+bound to compiler input `362f78db`, public commit `1d663425` and main `16c45b26`.
+Four cases pass: KV+S3, Fleet SQL, bucket SQL and bucket Queue. Eight fail;
+109 windows verify, eight fail and 75 remain unmeasured, with 51 request errors.
+SQL/KV quorum, Fleet KV/Queue and bucket KV record lease-expiry markers. Queue+S3
+also fails without such markers. These need separate reproductions under the
+original five-second budgets. Only complete passing cases receive descriptive
+rates; no complete four-mode comparison or isolated optimization gain is accepted.
+The subsequent foreground-only archive-capacity cadence candidate has separate
+native regressions and is not in that measured image.
+
+The earlier twelve-case
+[main-173 campaign](three-node-primitive-main-173-2026-11-15.md) includes main
 `189edd9a` and source cut `69654995`. Nine candidate cases pass; KV+S3,
 Queue+S3 and bucket Queue fail. All SQL modes and the complete SQL/KV quorum
 pairs pass. Candidate timed windows record 104 verified, two failed and fourteen
@@ -4827,3 +4839,41 @@ Diagnostic KV and the old-source 1,192-test library passes remain scoped to thei
 earlier manifests. Current-main constrained SQL/KV/Queue, bucket Queue,
 lease/startup diagnosis, physical reclamation/movement, authority faults and
 complete OPT/CG qualification remain open.
+
+### Foreground-only physical-credit wakes
+
+The capacity wake introduced at `1d663425` also wakes background publication.
+New owning-controller tests at compiler input `525cec94` reproduce an early
+retry twice, and reproduce it after a foreground S3 waiter expires. They hold
+an actual checkpoint in the ordinary one-slot bank, observe the real Busy
+refusal, release its last owner and check the configured GroupLeader 500 ms
+minimum cadence. The expired call retains its original five-second deadline
+and ambiguous outcome. Before controls fail with materialized images; the
+extent loop is not reached. The retained fixtures and failures are not
+reclassified as setup errors or timing gains.
+
+Candidate input `1d75a95f` captures failed physical admission only for live
+foreground S3 waiters. It prunes expired/cancelled requests before selecting a
+publication batch, before installing the completed wait, and on capacity wake.
+A background-only release leaves its existing retry time intact. A new live S3
+request can still initiate its ordinary immediate attempt. Actual admission,
+current authority, exact receipt/closure checks, original deadlines and physical
+ownership remain required; no bank, task, timer or proof shortcut is added.
+
+Four focused current-source controller controls pass both image modes: the new
+background and expired-waiter cadence cases, and the original held-output and
+held-checkpoint release progress cases. Their test wall times include setup and
+forced waiting, so they are not per-operation latency measurements. The complete
+default suites pass 1,229 library, 35 archive-controller and 40 archive tests,
+with 2/30/10 existing ignores respectively. Four capacity units and seven
+focused controller controls repeat subsets of those suites. Strict all-target
+Cellar Clippy, format/layout and native-dependency checks pass. Nine selected
+real-RustFS cases pass both image forms on the same executables; unselected
+ignores remain open. See the [source-specific qualification](capacity-cadence-qualification-2026-11-16.json).
+The matching Linux build is in progress. This is not yet constrained performance
+qualification.
+
+The complete [four-mode matrix](three-node-primitive-main-170-2026-11-15.md)
+retains its earlier `362f78db` image and four-pass/eight-failure outcome. It does
+not contain this foreground-only candidate. The new fix does not establish the
+cause of those lease/deadline failures or close any complete CG/OPT package.

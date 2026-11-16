@@ -34,6 +34,26 @@ archive safety cases and full strict all-target Clippy also pass. See the
 for hashes, failed controls and fencing limits. The six-case CG-13 task gate and
 full disaster profile remain open.
 
+## Current constrained performance priorities
+
+The [main-170 matrix](three-node-primitive-main-170-2026-11-15.md) uses main
+`16c45b26`, public commit `1d663425` and compiler input `362f78db`. All twelve
+SQL/KV/Queue mode cases finish on the original three 1 vCPU / 2 GiB nodes and
+five-second operation/callback/lease limits. Four pass and eight fail, with
+51 request errors. This is the latest complete mode matrix; earlier records
+below retain their own source and scope.
+
+| Priority | Required outcome |
+| --- | --- |
+| P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |
+| P0: isolate the failing boundary | Keep the actual physical-credit wake and cadence regressions. Reproduce writer/admission interference separately. Compare the benchmark's cloned lease client with the normal node's dedicated client before attributing shared-store stalls to Raft. |
+| P1: prove performance | Obtain complete passing SQL/KV/Queue cases in every durability mode, then a matched-source before/after comparison with p50/p95/p99, errors, CPU, I/O and archive lag. Failed or unmeasured windows cannot establish a speedup. |
+| P1: finish lifecycle and public contracts | Close full CG-17, remaining authority/read partition cases, physical reclamation with retained owners, once-only capacity settlement and repeated reserve-aware movement. |
+| P1: qualify the release | Run combined-source recovery/crash/wake/transition and feature/SDK/Axum/daemon gates, plus independent physical failure domains. Three containers in one Colima VM do not qualify domain loss. |
+
+No complete OPT-01 through OPT-08 package or remaining CG release gate is closed
+by this comparison or by a scoped native optimization pass.
+
 ## Primitive delivery priority
 
 Full public primitive compatibility is the required Quorum product contract.

@@ -488,8 +488,8 @@ impl Manager {
         }
     }
 
-    /// Only actual failed admissions wait here. Store locks, remote conflicts
-    /// and cleanup backoff retain their existing timer cadence.
+    /// Only actual failed foreground admissions wait here. Background work,
+    /// store locks, remote conflicts and cleanup retain their timer cadence.
     pub fn capacity_released(&self) -> Option<BoxFuture<'static, GroupHistory>> {
         if self.capacity_waits.is_empty() {
             return None;
@@ -516,12 +516,14 @@ impl Manager {
         }))
     }
 
-    pub fn wake_capacity(&mut self, group: GroupHistory) {
+    pub fn wake_capacity(&mut self, group: GroupHistory, now: u64) {
         self.capacity_waits.remove(&group);
         let Some(entry) = self.entries.get_mut(&group) else {
             return;
         };
-        if entry.capacity_wait.take().is_some() && !entry.fatal && !entry.stopping {
+        let released = entry.capacity_wait.take().is_some();
+        settlement::prune(&mut entry.waiters, now);
+        if released && !entry.waiters.is_empty() && !entry.fatal && !entry.stopping {
             // Advisory progress only. Launch still acquires real credit and
             // checks current authority, closure, receipt and original deadline.
             entry.retry_at = 0;
@@ -753,18 +755,25 @@ impl Manager {
                 .filter(|_| entry.context.is_some());
             entry.capacity_wait = None;
             self.capacity_waits.remove(&group);
-            let capacity = CapacityCapture::new();
             let mut registration = entry.registration.clone();
-            registration.tails.capture_capacity(capacity.clone());
-            registration.checkpoints.capture_capacity(capacity.clone());
             let activation = entry.activation.clone();
             let mut context = entry.context.clone();
             let execution = entry.execution.clone();
             let runtime = runtime.clone();
             // Bound receipt SQL work per fair group turn, independently of the
             // node's potentially larger total command admission.
+            settlement::prune(&mut entry.waiters, now);
             let count = entry.waiters.len().min(32);
             let mut waiters: Vec<settlement::Request> = entry.waiters.drain(..count).collect();
+            // Returned physical credit may wake a live foreground proof. It
+            // must not bypass the publisher's background coalescing interval.
+            let capacity = if waiters.is_empty() {
+                CapacityCapture::default()
+            } else {
+                CapacityCapture::new()
+            };
+            registration.tails.capture_capacity(capacity.clone());
+            registration.checkpoints.capture_capacity(capacity.clone());
             let admitted_through = self.admissions.current();
             let handoff = self
                 .handoff
@@ -773,7 +782,6 @@ impl Manager {
                 .and_then(|(_, coverage)| coverage.take());
             tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                 group = ?group.group, stage = "launch", waiters = count);
-            settlement::prune(&mut waiters, now);
             self.active_group = Some(group);
             self.job = Some(Box::pin(async move {
                 let mut maintenance_pending = false;
@@ -994,7 +1002,7 @@ impl Manager {
             }
             Err(error) => {
                 entry.fatal = !retryable(&error);
-                if !entry.fatal {
+                if !entry.fatal && !entry.waiters.is_empty() {
                     entry.capacity_wait = completed.capacity_wait;
                     if entry.capacity_wait.is_some() {
                         self.capacity_waits.insert(completed.group);
