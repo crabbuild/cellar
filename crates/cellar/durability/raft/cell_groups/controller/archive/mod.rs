@@ -798,6 +798,14 @@ impl Manager {
                             .await?,
                         );
                     }
+                    // A reused registry already owns its bound payload pool.
+                    // Refresh only this job's clone, including the default
+                    // no-capture state for background publication.
+                    context
+                        .as_mut()
+                        .expect("opened archive context")
+                        .registry
+                        .capture_payload_capacity(capacity.clone());
                     // `prove` indexed this live verification before completion.
                     // Reject known-old prefixes before remote birth/journal
                     // validation. Eligibility cannot settle a response; retained

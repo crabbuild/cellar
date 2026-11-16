@@ -44,6 +44,10 @@ pub(crate) use connection_idle::peer_connection_idle;
 mod capacity;
 pub(crate) use capacity::{s3_background_capacity_cadence, s3_capacity_release};
 
+#[path = "cell_group_s3_payload_capacity.rs"]
+mod payload_capacity;
+pub(crate) use payload_capacity::s3_payload_capacity_release;
+
 struct Harness {
     fixture: RuntimeCluster,
     route: GroupRoute,
@@ -69,6 +73,12 @@ enum Resources {
     JournalStorage {
         root: tempfile::TempDir,
         filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    },
+    PayloadCapacity {
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        pool: CellGroupPayloadPool,
+        background: bool,
     },
 }
 
@@ -150,7 +160,30 @@ impl Harness {
         send_buffer: Option<u32>,
         resources: Option<Resources>,
     ) -> Result<Self> {
-        let background_coalescing = matches!(resources, Some(Resources::BackgroundCoalescing));
+        let background_coalescing = matches!(
+            resources,
+            Some(
+                Resources::BackgroundCoalescing
+                    | Resources::PayloadCapacity {
+                        background: true,
+                        ..
+                    }
+            )
+        );
+        let slow_maintenance = matches!(
+            resources,
+            Some(
+                Resources::SlowMaintenance
+                    | Resources::PayloadCapacity {
+                        background: false,
+                        ..
+                    }
+            )
+        );
+        let payloads = match &resources {
+            Some(Resources::PayloadCapacity { pool, .. }) => Some(pool.clone()),
+            _ => None,
+        };
         let journal_storage = matches!(&resources, Some(Resources::JournalStorage { .. }));
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
@@ -180,7 +213,7 @@ impl Harness {
         );
         let mut limits = controller::limits();
         limits.max_commands = max_commands;
-        if matches!(resources, Some(Resources::SlowMaintenance)) {
+        if slow_maintenance {
             limits.retry_interval_ms = 60_000;
         }
         let (mut fixture, route, cell, _) = if let Some(Resources::Retention(retention)) = resources
@@ -210,7 +243,10 @@ impl Harness {
             Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?
         } else if let Some(
             Resources::Storage { root, filesystem }
-            | Resources::JournalStorage { root, filesystem },
+            | Resources::JournalStorage { root, filesystem }
+            | Resources::PayloadCapacity {
+                root, filesystem, ..
+            },
         ) = resources
         {
             let domain = if journal_storage {
@@ -250,6 +286,9 @@ impl Harness {
         };
         let (mut archive, remote) =
             archive_controller::registration_minimum(&fixture, &route, rooted, minimum).await?;
+        if let Some(payloads) = payloads {
+            archive.io = archive.io.with_payloads(payloads);
+        }
         if background_coalescing {
             archive.publisher = CellGroupArchivePublisher::GroupLeader {
                 retry_interval_ms: 500,

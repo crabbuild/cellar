@@ -15,6 +15,23 @@ pub struct Gate {
     pub entered: Notify,
     pub release: Notify,
     pub publication_index: AtomicU64,
+    reads_released: AtomicBool,
+}
+
+impl Gate {
+    pub fn release_all_reads(&self) {
+        self.reads_released.store(true, Ordering::Release);
+        self.release.notify_waiters();
+    }
+
+    async fn wait_for_read_release(&self) {
+        let mut released = std::pin::pin!(self.release.notified());
+        released.as_mut().enable();
+        self.entered.notify_one();
+        if !self.reads_released.load(Ordering::Acquire) {
+            released.await;
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -334,8 +351,7 @@ impl ObjectStore for Store {
             .filter(|(held, puts, _)| held == path && self.puts.load(Ordering::Acquire) >= *puts)
             .map(|(_, _, gate)| gate.clone());
         if let Some(gate) = gate {
-            gate.entered.notify_one();
-            gate.release.notified().await;
+            gate.wait_for_read_release().await;
         }
         self.inner.get_opts(path, opts).await
     }

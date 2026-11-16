@@ -24,6 +24,25 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_payload_credit_release_wakes_original_request_with_reused_archive() -> Result<()> {
+    Box::pin(runtime_fixture::s3_payload_capacity_release(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_s3_payload_credit_release_wakes_original_request_with_reused_archive() -> Result<()>
+{
+    Box::pin(runtime_fixture::s3_payload_capacity_release(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn background_payload_credit_release_preserves_archive_cadence() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_payload_capacity_release(rooted, true)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_retries_payload_admission_after_the_actual_reader_joins() -> Result<()> {
     Box::pin(runtime_fixture::payload_read_failure(
         false,

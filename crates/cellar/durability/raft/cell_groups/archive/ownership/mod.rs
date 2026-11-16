@@ -242,6 +242,20 @@ pub struct CellGroupArchiveRegistry {
     identity: CellGroupArchiveCreation,
 }
 
+impl CellGroupArchiveRegistry {
+    pub(in crate::raft::cell_groups) fn capture_payload_capacity(
+        &mut self,
+        capture: super::capacity::Capture,
+    ) {
+        if let Some(pool) = &mut self.archive.payloads {
+            // Only this publication's registry clone receives the hint. Its
+            // original bank and namespace capabilities stay shared; caller
+            // pools and previously retained archive contexts stay unchanged.
+            Arc::make_mut(pool).capture_capacity(capture);
+        }
+    }
+}
+
 fn encode(value: &impl Serialize, limit: usize) -> Result<Vec<u8>> {
     let mut output = super::checkpoint::Bounded {
         bytes: Vec::new(),

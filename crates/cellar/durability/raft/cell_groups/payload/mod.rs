@@ -3,7 +3,8 @@
 //! Immutable external values retained independently of physical group archives.
 //! Publication confirms bytes, never a Raft mutation or permission to collect.
 
-use crate::raft::budget::{Budget, RetainedBytes};
+use super::archive::capacity;
+use crate::raft::budget::{Budget, Permit, RetainedBytes};
 use cellar_logic::cell_group::CellHistory;
 use cellar_logic::consensus::{ClusterId, NamespaceId};
 use futures_util::TryStreamExt;
@@ -190,6 +191,7 @@ pub struct CellGroupPayloadUsage {
 pub struct CellGroupPayloadPool {
     limits: CellGroupPayloadLimits,
     budget: Arc<Budget>,
+    capacity: capacity::Capture,
     bindings: Arc<Mutex<BTreeMap<(ClusterId, NamespaceId), NamespaceBinding>>>,
 }
 
@@ -215,6 +217,7 @@ impl CellGroupPayloadPool {
         Ok(Self {
             limits,
             budget: Budget::new(limits.max_retained_bytes, limits.max_operations),
+            capacity: capacity::Capture::default(),
             bindings: Arc::default(),
         })
     }
@@ -232,6 +235,14 @@ impl CellGroupPayloadPool {
             operations,
             retained_bytes,
         }
+    }
+
+    pub(in crate::raft::cell_groups) fn capture_capacity(&mut self, capture: capacity::Capture) {
+        self.capacity = capture;
+    }
+
+    fn acquire(&self, bytes: usize) -> Option<Permit> {
+        self.capacity.acquire(&self.budget, bytes)
     }
 
     pub(crate) fn bind(
@@ -451,7 +462,6 @@ impl CellGroupPayloadStore {
         // value. The same reservation survives the full publication protocol.
         let permit = Arc::new(
             self.pool
-                .budget
                 .acquire(CellGroupPayloadPool::workspace(bytes.len())?)
                 .ok_or(CellGroupPayloadError::Overloaded)?,
         );
@@ -536,7 +546,6 @@ impl CellGroupPayloadStore {
             .max(CellGroupPayloadPool::workspace(reference.length as usize)?);
         let permit = Arc::new(
             self.pool
-                .budget
                 .acquire(workspace)
                 .ok_or(CellGroupPayloadError::Overloaded)?,
         );

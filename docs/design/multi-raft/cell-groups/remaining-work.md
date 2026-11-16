@@ -136,11 +136,36 @@ no Rust runtime inputs. Fresh hosted CI, disaster authorization and container
 capacity qualification remain open; the local guard repair does not establish
 release readiness.
 
+Native fitting-credit progress is now qualified at `1ac2cced`: the actual reused
+archive registry receives the publication's private payload hint while keeping
+the original shared bank and namespace capabilities. The
+[source-specific record](payload-capacity-wake-qualification-2026-11-16.json)
+turns four original S3 deadline failures into four passing two-command invocations
+with identical final oracle bytes, real reader joins, exact receipts and fresh
+selected-cut byte verification. Background/expired physical-capacity controls,
+existing settled retirement assertions, full native core/controller/archive/
+execution, selected SQL/KV/Queue/recovery and strict all-target Clippy pass.
+This does not close payload cancellation/deadline/uncertain-cleanup coverage or
+qualify current RustFS/constrained performance. The latest matched read-only
+backend check has only 12,066,816 bytes available, below the original 6 GiB reserve.
+
+Hosted `edeb5c0d5` JavaScript/Node jobs and Python examples pass. Typed RPC full
+(3.14) fails Python-provider proof-wait warmup with owner/ingress lease expiry;
+the other three RPC jobs pass. Recent bounded renewal observations are ambiguous
+before watchdog fencing, under that fixture's original 1,000 ms lease. Do not
+extend it, infer noncommit or replay an unknown warmup mutation. Reproduce the
+owning lease I/O/confirmation/scheduling boundary and preserve new failure data.
+SDK's native 3.14 job also fails four disaster cases, including voter restart and
+authorization/capture-source unavailability. Both embedded-Python jobs fail to
+compile `python-fleet` because its shared measuring frontend references the
+undeclared `crate::object_clients` module. These current failures need separate
+repairs; a native payload-wake pass does not replace them.
+
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |
 | P0: isolate the failing boundary | Keep the physical-credit wake, cadence, dedicated lease-pool and applied-evidence enrollment regressions. Measure their effects in the constrained matrix before attributing earlier lease expiry or latency to a specific boundary. Resolve the remaining preparation, persistence and physical-close costs behind the cumulative rooted-128 enrollment timeout; its successful SQL resolution checks do not establish request success. |
-| P0: restore qualification | Restore original-backend write capacity without deleting retained failures or relaxing the reserve. Reproduce native disaster authorization and container capacity sampling at their owning boundaries. Extend the qualified generic-I/O/operation-admission retries to payload deadlines, uncertain cleanup and fitting-credit wakes only with exact identity/proof and terminal data-refusal evidence. Keep original deadlines and refusal assertions. A later narrow pass cannot replace a failed broader owner. |
+| P0: restore qualification | Restore original-backend write capacity without deleting retained failures or relaxing the reserve. Repair the embedded-Python measuring frontend's missing module and reproduce current native disaster/voter restart and typed-RPC lease failures at their owning boundaries. Preserve the historical container-capacity failure despite current JS CI passes. Extend native payload-credit progress to cancellation/deadline/uncertain-cleanup coverage and real-backend qualification with exact identity/proof and terminal data refusals. Keep original deadlines and refusal assertions. A later narrow pass cannot replace a failed broader owner. |
 | P1: prove performance | Obtain complete passing SQL/KV/Queue cases in every durability mode, then a matched-source before/after comparison with p50/p95/p99, errors, CPU, I/O and archive lag. Failed or unmeasured windows cannot establish a speedup. |
 | P1: finish lifecycle and public contracts | Close full CG-17, remaining authority/read partition cases, physical reclamation with retained owners, once-only capacity settlement and repeated reserve-aware movement. |
 | P1: qualify the release | Run combined-source recovery/crash/wake/transition and feature/SDK/Axum/daemon gates, plus independent physical failure domains. Three containers in one Colima VM do not qualify domain loss. |

@@ -255,6 +255,27 @@ pub(super) async fn verified_current(
     rooted: bool,
     name: &str,
 ) -> Result<CellGroupArchiveCoverage> {
+    verified_journal(fixture, config, rooted, name, true).await
+}
+
+/// S3 output may precede predecessor retirement. Verify its retained exact cut
+/// and real bytes independently without requiring unrelated cleanup to finish.
+pub(super) async fn verified_selected(
+    fixture: &RuntimeCluster,
+    config: &CellGroupArchiveRegistration,
+    rooted: bool,
+    name: &str,
+) -> Result<CellGroupArchiveCoverage> {
+    verified_journal(fixture, config, rooted, name, false).await
+}
+
+async fn verified_journal(
+    fixture: &RuntimeCluster,
+    config: &CellGroupArchiveRegistration,
+    rooted: bool,
+    name: &str,
+    settled: bool,
+) -> Result<CellGroupArchiveCoverage> {
     let route = config.birth.route();
     let registry = config
         .directory
@@ -268,8 +289,9 @@ pub(super) async fn verified_current(
     let history = route.history;
     let mut selected = None;
     // Publication makes a complete cut available before predecessor cleanup.
-    // This audit requires quiescent ownership, so wait under the existing
-    // lifecycle bound rather than treating the published status as that proof.
+    // The lifecycle audit additionally requires quiescent ownership. Both
+    // audits retain the original read-only verification and lifecycle bound;
+    // neither treats the controller's published status as a retained proof.
     controller::wait_for(async || {
         let directory = directory.clone();
         selected = fixture
@@ -288,11 +310,13 @@ pub(super) async fn verified_current(
                         continue;
                     };
                     if hold.marker().route().history == history {
-                        if !record["retire"].is_null() || record["pending"] != "None" {
-                            return Ok(None);
+                        if settled {
+                            if !record["retire"].is_null() || record["pending"] != "None" {
+                                return Ok(None);
+                            }
+                            assert!(record["retire"].is_null());
+                            assert_eq!(record["pending"], "None");
                         }
-                        assert!(record["retire"].is_null());
-                        assert_eq!(record["pending"], "None");
                         return Ok(Some(hold));
                     }
                 }
@@ -302,8 +326,12 @@ pub(super) async fn verified_current(
         Ok(selected.is_some())
     })
     .await
-    .context("archive ownership did not finish predecessor cleanup")?;
-    let hold = selected.context("selected settled journal hold")?;
+    .context(if settled {
+        "archive ownership did not finish predecessor cleanup"
+    } else {
+        "selected archive journal hold unavailable"
+    })?;
+    let hold = selected.context("selected journal hold")?;
     let destination = verifier(fixture, route, rooted, name).await?;
     let mut verified = None;
     // Maintenance may still own the sole replay slot after clearing debt.

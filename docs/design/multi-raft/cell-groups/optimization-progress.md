@@ -171,6 +171,53 @@ Only Python evidence tooling/tests change from runtime input `8fb09d7f`. This
 does not qualify new throughput/latency results or repair the separate native
 disaster authorization, container capacity or full release gates.
 
+At compiler input `1ac2cced`, fitting payload credit can wake the original live
+S3 request through the retained archive context. Each publication installs its
+job-local hint on the actual registry's pool wrapper; the original node-wide
+budget and namespace bindings remain shared. Ordinary callers inherit no capture,
+and background publication receives the default no-capture state. The hint grants
+no reservation or proof. Payload byte and ownership admission preserve the same
+ceilings, deadlines, request identities, callback and durability contracts.
+
+The [payload capacity wake qualification](payload-capacity-wake-qualification-2026-11-16.json)
+retains a final identical-fixture comparison: four original S3 requests expire
+before the change, twice per image form, while all four invocations pass after it.
+Each passing invocation completes two successive intended S3 commands, checks
+callback counts and receipts, and independently verifies the exact selected hold
+and real bytes. A deliberately long diagnostic maintenance interval distinguishes
+a credit wake from timer retry; the request/GET budgets stay five seconds.
+Actual-payload background cadence and existing tail/checkpoint/expired-request
+controls pass. A resolved-payload unit preserves ordinary-caller isolation,
+retained byte charges and competition for returned credit.
+
+Final native qualification passes core 1,233, controller 46, archive 40, execution
+208, selected native/Axum SQL/KV, Queue callback/proof/acknowledgement and interrupted
+SQL recovery checks, strict all-target Clippy and repository gates. The initial
+candidate's failed audit and disk remain retained: S3 output had succeeded, but
+that audit additionally required deferred predecessor retirement. The final
+selected-cut audit verifies the real hold/bytes without that unrelated condition;
+all existing settled lifecycle assertions remain and their controller suite
+passes. All seven final oracle files are byte-identical across the accepted red
+and green comparison. Thirty-one remaining native fixture directories and 1,928
+regular files have verified retention manifests.
+
+No new backend or constrained campaign is qualified. A fresh matched read-only
+RustFS data-volume check observes 12,066,816 bytes available, below the unchanged
+6 GiB reserve; readiness still returns HTTP 200. The earlier zero-space/PUT
+failures retain their own source scope. No resize, restart, pruning, relocation
+or reserve relaxation is performed. No throughput or percentile-latency gain,
+independent physical-domain recovery or complete OPT/CG gate is accepted.
+
+Preceding `edeb5c0d5` hosted CI passes JavaScript/Node's three jobs and Python
+examples, but fails Typed RPC full (3.14) in Python-provider proof-wait warmup.
+Owner and ingress fence on `NodeLeaseExpired`; the bounded recent trace contains
+ambiguous renewals before watchdog fencing. That fixture keeps its original
+1,000 ms lease, distinct from the five-second benchmark configuration. The other
+three Typed RPC jobs pass; no cause or noncommit inference is established.
+SDK qualification also fails four native disaster cases in the 3.14 job and
+embedded-Python compilation of `python-fleet` on missing `crate::object_clients`.
+Those separate boundaries remain open at this checkpoint.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 
