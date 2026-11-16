@@ -86,6 +86,12 @@ Hosted CI on published `65f888af` also retains native disaster authorization,
 primitive-catalogue and named-container capacity failures. These remain release
 gaps; the component optimization accepts no complete OPT or CG gate.
 
+The catalogue failure reproduces locally and is repaired by following the
+reviewed `workflow_read.rs` to `resource_read.rs` rename in `12be0e235`.
+Catalogue admission, all 13 coverage-guard tests and all 44 design-plan tests
+pass after that pointer correction. This changes no task/case acceptance and
+does not repair the separate native disaster or container capacity failures.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 

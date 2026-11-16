@@ -317,7 +317,7 @@
         "crates/cellar/application/workflow/stream.rs",
         "crates/cellar/application/consensus/native_workflow.rs",
         "crates/cellar/application/workflow/turn.rs",
-        "crates/cellar/application/consensus/group_client/workflow_read.rs"
+        "crates/cellar/application/consensus/group_client/resource_read.rs"
       ],
       "schemas": [
         "Definitions, journals, outputs and compensation"
