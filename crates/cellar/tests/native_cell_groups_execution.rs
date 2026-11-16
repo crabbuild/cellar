@@ -42,6 +42,16 @@ async fn command_readiness_wait_keeps_original_deadline() -> Result<()> {
     Box::pin(runtime_fixture::command_waits_for_apply(true)).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn commit_metadata_joins_applied_root_publication() -> Result<()> {
+    Box::pin(runtime_fixture::commit_metadata_publication(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_commit_metadata_joins_applied_root_publication() -> Result<()> {
+    Box::pin(runtime_fixture::commit_metadata_publication(true)).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn background_sql_admits_one_pending_command() -> Result<()> {
     Box::pin(runtime_fixture::background_admission(false)).await

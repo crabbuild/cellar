@@ -899,6 +899,7 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
 
 #[path = "cell_group_sql.rs"]
 mod sql;
+pub(super) use sql::commit_metadata_publication;
 #[allow(unused_imports)]
 pub(super) use sql::unproved_s3_responses;
 pub(super) use sql::{

@@ -510,6 +510,10 @@ pub(super) mod apply;
 pub(crate) use apply::apply_images;
 pub(crate) use apply::committed_apply_reuses_verified_preview;
 
+#[path = "cell_group_commit_publication.rs"]
+mod commit_publication;
+pub(crate) use commit_publication::run as commit_metadata_publication;
+
 #[path = "cell_group_prepared_apply.rs"]
 mod prepared_apply;
 pub(crate) use prepared_apply::{verified_preparation_handoff, PreparationCase};
