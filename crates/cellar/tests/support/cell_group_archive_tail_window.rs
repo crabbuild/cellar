@@ -20,7 +20,7 @@ async fn entered(gate: &archive_store::EntryReadGate) {
 
 pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Result<()> {
     let (mut cluster, mut expected) =
-        checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
+        checkpoint_fixture::populate_images(rooted, true, false, 2, 8192).await?;
     let store = archive_store::Store::around(backend);
     let archive = new_archive(
         &cluster,
@@ -33,13 +33,13 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
     let base = archive
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
         .await?;
-    for (name, sequence) in [("alpha", 2), ("beta", 2), ("alpha", 3), ("beta", 3)] {
+    for name in ["alpha", "beta", "cell-000", "cell-001"] {
         checkpoint_fixture::advance_partition(
             &mut cluster,
             name,
             &expected[name],
             rooted,
-            Some(sequence),
+            Some(2),
         )
         .await?;
         expected.insert(
