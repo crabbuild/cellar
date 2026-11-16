@@ -6,6 +6,27 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Cell-version change waits
+
+Runtime `ed8fd243b`, qualified at `9a43d4712`, adds public SDK
+`LinearizableAfter(CellVersionToken)` and uses it for pending catalog activation.
+It parks in existing bounded admission until the authenticated exact cell advances,
+then obtains a fresh quorum ReadIndex. It does no SQL/image work before advancement
+and does not join ordinary read cohorts while waiting. Other-cell progress cannot
+satisfy it. Current authority, independent target minima and caller-side strict
+advancement checks remain. Activation drops its previous SQL/archive response
+before waiting again. No new task/cache or increased deadline/quota is introduced.
+Authenticated mode 4 is new; wire markers remain 1.
+
+Both image formats and actual TLS follower dispatch pass; **33 integration checks
+and 135 units pass** with locked build, strict library/all-test Clippy and repository
+checks. The eager-barrier negative fails both required oracles. Final tests keep
+that safety guard and replay held replies afterward; fixtures are not byte-identical.
+The complete original public cohort 698 is **FAILED, 6/16**: all eight EventStream
+and both Queue loads fail. This qualifies the change-wait capability, not a public
+deadline fix, complete primitive family, OPT package or release. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
 ## Materialized preview and apply
 
 Runtime `0eeea3033` delivers a typed handoff from independently verified private
@@ -31,7 +52,7 @@ after ticket custody; the original checks remain. Eight physical cases cover liv
 reuse, expiry, actual destination corruption and transferred custody in both image
 forms. The complete integration controls pass **32/32**, including enrollment,
 leadership/cancellation, retained recovery and warm forged-LTX refusal; **104 units
-pass**. The original public cohort remains **FAILED, 8/16**, with six EventStream
+pass**. That historical public cohort is **FAILED, 8/16**, with six EventStream
 and two Queue load failures. These results establish a safe local I/O reduction,
 not latency stability, an exclusive speedup, full OPT or primitive-family acceptance.
 See the [current checkpoint](progress.md#current-integration-checkpoint).

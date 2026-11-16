@@ -4,41 +4,46 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current verified preparation delivery
+## Current cell-change read delivery
 
 Main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `0eeea3033` transfers
-an independently verified local initialization/mutation/RPC-checkpoint image into
-its exact committed apply ticket. The proof binds the complete input, live engine,
-group history and term. Producer and committed ticket own strong pins at their
-respective boundaries; command/proposal clones hold weak references. Apply still
-checks the physical inventory/result, actual destination bytes, sync, current
-commit and manifest publication. Expired preparations, foreign inventories,
-followers and archive/recovery independently replay. Budgets, quotas, minima and format remain.
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `ed8fd243b`, qualified
+at `9a43d4712`, delivers public SDK `LinearizableAfter(CellVersionToken)` and
+wires pending catalog status through it. The authenticated exact cell must advance
+before a fresh quorum ReadIndex begins. Existing bounded admission holds the wait
+without SQL/image work; unrelated cells and ordinary readers remain independent.
+Current authority, separate target minima and caller-side strict version checks
+remain. Catalog activation consumes prior responses before waiting again.
+Authenticated query mode 4 is new; markers stay 1. Original deadlines and quotas
+remain. Verified local preparation handoff and parallel bootstrap remain delivered.
 
-The baseline fails both real base-read denial oracles. The byte-identical causal
-fixture passes at feature `94217eaf4`; final changes only add post-ticket producer
-closure coverage and correct new unit fixture construction. **32 integration
-controls and 104 units pass.** Locked build and repository checks pass.
-Strict Cellar library/all-test Clippy passes; vendor/dependency warnings
-remain.
+**33 integration checks and 135 units pass**, including both images, exact-cell
+waiting, fresh post-change quorum, ordinary-reader progress, cancellation, actual
+TLS follower dispatch, wrong histories, receipts, preparation and archive safety.
+The eager-barrier negative fails both safety oracles. The final fixture retains
+that assertion and subsequently replays held replies; do not claim byte-identical
+fixtures. Locked build, strict library/all-test Clippy and repository checks pass.
 
-**The complete original public cohort 682 is FAILED, 8/16.** SDK source-proof and
-current-history cases pass native/RustFS, plus registration, Fleet, native ordinary
-EventStream and RustFS Axum lifecycle. Six EventStream cases fail initial
-activation or Consume. Queue production times out ambiguously at native sequence
-14 and RustFS sequence 12; neither load completes 528 messages. Preserve those
-identities and the 24 failed public voter disks. Two causal baseline cluster roots
-also remain. Aggregate 686 verifies frozen evidence. Public compiler pre/post
-snapshots are empty; no latency stability or exclusive speedup claim follows.
-Owned RustFS/VM are stopped with objects retained.
+**The complete original public cohort 698 is FAILED, 6/16.** SDK source-proof and
+current histories pass native/RustFS, plus registration and Fleet. All eight
+EventStream selections fail initial activation or Consume; native ingress with an
+independent S3 target returns `Runtime(Closed)`. Native Queue producer sequence 36
+is ambiguous. RustFS Queue has an untagged deadline whose substage remains open.
+Neither load completes 528 messages. Preserve original identities and all 30
+failed public voter disks. Aggregate 702 verifies frozen evidence, diagnostic and
+negative-control failures. Probes are removed. Owned RustFS/VM are stopped with
+objects retained. In-process RF3 and RustFS with one CPU/two GiB do not qualify
+independent Linux voters. Historical/isolated passes establish no timing stability
+or exclusive speedup/regression attribution.
 
-Next implement autonomous catalog/broker activation and interrupted child/Consume/
-Queue settlement under original budgets. The exact preparation handoff is delivered;
-do not keep treating it as missing or repeat unchanged broad campaigns. Complete
-primitive lifecycle, CG-13/15 recovery/release and CG-16 cutover remain. Counts stay
-**13/17 tasks, 147/195 cases**. Full plan validation retains the missing historical
-CG-01 evidence file; ordinary docs checks pass. See [progress](progress.md#current-integration-checkpoint),
+Next close actual target Consume execution/settlement, final catalog activation
+and startup refusal, then Queue producer/settlement progress under original
+budgets. Existing scheduled reconciliation and safe sequence retirement/sealing
+must be completed and qualified; do not duplicate them. Change waits and exact
+preparation handoff are delivered. Complete primitive lifecycle, CG-13/15
+recovery/release and CG-16 cutover remain. Counts stay **13/17 tasks, 147/195 cases**.
+Full plan validation retains the missing historical CG-01 evidence file; ordinary
+docs checks pass. See [progress](progress.md#current-integration-checkpoint),
 [priorities](remaining-work.md#primitive-delivery-priority) and ignored
 `.cellar/cg17-payload-01/event-read-state.json` for exact pins and preserved failures.
 

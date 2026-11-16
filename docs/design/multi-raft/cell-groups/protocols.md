@@ -137,6 +137,17 @@ never compare unrelated monotonic clocks or replenish the original caller's
 deadline/attempt budget. Confirm relocation hints through the trusted catalog.
 Return the selected cell observation and authenticated cell token, never the
 group's newer log cut. The caller independently enforces an AtLeast minimum.
+`LinearizableAfter(token)` authenticates the exact cell history/schema and waits
+for a strictly newer cell observation before starting a fresh quorum ReadIndex.
+Unrelated group progress cannot satisfy the wait. Park in existing bounded read
+admission without SQL/image work until advancement; ordinary reads continue
+independently. Current term, membership, route and ownership still gate admission,
+and the target's separate Quorum/S3 minimum remains mandatory. The caller checks
+strict advancement again. A framework checkpoint can advance the cell, so callers
+must still inspect the returned state. This uses authenticated query mode 4 with
+the existing bounded token encoding and marker 1. Waiting consumes the original
+deadline and quotas. Catalog activation drops its prior response before waiting
+again; a version change grants no readiness or mutation permission.
 Retain result admission until consumption, and retain entered SQL/image owners
 through physical cleanup after disconnect, timeout or cancelled shutdown.
 
