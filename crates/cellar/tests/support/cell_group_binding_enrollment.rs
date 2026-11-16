@@ -204,18 +204,17 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 source.command(&source.contract("Run")?, b"[]".to_vec(), options.clone()),
                 async {
                     cellar::asyncrt::timeout(TIMEOUT, control.entered.notified()).await?;
-                    // These real public requests acquire eight namespace permits,
-                    // but are never polled, routed or executed. No limit is raised.
+                    // Enrollment reserves its namespace permit before polling,
+                    // and enters the controller only when polled. Keep eight
+                    // real public reservations without routing or initialization.
                     let held = (1..=8)
-                        .map(|sequence| {
-                            target.command(
-                                &target.contract("Child").unwrap(),
-                                b"[]".to_vec(),
-                                CommandOptions::new(
-                                    CommandId::new(ClientId::new([213; 16]).unwrap(), sequence)
-                                        .unwrap(),
-                                    retry,
-                                ),
+                        .map(|_| {
+                            target.enroll(
+                                CellEnrollmentRequest {
+                                    creation: ProposalId::new([210; 16]).unwrap(),
+                                    durability: Durability::Quorum,
+                                },
+                                TIMEOUT,
                             )
                         })
                         .collect::<Vec<_>>();
