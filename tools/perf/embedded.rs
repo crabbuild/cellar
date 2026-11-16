@@ -9,7 +9,6 @@
 
 use anyhow::{ensure, Context, Result};
 use base64::Engine;
-use cellar::bucket::{Bucket, StorageBackend};
 use cellar::sdk::{
     ActorIdentity, ActorOptions, ActorPolicy, Application, CompiledApplications, DeploymentGraph,
     FenceReason, LogOptions, Node, NodeConfig, NodeFleet, NodeOutcome, NodeServices,
@@ -159,24 +158,18 @@ pub(super) fn run_observed(
         .with_access_key_id(std::env::var("AWS_ACCESS_KEY_ID")?)
         .with_secret_access_key(std::env::var("AWS_SECRET_ACCESS_KEY")?)
         .with_conditional_put(S3ConditionalPut::ETagMatch);
-    let store = Arc::new(builder.clone().build()?);
     // A retried conditional write could hide an ambiguous ownership outcome.
-    let conditional = Arc::new(
-        builder
-            .with_retry(RetryConfig {
-                max_retries: 0,
-                retry_timeout: Duration::from_secs(30),
-                ..Default::default()
-            })
-            .build()?,
-    );
-    let bucket = Bucket::from_clients(
-        store.clone(),
-        conditional,
-        store,
-        StorageBackend::S3,
+    let crate::object_clients::Clients {
+        data: bucket,
+        lease: lease_bucket,
+    } = crate::object_clients::connect(
+        builder,
+        RetryConfig {
+            max_retries: 0,
+            retry_timeout: Duration::from_secs(30),
+            ..Default::default()
+        },
         arguments.bucket,
-        String::new(),
     )?;
     tracing_subscriber::fmt()
         .with_max_level(log_level)
@@ -208,7 +201,7 @@ pub(super) fn run_observed(
             .build()?;
         let replica_storage = ReplicaStorage::new(bucket.store.clone(), ReplicaStorageOptions::default())?;
         let fleet = NodeFleet {
-            lease_bucket: bucket.clone(),
+            lease_bucket,
             bucket,
             replica_storage,
             replication: ReplicationOptions::default(),

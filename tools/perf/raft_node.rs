@@ -4,6 +4,7 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
 pub mod counter;
+mod object_clients;
 mod primitive_app;
 mod primitive_raft;
 #[cfg(test)]

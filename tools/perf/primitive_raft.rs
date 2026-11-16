@@ -83,22 +83,16 @@ pub async fn run() -> Result<()> {
         .with_access_key_id(std::env::var("AWS_ACCESS_KEY_ID")?)
         .with_secret_access_key(std::env::var("AWS_SECRET_ACCESS_KEY")?)
         .with_conditional_put(S3ConditionalPut::ETagMatch);
-    let ordinary = Arc::new(builder.clone().build()?);
-    let conditional = Arc::new(
-        builder
-            .with_retry(object_store::RetryConfig {
-                max_retries: 0,
-                ..Default::default()
-            })
-            .build()?,
-    );
-    let bucket = Bucket::from_clients(
-        ordinary.clone(),
-        conditional,
-        ordinary,
-        StorageBackend::S3,
+    let object_clients::Clients {
+        data: bucket,
+        lease: lease_bucket,
+    } = object_clients::connect(
+        builder,
+        object_store::RetryConfig {
+            max_retries: 0,
+            ..Default::default()
+        },
         bucket_name,
-        String::new(),
     )?;
     let store = bucket.raft_store();
     let mut host = RaftHostOptions {
@@ -181,6 +175,7 @@ pub async fn run() -> Result<()> {
         root,
         application,
         bucket,
+        lease_bucket,
         store,
         layout,
         peers,
@@ -203,6 +198,7 @@ async fn serve(
     root: PathBuf,
     application: Arc<dyn Application>,
     bucket: Bucket,
+    lease_bucket: Bucket,
     store: Arc<dyn object_store::ObjectStore>,
     layout: Arc<raft_groups::Layout>,
     peers: Vec<RaftPeerNode>,
@@ -227,7 +223,7 @@ async fn serve(
             bucket.store.clone(),
             ReplicaStorageOptions::default(),
         )?,
-        lease_bucket: bucket.clone(),
+        lease_bucket,
         bucket,
         replication: ReplicationOptions::default(),
         log: LogOptions::default(),

@@ -8,6 +8,7 @@ use std::sync::Arc;
 mod baseline_workload;
 mod deployment;
 mod embedded;
+mod object_clients;
 mod primitive_app;
 mod reference_workload;
 

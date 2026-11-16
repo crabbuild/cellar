@@ -4893,3 +4893,47 @@ SQL case, 3.34 GiB free is below the unchanged 6 GiB guard. No remaining case
 starts; the exact original RustFS is restored ready and all owners join. This
 owner changes no VM resource; its evidence remains bound to the 160 GiB VM. Earlier
 native/backend/cadence checks retain their original source and scopes.
+
+### Dedicated benchmark lease transport
+
+The benchmark frontends cloned their data/archive `Bucket` into
+`NodeFleet::lease_bucket`, unlike the normal node CLI's dedicated lease client.
+The Raft frontend also uses the data client for operator preparation before
+starting the core runtime. A pooled HTTP connection remains driven by the
+runtime that opened it; sharing that pool can make core lease CAS depend on
+application runtime progress.
+
+Compiler input `3d6c2f48` gives all four measuring frontends separately built
+data and lease clients through `tools/perf/object_clients.rs`. Ordinary retries
+and each frontend's original conditional retry policy remain unchanged. No
+runtime, worker, deadline, capacity bank, authority check or durability proof is
+changed. This is a benchmark transport correction, not a measured core speedup.
+
+The actual factory regression uses a healthy independent HTTP server, two
+application-owned runtimes and a five-second lease CAS deadline. Once the
+application runtime is held, the old shared policy fails twice: warmups reuse
+one connection and the lease request never reaches the server before timeout.
+Only the factory's lease construction differs in the after source; test bytes
+match. The corrected policy passes in all four frontends and strict Clippy
+passes. Server and application owners join. Test wall times include setup and
+cleanup, and do not establish request latency or throughput gains.
+
+The broader frontend runs pass baseline 8/8, fault-cells 6/6 and cells 4/4.
+The first Raft full-suite launcher omitted `CARGO_TARGET_DIR`; five tests refused
+their target-directory preflight. With that environment corrected, Raft passes
+25/26 and the rooted-128 diagnostic reaches its original 60-second enrollment
+deadline. Its retained observations show 128 cells on each group-0 voter.
+That test uses an in-memory store and does not call the S3 factory; the broader
+enrollment test, which also includes occupancy 128, passes. The failed attempt
+remains a reliability finding regardless of later exact-repeat outcomes.
+Two unchanged exact repeats subsequently pass in 61.57 and 134.39 seconds
+including setup, commands, follower reads and cleanup. These are not enrollment
+durations, and neither pass explains the earlier timeout.
+
+The [source-specific lease-client record](lease-client-qualification-2026-11-16.json)
+retains before/after hashes, full-suite failures and exact-repeat outcomes.
+The earlier 1,304-test library/archive and nine RustFS passes remain scoped to
+the cadence candidate's source. No matching Linux image or new container
+measurement qualifies this client change yet. The disk expansion proposal is
+unapproved; no VM resource changes, data deletion or deadline increases are used
+to proceed. Full primitive, fault, feature and CG/OPT acceptance stays open.

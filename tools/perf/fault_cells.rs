@@ -14,6 +14,7 @@ use std::time::Duration;
 
 mod deployment;
 mod embedded;
+mod object_clients;
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
