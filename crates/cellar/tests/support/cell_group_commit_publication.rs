@@ -7,7 +7,7 @@ use raft::Storage as _;
 
 pub(crate) async fn run(rooted: bool) -> Result<()> {
     let (mut fixture, route, cell, _) = enrolled_sql_cells(rooted).await?;
-    let work = async {
+    let work = tokio::time::timeout(Duration::from_secs(20), async {
         let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
         let before = group.group_manifest()?.context("selected root")?;
         let prior = fixture.runtimes[0].execution_authority(route.history, cell.clone()).await?;
@@ -55,8 +55,9 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
         anyhow::ensure!(group.group_manifest()?.as_ref() == Some(&before));
         anyhow::ensure!(group.initial_state()?.hard_state.commit == before.position().index.get());
-        anyhow::ensure!(matches!(fixture.runtimes[0].execution_authority(route.history, cell.clone()).await,
-            Err(RuntimeError::NotReady)), "held root sync granted execution authority");
+        let mut observed = Box::pin(fixture.runtimes[0].execution_authority(route.history, cell.clone()));
+        anyhow::ensure!(tokio::time::timeout(Duration::from_millis(30), &mut observed).await.is_err(),
+            "held root sync granted execution authority");
         executor = fixture.cluster.domain.blocking(move || -> Result<_> {
             anyhow::ensure!(matches!(executor.finish(prior),
                 Err(ExecutionError::Invalid("committed cell proposal/image"))),
@@ -64,10 +65,10 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
             Ok(executor)
         })?.await??;
         drop(release);
+        let authority = tokio::time::timeout(Duration::from_secs(5), observed).await??;
         fixture.drive(Some(proposal.position.index)).await?;
         anyhow::ensure!(group.initial_state()?.hard_state.commit == proposal.position.index.get());
         anyhow::ensure!(group.group_manifest()?.context("published root")?.position() == proposal.position);
-        let authority = fixture.runtimes[0].execution_authority(route.history, cell.clone()).await?;
         fixture.cluster.domain.blocking(move || -> Result<_> {
             let receipt = executor.finish(authority)?;
             anyhow::ensure!(receipt.receipt.result() == b"committed-result");
@@ -75,7 +76,7 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
             Ok(())
         })?.await??;
         Ok::<_, anyhow::Error>(())
-    }.await;
+    }).await.map_err(anyhow::Error::from).and_then(std::convert::identity);
     if work.is_err() {
         let root = std::mem::replace(&mut fixture.cluster._root, tempfile::tempdir()?);
         eprintln!(
@@ -90,7 +91,7 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
 
 pub(crate) async fn foreign_ticket() -> Result<()> {
     let mut cluster = Cluster::new().await?;
-    let work = async {
+    let work = tokio::time::timeout(Duration::from_secs(20), async {
         cluster.elect().await?;
         let route = cluster.birth.route().clone();
         let cell = history(&route, "commit-ticket")?;
@@ -169,8 +170,10 @@ pub(crate) async fn foreign_ticket() -> Result<()> {
         result?;
         cleanup?;
         Ok::<_, anyhow::Error>(())
-    }
-    .await;
+    })
+    .await
+    .map_err(anyhow::Error::from)
+    .and_then(std::convert::identity);
     if work.is_err() {
         let root = std::mem::replace(&mut cluster._root, tempfile::tempdir()?);
         eprintln!(
