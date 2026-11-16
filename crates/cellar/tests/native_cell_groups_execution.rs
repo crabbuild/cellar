@@ -549,6 +549,11 @@ async fn cell_receipt_not_group_progress() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_apply_reuses_verified_materialized_preview() -> Result<()> {
+    runtime_fixture::committed_apply_reuses_verified_preview().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_cell_receipt_not_group_progress() -> Result<()> {
     runtime_fixture::cell_receipts(true).await
 }

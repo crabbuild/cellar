@@ -971,6 +971,7 @@ pub(super) use sql::{
 };
 
 pub(super) use sql::apply_images;
+pub(super) use sql::committed_apply_reuses_verified_preview;
 
 pub(super) use sql::{apply_cancellation, apply_failure};
 

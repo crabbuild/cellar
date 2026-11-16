@@ -508,6 +508,7 @@ pub(crate) use reads::{
 #[path = "cell_group_sql_apply.rs"]
 pub(super) mod apply;
 pub(crate) use apply::apply_images;
+pub(crate) use apply::committed_apply_reuses_verified_preview;
 
 #[path = "cell_group_sql_apply_faults.rs"]
 mod apply_faults;
