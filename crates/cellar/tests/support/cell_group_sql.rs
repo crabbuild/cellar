@@ -505,6 +505,14 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     submission::rejections(rooted).await
 }
 
+pub(super) async fn queued_submissions(rooted: bool, read_between: bool) -> Result<()> {
+    submission::queued(rooted, read_between, 256).await
+}
+
+pub(super) async fn bounded_queued_submissions(rooted: bool) -> Result<()> {
+    submission::queued(rooted, false, 4).await
+}
+
 #[path = "cell_group_sql_reads.rs"]
 mod reads;
 

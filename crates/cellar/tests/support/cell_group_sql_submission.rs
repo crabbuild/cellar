@@ -2,6 +2,244 @@
 
 use super::reconciliation::apply_through;
 use super::*;
+use futures_util::{future::BoxFuture, FutureExt};
+use raft::Storage;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Exercise queued prepared producers, not the legacy byte-only proposal API.
+/// The held first sync makes the following queue prefix deterministic.
+pub(super) async fn queued(rooted: bool, read_between: bool, max_events: usize) -> Result<()> {
+    let mut fixture = RuntimeCluster::with_limits(max_events, 256, 1_000_000).await?;
+    fixture.cluster._root.disable_cleanup(true);
+    eprintln!(
+        "retained queued submission disk: {}",
+        fixture.cluster._root.path().display()
+    );
+    let mut held_sync = None;
+    let checked = std::panic::AssertUnwindSafe(async {
+        if rooted {
+            for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
+                voter.extents = Some(NodeExtentStore::open(
+                    fixture.cluster._root.path().join(format!("submission-{n}")),
+                    Arc::new(DirectFileSystem),
+                    Default::default(),
+                )?);
+            }
+        }
+        let route = fixture.cluster.birth.route().clone();
+        fixture.runtimes[0].campaign(route.history).await?;
+        fixture.drive(None).await?;
+        let mut cells = vec![
+            history(&route, "queued-trigger")?,
+            history(&route, "queued-a")?,
+            history(&route, "queued-b")?,
+        ];
+        if max_events == 4 {
+            cells.push(history(&route, "queued-c")?);
+        }
+        let count = cells.len();
+        // The same existing SQL producer envelope in rejections() permits all
+        // original producers. No capacity or deadline changes in the fix.
+        let limits = CellSqlLimits {
+            workers: 2,
+            queue_per_worker: 4,
+            max_pending_cells: 4,
+            group_pending_cells: 4,
+            node_bytes: 512 * 1024 * 1024,
+            group_bytes: 512 * 1024 * 1024,
+        };
+        for node in 0..3 {
+            let config = match fixture.cell_options_at(&cells[0], node).await? {
+                CellSqlOptions::Materialized(o) => CellGroupApplyImages::Materialized {
+                    images: o.images,
+                    services: o.query_services,
+                },
+                CellSqlOptions::Extents(o) => CellGroupApplyImages::Extents {
+                    images: o.images,
+                    services: o.query_services,
+                    limits: Default::default(),
+                    cache_directory: o.cache_directory,
+                    cache_pool: o.cache_pool,
+                    cache: o.cache,
+                },
+            };
+            let voter = &mut fixture.cluster.voters[node];
+            let pool = CellGroupSqlPool::start(&voter.log, limits)?;
+            let applier = CellGroupApplier::new(
+                voter.log.cell_group(&route.history)?,
+                voter.pages.take().context("page owner")?,
+                config,
+                ManifestLimits::default(),
+                GroupEntryLimits::default(),
+                100,
+            )?;
+            fixture.appliers.insert((node, route.history), (pool, applier));
+        }
+        let pool = fixture.appliers[&(0, route.history)].0.clone();
+        let callbacks = Arc::new(AtomicUsize::new(0));
+        let mut prepared = Vec::new();
+        for (n, cell) in cells.iter().enumerate() {
+            let authority = fixture.runtimes[0]
+                .enrollment_authority(route.history, cell.clone())
+                .await?;
+            let count = callbacks.clone();
+            let tag = 191 + u8::try_from(n)?;
+            let CellSqlOutcome::Prepared(command) = pool
+                .initialize(
+                    fixture.cell_options(cell).await?,
+                    authority,
+                    CellEnrollmentAttempt {
+                        creation: ProposalId::new([tag; 16])?,
+                        preview: ImageId::new([tag; 16])?,
+                        inputs: cellar::storage::CommandInputs {
+                            now_unix_millis: 10,
+                            random: [17; 32],
+                        },
+                    },
+                    move |tx| {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        tx.execute_batch("CREATE TABLE value(n); INSERT INTO value VALUES (0);")?;
+                        Ok(())
+                    },
+                )
+                .await?
+            else {
+                anyhow::bail!("new queued enrollment")
+            };
+            pool.mark_submitted(cell.clone(), command.proposal()).await?;
+            prepared.push(command);
+        }
+        let log = &fixture.cluster.voters[0].log;
+        let group = log.cell_group(&route.history)?;
+        let before = log.performance_snapshot();
+        let gate = fixture.cluster.voters[0].gate.clone();
+        held_sync = Some(gate.arm(fault::HOLD_SYNC));
+        let first = accepted_sql(&fixture.runtimes[0], &prepared[0]).await?;
+        tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+        let runtime = &fixture.runtimes[0];
+        let mut requests: Vec<BoxFuture<'_, Result<Option<CellGroupProposal>>>> = Vec::new();
+        requests.push(async { accepted_sql(runtime, &prepared[1]).await.map(Some) }.boxed());
+        if read_between {
+            requests.push(
+                async {
+                    runtime.read_index(route.history, vec![77]).await?;
+                    Ok(None)
+                }
+                .boxed(),
+            );
+        }
+        for command in &prepared[2..] {
+            requests.push(async move { accepted_sql(runtime, command).await.map(Some) }.boxed());
+        }
+        let mut queued = Box::pin(futures_util::future::join_all(requests));
+        assert!(tokio::time::timeout(Duration::from_millis(30), queued.as_mut()).await.is_err());
+        assert_eq!(runtime.usage().ordinary.items, count - 1 + usize::from(read_between));
+        assert_eq!(group.group_manifest()?.context("selected group")?.root().cells(), 0);
+        assert_eq!(pool.usage()?.active_cells, count);
+        assert!(prepared.iter().all(|command| command.rejection().unwrap().is_none()));
+        drop(held_sync.take());
+        let mut accepted = vec![first];
+        let responses = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                cellar::asyncrt::select! {
+                    responses = queued.as_mut() => break Ok::<_, anyhow::Error>(responses),
+                    event = fixture.events[0].recv() => {
+                        let event = event.context("leader event stream")?;
+                        let CellGroupEffect::Message(message) = event.effect()
+                            .map_err(|error| anyhow::anyhow!(error.to_string()))? else {
+                            anyhow::bail!("unexpected event before peer delivery")
+                        };
+                        // Release finite output admission without delivering any
+                        // frame or losing it. The normal pump forwards it later.
+                        fixture.network.push_back((route.history, message.clone()));
+                    }
+                }
+            }
+        }).await??;
+        drop(queued);
+        for response in responses {
+            if let Some(proposal) = response? {
+                accepted.push(proposal);
+            }
+        }
+        for pair in accepted.windows(2) {
+            assert_eq!(pair[0].position.index.get() + 1, pair[1].position.index.get());
+        }
+        let last = accepted.last().context("last admission")?.position.index;
+        // Do not deliver any peer messages yet: only the admitted entries
+        // can contribute to this persistence delta, with no apply/commit noise.
+        let after = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let sample = log.performance_snapshot();
+                let op = sample.operations.iter().find(|op| op.name == "engine_persist").unwrap();
+                if group.last_index()? == last.get() && op.started == op.succeeded {
+                    break Ok::<_, anyhow::Error>(sample);
+                }
+                tokio::task::yield_now().await;
+            }
+        }).await??;
+        assert!(before.available && after.available && !before.saturated && !after.saturated);
+        assert_eq!(before.source, after.source);
+        let entries = |sample: &RaftPerformanceSnapshot| sample.counters.iter()
+            .find(|counter| counter.name == "engine_persist_entries").unwrap().value;
+        let batches = |sample: &RaftPerformanceSnapshot| sample.operations.iter()
+            .find(|op| op.name == "engine_persist").unwrap().succeeded;
+        let entry_delta = entries(&after) - entries(&before);
+        let batch_delta = batches(&after) - batches(&before);
+        assert_eq!(entry_delta, count as u64);
+        fixture.drive(Some(last)).await?;
+        for ((cell, command), proposal) in cells.iter().zip(prepared).zip(&accepted) {
+            let record = super::enrollment::resolved(&fixture, &pool, 0, cell, command.proposal()).await?;
+            assert_eq!(record.record().creation(), command.proposal());
+            assert_eq!(record.record().cell(), cell);
+            assert_eq!(record.durability(), Durability::Quorum);
+            drop(record);
+            let replay = accepted_sql(&fixture.runtimes[0], &command).await?;
+            assert_eq!(replay.position, proposal.position);
+            assert_eq!(replay.digest, proposal.digest);
+            assert!(command.rejection()?.is_none());
+            let creation = command.proposal();
+            drop(command);
+            for node in 0..3 {
+                let state = fixture.runtimes[node].enrollment_state(route.history, cell.clone()).await?;
+                assert_eq!(state.record().context("replicated creation")?.creation(), creation);
+                let authority = super::reads::selected(&mut fixture, node, cell, CellReadConsistency::Stale).await?;
+                let output = fixture.appliers[&(node, route.history)].0.query(
+                    fixture.cell_options_at(cell, node).await?, authority, |db, version| {
+                        assert_eq!(version.sequence.get(), 1);
+                        let value: i64 = db.query_row("SELECT n FROM value", [], |row| row.get(0))?;
+                        assert_eq!(value, 0);
+                        Ok(value.to_le_bytes().to_vec())
+                    }).await?;
+                drop(output);
+            }
+        }
+        assert_eq!(callbacks.load(Ordering::SeqCst), count);
+        assert_eq!(pool.usage()?.active_cells, 0);
+        assert_eq!(pool.usage()?.retained_operations, 0);
+        assert_eq!(pool.usage()?.retained_bytes, 0);
+        eprintln!("queued submission observations: rooted={rooted} read_between={read_between} entries={entry_delta} batches={batch_delta} callbacks={count} replicated_cells={count}");
+        Ok::<_, anyhow::Error>(batch_delta)
+    }).catch_unwind().await;
+    drop(held_sync.take());
+    let closed = fixture.close().await;
+    let batches = match checked {
+        Ok(result) => result?,
+        Err(panic) => std::panic::resume_unwind(panic),
+    };
+    closed?;
+    // All correctness checks and joined shutdown precede the performance oracle.
+    assert_eq!(
+        batches,
+        if read_between || max_events == 4 {
+            3
+        } else {
+            2
+        },
+        "adjacent prepared submissions must share Ready persistence without crossing a queued read"
+    );
+    Ok(())
+}
 
 async fn initial(
     fixture: &RuntimeCluster,

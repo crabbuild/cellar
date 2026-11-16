@@ -31,6 +31,62 @@ Implementation starts from `d0c2873f` (the shared cell-group runtime merged into
 execution, archive/lifecycle ownership and persistence work. None of OPT-01
 through OPT-08 is accepted as complete by this record.
 
+### Queued prepared submissions
+
+Compiler input `816bcded` collects adjacent prepared submissions already queued
+under ordinary/group request admission before polling Raft Ready. The existing
+32-item group envelope and byte limits remain. Every producer still enters
+`owner.submit` independently; the collector stops at a different request, a
+refusal/error, or insufficient conservative event/Ready headroom. The estimate
+includes buffered entries/messages and a possible append or snapshot per current
+peer. There is no fill timer, new worker, larger bank or deadline change. Protocol
+acceptance remains distinct from committed application and required S3 coverage.
+
+The actual SQL producer/runtime/apply regression uses three persisted voters in
+both image forms. It holds the first real engine sync, queues the original
+later futures, and measures leader proposal persistence before delivering peer
+frames. Three entries require three calls before the change and two afterward.
+With four event slots, four entries require four calls before and three after;
+an intervening ReadIndex retains three calls in both versions. All correctness
+checks and joined shutdown precede the counter assertion. Eight final before
+invocations fail only that assertion; the read-order control passes. Identical
+fixture bytes pass all ten after invocations, including two read controls that
+each cover both image forms. Every voter retains the original creation and SQL
+value/version; exact accepted positions/digests replay without another initializer.
+The fixture also verifies zero retained producer operation/byte credits after
+output release.
+
+The full default core (1,233 passes), execution (213), storage (23), archive
+controller (46) and archive (40) suites pass, with their existing ignores. Eight
+selected native/Axum SQL/KV/Queue cases also pass, including Queue claim/lease
+proof, callbacks, cross-deployment faults and four in-flight deliveries. The full
+measuring tool passes 26 tests. Two subsequent exact rooted-128 repeats (129
+cells across two RF3 groups) use the same executable and original budgets:
+enrollment takes 22.138 and 53.210 seconds
+under the unchanged 60-second limit. Their leader work counts match despite the
+wide timing variation. These passes do not attribute a sequential enrollment
+latency repair to proposal batching or erase earlier source-specific failures.
+Strict affected-target Clippy, formatting/layout, dependency, documentation and
+all 44 design checks pass. The
+[qualification record](prepared-submission-batching-qualification-2026-11-16.json)
+pins source inputs, unchanged fixtures, executable/profile hashes, earlier build
+failures and copied, verified data from 43 retained fixture directories.
+
+This is an avoided-work result for leader proposal persistence; later
+commit/apply writes remain. It establishes no hardware flush count or matched
+SQL/KV/Queue throughput/percentile gain. Ordered apply/image publication,
+producer cleanup, transport batching and sustained fairness remain work.
+The original RustFS `/data` filesystem still has zero available bytes against
+the unchanged 6 GiB reserve, so no current-source constrained campaign ran.
+On the published parent `f979d7a66`, all four Typed RPC jobs pass, but three SDK
+disaster cases fail in both Python modes, the recovery-barrier case also fails
+in 3.14, and Node package delivery exceeds its original 250 ms handler budget.
+Those hosted observations belong to that parent source; they are not candidate
+SDK qualification. Full SDK/feature/daemon, primitive, fault, movement/wake,
+independent-domain and CG/OPT release gates remain open.
+
+### Earlier component checkpoints
+
 The explicit SQL read path uses `Database::prepare_read_only` and the existing
 linearizable pinned-image reader. It preserves source-write proof admission,
 refuses cold targets without enrollment, and keeps writable prepared statements

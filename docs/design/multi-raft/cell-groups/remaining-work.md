@@ -36,6 +36,50 @@ full disaster profile remain open.
 
 ## Current constrained performance priorities
 
+The latest [native batching checkpoint](prepared-submission-batching-qualification-2026-11-16.json)
+at compiler input `816bcded` passes core, execution, storage, archive/controller,
+eight selected public SQL/KV/Queue cases, strict affected-target Clippy and the
+full 26-test measuring tool. Both image forms reduce leader proposal persists
+for an already queued prefix within the existing limits, preserving owner
+admission and read order. Two additional rooted-128 invocations pass their
+original 60-second enrollment limit at 22.138 and 53.210 seconds. The variation
+and unchanged work counts do not establish a causal latency repair. This native
+checkpoint does not replace the constrained matrix below.
+
+The next priorities are:
+
+1. **Close the SDK correctness/qualification failures.** On parent `f979d7a66`,
+   `disaster_outbox_ambiguity_refuses`, `disaster_retry_and_old_token_refusal`
+   and `transition_disaster_selects_complete_closure` fail in both Python
+   modes; the managed recovery-barrier case also fails in 3.14. The separate
+   Node package compatibility/restart case exceeds its original 250 ms handler
+   budget, although shutdown joins. Preserve new failed data before reproducing
+   it: that existing Node fixture currently auto-cleans its temporary directory.
+   All four parent Typed RPC jobs pass; this does not accept the full SDK gate
+   or qualify the later batching source. Keep original deadlines, identities,
+   fencing and recovery refusal behavior.
+2. **Continue measured worker and physical-lifetime optimization.** Proposal
+   collection is one stage. Profile ordered apply/image publication, producer
+   cleanup and transport batching under unchanged banks; qualify actual prepared
+   cohorts across hot/cold groups, cancellation, faults and sustained load.
+   Physical work must retain its charge through completion, and later entries
+   cannot bypass the contiguous applied prefix. Retain the original-budget
+   rooted-128 checks and their failed history alongside controlled load repeats.
+3. **Run the requested complete constrained comparison.** Build matching Linux
+   binaries from the qualified source and compare SQL/KV/Queue in all four
+   durability modes on the original three 1 vCPU / 2 GiB nodes, RF3, three groups,
+   original entities/payloads and concurrency/repetition schedule. The exact
+   RustFS `/data` named volume still reports zero available bytes, below the
+   unchanged 6 GiB reserve. The existing capacity proposal remains unapproved;
+   no VM/disk/resource changes, deletion or reserve relaxation were performed.
+   Native persistence counts cannot substitute for error-free paired throughput
+   and p50/p95/p99 measurements.
+4. **Finish combined release qualification.** Complete physical reclamation and
+   repeated reserve-aware movement, authority/read partitions, crash/recovery,
+   wake, full primitive/SDK/feature/daemon and independent failure-domain cases.
+   Keep OPT-01–08 and the remaining CG task gates open until their complete
+   named matrices pass on one source.
+
 The [main-170 matrix](three-node-primitive-main-170-2026-11-15.md) uses main
 `16c45b26`, public commit `1d663425` and compiler input `362f78db`. All twelve
 SQL/KV/Queue mode cases finish on the original three 1 vCPU / 2 GiB nodes and

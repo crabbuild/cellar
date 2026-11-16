@@ -3,12 +3,14 @@
 //! Fair group turns, node-wide persistence batches and joined shutdown.
 
 use super::{park_deadlines::ParkDeadlines, *};
+use crate::raft::execution::{CellPreparedCommand, CellSubmissionOutcome};
 use crate::raft::storage::{LogError, SyncReceipt};
 use cellar_logic::consensus::OperationId;
 use futures_util::future::BoxFuture;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const PARK_WAKE_BATCH: usize = 32;
+const GROUP_REQUEST_BATCH: usize = 32;
 
 fn wakes_parked_peer(message: &::raft::prelude::Message, term: u64) -> bool {
     use ::raft::prelude::MessageType::*;
@@ -70,6 +72,51 @@ impl Group {
                 matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
             })
             .map_or(0, |position| position + 1);
+    }
+
+    fn submit_queued(&mut self, prepared: CellPreparedCommand) -> Result<Response, RuntimeError> {
+        let result = self.owner.submit(prepared).map(Response::Submission);
+        if !matches!(
+            &result,
+            Ok(Response::Submission(CellSubmissionOutcome::Accepted(_)))
+        ) {
+            return result;
+        }
+        // Collect only the already admitted adjacent prefix, within the same
+        // item/byte envelope as reads. Do not wait for arrivals or cross a read,
+        // peer step or control request. Every producer still enters the owner
+        // independently, retaining its identity, capacity and refusal checks.
+        for _ in 1..GROUP_REQUEST_BATCH {
+            if !self.deferred.front().is_some_and(|request| {
+                matches!(&request.command, Command::Submit(prepared, _)
+                        if self.owner.can_batch_submission(prepared.bytes().len()))
+            }) {
+                break;
+            }
+            let Request {
+                command: Command::Submit(prepared, retained),
+                reply,
+                _permit,
+                inbound,
+                ..
+            } = self.pop_deferred().expect("queued submission")
+            else {
+                unreachable!("checked queued submission");
+            };
+            let submitted = self.owner.submit(prepared).map(Response::Submission);
+            let accepted = matches!(
+                &submitted,
+                Ok(Response::Submission(CellSubmissionOutcome::Accepted(_)))
+            );
+            drop(retained);
+            drop(_permit);
+            drop(inbound);
+            let _ = reply.send(submitted);
+            if !accepted {
+                break;
+            }
+        }
+        result
     }
 
     fn wake(&mut self, history: GroupHistory, order: &mut VecDeque<GroupHistory>) {
@@ -287,7 +334,7 @@ impl Worker {
                 snapshot_hints: BTreeMap::new(),
                 inbound: Budget::new(
                     (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
-                    (self.options.max_requests / 8).clamp(1, 32),
+                    (self.options.max_requests / 8).clamp(1, GROUP_REQUEST_BATCH),
                 ),
                 tick: false,
                 wake_due: false,
@@ -793,7 +840,7 @@ impl Worker {
                                         // Preserve queue order and the existing
                                         // 32-item group envelope. Adjacent reads
                                         // can be collected in the same turn.
-                                        for _ in 1..32 {
+                                        for _ in 1..GROUP_REQUEST_BATCH {
                                             if !group.deferred.front().is_some_and(|request| {
                                                 matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
                                             }) {
@@ -926,7 +973,7 @@ impl Worker {
                                     .propose_at_term(term, data)
                                     .map(Response::Proposal),
                                 Command::Submit(prepared, _retained) => {
-                                    group.owner.submit(prepared).map(Response::Submission)
+                                    group.submit_queued(prepared)
                                 }
                                 Command::Unreachable(member) => group
                                     .owner

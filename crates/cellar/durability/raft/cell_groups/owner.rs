@@ -1990,6 +1990,61 @@ impl CellGroupOwner {
             .ok_or(RuntimeError::Overloaded)
     }
 
+    /// Conservative scheduling allowance, never proposal admission. A proposal
+    /// broadcasts at most one append/snapshot per current peer. Reserve their
+    /// maximum size, existing buffered work and committed-entry Ready overhead
+    /// before collecting another producer; otherwise flush the current Ready.
+    pub(super) fn can_batch_submission(&self, bytes: usize) -> bool {
+        if self.phase.is_some()
+            || self.checkpoint.is_some()
+            || self.waiting.is_some()
+            || !self.effects.is_empty()
+        {
+            return false;
+        }
+        let Ok(cache) = self.group.read() else {
+            return false;
+        };
+        let message_bound = self
+            .options
+            .max_message_bytes
+            .max(cache.snapshot.compute_size() as usize)
+            .saturating_add(4096);
+        drop(cache);
+        let peers = self.node.raft.prs().iter().count().saturating_sub(1);
+        let messages = &self.node.raft.msgs;
+        let message_bytes = messages.iter().fold(0usize, |size, message| {
+            size.saturating_add(message.compute_size() as usize + 128)
+        });
+        let message_bytes = message_bytes.saturating_add(peers.saturating_mul(message_bound));
+        let entries = self
+            .node
+            .raft
+            .raft_log
+            .unstable_entries()
+            .iter()
+            .fold(bytes.saturating_add(4096), |size, entry| {
+                size.saturating_add(entry.compute_size() as usize + 128)
+            });
+        let reads = self
+            .node
+            .raft
+            .read_states
+            .iter()
+            .fold(0usize, |size, read| {
+                size.saturating_add(read.request_ctx.len() + 128)
+            });
+        // The committed-entry soft limit also permits one oversize entry.
+        let ready = entries
+            .saturating_add(message_bytes)
+            .saturating_add(reads)
+            .saturating_add(self.options.max_message_bytes.saturating_mul(2))
+            .saturating_add(4096);
+        messages.len().saturating_add(peers) <= self.options.max_events
+            && message_bytes <= self.options.max_event_bytes
+            && ready <= self.options.max_ready_bytes
+    }
+
     /// Seals a definitively refused preparation against every delayed clone.
     /// Queue admission errors never manufacture a rejection proof.
     pub fn submit(

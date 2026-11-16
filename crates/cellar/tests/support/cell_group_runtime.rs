@@ -1018,6 +1018,14 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     sql::submission_rejections(rooted).await
 }
 
+pub(super) async fn queued_submissions(rooted: bool, read_between: bool) -> Result<()> {
+    sql::queued_submissions(rooted, read_between).await
+}
+
+pub(super) async fn bounded_queued_submissions(rooted: bool) -> Result<()> {
+    sql::bounded_queued_submissions(rooted).await
+}
+
 pub(super) use sql::{
     coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable, query_lifecycle,
     recent_source_reads,

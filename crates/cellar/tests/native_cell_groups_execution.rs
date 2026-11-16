@@ -515,6 +515,34 @@ async fn rooted_sql_submission_rejection_seals_delayed_retries() -> Result<()> {
     runtime_fixture::submission_rejections(true).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn queued_sql_submissions_share_ready_persistence() -> Result<()> {
+    runtime_fixture::queued_submissions(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_queued_sql_submissions_share_ready_persistence() -> Result<()> {
+    runtime_fixture::queued_submissions(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn queued_sql_submissions_preserve_intervening_read() -> Result<()> {
+    for rooted in [false, true] {
+        runtime_fixture::queued_submissions(rooted, true).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn queued_sql_submissions_respect_event_capacity() -> Result<()> {
+    runtime_fixture::bounded_queued_submissions(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_queued_sql_submissions_respect_event_capacity() -> Result<()> {
+    runtime_fixture::bounded_queued_submissions(true).await
+}
+
 #[path = "support/cell_group_admission.rs"]
 mod admission_fixture;
 
