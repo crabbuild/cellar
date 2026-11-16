@@ -31,7 +31,10 @@ impl Cell for Bound {
                     .get_by_name("target")
                     .rpc(&context, "Child", RpcData::Json("[]".into()))
                     .await?;
-                let value = cellar::application::decode_rpc_result(&reply)?.to_json()?;
+                let RpcData::Json(reply) = reply else {
+                    anyhow::bail!("JSON child reply required");
+                };
+                let value: serde_json::Value = serde_json::from_str(&reply)?;
                 self.storage.put_json("value", &value)?;
                 value
             } else {
@@ -104,8 +107,14 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     let mut fixture = Fixture::with_definition_policies(
         rooted,
         vec![
-            (application.resolve_raft_class("Parent")?, Durability::Quorum),
-            (application.resolve_raft_class("Counter")?, Durability::Quorum),
+            (
+                application.resolve_raft_class("Parent")?,
+                Durability::Quorum,
+            ),
+            (
+                application.resolve_raft_class("Counter")?,
+                Durability::Quorum,
+            ),
         ],
         application,
         store.clone(),
@@ -255,11 +264,8 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             .await;
             observed?;
             let reply = reply?;
-            ensure!(
-                reply.id == options.id
-                    && reply.result == b"1"
-                    && reply.durability == Durability::Quorum
-            );
+            ensure!(reply.id == options.id && reply.durability == Durability::Quorum);
+            ensure!(reply.result == b"1", "parent reply: {:?}", reply.result);
             let replay = source
                 .command(&source.contract("Run")?, b"[]".to_vec(), options)
                 .await?;
