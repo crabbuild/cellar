@@ -99,17 +99,7 @@ impl Suspended {
             CommandFailure::UnsupportedCapability,
         ))?;
         let executor = self.executor.as_mut().ok_or_else(unavailable)?;
-        eprintln!(
-            "DEBUG-cg17-consume-705 t={:?} checkpoint_start cell={}",
-            domain.mono_ms(),
-            self.cell.cell.as_str()
-        );
         let prepared = executor.stage_rpc_checkpoint(&mut self.turn)?;
-        eprintln!(
-            "DEBUG-cg17-consume-705 t={:?} checkpoint_staged cell={}",
-            domain.mono_ms(),
-            self.cell.cell.as_str()
-        );
         let expected = executor.rpc_checkpoint_version()?;
         executor.mark_submitted(prepared.proposal())?;
         let phase = CheckpointPhase::Applying(Box::pin(wait_checkpoint(
@@ -166,11 +156,6 @@ impl Suspended {
                         .finish_rpc_checkpoint(*execution, *proof)
                     {
                         Ok(receipt) => {
-                            eprintln!(
-                                "DEBUG-cg17-consume-705 t={:?} checkpoint_applied cell={}",
-                                domain.mono_ms(),
-                                self.cell.cell.as_str()
-                            );
                             self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
                             if receipt.receipt.minimum_durability()
                                 == cellar_logic::consensus::Durability::S3
@@ -245,11 +230,6 @@ impl Suspended {
             .as_mut()
             .ok_or_else(unavailable)?
             .continue_rpc_checkpoint(&mut self.turn)?;
-        eprintln!(
-            "DEBUG-cg17-consume-705 t={:?} checkpoint_continued cell={}",
-            domain.mono_ms(),
-            self.cell.cell.as_str()
-        );
         let _ = checkpoint.reply.send(Ok(()));
         self.ready.0.store(true, Ordering::Release);
         Poll::Ready(Ok(()))
@@ -440,13 +420,6 @@ impl Cells {
         result: anyhow::Result<Vec<u8>>,
         now: u64,
     ) -> bool {
-        eprintln!(
-            "DEBUG-cg17-consume-705 t={} finish_suspended cell={} success={} error={:?}",
-            crate::asyncrt::mono_ms(),
-            rpc.cell.cell.as_str(),
-            result.is_ok(),
-            result.as_ref().err()
-        );
         let outcome = match rpc.executor.take() {
             Some(mut executor) => {
                 let failed_callback = result.as_ref().err().is_some_and(|error| {

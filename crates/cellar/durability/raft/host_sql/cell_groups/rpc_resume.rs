@@ -17,11 +17,6 @@ impl Suspended {
         if !self.retention.lease.contended() && self.turn.waiting_on_owned_io() {
             return Ok(());
         }
-        eprintln!(
-            "DEBUG-cg17-consume-705 t={} park_start cell={}",
-            crate::asyncrt::mono_ms(),
-            self.cell.cell.as_str()
-        );
         let mut executor = self.executor.take().ok_or_else(unavailable)?;
         let fence = executor.rpc_activation_fence();
         if let Err(error) = executor.park_rpc(&mut self.turn) {
@@ -90,11 +85,6 @@ impl Suspended {
             return Poll::Ready(Err(unavailable()));
         }
         self.activation = Some(activation);
-        eprintln!(
-            "DEBUG-cg17-consume-705 t={} resume_open cell={}",
-            crate::asyncrt::mono_ms(),
-            self.cell.cell.as_str()
-        );
         let executor = self.options.clone().open(authority)?;
         self.executor = Some(executor);
         // Recheck the original unfinished receipt in the latest image. Neither
@@ -103,11 +93,6 @@ impl Suspended {
             .as_mut()
             .ok_or_else(unavailable)?
             .resume_rpc(&mut self.turn)?;
-        eprintln!(
-            "DEBUG-cg17-consume-705 t={} resume_ready cell={}",
-            crate::asyncrt::mono_ms(),
-            self.cell.cell.as_str()
-        );
         Poll::Ready(Ok(()))
     }
 }

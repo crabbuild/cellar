@@ -84,3 +84,107 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
     work?;
     cleanup
 }
+
+pub(crate) async fn foreign_ticket() -> Result<()> {
+    let mut cluster = Cluster::new().await?;
+    let work = async {
+        cluster.elect().await?;
+        let route = cluster.birth.route().clone();
+        let cell = history(&route, "commit-ticket")?;
+        let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(1);")?;
+        let cut = images::Cut::new(&[], &bytes, 0, true, false);
+        for voter in &mut cluster.voters {
+            voter.paused = true;
+        }
+        cluster.voters[0]
+            .owner
+            .as_mut()
+            .context("owner")?
+            .propose(request(&route, cell, 1, &cut)?)?;
+        cluster.drive(false).await?;
+        let original = cluster.voters[0]
+            .held
+            .as_ref()
+            .context("local apply")?
+            .clone();
+        let mut foreign = original.clone();
+        foreign.ticket = cluster.voters[1]
+            .held
+            .as_ref()
+            .context("peer apply")?
+            .ticket
+            .clone();
+        let voter = &mut cluster.voters[0];
+        let group = voter.log.cell_group(&route.history)?;
+        anyhow::ensure!(
+            group.initial_state()?.hard_state.commit < original.entry.index,
+            "foreign ticket control did not enter deferred-commit preparation"
+        );
+        let pool = CellGroupSqlPool::start(
+            &voter.log,
+            CellSqlLimits {
+                workers: 1,
+                queue_per_worker: 1,
+                max_pending_cells: 1,
+                group_pending_cells: 1,
+                node_bytes: 1024 * 1024 * 1024,
+                group_bytes: 512 * 1024 * 1024,
+            },
+        )?;
+        let applier = CellGroupApplier::new(
+            group,
+            voter.pages.take().context("pages")?,
+            CellGroupApplyImages::Materialized {
+                images: voter.images.clone(),
+                services: cellar_ltx::generation::ReadServices {
+                    now_unix_millis: Arc::new(|| 10),
+                    fill_random: Arc::new(|bytes| bytes.fill(17)),
+                },
+            },
+            ManifestLimits::default(),
+            GroupEntryLimits::default(),
+            100,
+        )?;
+        let result = async {
+            anyhow::ensure!(
+                matches!(
+                    pool.prepare_apply(&applier, foreign).await,
+                    Err(ExecutionError::Invalid("group apply committed base"))
+                ),
+                "another engine's ticket authorized deferred-commit preparation"
+            );
+            let prepared = pool.prepare_apply(&applier, original).await?;
+            anyhow::ensure!(
+                prepared.manifest().position().index.get() > applier_group_commit(voter, &route)?
+            );
+            drop(prepared);
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        let cleanup = pool.close().await;
+        drop(applier);
+        result?;
+        cleanup?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if work.is_err() {
+        let root = std::mem::replace(&mut cluster._root, tempfile::tempdir()?);
+        eprintln!(
+            "retained foreign commit ticket disk: {}",
+            root.keep().display()
+        );
+    }
+    let cleanup = cluster.close().await;
+    work?;
+    cleanup
+}
+
+fn applier_group_commit(voter: &Voter, route: &GroupRoute) -> Result<u64> {
+    Ok(voter
+        .log
+        .cell_group(&route.history)?
+        .initial_state()?
+        .hard_state
+        .commit)
+}

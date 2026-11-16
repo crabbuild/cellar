@@ -190,7 +190,7 @@ impl CellGroupApplier {
         }
         let cache = self.group.read().map_err(storage)?;
         if cache.group_manifest.as_ref() != Some(work.base.marker())
-            || cache.hard_state.commit < work.entry.index
+            || !work.ticket.covers_committed_entry(&self.group, &cache)
             || cache.entries.get(&work.entry.index) != Some(&work.entry)
             || !cache.membership.permits_group(self.group.identity())
         {

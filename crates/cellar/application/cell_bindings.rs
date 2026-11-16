@@ -687,14 +687,6 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
-    eprintln!(
-        "DEBUG-cg17-consume-705 t={} binding_enter source={} target={} sequence={} remaining={:?}",
-        crate::asyncrt::mono_ms(),
-        source.history.cell.as_str(),
-        intent.route.cell.as_str(),
-        intent.child.sequence(),
-        dispatch.remaining_timeout()
-    );
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -780,7 +772,6 @@ async fn run(
     options.durability = intent.route.durability;
     let result = loop {
         options.timeout = dispatch.remaining_timeout()?;
-        eprintln!("DEBUG-cg17-consume-705 t={} child_start source={} target={} sequence={} remaining={:?}", crate::asyncrt::mono_ms(), source.history.cell.as_str(), intent.route.cell.as_str(), intent.child.sequence(), dispatch.remaining_timeout());
         let result = source
             .host
             .command(
@@ -813,7 +804,6 @@ async fn run(
         // child identity and input and consume the original deadline.
         dispatch.wait_admission().await?;
     };
-    eprintln!("DEBUG-cg17-consume-705 t={} child_reply source={} target={} sequence={} success={} remaining={:?}", crate::asyncrt::mono_ms(), source.history.cell.as_str(), intent.route.cell.as_str(), intent.child.sequence(), result.is_ok(), dispatch.remaining_timeout());
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -824,13 +814,6 @@ async fn run(
             );
             io.resume_writer().await?;
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
-            eprintln!(
-                "DEBUG-cg17-consume-705 t={} child_completed source={} sequence={} remaining={:?}",
-                crate::asyncrt::mono_ms(),
-                source.history.cell.as_str(),
-                intent.child.sequence(),
-                dispatch.remaining_timeout()
-            );
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
             // A crash before either retains the original unresolved intent.

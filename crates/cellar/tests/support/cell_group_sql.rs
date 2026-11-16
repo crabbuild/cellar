@@ -512,6 +512,7 @@ pub(crate) use apply::committed_apply_reuses_verified_preview;
 
 #[path = "cell_group_commit_publication.rs"]
 mod commit_publication;
+pub(crate) use commit_publication::foreign_ticket as foreign_commit_ticket;
 pub(crate) use commit_publication::run as commit_metadata_publication;
 
 #[path = "cell_group_prepared_apply.rs"]

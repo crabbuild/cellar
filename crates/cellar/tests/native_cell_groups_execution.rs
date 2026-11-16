@@ -52,6 +52,11 @@ async fn rooted_commit_metadata_joins_applied_root_publication() -> Result<()> {
     Box::pin(runtime_fixture::commit_metadata_publication(true)).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn deferred_commit_ticket_refuses_another_replica_engine() -> Result<()> {
+    Box::pin(runtime_fixture::foreign_commit_ticket()).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn background_sql_admits_one_pending_command() -> Result<()> {
     Box::pin(runtime_fixture::background_admission(false)).await

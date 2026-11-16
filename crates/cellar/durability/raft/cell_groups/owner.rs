@@ -50,6 +50,10 @@ pub struct CellGroupTicket {
     sequence: u64,
     position: LogPosition,
     digest: [u8; 32],
+    // A live owner can prepare an already durable log entry before its
+    // commit-only metadata joins the applied-root sync. This is not serving
+    // authority and is never restored from disk or accepted from a peer.
+    pending_commit: Option<HardState>,
     pub(super) admission: Option<Arc<crate::raft::budget::Permit>>,
     pub(crate) preparation: Option<Arc<crate::raft::budget::Permit>>,
     pub(crate) prepared_image: Option<Arc<crate::raft::execution::CellPreparedImage>>,
@@ -69,6 +73,23 @@ impl CellGroupTicket {
             && self.sequence == other.sequence
             && self.position == other.position
             && self.digest == other.digest
+            && self.pending_commit == other.pending_commit
+    }
+
+    pub(super) fn covers_committed_entry(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        cache: &crate::raft::cache::CachedGroup,
+    ) -> bool {
+        cache.hard_state.commit >= self.position.index.get()
+            || (Arc::ptr_eq(&self.lease.0, &group.consensus_claimed)
+                && self.lease.0.load(Ordering::Acquire)
+                && self.pending_commit.as_ref().is_some_and(|hard| {
+                    hard.term == cache.hard_state.term
+                        && hard.vote == cache.hard_state.vote
+                        && hard.commit >= self.position.index.get()
+                        && hard.commit <= cache.last_index()
+                }))
     }
 }
 
@@ -265,6 +286,9 @@ pub struct CellGroupOwner {
     options: RaftRuntimeOptions,
     phase: Option<Phase>,
     waiting: Option<CellGroupTicket>,
+    // Only commit advances over already synced entries may wait for the next
+    // real persistence batch. Term/vote, entries and snapshots still sync first.
+    deferred_commit: Option<HardState>,
     effects: VecDeque<CellGroupEffect>,
     deliveries: Vec<Weak<crate::raft::budget::Permit>>,
     configuration_fence: Option<ConfigurationFence>,
@@ -401,6 +425,7 @@ impl CellGroupOwner {
             options,
             phase: None,
             waiting: None,
+            deferred_commit: None,
             effects: VecDeque::new(),
             deliveries: Vec::new(),
             configuration_fence: None,
@@ -921,7 +946,13 @@ impl CellGroupOwner {
             term: Term::new(self.node.raft.term),
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
-            committed: LogIndex::new(cache.hard_state.commit),
+            committed: LogIndex::new(
+                self.node
+                    .raft
+                    .raft_log
+                    .committed
+                    .max(cache.hard_state.commit),
+            ),
             ready: !self.managed_recovery_fenced
                 && !self.park_fenced()
                 && self.pending_seal.is_none()
@@ -1083,6 +1114,7 @@ impl CellGroupOwner {
 
     fn protocol_ready(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
         self.phase.is_none()
+            && self.deferred_commit.is_none()
             && self.checkpoint.is_none()
             && self.apply_bytes < self.options.max_group_apply_bytes
             && self.selected_leader(cache)
@@ -2551,6 +2583,11 @@ impl CellGroupOwner {
         }
         self.last_sync = completed.sequence;
         self.waiting = None;
+        if let Some(commit) = &self.deferred_commit {
+            if self.group.initial_state()?.hard_state.commit >= commit.commit {
+                self.deferred_commit = None;
+            }
+        }
         Ok(())
     }
 
@@ -2705,6 +2742,7 @@ impl CellGroupOwner {
             sequence: self.next_ticket,
             position,
             digest,
+            pending_commit: None,
             admission: None,
             preparation: None,
             prepared_image: None,
@@ -2723,6 +2761,15 @@ impl CellGroupOwner {
         &mut self,
         mut write: GroupWrite<GroupHistory>,
     ) -> Result<Box<CellGroupPersist>, RuntimeError> {
+        if let Some(commit) = &self.deferred_commit {
+            match &write.hard_state {
+                Some(hard) if hard.commit < commit.commit => {
+                    return Err(RuntimeError::Protocol("deferred commit regression".into()));
+                }
+                Some(_) => (),
+                None => write.hard_state = Some(commit.clone()),
+            }
+        }
         let ticket = self.ticket(LogPosition::default(), [0; 32])?;
         write.log_reservations = self.log_admission.persistence(&write.entries)?;
         write.consensus_pin = Some(self.lease.clone());
@@ -2749,7 +2796,7 @@ impl CellGroupOwner {
             .map_or(self.current.marker().position().index.get(), |pending| {
                 pending.entry.index
             });
-        let committed = self.group.initial_state()?.hard_state.commit;
+        let committed = self.node.raft.raft_log.committed;
         for entry in entries {
             if entry.index != previous + 1 || entry.index > committed {
                 return Err(RuntimeError::Protocol(
@@ -2773,6 +2820,28 @@ impl CellGroupOwner {
                 entry,
                 queued_at_ms,
             });
+        }
+        Ok(())
+    }
+
+    fn defer_commit(&mut self, hard: HardState) -> Result<(), RuntimeError> {
+        let cache = self.group.read()?;
+        if hard.term != cache.hard_state.term
+            || hard.vote != cache.hard_state.vote
+            || hard.commit < cache.hard_state.commit
+            || hard.commit > cache.last_index()
+            || hard.commit > self.node.raft.raft_log.committed
+            || self
+                .deferred_commit
+                .as_ref()
+                .is_some_and(|prior| hard.commit < prior.commit)
+        {
+            return Err(RuntimeError::Protocol(
+                "commit-only publication binding".into(),
+            ));
+        }
+        if hard.commit > cache.hard_state.commit {
+            self.deferred_commit = Some(hard);
         }
         Ok(())
     }
@@ -2945,11 +3014,9 @@ impl CellGroupOwner {
                     let commit = light.commit_index();
                     self.phase = Some(Phase::Light(light));
                     if let Some(commit) = commit {
-                        let mut write = GroupWrite::new(&self.group);
                         let mut hard = self.group.initial_state()?.hard_state;
                         hard.commit = commit;
-                        write.hard_state = Some(hard);
-                        return self.persistence(write).map(Some);
+                        self.defer_commit(hard)?;
                     }
                 }
                 Some(Phase::Light(mut light)) => {
@@ -3147,6 +3214,7 @@ impl CellGroupOwner {
                         if size > self.options.max_ready_bytes {
                             return Err(RuntimeError::Overloaded);
                         }
+                        let must_sync = ready.must_sync();
                         let changed = !ready.entries().is_empty()
                             || ready.hs().is_some()
                             || !ready.snapshot().is_empty();
@@ -3166,6 +3234,18 @@ impl CellGroupOwner {
                             Term::new(self.node.raft.term),
                         ));
                         if changed {
+                            if !must_sync {
+                                if !write.entries.is_empty() || write.snapshot.is_some() {
+                                    return Err(RuntimeError::Protocol(
+                                        "unsynced Raft payload".into(),
+                                    ));
+                                }
+                                let hard = write.hard_state.take().ok_or_else(|| {
+                                    RuntimeError::Protocol("missing commit-only hard state".into())
+                                })?;
+                                self.defer_commit(hard)?;
+                                continue;
+                            }
                             return self.persistence(write).map(Some);
                         }
                         continue;
@@ -3199,6 +3279,12 @@ impl CellGroupOwner {
                         return Ok(None);
                     };
                     let mut ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;
+                    if self.group.initial_state()?.hard_state.commit < entry.index {
+                        ticket.pending_commit =
+                            Some(self.deferred_commit.clone().ok_or_else(|| {
+                                RuntimeError::Protocol("missing deferred commit ticket".into())
+                            })?);
+                    }
                     ticket.prepared_image =
                         self.proposals.prepared_image(ticket.position, &entry.data);
                     self.applying = Some(ticket.clone());
