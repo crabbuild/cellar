@@ -546,7 +546,7 @@ async fn call_options(
 
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::event_activation=debug")
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug")
         .try_init();
     for rooted in [false, true] {
         eprintln!("EventStream RustFS={real_rustfs} extents={rooted} Axum={external}: START");
