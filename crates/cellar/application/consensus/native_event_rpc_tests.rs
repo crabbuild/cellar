@@ -206,11 +206,13 @@ async fn event_stream_enrollment_installs_declared_state_and_subscriptions_atomi
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     let result = domain.run(async {
         let mut definition = definition();
+        definition.retention = event_stream::Retention::Required;
         definition.subscriptions.push(event_stream::SubscriptionDefinition {
             name: "projection".into(),
             start: event_stream::Start::Earliest,
             required: true,
         });
+        definition.validate()?;
         let cell = CellHistory {
             cluster: ClusterId::new([1; 16])?,
             namespace: NamespaceId::new([2; 16])?,
