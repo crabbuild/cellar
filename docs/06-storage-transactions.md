@@ -35,6 +35,10 @@ database size. It carries no writer or primary-status claim. Existing
 `prepare(...).first(...)` still completes the entire statement, including
 every write in `INSERT ... RETURNING`.
 
+Direct SQL errors retain their error family. Nested RPC/query admission
+context includes its underlying cause in the message. A deadline or lost reply
+still does not establish that a mutation rolled back.
+
 Retained handles also require their original execution domain. Ordinary storage
 access and commit recheck admission even within an already-entered callback.
 Forced domain closure refuses new access and rolls back an unfinished transaction

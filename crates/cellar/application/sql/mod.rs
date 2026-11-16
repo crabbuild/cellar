@@ -30,8 +30,12 @@ use wire::{js_string, params, truthy};
 type Result<T> = std::result::Result<T, Error>;
 
 fn error(error: impl std::fmt::Display) -> Error {
-    Error::from_message(error.to_string())
+    // Keep an RPC's underlying refusal when query/admission context wraps it.
+    Error::from_message(format!("{error:#}"))
 }
+
+#[cfg(test)]
+mod error_tests;
 
 #[derive(Clone, Debug)]
 pub struct Database {

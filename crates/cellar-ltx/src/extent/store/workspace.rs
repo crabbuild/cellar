@@ -8,6 +8,11 @@ use super::*;
 const HOUSEKEEPING_BYTES: u64 = 16 * 1024 * 1024;
 const CLEANUP_BATCHES: usize = 32;
 
+enum CreationDurability {
+    Durable,
+    Disposable,
+}
+
 /// File-byte ceilings enforced by the caller's SQLite VFS and bounded capture.
 /// SHM/control files have separate conservative headroom; this is not a kernel
 /// filesystem quota or a measurement of allocated physical blocks.
@@ -87,9 +92,9 @@ impl Drop for Directory {
 
 /// A clone retains both the directory's complete reservation and the store's
 /// exclusive lock. The last pin removes files, syncs deletion, then refunds.
-/// Creation syncs the child and its parent before returning. This open store
-/// already established the parent's ancestor barriers; reopening establishes
-/// them again. This owner supplies no image or consensus authority.
+/// Directory creation follows its creator's persistence contract. The open
+/// store retains its exclusive lock and the complete reservation in either case.
+/// This owner supplies no image or consensus authority.
 /// Call only on the owning blocking domain, including dropping the last pin.
 #[derive(Clone)]
 pub struct NodeWorkspace(Arc<Directory>);
@@ -136,10 +141,38 @@ impl NodeExtentStore {
     /// Reserve the entire working image/WAL/capture bound before creating its
     /// directory. The caller must enforce these ceilings before actual writes.
     /// All directories live inside this exclusively locked node inventory.
+    /// Sync the child and owned parent before returning; this inventory's open
+    /// already established its complete ancestor barriers.
     pub fn create_workspace(
         &self,
         id: [u8; 32],
         bounds: WorkspaceBounds,
+    ) -> Result<NodeWorkspace, StoreError> {
+        self.create_workspace_with_durability(id, bounds, CreationDurability::Durable)
+    }
+
+    /// Reserve and create disposable scratch without syncing its creation.
+    /// The directory and its contents may disappear after a crash and must
+    /// never supply recovery or publication authority. Captured bytes must be
+    /// durably persisted elsewhere before acknowledgement. Reopen discards
+    /// leftover workspaces before admitting new work.
+    ///
+    /// The complete reservation and exclusive node lock remain pinned through
+    /// every physical user. Final release still removes the directory and syncs
+    /// its deletion before refunding capacity; failure quarantines the store.
+    pub fn create_disposable_workspace(
+        &self,
+        id: [u8; 32],
+        bounds: WorkspaceBounds,
+    ) -> Result<NodeWorkspace, StoreError> {
+        self.create_workspace_with_durability(id, bounds, CreationDurability::Disposable)
+    }
+
+    fn create_workspace_with_durability(
+        &self,
+        id: [u8; 32],
+        bounds: WorkspaceBounds,
+        durability: CreationDurability,
     ) -> Result<NodeWorkspace, StoreError> {
         let charge = bounds.reservation()?;
         let operation = self.begin()?;
@@ -167,16 +200,14 @@ impl NodeExtentStore {
                     Err(error) => return Err(StoreError::Io(error)),
                     Ok(_) => return Err(StoreError::Layout),
                 }
-                // Open established this inventory's complete ancestor barriers
-                // and retains its exclusive lock. This validated child name is
-                // new: persist its contents and parent entry, without walking
-                // the same durable ancestors for every disposable workspace.
                 self.inner.filesystem.create_dir_all(&path)?;
                 if !self.inner.filesystem.symlink_metadata(&path)?.is_dir {
                     return Err(StoreError::Layout);
                 }
-                self.inner.filesystem.sync_all(&path)?;
-                self.inner.filesystem.sync_all(&self.inner.directory)?;
+                if matches!(durability, CreationDurability::Durable) {
+                    self.inner.filesystem.sync_all(&path)?;
+                    self.inner.filesystem.sync_all(&self.inner.directory)?;
+                }
                 Ok(())
             })();
             if let Err(error) = created {

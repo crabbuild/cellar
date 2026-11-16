@@ -43,6 +43,26 @@ This does not establish an end-to-end speedup or close an OPT/CG release gate.
 The original constrained SQL/KV/Queue matrix and rooted-128 enrollment gap remain
 separate priorities.
 
+Rooted SQL now creates its private directory through an explicit disposable
+workspace API. The actual SQL factory regression retains the full reservation,
+refuses a competing allocation, and holds capacity through the last physical
+pin. It measures two creation syncs before the change and zero afterward; final
+deletion still requires its original parent sync before refund. The durable
+workspace API retains its child and parent creation barriers. Private scratch
+supplies no recovery authority: independently persisted images, committed Raft
+state and required S3 proof still gate acknowledgement. See the
+[workspace qualification](scratch-workspace-qualification-2026-11-16.json) for
+source-specific coverage, failed controls and the original-budget enrollment
+observations. This does not close the constrained performance or OPT/CG gates.
+
+The same real-RustFS run exposed a SQL SDK error conversion that hid a nested
+quorum refusal behind `pinned resource query`. Alternate error formatting now
+retains the cause chain and direct SQL error families. The original refusal
+assertion remains unchanged. The qualification separates the workspace source,
+final error-reporting source, retained failures and independent test namespaces.
+The full measuring-tool suite still has two rooted-128 enrollment timeouts under
+its original budget, despite passing narrower invocations.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 

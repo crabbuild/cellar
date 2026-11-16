@@ -112,9 +112,10 @@ impl Options {
     pub(super) fn prepare_directory(&self) -> Result<(), ExecutionError> {
         let filesystem = self.host.filesystem();
         if let Some(workspace) = self.images.workspace() {
-            // This exact live owner already created and synced the directory
-            // under its locked inventory. Keep its pin; neither a pathname nor
-            // materialized execution can reuse that completed creation proof.
+            // This exact live inventory owner created and charged the private
+            // directory. Scratch may disappear after a crash; its pin grants
+            // neither persistence nor image authority. Validate the path while
+            // retaining the full reservation through physical completion.
             if workspace.directory() != self.directory.as_path()
                 || !filesystem
                     .symlink_metadata(workspace.directory())

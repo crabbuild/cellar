@@ -15,6 +15,8 @@ pub use apply::CellGroupPreparedApply;
 mod query;
 pub(crate) use query::{ReadRetention, RegisteredQuery};
 mod worker;
+#[cfg(test)]
+mod workspace_tests;
 pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 
 use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker};
@@ -158,7 +160,7 @@ impl CellSqlRootOptions {
                 hash.update((slot as u64).to_le_bytes());
                 hash.finalize().into()
             };
-            match self.images.create_workspace(id, bounds) {
+            match self.images.create_disposable_workspace(id, bounds) {
                 Ok(workspace) => {
                     acquired = Some(workspace);
                     break;

@@ -154,12 +154,17 @@ The Raft host uses this mode only for private command execution: its verified
 preview, committed immutable image and Raft log keep their persistence barriers.
 
 `NodeWorkspace` is created under an exclusively locked extent inventory whose
-open already completed the ancestor barriers. Creation still syncs the new child
-directory and its parent before returning its owner. Rooted private execution
-validates and retains that exact owner instead of repeating the ancestor walk;
-arbitrary materialized paths establish their own barriers. Child or parent sync
-failure quarantines the inventory and retains the complete reservation until
-recovery. Last-pin cleanup still syncs deletion before refunding capacity.
+open already completed the ancestor barriers. `NodeExtentStore::create_workspace`
+syncs the new child directory and its parent before returning its owner.
+`create_disposable_workspace` reserves the same complete working image/WAL/capture
+bound but omits creation syncs: the path and its contents may disappear after a
+crash. Rooted private SQL uses this separate API and retains its exact owner;
+captured bytes still require independently persisted images and Raft proof before
+acknowledgement. Arbitrary materialized paths establish their own barriers.
+Both APIs retain the node lock and reservation until every physical user closes.
+Last-pin cleanup removes files and syncs deletion before refunding capacity.
+Failed creation or cleanup quarantines the inventory and keeps the complete
+reservation. Reopen discards leftover private directories before new admission.
 Anonymous read-cache directories use ordinary creation because they are rebuilt
 after a crash. Neither those files nor the directory owner supplies an immutable
 image seal, a Raft acknowledgement or recovery authority.

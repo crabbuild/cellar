@@ -58,6 +58,13 @@ benchmark uses it for SQL point reads. Its
 replace the constrained matrix or close the remaining enrollment, lease-progress
 and release gates.
 
+The private SQL workspace constructor also omits creation syncs through a
+separate disposable API. Full reservations and synced physical deletion remain;
+the original durable constructor and image/Raft/S3 barriers are unchanged. Its
+[qualification](scratch-workspace-qualification-2026-11-16.json) records the exact
+avoided-work oracle and broader limits. Repeated passing native enrollment runs
+do not erase the earlier timeout or establish a constrained-node speedup.
+
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |

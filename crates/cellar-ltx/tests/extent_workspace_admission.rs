@@ -20,6 +20,16 @@ use std::sync::{
     Arc,
 };
 
+fn retained_directory() -> tempfile::TempDir {
+    let mut directory = tempfile::tempdir().unwrap();
+    directory.disable_cleanup(true);
+    eprintln!(
+        "retained workspace admission disk: {}",
+        directory.path().display()
+    );
+    directory
+}
+
 fn bounds() -> WorkspaceBounds {
     WorkspaceBounds {
         image_bytes: 1024 * 1024,
@@ -37,7 +47,7 @@ fn files(directory: &std::path::Path) -> Arc<BoundedFiles> {
 
 #[test]
 fn immutable_objects_and_workspaces_share_admission_before_source_or_directory_io() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = retained_directory();
     let bounds = bounds();
     let charge = bounds.reservation().unwrap();
     let store = NodeExtentStore::open(
@@ -96,7 +106,7 @@ fn immutable_objects_and_workspaces_share_admission_before_source_or_directory_i
 
 #[test]
 fn workspace_creation_reuses_only_the_open_inventory_ancestor_barriers() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = retained_directory();
     let files = files(directory.path());
     let path = directory.path().join("nested/store");
     let store = NodeExtentStore::open(path.clone(), files.clone(), Default::default()).unwrap();
@@ -129,9 +139,108 @@ fn workspace_creation_reuses_only_the_open_inventory_ancestor_barriers() {
 }
 
 #[test]
+fn disposable_creation_keeps_full_admission_and_synced_physical_release() {
+    let directory = retained_directory();
+    let files = files(directory.path());
+    let charge = bounds().reservation().unwrap();
+    let path = directory.path().join("store");
+    let store = NodeExtentStore::open(
+        path.clone(),
+        files.clone(),
+        NodeExtentLimits {
+            max_bytes: charge,
+            max_workspaces: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let before = files.metrics.dir_sync_calls.load(Ordering::Acquire);
+    let workspace = store
+        .create_disposable_workspace([1; 32], bounds())
+        .unwrap();
+    assert_eq!(files.metrics.dir_sync_calls.load(Ordering::Acquire), before);
+    let usage = store.usage().unwrap();
+    assert_eq!(
+        (usage.bytes, usage.workspace_bytes, usage.workspaces),
+        (charge, charge, 1)
+    );
+    assert_eq!((usage.objects, usage.roots), (0, 0));
+    assert!(matches!(
+        store.create_disposable_workspace([1; 32], bounds()),
+        Err(StoreError::Busy)
+    ));
+    assert!(matches!(
+        store.create_disposable_workspace([2; 32], bounds()),
+        Err(StoreError::Limit)
+    ));
+    assert_eq!(std::fs::read_dir(&path).unwrap().count(), 2);
+    let private = workspace.directory().to_path_buf();
+    let retained = workspace.retention();
+    drop(workspace);
+    assert!(private.is_dir());
+    assert_eq!(store.usage().unwrap().workspace_bytes, charge);
+    assert_eq!(files.metrics.dir_sync_calls.load(Ordering::Acquire), before);
+    drop(retained);
+    assert!(!private.exists());
+    assert_eq!(
+        files.metrics.dir_sync_calls.load(Ordering::Acquire) - before,
+        1
+    );
+    let usage = store.usage().unwrap();
+    assert_eq!(
+        (usage.bytes, usage.workspace_bytes, usage.workspaces),
+        (0, 0, 0)
+    );
+}
+
+#[test]
+fn disposable_failed_release_preserves_charge_and_quarantines_until_reopen() {
+    for fault in 0..3 {
+        let directory = retained_directory();
+        let files = files(directory.path());
+        let path = directory.path().join("store");
+        let store = NodeExtentStore::open(path.clone(), files.clone(), Default::default()).unwrap();
+        let workspace = store
+            .create_disposable_workspace([1; 32], bounds())
+            .unwrap();
+        std::fs::write(workspace.directory().join("working.sqlite"), b"private").unwrap();
+        match fault {
+            0 => files.metrics.fail_remove.store(true, Ordering::Release),
+            1 => files.metrics.fail_dir_sync.store(true, Ordering::Release),
+            _ => files
+                .metrics
+                .fail_dir_remove_after
+                .store(true, Ordering::Release),
+        }
+        drop(workspace);
+        let usage = store.usage().unwrap();
+        assert!(usage.quarantined);
+        assert_eq!(
+            (usage.workspaces, usage.workspace_bytes),
+            (1, bounds().reservation().unwrap())
+        );
+        assert!(matches!(
+            store.create_disposable_workspace([2; 32], bounds()),
+            Err(StoreError::Quarantined)
+        ));
+        files.metrics.fail_remove.store(false, Ordering::Release);
+        files.metrics.fail_dir_sync.store(false, Ordering::Release);
+        files
+            .metrics
+            .fail_dir_remove_after
+            .store(false, Ordering::Release);
+        drop(store);
+        let recovered = NodeExtentStore::open(path, files, Default::default()).unwrap();
+        let usage = recovered.usage().unwrap();
+        assert_eq!((usage.workspaces, usage.workspace_bytes), (0, 0));
+        assert!(!usage.quarantined);
+    }
+}
+
+#[test]
 fn workspace_child_and_parent_sync_failures_keep_the_full_reservation() {
     for barrier in [1, 2] {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = retained_directory();
         let files = files(directory.path());
         let path = directory.path().join("store");
         let store = NodeExtentStore::open(path.clone(), files.clone(), Default::default()).unwrap();
@@ -159,7 +268,7 @@ fn workspace_child_and_parent_sync_failures_keep_the_full_reservation() {
 #[test]
 fn failed_cleanup_or_deletion_sync_retains_the_whole_charge_until_reopen() {
     for fault in 0..3 {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = retained_directory();
         let files = files(directory.path());
         let path = directory.path().join("store");
         let store = NodeExtentStore::open(path.clone(), files.clone(), Default::default()).unwrap();
@@ -191,7 +300,7 @@ fn failed_cleanup_or_deletion_sync_retains_the_whole_charge_until_reopen() {
 
 #[test]
 fn uncertain_directory_creation_remains_charged_and_restart_discards_it() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = retained_directory();
     let files = files(directory.path());
     let path = directory.path().join("store");
     let store = NodeExtentStore::open(path.clone(), files.clone(), Default::default()).unwrap();
@@ -210,7 +319,13 @@ fn uncertain_directory_creation_remains_charged_and_restart_discards_it() {
 
 #[test]
 fn open_sqlite_files_keep_the_directory_and_node_lock_after_workspace_drop() {
-    let directory = tempfile::tempdir().unwrap();
+    for disposable in [false, true] {
+        sqlite_files_retain_owner(disposable);
+    }
+}
+
+fn sqlite_files_retain_owner(disposable: bool) {
+    let directory = retained_directory();
     let path = directory.path().join("store");
     let store = NodeExtentStore::open(path.clone(), Arc::new(DirectFileSystem), Default::default())
         .unwrap();
@@ -231,7 +346,12 @@ fn open_sqlite_files_keep_the_directory_and_node_lock_after_workspace_drop() {
             .seal_image_root(empty, &mut vec![0; EXTENT_BYTES as usize])
             .unwrap(),
     );
-    let workspace = store.create_workspace([1; 32], bounds()).unwrap();
+    let workspace = if disposable {
+        store.create_disposable_workspace([1; 32], bounds())
+    } else {
+        store.create_workspace([1; 32], bounds())
+    }
+    .unwrap();
     let private = workspace.directory().to_path_buf();
     let database = private.join("working.sqlite");
     let cache = directory.path().join("cache");
@@ -290,7 +410,7 @@ fn open_sqlite_files_keep_the_directory_and_node_lock_after_workspace_drop() {
 
 #[test]
 fn creation_handle_closes_before_the_last_directory_pin_can_refund_storage() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = retained_directory();
     let files = files(directory.path());
     files
         .metrics
@@ -366,7 +486,14 @@ fn workspace_crash_child() {
             Ok(b"data"[offset as usize..offset as usize + count].to_vec())
         })
         .unwrap();
-    let workspace = store.create_workspace([1; 32], bounds()).unwrap();
+    let disposable = std::env::var_os("CELLAR_WORKSPACE_CRASH_DISPOSABLE").as_deref()
+        == Some(std::ffi::OsStr::new("1"));
+    let workspace = if disposable {
+        store.create_disposable_workspace([1; 32], bounds())
+    } else {
+        store.create_workspace([1; 32], bounds())
+    }
+    .unwrap();
     std::fs::write(
         workspace.directory().join("working.sqlite"),
         b"private crash state",
@@ -377,7 +504,13 @@ fn workspace_crash_child() {
 
 #[test]
 fn process_exit_discards_private_files_without_skipping_immutable_inventory() {
-    let directory = tempfile::tempdir().unwrap();
+    for disposable in [false, true] {
+        process_exit_preserves_inventory(disposable);
+    }
+}
+
+fn process_exit_preserves_inventory(disposable: bool) {
+    let directory = retained_directory();
     let path = directory.path().join("store");
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
@@ -387,6 +520,10 @@ fn process_exit_discards_private_files_without_skipping_immutable_inventory() {
             "--test-threads=1",
         ])
         .env("CELLAR_WORKSPACE_CRASH_PATH", &path)
+        .env(
+            "CELLAR_WORKSPACE_CRASH_DISPOSABLE",
+            if disposable { "1" } else { "0" },
+        )
         .output()
         .unwrap();
     assert_eq!(
@@ -407,7 +544,7 @@ fn process_exit_discards_private_files_without_skipping_immutable_inventory() {
 #[cfg(unix)]
 #[test]
 fn restart_refuses_symlinked_workspace_names_without_removing_the_target() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = retained_directory();
     let path = directory.path().join("store");
     let store = NodeExtentStore::open(path.clone(), Arc::new(DirectFileSystem), Default::default())
         .unwrap();
