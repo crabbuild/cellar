@@ -627,7 +627,6 @@ fn rpc_admitted(
             input,
             ordinal,
             move |intent| {
-                tracing::debug!(target: "cellar::raft::consume_stage", parent = ?intent.parent, ordinal = intent.ordinal, cell = intent.route.cell.as_str(), "DEBUG-cg17-consume-651 prepared");
                 let identity = intent.child;
                 *observed_command.lock().unwrap() = Some(identity);
                 let call = dispatch.try_schedule_binding(move |io| async move {
@@ -688,7 +687,6 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
-    tracing::debug!(target: "cellar::raft::consume_stage", parent = ?intent.parent, ordinal = intent.ordinal, cell = intent.route.cell.as_str(), "DEBUG-cg17-consume-651 run entered");
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -759,7 +757,6 @@ async fn run(
             },
         }
     };
-    tracing::debug!(target: "cellar::raft::consume_stage", parent = ?intent.parent, ordinal = intent.ordinal, "DEBUG-cg17-consume-651 history ready");
     if history != intent.candidate {
         // A different existing creator needs its own durable selection before
         // any business callback. Never retarget an unknown dispatched command.
@@ -809,7 +806,6 @@ async fn run(
     };
     match result {
         Ok(receipt) => {
-            tracing::debug!(target: "cellar::raft::consume_stage", parent = ?intent.parent, ordinal = intent.ordinal, "DEBUG-cg17-consume-651 child returned");
             anyhow::ensure!(
                 receipt.id == intent.child
                     && receipt.version.history == history
@@ -817,9 +813,7 @@ async fn run(
                 CommandFailure::CorruptState
             );
             io.resume_writer().await?;
-            tracing::debug!(target: "cellar::raft::consume_stage", parent = ?intent.parent, ordinal = intent.ordinal, "DEBUG-cg17-consume-651 writer restored");
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
-            tracing::debug!(target: "cellar::raft::consume_stage", parent = ?intent.parent, ordinal = intent.ordinal, "DEBUG-cg17-consume-651 source completed");
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
             // A crash before either retains the original unresolved intent.

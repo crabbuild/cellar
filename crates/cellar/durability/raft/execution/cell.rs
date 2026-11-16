@@ -413,13 +413,29 @@ impl CellPrivateExecutor {
                 },
             )
             .map_err(ExecutionError::Protocol)?;
+        // Prepare the same physical result that committed apply will select.
+        // Neither this deterministic name nor its live pin grants publication;
+        // apply still independently replays the entry and persists its marker.
+        let preview = if matches!(
+            update.result.commitment,
+            crate::application::consensus::ImageCommitment::Sha256(_)
+        ) {
+            crate::raft::cell_groups::materialized_image_id(
+                &self.authority.cell().version.history,
+                sequence.get(),
+                crate::raft::working::materialized_result(update.result, &update.files)
+                    .map_err(private_failure)?,
+            )?
+        } else {
+            attempt.preview
+        };
         let preview = self
             .options
             .images
             .preview_cell(
                 &self.options,
                 self.authority.image(),
-                attempt.preview,
+                preview,
                 &update,
                 cell_image_history_digest(&self.authority.cell().version.history),
             )

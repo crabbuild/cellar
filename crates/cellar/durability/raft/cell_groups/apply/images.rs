@@ -167,7 +167,13 @@ impl CellGroupApplyImages {
                             pin
                         }
                         Err(cellar_ltx::generation::GenerationError::Exists) => {
-                            images.pin_prepared(id, update.result).map_err(storage)?
+                            // A leader may already hold the independently
+                            // prepared preview under this exact image name.
+                            // Still replay this committed entry's supplied LTX;
+                            // a cached destination alone is not delta proof.
+                            images
+                                .prepare_verified(id, base, &update)
+                                .map_err(storage)?
                         }
                         Err(error) => return Err(storage(error)),
                     })
@@ -276,7 +282,7 @@ impl CellGroupApplyImages {
 
 // Names are physical lookup hints. The selected manifest and exact image state
 // still have to verify; a filename never supplies publication authority.
-pub(in crate::raft::cell_groups) fn image_id(
+pub(crate) fn image_id(
     cell: &CellHistory,
     sequence: u64,
     image: ImageState,

@@ -305,6 +305,19 @@ pub(super) fn capture_update(
     Ok((result_position, files.into_values().collect()))
 }
 
+/// Derive a physical lookup identity; independent replay still verifies it.
+pub(super) fn materialized_result(after: LtxImage, files: &[LtxUpdate]) -> Result<ImageState> {
+    let header = ltx::Header::parse(&files.last().context("empty command cut")?.bytes)?;
+    Ok(ImageState {
+        epoch: after.epoch,
+        txid: TXID(after.txid),
+        checksum: after.checksum,
+        digest: after.commitment.sha256()?,
+        page_size: header.page_size,
+        length: header.commit as u64 * header.page_size as u64,
+    })
+}
+
 pub(super) fn verify_preview_pin(
     options: &PrivateOptions,
     base_pin: Option<&GenerationPin>,
@@ -313,15 +326,7 @@ pub(super) fn verify_preview_pin(
     after: LtxImage,
     files: &[LtxUpdate],
 ) -> Result<GenerationPin> {
-    let header = ltx::Header::parse(&files.last().context("empty command cut")?.bytes)?;
-    let result = ImageState {
-        epoch: after.epoch,
-        txid: TXID(after.txid),
-        checksum: after.checksum,
-        digest: after.commitment.sha256()?,
-        page_size: header.page_size,
-        length: header.commit as u64 * header.page_size as u64,
-    };
+    let result = materialized_result(after, files)?;
     let base_state = base_pin
         .map(GenerationPin::state)
         .unwrap_or(ImageState::empty(before.epoch)?);
@@ -337,7 +342,7 @@ pub(super) fn verify_preview_pin(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(options.images.prepare(
+    Ok(options.images.prepare_verified(
         id,
         base_pin,
         &ImageUpdate {
