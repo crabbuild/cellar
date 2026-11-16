@@ -57,7 +57,26 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `7937adc1` pipelines two archive-tail entry downloads
+main `16c45b266`. Runtime `6c876b46` retains proven uncontended source writers
+across owned binding I/O; scoped synchronous-wait guards still force yielding for
+dependent writers. The causal storage-denial baseline fails on an unnecessary
+reopen. Final test-wiring source `eeeb4029` passes native/RustFS and both images:
+four configurations, zero reopens, exact parent replay and one child effect.
+Eight compatibility selections and five owning units pass; named bindings cover
+all eight backend/image/source-minimum configurations with original budgets.
+
+**The current complete original public cohort is FAILED, 6/16.** All eight
+EventStream selections fail activation or Consume; both Queue load selections
+fail production. Native materialized producer sequence 7 expires. RustFS delivers
+528 materialized messages, then extents producer sequence 23 expires; no complete
+extents drain result exists. SDK source-proof/recursive dispatch, current-history
+resolution, registration and Fleet reference pass. Final locked build, strict
+library/all-test Clippy and repository checks pass. Frozen evidence and 45 failed
+voter disks are verified; owned RustFS/VM are stopped with objects retained.
+This closes a writer-lifetime behavior, not a full primitive family or release
+gate. Do not infer stability or an exclusive timing cause from isolated passes.
+
+Previously, runtime `7937adc1` pipelined two archive-tail entry downloads
 under the existing byte/operation reservations, preserving ordered object checks,
 independent replay and physical verification. A serial baseline fails the overlap
 oracle; native/real-RustFS and both images pass the data, bounded-window,
@@ -67,7 +86,7 @@ including retained restart and original five-second S3 requests. Their prior
 deadlines do not reproduce here; this is not exclusive cause, speedup or stability
 evidence.
 
-**The current complete original public cohort is FAILED, 7/16.** SDK
+**That complete original public cohort is FAILED, 7/16.** SDK
 source-proof/history, registration, real-RustFS Queue and Fleet reference pass.
 All eight EventStream selections fail initial activation or Consume. An Axum
 Consume begins with 2,999 ms of 3,000 ms remaining, so inspect execution inside
@@ -115,8 +134,9 @@ receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retai
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
 1. **Close target execution, readiness and Queue producer progress.** Close the
-   eight current EventStream activation/Consume failures and native extents Queue
-   producer sequence 11 deadline under original budgets and quotas. Retained
+   eight current EventStream activation/Consume failures and Queue producer
+   deadlines (native materialized sequence 7, RustFS extents sequence 23) under
+   original budgets and quotas. Retained
    source obligations must
    autonomously resume, while catalog, broker, named binding, current birth and
    destination proofs still gate readiness. Measure inside the target command:

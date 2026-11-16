@@ -4,7 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current bounded tail-read delivery
+## Current proven binding-writer delivery
+
+Latest main `16c45b266` is included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `6c876b46` keeps the
+proven source writer across uncontended owned binding I/O. Synchronous pre-enqueue
+waiters now signal contention with a scoped guard, so a same-cell dependency can
+force parking without a target wake. Existing authority, receipt, budget and
+deadline checks remain. Final `eeeb4029` changes test-module wiring only.
+
+Baseline 514 fails the real writer-reopen storage oracle. Final 541 passes native
+and RustFS, both images: **four configurations**, exact parent replay, one child
+effect and zero reopens. Compatibility 528 is **8/8** (named bindings, interrupted
+recovery, interleaving and ready-work ordering); five owning units pass. Final
+strict Clippy, locked build and repository checks pass. Probes are removed.
+
+**The complete public cohort 529 remains FAILED, 6/16.** All eight EventStream
+selections fail activation/Consume. Native Queue fails materialized producer
+sequence 7; RustFS delivers 528 materialized messages, then fails extents producer
+sequence 23. SDK source-proof/recursion, history resolution, registration and Fleet
+reference pass. Do not replace this result with prior or isolated passes, or
+repeat unchanged campaigns merely to obtain a pass.
+
+Next implementation must close autonomous catalog activation and target
+Consume/Queue producer progress under original three-second budgets, then qualify
+combined primitive/recovery and independent-voter release behavior. Aggregate 535
+verifies frozen evidence and 45 failed voter disks; original observer-admission
+failure and zero-test selections are not acceptance. RustFS/VM are stopped,
+objects retained. Counts stay **13/17 tasks, 147/195 cases**; full primitive
+families and CG-13/17/15/16 hard cutover remain open. Exact pins and scope are in
+[progress](progress.md#current-integration-checkpoint) and ignored
+`.cellar/cg17-payload-01/event-read-state.json`.
+
+## Previous bounded tail-read delivery
 
 Main `16c45b266` is included; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `7937adc1` overlaps

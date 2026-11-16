@@ -29,6 +29,52 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `16c45b266` remains included. **Runtime `6c876b46` retains a proven,
+uncontended source writer across host-owned binding I/O.** Synchronously refused
+pre-enqueue writers now retain a cancellation-safe contention signal, allowing
+the SQL owner to park even without an I/O wake. Existing queued-writer ordering,
+source-history/term checks, receipt reconciliation, physical reservations and
+original deadlines remain. The test-only `eeeb4029` follow-up shares the existing
+physical fault adapter; production and regression assertions are unchanged.
+Temporary execution probes are removed.
+
+The causal baseline `feb44040` fails because returning from a remote child
+reopens the source's `working.lock`. The final regression denies that actual
+storage operation and passes native/real RustFS and both image forms: **four
+configurations**, zero reopens, exact parent replay and one child effect. Source
+and target have different leaders and one SQL worker per voter. Only this new
+fixture admits an extra immutable observer, three requests within the original
+64-KiB bank; original public fixtures keep their limits. Baseline/final test
+differences are formatter reflow and the shared-module import; disabled diagnostic
+probes were also removed. This is structural evidence, not timing acceptance.
+
+Compatibility cohort 528 passes **8/8 selections**: native/RustFS named bindings,
+interrupted retained recovery, same-cell interleaving and ready work passing a
+blocked resume. Named bindings cover eight backend/image/source-minimum
+configurations with their original five-second S3 budget. Five owning units pass,
+including writer-wait cancellation and source-SQL access fencing.
+
+**The complete original public cohort 529 is FAILED, 6/16.** SDK source-proof and
+recursive dispatch, current histories, registration and ordinary Fleet reference
+pass. All eight EventStream selections fail activation or Consume. Consume can
+start with 2,999 of 3,000 ms remaining and still expire inside target execution.
+Both Queue load selections fail during production: native materialized producer
+sequence 7 and RustFS extents producer sequence 23. RustFS materialized delivery
+completes 528 unique messages in 35,453 ms with batch p99 1,297 ms; its extents
+mode has no complete drain result. Earlier 7/16 and isolated passes are historical;
+these runs establish neither stability nor an exclusive cause for the variation.
+
+Final-source locked build, strict library/all-test Clippy, formatting, layout and
+dependency checks pass. Aggregate 535 verifies frozen records, binaries and
+**45 retained failed voter disks**, including diagnostic and baseline failures.
+The first observer-admission failure and zero-test unit selections are explicitly
+excluded from acceptance. Owned RustFS/VM are stopped with objects retained.
+Counts remain **13/17 tasks, 147/195 cases**. Next: implement autonomous catalog
+activation and target Consume/Queue producer progress within original budgets,
+then finish combined primitive/recovery and independent-voter release gates.
+
+## Previous bounded tail-read checkpoint
+
 Main `16c45b266` remains included. **Runtime `7937adc1` pipelines two archive-tail
 entry downloads within the existing validated byte and operation reservations.**
 It preserves descriptor order, complete digest/length checks, independent LTX
