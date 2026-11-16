@@ -74,6 +74,18 @@ impl event_stream::activation::Host for ActivationHost {
             .prepare_event_broker(principal, definition, self.deadline)
     }
 
+    fn configuration_status(
+        &self,
+        _principal: &str,
+        authority: event_stream::Authority,
+        scope: String,
+        name: String,
+        after: Option<crate::raft::version::CellVersionToken>,
+    ) -> HandlerFuture<event_stream::activation::ConfigurationStatus> {
+        self.owner
+            .event_configuration_status(authority, scope, name, after, self.deadline)
+    }
+
     fn rpc(
         &self,
         _principal: &str,
@@ -294,6 +306,46 @@ impl RaftCells {
         })
     }
 
+    pub(crate) fn event_configuration_status(
+        &self,
+        authority: event_stream::Authority,
+        scope: String,
+        name: String,
+        after: Option<crate::raft::version::CellVersionToken>,
+        deadline: u64,
+    ) -> HandlerFuture<event_stream::activation::ConfigurationStatus> {
+        let prepared = (|| -> Result<_> {
+            self.check_open()?;
+            anyhow::ensure!(
+                self.handle.domain.mono_ms()? < deadline,
+                crate::raft::completion::RuntimeError::DeadlineExceeded
+            );
+            let args = crate::application::encode_rpc(
+                &cellar_native::clone::StructuredValue::from_json(serde_json::json!([{}]))?,
+            )?;
+            let admitted = crate::asyncrt::services()
+                .admit_outbound_rpc(&scope, Some(&name), "__catalogStatus", &args)
+                .ok_or(super::super::CommandFailure::Overloaded)?;
+            Ok(self.event_read_observed(
+                admitted,
+                crate::host_rpc::CallScope::default().with_deadline(deadline),
+                deadline,
+                Authority::Event(authority),
+                after,
+            ))
+        })();
+        Box::pin(async move {
+            let (response, token) = prepared?.await?;
+            // Consume and release the prior SQL/archive output before parking
+            // another change read. The token cannot grant readiness or admission.
+            let value = activation_value(&response)?;
+            Ok(event_stream::activation::ConfigurationStatus {
+                value,
+                after: Some(token),
+            })
+        })
+    }
+
     pub(crate) fn activate_event_rpc(
         &self,
         authority: Authority,
@@ -324,23 +376,19 @@ impl RaftCells {
             })
         })();
         Box::pin(async move {
-            eprintln!(
-                "DEBUG-cg17-activation-689 activation_start method={method} wall={}",
-                crate::asyncrt::wall_ms()
-            );
-            let result = prepared?.await;
-            eprintln!("DEBUG-cg17-activation-689 activation_reply method={method} success={} wall={} error={:?}", result.is_ok(), crate::asyncrt::wall_ms(), result.as_ref().err());
-            let result = result?;
-            let value = crate::application::decode_rpc_result(&result)?.to_json()?;
-            if let Some(error) = value.get("error") {
-                return Err(
-                    serde_json::from_value::<event_stream::DeliveryError>(error.clone())?.into(),
-                );
-            }
-            value
-                .get("ok")
-                .cloned()
-                .context("invalid resource activation response")
+            let result = prepared?.await?;
+            activation_value(&result)
         })
     }
+}
+
+fn activation_value(result: &crate::engine_api::RpcData) -> Result<Value> {
+    let value = crate::application::decode_rpc_result(result)?.to_json()?;
+    if let Some(error) = value.get("error") {
+        return Err(serde_json::from_value::<event_stream::DeliveryError>(error.clone())?.into());
+    }
+    value
+        .get("ok")
+        .cloned()
+        .context("invalid resource activation response")
 }

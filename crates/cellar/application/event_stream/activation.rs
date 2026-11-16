@@ -9,6 +9,11 @@ use base64::Engine;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+pub(crate) struct ConfigurationStatus {
+    pub value: Value,
+    pub after: Option<crate::raft::version::CellVersionToken>,
+}
+
 pub(crate) trait Host {
     /// A startup/history hint chooses whether to try the immutable fast path.
     /// It grants no authority and never replaces the subsequent strong read.
@@ -22,6 +27,32 @@ pub(crate) trait Host {
     /// catalog reconciliation and independent target proofs still gate serving.
     fn prepare_broker(&self, _principal: &str, _definition: &Definition) -> HandlerFuture<()> {
         Box::pin(async { Ok(()) })
+    }
+
+    /// Shared-group hosts wait for an exact newer cell version before reading
+    /// pending status again. The token is an observation, never readiness.
+    fn configuration_status(
+        &self,
+        principal: &str,
+        authority: Authority,
+        scope: String,
+        name: String,
+        _after: Option<crate::raft::version::CellVersionToken>,
+    ) -> HandlerFuture<ConfigurationStatus> {
+        let read = self.rpc(
+            principal,
+            authority.into(),
+            scope,
+            name,
+            "__catalogStatus",
+            json!([{}]),
+        );
+        Box::pin(async move {
+            Ok(ConfigurationStatus {
+                value: read.await?,
+                after: None,
+            })
+        })
     }
 
     fn rpc(
@@ -124,17 +155,18 @@ pub(crate) async fn configure(
             );
             // A repeated operation returns history. Check the catalog's current
             // revision/digest and lifecycle before accepting deployment readiness.
+            let mut after = None;
             loop {
-                let current = rpc(
-                    host,
-                    script,
-                    authority.clone(),
-                    event_stream::catalog_scope(&definition.resource)?,
-                    event_stream::catalog_name(&definition.resource)?,
-                    "__catalogStatus",
-                    json!([{}]),
-                )
-                .await?;
+                let observed = host
+                    .configuration_status(
+                        script,
+                        authority.clone(),
+                        event_stream::catalog_scope(&definition.resource)?,
+                        event_stream::catalog_name(&definition.resource)?,
+                        after.take(),
+                    )
+                    .await?;
+                let current = observed.value;
                 if matches_definition(&current, definition, &digest) {
                     break;
                 }
@@ -145,9 +177,13 @@ pub(crate) async fn configure(
                         && current["operation"].as_str() == Some(operation.as_str()),
                     "event resource does not match the current deployment definition"
                 );
-                // A live reconciler owns the mutation. Poll only its current state;
-                // the host retains the original activation deadline and cancellation.
-                crate::asyncrt::sleep(std::time::Duration::from_millis(10)).await;
+                after = observed.after;
+                // Shared owners wait without holding the previous SQL/archive
+                // response. Fleet keeps its existing bounded status polling.
+                // Neither path restarts the activation deadline or mutation.
+                if after.is_none() {
+                    crate::asyncrt::sleep(std::time::Duration::from_millis(10)).await;
+                }
             }
             Ok::<_, anyhow::Error>(())
         };

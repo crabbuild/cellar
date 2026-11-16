@@ -60,6 +60,18 @@ impl RaftCells {
         deadline: u64,
         authority: native_event_rpc::Authority,
     ) -> HandlerFuture<RpcData> {
+        let read = self.event_read_observed(admitted, call_scope, deadline, authority, None);
+        Box::pin(async move { read.await.map(|(value, _)| value) })
+    }
+
+    pub(crate) fn event_read_observed(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        authority: native_event_rpc::Authority,
+        after: Option<crate::raft::version::CellVersionToken>,
+    ) -> HandlerFuture<(RpcData, crate::raft::version::CellVersionToken)> {
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
             let route = self.handle.core.host.event_query_route(
@@ -99,8 +111,8 @@ impl RaftCells {
         let owner = self.internal_observer();
         Box::pin(async move {
             let (route, input, reservation, memory) = prepared?;
-            let operation = owner.query_event_resource(route, input, deadline, false);
-            let result = crate::runtime::cancellation::receive(
+            let operation = owner.query_event_resource_after(route, input, deadline, false, after);
+            let (result, token) = crate::runtime::cancellation::receive(
                 call_scope.parent_cancellation.as_ref(),
                 call_scope.signal.as_ref(),
                 operation,
@@ -119,7 +131,7 @@ impl RaftCells {
             }
             let retained =
                 crate::rpc_reservation::Reservation::shared(Arc::new((reservation, memory)));
-            Ok(RpcData::Structured(retained.retain_bytes(bytes)))
+            Ok((RpcData::Structured(retained.retain_bytes(bytes)), token))
         })
     }
 
@@ -132,6 +144,18 @@ impl RaftCells {
         deadline: u64,
         source_proven: bool,
     ) -> HandlerFuture<RpcData> {
+        let read = self.query_event_resource_after(route, input, deadline, source_proven, None);
+        Box::pin(async move { read.await.map(|(value, _)| value) })
+    }
+
+    pub(super) fn query_event_resource_after(
+        &self,
+        route: Route,
+        input: Vec<u8>,
+        deadline: u64,
+        source_proven: bool,
+        after: Option<crate::raft::version::CellVersionToken>,
+    ) -> HandlerFuture<(RpcData, crate::raft::version::CellVersionToken)> {
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
             let class = route
@@ -208,7 +232,10 @@ impl RaftCells {
                                     invocation,
                                     contract: route.contract.clone(),
                                     input: input.clone(),
-                                    consistency: CellQueryConsistency::Linearizable,
+                                    consistency: after.clone().map_or(
+                                        CellQueryConsistency::Linearizable,
+                                        CellQueryConsistency::LinearizableAfter,
+                                    ),
                                 },
                                 CellRoutingLimits {
                                     timeout: remaining()?,
@@ -228,9 +255,10 @@ impl RaftCells {
                         let RpcData::Structured(bytes) = result else {
                             anyhow::bail!(CommandFailure::CorruptState);
                         };
+                        let token = response.token().clone();
                         let retained =
                             crate::rpc_reservation::Reservation::shared(Arc::new(response));
-                        Ok(RpcData::Structured(retained.retain_bytes(bytes)))
+                        Ok((RpcData::Structured(retained.retain_bytes(bytes)), token))
                     }
                     .await;
                     match result {

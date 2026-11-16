@@ -53,9 +53,19 @@ pub struct CellDispatchLimits {
 #[derive(Clone, Debug)]
 pub enum CellQueryConsistency {
     Stale,
-    RecentSource { max_age_ms: u64 },
+    RecentSource {
+        max_age_ms: u64,
+    },
     AtLeast(CellVersionToken),
     Linearizable,
+    /// A fresh quorum read strictly after an authenticated observed cell version.
+    LinearizableAfter(CellVersionToken),
+}
+
+impl CellQueryConsistency {
+    pub(crate) fn is_linearizable(&self) -> bool {
+        matches!(self, Self::Linearizable | Self::LinearizableAfter(_))
+    }
 }
 
 #[derive(Clone)]
@@ -380,7 +390,7 @@ impl CellGroupDispatcher {
             ));
         }
         if let QueryAdmission::Event(minimum) = admission {
-            if !matches!(request.consistency, CellQueryConsistency::Linearizable)
+            if !request.consistency.is_linearizable()
                 || minimum < self.host_binding()?.0.minimum_durability
             {
                 return Err(CellDispatchError::Invalid(
@@ -683,7 +693,9 @@ impl CellQueryInvocation {
         if observation != *response.observation() {
             return Err(CellDispatchError::Invalid("query observation"));
         }
-        if let CellQueryConsistency::AtLeast(token) = &self.request.consistency {
+        if let CellQueryConsistency::AtLeast(token)
+        | CellQueryConsistency::LinearizableAfter(token) = &self.request.consistency
+        {
             let minimum = self
                 .dispatcher
                 .keys
@@ -698,6 +710,10 @@ impl CellQueryInvocation {
                 .version
                 .covers(&minimum.version)
                 .map_err(|_| CellDispatchError::Version(VersionError::WrongHistory))?
+                || matches!(
+                    self.request.consistency,
+                    CellQueryConsistency::LinearizableAfter(_)
+                ) && observation.version.sequence <= minimum.version.sequence
             {
                 return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
             }
@@ -734,8 +750,16 @@ impl CellQueryInvocation {
                     .map_err(CellDispatchError::Version)?;
                 CellReadConsistency::AtLeast(observation.version)
             }
+            CellQueryConsistency::LinearizableAfter(token) => {
+                let observation = self
+                    .dispatcher
+                    .keys
+                    .verify_cell(token, cell, schema, self.now().await?)
+                    .map_err(CellDispatchError::Version)?;
+                CellReadConsistency::LinearizableAfter(observation.version)
+            }
         };
-        if matches!(consistency, CellReadConsistency::Linearizable) {
+        if consistency.is_linearizable() {
             // A parked local read must finish the same fresh-quorum wake as a
             // command before selecting a SQL image. Explicit historical modes
             // retain their separate consistency and admission contracts.
@@ -908,6 +932,10 @@ fn fingerprint(
         CellQueryConsistency::Linearizable => hash.update([1]),
         CellQueryConsistency::AtLeast(token) => {
             hash.update([2]);
+            hash.update(token.as_str());
+        }
+        CellQueryConsistency::LinearizableAfter(token) => {
+            hash.update([4]);
             hash.update(token.as_str());
         }
     }

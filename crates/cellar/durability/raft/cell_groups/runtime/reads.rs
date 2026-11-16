@@ -89,10 +89,8 @@ impl ReadKind {
     }
 
     fn forwards_read_index(&self) -> bool {
-        matches!(
-            self,
-            Self::Membership { .. } | Self::Cell(_, CellReadConsistency::Linearizable)
-        )
+        matches!(self, Self::Membership { .. })
+            || matches!(self, Self::Cell(_, consistency) if consistency.is_linearizable())
     }
 }
 
@@ -164,7 +162,9 @@ impl Reads {
                     if !history.same_namespace(cell) {
                         return Err(RuntimeError::Invalid("cell read namespace".into()));
                     }
-                    if let CellReadConsistency::AtLeast(minimum) = consistency {
+                    if let CellReadConsistency::AtLeast(minimum)
+                    | CellReadConsistency::LinearizableAfter(minimum) = consistency
+                    {
                         if &minimum.history != cell {
                             return Err(RuntimeError::Invalid("cell read version history".into()));
                         }

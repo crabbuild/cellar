@@ -40,7 +40,7 @@ impl CellQueryCall {
         let mut body = match self.admission {
             QueryAdmission::Public => b"CLGCQQ01".to_vec(),
             QueryAdmission::Event(minimum) => {
-                if !matches!(request.consistency, CellQueryConsistency::Linearizable) {
+                if !request.consistency.is_linearizable() {
                     return Err(TransportError::Protocol);
                 }
                 let mut body = b"CLGCEY01".to_vec();
@@ -68,6 +68,10 @@ impl CellQueryCall {
             CellQueryConsistency::Linearizable => body.push(1),
             CellQueryConsistency::AtLeast(token) => {
                 body.push(2);
+                string(&mut body, token.as_str())?;
+            }
+            CellQueryConsistency::LinearizableAfter(token) => {
+                body.push(4);
                 string(&mut body, token.as_str())?;
             }
         }
@@ -133,6 +137,10 @@ impl CellQueryCall {
                 CellVersionToken::from_encoded(&body.string(4096)?)
                     .map_err(|_| TransportError::Authentication)?,
             ),
+            4 => CellQueryConsistency::LinearizableAfter(
+                CellVersionToken::from_encoded(&body.string(4096)?)
+                    .map_err(|_| TransportError::Authentication)?,
+            ),
             3 => {
                 let max_age_ms = u64::from_be_bytes(body.array()?);
                 if !(1..=3_600_000).contains(&max_age_ms) {
@@ -143,7 +151,7 @@ impl CellQueryCall {
             _ => return Err(TransportError::Protocol),
         };
         let timeout_ms = u64::from_be_bytes(body.array()?);
-        if event && !matches!(consistency, CellQueryConsistency::Linearizable) {
+        if event && !consistency.is_linearizable() {
             return Err(TransportError::Protocol);
         }
         if !(1..=3_600_000).contains(&timeout_ms) {

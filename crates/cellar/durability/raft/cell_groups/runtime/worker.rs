@@ -1224,9 +1224,17 @@ impl Worker {
                     }
                     match &request.kind {
                         reads::ReadKind::Cell(cell, consistency) => {
-                            if matches!(consistency, CellReadConsistency::Linearizable)
-                                && (term.is_none() || retry)
-                            {
+                            if term.is_none() {
+                                if let CellReadConsistency::LinearizableAfter(observed) =
+                                    consistency
+                                {
+                                    // Park before ReadIndex and physical SQL/image admission.
+                                    // An unrelated cell cannot release this wait. Delayed
+                                    // change reads do not occupy a normal read cohort.
+                                    group.owner.require_cell_advanced(cell, observed)?;
+                                }
+                            }
+                            if consistency.is_linearizable() && (term.is_none() || retry) {
                                 let status = group.owner.status()?;
                                 if term.is_some_and(|observed| observed != status.term) {
                                     return Err(RuntimeError::NotLeader);

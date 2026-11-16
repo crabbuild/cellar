@@ -101,11 +101,6 @@ impl Suspended {
         let executor = self.executor.as_mut().ok_or_else(unavailable)?;
         let prepared = executor.stage_rpc_checkpoint(&mut self.turn)?;
         let expected = executor.rpc_checkpoint_version()?;
-        eprintln!(
-            "DEBUG-cg17-activation-689 checkpoint_stage cell={} sequence={}",
-            self.cell.cell.as_str(),
-            expected.sequence.get()
-        );
         executor.mark_submitted(prepared.proposal())?;
         let phase = CheckpointPhase::Applying(Box::pin(wait_checkpoint(
             commits.runtime.clone(),
@@ -161,10 +156,6 @@ impl Suspended {
                         .finish_rpc_checkpoint(*execution, *proof)
                     {
                         Ok(receipt) => {
-                            eprintln!(
-                                "DEBUG-cg17-activation-689 checkpoint_applied cell={}",
-                                self.cell.cell.as_str()
-                            );
                             self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
                             if receipt.receipt.minimum_durability()
                                 == cellar_logic::consensus::Durability::S3
@@ -181,12 +172,8 @@ impl Suspended {
                                     },
                                 });
                                 let domain = domain.clone();
-                                let trace_cell = self.cell.cell.as_str().to_owned();
-                                eprintln!(
-                                    "DEBUG-cg17-activation-689 archive_start cell={trace_cell}"
-                                );
-                                checkpoint.phase = CheckpointPhase::Archiving(Box::pin(
-                                    async move {
+                                checkpoint.phase =
+                                    CheckpointPhase::Archiving(Box::pin(async move {
                                         let settled = archive
                                             .command(
                                                 &commits.runtime,
@@ -197,16 +184,13 @@ impl Suspended {
                                             )
                                             .await
                                             .map_err(crate::raft::execution::storage)?;
-                                        eprintln!("DEBUG-cg17-activation-689 archive_selected cell={trace_cell}");
                                         settled
                                             .proof
                                             .require_current(&domain, commits.deadline)
                                             .await
                                             .map_err(crate::raft::execution::storage)?;
-                                        eprintln!("DEBUG-cg17-activation-689 archive_current cell={trace_cell}");
                                         Ok(())
-                                    },
-                                ));
+                                    }));
                                 self.checkpoint = Some(checkpoint);
                                 self.ready.0.store(true, Ordering::Release);
                                 return Poll::Pending;

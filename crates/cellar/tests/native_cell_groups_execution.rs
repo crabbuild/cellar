@@ -1233,6 +1233,16 @@ async fn physical_owner_retains_lease_through_cancelled_sync() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn linearizable_change_reads_wait_for_the_exact_cell() -> Result<()> {
+    runtime_fixture::change_reads(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_linearizable_change_reads_wait_for_the_exact_cell() -> Result<()> {
+    runtime_fixture::change_reads(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn linearizable_read_cohorts_keep_fresh_barriers() -> Result<()> {
     Box::pin(runtime_fixture::cohort_reads(false)).await
 }

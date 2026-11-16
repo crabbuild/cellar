@@ -77,7 +77,9 @@ impl CellQueryInvocation {
             .attempt
             .as_ref()
             .ok_or(CellDispatchError::Invalid("missing route"))?;
-        if let CellQueryConsistency::AtLeast(token) = &self.request.consistency {
+        if let CellQueryConsistency::AtLeast(token)
+        | CellQueryConsistency::LinearizableAfter(token) = &self.request.consistency
+        {
             self.dispatcher
                 .keys
                 .verify_cell(

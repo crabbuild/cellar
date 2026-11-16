@@ -273,6 +273,37 @@ impl event_stream::activation::Host for ActivationHost {
         }
     }
 
+    fn configuration_status(
+        &self,
+        principal: &str,
+        authority: event_stream::Authority,
+        scope: String,
+        name: String,
+        after: Option<crate::raft::version::CellVersionToken>,
+    ) -> crate::application::HandlerFuture<event_stream::activation::ConfigurationStatus> {
+        if self.shared.contains(principal) {
+            self.owner
+                .as_ref()
+                .expect("shared activation retains its owner")
+                .event_configuration_status(authority, scope, name, after, self.deadline)
+        } else {
+            let read = self.rpc(
+                principal,
+                authority.into(),
+                scope,
+                name,
+                "__catalogStatus",
+                serde_json::json!([{}]),
+            );
+            Box::pin(async move {
+                Ok(event_stream::activation::ConfigurationStatus {
+                    value: read.await?,
+                    after: None,
+                })
+            })
+        }
+    }
+
     fn rpc(
         &self,
         principal: &str,

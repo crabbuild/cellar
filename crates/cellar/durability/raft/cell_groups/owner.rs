@@ -579,6 +579,31 @@ impl CellGroupOwner {
         pool.capture_owner(&self.group, &self.current)
     }
 
+    /// Advisory readiness only. The subsequent read still needs fresh quorum.
+    pub(super) fn require_cell_advanced(
+        &self,
+        cell: &CellHistory,
+        observed: &CellVersion,
+    ) -> Result<(), RuntimeError> {
+        self.require_application_active()?;
+        let (leaf, _) = self
+            .current
+            .pin_cell(&cell.cell)
+            .ok_or(RuntimeError::NotFound)?;
+        if &leaf.version.history != cell || &observed.history != cell {
+            return Err(RuntimeError::Invalid("cell change history".into()));
+        }
+        if !leaf
+            .version
+            .covers(observed)
+            .map_err(|_| RuntimeError::Invalid("cell change version".into()))?
+            || leaf.version.sequence <= observed.sequence
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        Ok(())
+    }
+
     pub(super) fn select_read(
         &self,
         cell: &CellHistory,
@@ -590,7 +615,7 @@ impl CellGroupOwner {
         let status = self.status()?;
         let mut source = None;
         let mut source_deadline = None;
-        let leader = if matches!(consistency, super::CellReadConsistency::Linearizable) {
+        let leader = if consistency.is_linearizable() {
             if term.is_none() {
                 return Err(RuntimeError::NotReady);
             }
@@ -648,11 +673,17 @@ impl CellGroupOwner {
         if &leaf.version.history != cell {
             return Err(RuntimeError::Invalid("cell read history".into()));
         }
-        if let super::CellReadConsistency::AtLeast(minimum) = consistency {
+        if let super::CellReadConsistency::AtLeast(minimum)
+        | super::CellReadConsistency::LinearizableAfter(minimum) = consistency
+        {
             if !leaf
                 .version
                 .covers(minimum)
                 .map_err(|_| RuntimeError::Invalid("cell read version".into()))?
+                || matches!(
+                    consistency,
+                    super::CellReadConsistency::LinearizableAfter(_)
+                ) && leaf.version.sequence <= minimum.sequence
             {
                 return Err(RuntimeError::NotReady);
             }
