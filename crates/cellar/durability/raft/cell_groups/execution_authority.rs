@@ -13,7 +13,8 @@ use std::sync::{
 
 impl GroupLog<GroupHistory> {
     /// A locator from a live local voter's fully applied tree. Callers must
-    /// first select this exact route from their charged namespace range cache.
+    /// first select this exact route through bounded verified namespace routing
+    /// or its charged range cache.
     /// This grants no read lease, execution, enrollment or durability authority.
     pub(crate) fn applied_history_hint(
         &self,

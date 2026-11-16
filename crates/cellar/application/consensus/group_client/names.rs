@@ -21,6 +21,7 @@ struct Resolution {
     started: u64,
     deadline: u64,
     _memory: Permit,
+    local_locator: bool,
 }
 
 impl RaftCells {
@@ -37,7 +38,7 @@ impl RaftCells {
         options: QueryOptions,
     ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
     {
-        self.resolve_cell_history_scoped(cluster, namespace, cell, options, false)
+        self.resolve_cell_history_scoped(cluster, namespace, cell, options, false, false)
     }
 
     pub(crate) fn resolve_cell_history_direct(
@@ -48,7 +49,23 @@ impl RaftCells {
         options: QueryOptions,
     ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
     {
-        self.resolve_cell_history_scoped(cluster, namespace, cell, options, true)
+        self.resolve_cell_history_scoped(cluster, namespace, cell, options, true, false)
+    }
+
+    /// Internal event metadata may use an applied local enrollment as a locator
+    /// behind a verified namespace route. The subsequent metadata query still
+    /// requires fresh quorum and its independent target durability minimum.
+    /// Public name discovery and all absence observations keep their full cut.
+    pub(super) fn locate_event_history(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+        cell: CellId,
+        options: QueryOptions,
+        source_proven: bool,
+    ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
+    {
+        self.resolve_cell_history_scoped(cluster, namespace, cell, options, source_proven, true)
     }
 
     fn resolve_cell_history_scoped(
@@ -58,6 +75,7 @@ impl RaftCells {
         cell: CellId,
         mut options: QueryOptions,
         direct: bool,
+        local_locator: bool,
     ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
     {
         let prepared = (|| {
@@ -128,6 +146,7 @@ impl RaftCells {
                 deadline,
                 options,
                 _memory: memory,
+                local_locator,
             };
             let domain = self.handle.domain.clone();
             let future: BoxFuture<'static, Result<_, Arc<CellDispatchError>>> = Box::pin(
@@ -208,6 +227,22 @@ impl Resolution {
             }
             let local = match self.owner.handle.core.log.cell_group(&route.history) {
                 Ok(group) => {
+                    if self.local_locator {
+                        if let Some(history) = group
+                            .applied_history_hint(
+                                &route,
+                                &self.candidate.cell,
+                                self.directory.namespace_config().schema_digest,
+                            )
+                            .map_err(|error| CellDispatchError::Runtime(error.into()))?
+                        {
+                            self.live()?;
+                            session
+                                .validate_attempt(&attempt)
+                                .map_err(name_routing_failure)?;
+                            return Ok(Some(history));
+                        }
+                    }
                     if new_route && matches!(self.options.routing, QueryRouting::Automatic) {
                         match group.read() {
                             Ok(cache) => {

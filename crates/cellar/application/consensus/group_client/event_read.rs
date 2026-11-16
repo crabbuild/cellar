@@ -200,25 +200,15 @@ impl RaftCells {
                                     timeout: remaining()?,
                                     ..Default::default()
                                 };
-                                let found = if source_proven {
-                                    owner
-                                        .resolve_cell_history_direct(
-                                            route.cluster,
-                                            route.namespace,
-                                            route.cell.clone(),
-                                            options,
-                                        )
-                                        .await
-                                } else {
-                                    owner
-                                        .resolve_cell_history(
-                                            route.cluster,
-                                            route.namespace,
-                                            route.cell.clone(),
-                                            options,
-                                        )
-                                        .await
-                                };
+                                let found = owner
+                                    .locate_event_history(
+                                        route.cluster,
+                                        route.namespace,
+                                        route.cell.clone(),
+                                        options,
+                                        source_proven,
+                                    )
+                                    .await;
                                 found?.ok_or(RuntimeError::NotFound)?
                             }
                         };
