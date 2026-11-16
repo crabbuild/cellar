@@ -61,12 +61,12 @@ fn binding_completion_preserves_only_an_already_clean_read_watermark() -> Result
                 storage.sql("CREATE TABLE after_completion(value INTEGER)", &[])?;
                 assert_ne!(
                     active.frame.quorum_read_base.get(),
-                    Some(command_marker(&active.frame.connection()?)?)
+                    Some(command_marker(&*active.frame.connection()?)?)
                 );
                 storage.put_json("value", &serde_json::json!(2))?;
                 assert_ne!(
                     active.frame.quorum_read_base.get(),
-                    Some(command_marker(&active.frame.connection()?)?)
+                    Some(command_marker(&*active.frame.connection()?)?)
                 );
                 Ok(())
             })?;
