@@ -21,6 +21,7 @@ async fn mutate(
     cell: &CellHistory,
     attempt: u8,
     hold_read_quorum: bool,
+    held: &mut Vec<(GroupHistory, raft::prelude::Message)>,
 ) -> Result<cellar_logic::consensus::LogIndex> {
     let group = fixture.cluster.birth.route().history;
     let authority = fixture.runtimes[0]
@@ -51,13 +52,17 @@ async fn mutate(
                     return Ok::<_, anyhow::Error>(());
                 }
                 fixture
-                    .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
-                        message.to != 1
-                            || !matches!(
+                    .pump_with_network(&[], &mut BTreeMap::new(), |scope, message| {
+                        let blocked = message.to == 1
+                            && matches!(
                                 message.get_msg_type(),
                                 raft::prelude::MessageType::MsgHeartbeatResponse
                                     | raft::prelude::MessageType::MsgReadIndexResp
-                            )
+                            );
+                        if blocked {
+                            held.push((scope, message.clone()));
+                        }
+                        !blocked
                     })
                     .await?;
                 tokio::task::yield_now().await;
@@ -107,7 +112,8 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
         drop(selected(&mut fixture, 0, &b, CellReadConsistency::Linearizable).await?);
         assert!(changed.as_mut().now_or_never().is_none());
         let count = barriers(&fixture)?;
-        mutate(&mut fixture, &pool, &b, 231, false).await?;
+        let mut held = Vec::new();
+        mutate(&mut fixture, &pool, &b, 231, false, &mut held).await?;
         assert!(
             changed.as_mut().now_or_never().is_none(),
             "another cell released the wait"
@@ -117,12 +123,15 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
             count,
             "unrelated commit issued ReadIndex"
         );
-        let changed_at = mutate(&mut fixture, &pool, &a, 232, true).await?;
+        let changed_at = mutate(&mut fixture, &pool, &a, 232, true, &mut held).await?;
         runtime.status(route.history).await?;
         anyhow::ensure!(
             changed.as_mut().now_or_never().is_none(),
             "cell change reused a quorum barrier from before the change"
         );
+        // Replay the held frames after the assertion. This harness drives
+        // Raft explicitly; dropping them would test an idle ticker instead.
+        fixture.network.extend(held);
         let authority = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if let Some(result) = changed.as_mut().now_or_never() {

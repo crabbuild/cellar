@@ -2,6 +2,7 @@
 
 //! Shared catalog dispatch over the production query TLS lane and SQL owners.
 use super::*;
+use futures_util::FutureExt;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,
@@ -366,22 +367,27 @@ pub(crate) async fn remote_queries() -> Result<()> {
         }
         assert_eq!(source.usage().query_items, 0);
         let before = calls.load(Ordering::SeqCst);
-        let mut wrong = invocation(
-            &dispatch,
-            &class,
-            &b,
-            CellQueryConsistency::AtLeast(token),
-            Duration::from_secs(5),
-            b"",
-        )
-        .await?;
-        assert!(matches!(
-            wrong.execute_remote(source, leader).await,
-            Err(CellDispatchError::Transport(TransportError::Query(
-                CommandFailure::WrongIncarnation
-            )))
-        ));
-        drop(wrong);
+        for consistency in [
+            CellQueryConsistency::AtLeast(token.clone()),
+            CellQueryConsistency::LinearizableAfter(token),
+        ] {
+            let mut wrong = invocation(
+                &dispatch,
+                &class,
+                &b,
+                consistency,
+                Duration::from_secs(5),
+                b"",
+            )
+            .await?;
+            assert!(matches!(
+                wrong.execute_remote(source, leader).await,
+                Err(CellDispatchError::Transport(TransportError::Query(
+                    CommandFailure::WrongIncarnation
+                )))
+            ));
+            drop(wrong);
+        }
         let mut wrong_cell = a.clone();
         wrong_cell.incarnation = IncarnationId::new([199; 16])?;
         let mut wrong = invocation(
@@ -642,21 +648,24 @@ pub(crate) async fn remote_query_lifecycle(expire: bool) -> Result<()> {
 pub(crate) async fn remote_follower_reads(rooted: bool) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let count = calls.clone();
-    let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.query(
-        "Get",
-        [82; 32],
-        move |context, input| {
-            count.fetch_add(1, Ordering::SeqCst);
-            let QueryVersion::Cell(observation) = context.version() else {
-                anyhow::bail!("physical group observation");
-            };
-            assert_eq!(context.identity(), &observation.version.history);
-            let value: i64 = context.query_row("SELECT n FROM value", [], |row| row.get(0))?;
-            let mut output = value.to_le_bytes().to_vec();
-            output.extend_from_slice(input);
-            Ok(output)
-        },
-    )?);
+    let class = Arc::new(
+        RaftClass::new("Counter", 1, [81; 32])?
+            .command("Increment", [83; 32], |context, _| {
+                context.sql().execute("UPDATE value SET n=n+1", [])?;
+                Ok(b"advanced".to_vec())
+            })?
+            .query("Get", [82; 32], move |context, input| {
+                count.fetch_add(1, Ordering::SeqCst);
+                let QueryVersion::Cell(observation) = context.version() else {
+                    anyhow::bail!("physical group observation");
+                };
+                assert_eq!(context.identity(), &observation.version.history);
+                let value: i64 = context.query_row("SELECT n FROM value", [], |row| row.get(0))?;
+                let mut output = value.to_le_bytes().to_vec();
+                output.extend_from_slice(input);
+                Ok(output)
+            })?,
+    );
     let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
     let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
     let gateways = gateways(&fixture, &controllers, class.clone()).await?;
@@ -710,6 +719,81 @@ pub(crate) async fn remote_follower_reads(rooted: bool) -> Result<()> {
         assert_eq!(dispatch.usage(), (0, 0));
     }
     assert_eq!(calls.load(Ordering::SeqCst), 3);
+    wait_for(async || Ok(fixture.runtimes[2].usage().read_pins.items == 0)).await?;
+    let mut query = invocation(
+        &dispatch,
+        &class,
+        &a,
+        CellQueryConsistency::LinearizableAfter(minimum.context("observed token")?),
+        Duration::from_secs(5),
+        b"change",
+    )
+    .await?;
+    let mut waiting = Box::pin(query.execute_remote(&fixture.transports[1], MemberId::new(3)?));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(result) = waiting.as_mut().now_or_never() {
+                result?;
+                anyhow::bail!("remote query entered before its exact cell changed");
+            }
+            if fixture.runtimes[2].usage().read_pins.items != 0 {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await??;
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        3,
+        "parked remote read entered SQL"
+    );
+    let pool = fixture.appliers[&(0, route.history)].0.clone();
+    let options = fixture.cell_options(&a).await?;
+    let authority = fixture.runtimes[0]
+        .execution_authority(route.history, a.clone())
+        .await?;
+    let mut attempt = cell_attempt(229)?;
+    attempt.request.operation = "Increment".into();
+    attempt.request.contract_digest = [83; 32];
+    attempt.request.request_digest = command_request_digest(b"");
+    let CellSqlOutcome::Prepared(prepared) = pool
+        .stage_registered(options, authority, attempt, class.clone(), vec![], true)
+        .await?
+    else {
+        anyhow::bail!("remote change mutation preparation");
+    };
+    pool.mark_submitted(a.clone(), prepared.proposal()).await?;
+    let accepted = accepted_sql(&fixture.runtimes[0], &prepared).await?;
+    wait_for(async || {
+        Ok(fixture.runtimes[0]
+            .status(route.history)
+            .await?
+            .applied
+            .index
+            >= accepted.position.index)
+    })
+    .await?;
+    drop(
+        pool.finish(
+            fixture.runtimes[0]
+                .execution_authority(route.history, a.clone())
+                .await?,
+        )
+        .await?,
+    );
+    let response = waiting.await?;
+    let mut expected = 1_i64.to_le_bytes().to_vec();
+    expected.extend_from_slice(b"change");
+    assert_eq!(response.result(), expected);
+    assert_eq!(response.served_by(), MemberId::new(3)?);
+    assert_eq!(response.observation().version.history, a);
+    assert_eq!(response.observation().version.sequence.get(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    drop(response);
+    drop(query);
+    assert_eq!(fixture.transports[1].usage().query_items, 0);
+    assert_eq!(dispatch.usage(), (0, 0));
     for controller in controllers {
         controller.close().await?;
     }
