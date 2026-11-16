@@ -88,6 +88,7 @@ impl Cell for Producer {
                     json!(true)
                 }
                 "Consume" => {
+                    tracing::debug!(target: "cellar::raft::consume_stage", "DEBUG-cg17-consume-651 callback entry");
                     let subscription = stream.subscription("consumer")?;
                     let batch = subscription
                         .next_with_id(
@@ -101,6 +102,7 @@ impl Cell for Producer {
                         )
                         .await?
                         .context("pending event batch")?;
+                    tracing::debug!(target: "cellar::raft::consume_stage", "DEBUG-cg17-consume-651 next returned");
                     storage.tx(|tx| {
                         let inbox = tx.inbox("orders")?;
                         for record in &batch.records {
@@ -110,11 +112,15 @@ impl Cell for Producer {
                         tx.put_json("consumed", &json!(batch.records.len()))?;
                         Ok(())
                     })?;
+                    tracing::debug!(target: "cellar::raft::consume_stage", "DEBUG-cg17-consume-651 inbox committed");
                     storage.sync().await?;
+                    tracing::debug!(target: "cellar::raft::consume_stage", "DEBUG-cg17-consume-651 inbox proven");
                     ensure!(batch.ack(&context).await? == events::Acknowledgment::Acknowledged);
+                    tracing::debug!(target: "cellar::raft::consume_stage", "DEBUG-cg17-consume-651 first ack returned");
                     ensure!(
                         batch.ack(&context).await? == events::Acknowledgment::AlreadyAcknowledged
                     );
+                    tracing::debug!(target: "cellar::raft::consume_stage", "DEBUG-cg17-consume-651 second ack returned");
                     json!(batch.records.len())
                 }
                 _ => anyhow::bail!("unknown event test operation"),
@@ -282,7 +288,7 @@ async fn qualify_host(
     enrollment_only: bool,
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_groups::controller::effects=debug")
+        .with_env_filter("cellar::raft::consume_stage=debug,cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_groups::controller::effects=debug")
         .with_test_writer()
         .try_init();
     for rooted in [false, true] {
