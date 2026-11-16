@@ -57,7 +57,25 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `6c876b46` retains proven uncontended source writers
+main `16c45b266`. Runtime `d8d51a77` resolves subscription identity with its first
+lease in one target command. Empty fetches retain their identity; later polls
+refuse reset, and full response validation precedes handle pinning. Original
+child receipts, source/target minimum proofs, deadlines and quotas remain.
+All 82 owning checks pass, including real-SQLite replay/competition/reset cases.
+
+**Focused EventStream/registration/Fleet qualification is FAILED, 3/10.** Ordinary
+native lifecycle passes both images, including public reads/writes, inbox/ack,
+retained restart, replay and quorum refusal. Registration and Fleet reference
+pass. Seven EventStream selections fail. A new concrete recovery boundary is
+native sink Read sequence 6 after archive outage and retained restart:
+`Execution(Refused(Unavailable))`, ambiguous. Its cause is unproven; other failures
+remain cold activation or Axum/RustFS Consume deadlines. Locked build, strict
+Clippy and repository checks pass. Aggregate 569 verifies frozen evidence and
+21 failed voter disks; owned backend/VM are stopped, objects retained. This does
+not qualify a complete primitive family. The full 16-case cohort was not repeated
+for this EventStream-only change; its last result stays FAILED6/16 at `6c876b46`.
+
+Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
 dependent writers. The causal storage-denial baseline fails on an unnecessary
 reopen. Final test-wiring source `eeeb4029` passes native/RustFS and both images:
@@ -65,7 +83,7 @@ four configurations, zero reopens, exact parent replay and one child effect.
 Eight compatibility selections and five owning units pass; named bindings cover
 all eight backend/image/source-minimum configurations with original budgets.
 
-**The current complete original public cohort is FAILED, 6/16.** All eight
+**That complete original public cohort is FAILED, 6/16.** All eight
 EventStream selections fail activation or Consume; both Queue load selections
 fail production. Native materialized producer sequence 7 expires. RustFS delivers
 528 materialized messages, then extents producer sequence 23 expires; no complete
@@ -134,7 +152,8 @@ receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retai
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
 1. **Close target execution, readiness and Queue producer progress.** Close the
-   eight current EventStream activation/Consume failures and Queue producer
+   stream Read refusal with an S3 target after archive outage/retained restart, remaining
+   EventStream activation/Consume failures and Queue producer
    deadlines (native materialized sequence 7, RustFS extents sequence 23) under
    original budgets and quotas. Retained
    source obligations must

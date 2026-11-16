@@ -29,6 +29,43 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `16c45b266` is included. **Runtime `d8d51a77` selects the initial subscription
+identity and lease in one committed EventStream target operation.** It removes
+the separate first-fetch status read. Empty results carry their identity; later
+polls retain that expected incarnation. The caller validates the complete batch
+and receipt before pinning its handle. Exact child/fetch receipts, independent
+target minimum durability, source checkpoints and original deadlines remain.
+Ordinary Fleet keeps its existing polling path.
+
+All **81 EventStream owning tests and the mutation-classification test pass**.
+The new real-SQLite tests require exact lease replay without another generation,
+competing-fetch refusal and reset refusal after an empty fetch. Client tests
+reject missing envelopes and mismatched identity/receipt incarnations. Locked
+build, strict library/all-test Clippy, format/layout/dependency/docs checks pass.
+
+**Focused public cohort 566 is FAILED, 3/10.** The ordinary native lifecycle passes
+both image modes: public reads/writes, Consume/inbox deduplication/acknowledgment,
+retained restart, exact replay and quorum-loss refusal. Registration and ordinary
+Fleet reference also pass. Seven EventStream selections fail: native Axum and
+RustFS Consume, cold resource activation, and the longer native publication/
+outbox case. The latter reaches sink `Read` sequence 6 after an archive outage
+and complete retained restart, then fails ambiguously with
+`Execution(Refused(Unavailable))`. Its cause is unproven and must be separated
+from cold activation and deadline failures.
+
+This is a selected EventStream/registration/Fleet run, not the complete 16-case
+cohort. The last complete result stays FAILED, 6/16 at `6c876b46`; do not combine
+different-source passes into current acceptance. Aggregate 569 verifies frozen
+records, binaries and **21 retained failed voter disks**. No temporary probes,
+assertion changes, request-budget extensions or quota increases are introduced.
+Native RF3 voters share one process; real RustFS uses one CPU/two GiB. Owned
+backend/VM are stopped with objects retained. Plan acceptance counts
+remain **13/17 tasks, 147/195 cases**. Next: the stream Read refusal after retained
+outage recovery with an S3 target, autonomous activation and remaining Consume deadlines, then
+Queue production and the complete primitive/recovery/release matrix.
+
+## Previous proven binding-writer checkpoint
+
 Main `16c45b266` remains included. **Runtime `6c876b46` retains a proven,
 uncontended source writer across host-owned binding I/O.** Synchronously refused
 pre-enqueue writers now retain a cancellation-safe contention signal, allowing

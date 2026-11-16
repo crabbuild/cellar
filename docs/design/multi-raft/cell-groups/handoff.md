@@ -4,7 +4,35 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current proven binding-writer delivery
+## Current atomic first-fetch delivery
+
+Latest main `16c45b266` is included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `d8d51a77` resolves
+subscription identity in the same target command as its first lease. Empty
+results pin identity too; later polls refuse reset/recreation, exact receipts
+retain replay authority, and source/target durability and original budgets stay.
+
+**82 owning checks pass.** Focused cohort 566 is **FAILED, 3/10**. Ordinary native
+EventStream lifecycle passes both image modes, including inbox/ack, retained
+restart and quorum refusal; registration and Fleet reference pass. Seven
+EventStream selections still fail activation, Consume or native publication/
+outbox recovery. The latter reaches sink Read sequence 6 after archive outage
+and full retained restart, then ambiguously refuses with
+`Execution(Refused(Unavailable))`. This is a concrete next recovery boundary,
+not an established cache, scheduler or archive cause. Other failures retain
+their original deadline or cold-activation boundary.
+
+Next: fix that post-restart Read refusal with an S3 target, autonomous readiness and remaining
+Consume progress, then Queue producer progress and all primitive/release gates.
+The full 16-case cohort was not repeated for this EventStream-only change; its
+last result remains FAILED6/16 at `6c876b46`. Keep sources and scopes separate.
+Final locked build, strict Clippy and repository checks pass. Aggregate 569
+verifies frozen evidence and 21 failed voter disks. Owned RustFS/VM are stopped,
+objects retained. Counts stay **13/17 tasks, 147/195 cases**. Exact pins are in
+[progress](progress.md#current-integration-checkpoint) and ignored
+`.cellar/cg17-payload-01/event-read-state.json`.
+
+## Previous proven binding-writer delivery
 
 Latest main `16c45b266` is included; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `6c876b46` keeps the

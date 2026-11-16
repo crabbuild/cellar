@@ -191,6 +191,9 @@ another worker to receive the same records with a new receipt; it does not stop
 the old worker's effects. A delayed acknowledgment or extension cannot settle or
 extend that replacement lease. Reset changes the subscription incarnation even
 when replay starts at the same offset, so old receipts return `SubscriptionReset`.
+A subscription handle also pins the identity from a successful fetch, including
+an empty result. Create a new handle to adopt a replacement after reset; an
+existing long poll cannot silently switch incarnations.
 A replayed successful acknowledgment may return `AlreadyAcknowledged` while a
 later batch is leased; that result describes only the original receipt. Keep
 inbox receipts and business effects in the same stable consumer database and
