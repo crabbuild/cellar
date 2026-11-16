@@ -45,11 +45,16 @@ below retain their own source and scope. The later `1d75a95f` cadence candidate
 passes SQL quorum's 18 windows without errors; its KV/Queue cases are held by
 the unchanged disk reserve. See the [current-source SQL checkpoint](three-node-primitive-main-170-2026-11-15.md#foreground-only-cadence-sql-quorum-re-verification).
 That scoped pass does not replace the older full matrix.
+The subsequent native enrollment-polling candidate `a8b26ff9` passes its execution,
+archive-controller and three selected RustFS controls, while the separate rooted-128
+diagnostic still exhausts its original enrollment budget. Its
+[source-specific record](enrollment-resolution-qualification-2026-11-16.json)
+does not establish a constrained-node throughput/latency gain.
 
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |
-| P0: isolate the failing boundary | Keep the actual physical-credit wake and cadence regressions. Reproduce writer/admission interference separately. The benchmark's shared S3 pool now has a deterministic native regression and a dedicated lease client; establish its effect in the constrained matrix before attributing earlier lease expiry to that transport boundary. Retain the separate rooted-128 enrollment timeout as an open reliability finding. |
+| P0: isolate the failing boundary | Keep the physical-credit wake, cadence, dedicated lease-pool and applied-evidence enrollment regressions. Measure their effects in the constrained matrix before attributing earlier lease expiry or latency to a specific boundary. Resolve the remaining preparation, persistence and physical-close costs behind the cumulative rooted-128 enrollment timeout; its successful SQL resolution checks do not establish request success. |
 | P1: prove performance | Obtain complete passing SQL/KV/Queue cases in every durability mode, then a matched-source before/after comparison with p50/p95/p99, errors, CPU, I/O and archive lag. Failed or unmeasured windows cannot establish a speedup. |
 | P1: finish lifecycle and public contracts | Close full CG-17, remaining authority/read partition cases, physical reclamation with retained owners, once-only capacity settlement and repeated reserve-aware movement. |
 | P1: qualify the release | Run combined-source recovery/crash/wake/transition and feature/SDK/Axum/daemon gates, plus independent physical failure domains. Three containers in one Colima VM do not qualify domain loss. |

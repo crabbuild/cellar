@@ -550,6 +550,7 @@ impl CellEnrollmentInvocation {
                 }
             }
         }
+        let prepared_term = self.prepared()?.term();
         loop {
             let origin = self.origin_ref()?;
             let resolved = async {
@@ -560,6 +561,13 @@ impl CellEnrollmentInvocation {
                     .map_err(CellDispatchError::Runtime)?;
                 if state.route() != &origin.route {
                     return Err(CellDispatchError::Invalid("enrollment resolution route"));
+                }
+                // Absence in this applied term cannot resolve the retained
+                // producer. Wait for progress without occupying a SQL worker.
+                // A record or newer term still needs exact SQL resolution and
+                // physical producer retirement before any result can escape.
+                if state.record().is_none() && state.term() <= prepared_term {
+                    return Err(CellDispatchError::Execution(ExecutionError::Uncertain));
                 }
                 origin
                     .sql

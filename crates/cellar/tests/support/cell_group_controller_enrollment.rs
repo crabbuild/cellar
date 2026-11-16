@@ -62,10 +62,19 @@ fn dispatcher(fixture: &RuntimeCluster, class: Arc<RaftClass>) -> Result<CellGro
 }
 
 // phase 0 holds initialization; phase 1 holds committed manifest publication.
-// mode 0 disconnects; 1 expires the response; 2 cancels physical shutdown.
+// mode 0 disconnects; 1 expires the response; 2 cancels physical shutdown;
+// 3 also checks SQL resolution waits for potentially decisive applied evidence.
 pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
     for rooted in [false, true] {
-        let root = tempfile::tempdir()?;
+        let mut root = tempfile::tempdir()?;
+        if mode == 3 {
+            root.disable_cleanup(true);
+            eprintln!(
+                "retained enrollment resolution fixture {}",
+                root.path().display()
+            );
+        }
+        let mut publication_result = Ok(());
         let faults = physical::Faults::new(root.path().join("node-1/pages"), None);
         let filesystem = Arc::new(physical::FaultFileSystem {
             faults: faults.clone(),
@@ -168,6 +177,7 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
         } else {
             Duration::from_secs(15)
         };
+        let performance_before = fixture.cluster.voters[0].log.performance_snapshot();
         let call = controllers[0].enroll(
             enroll(&dispatcher, &cell, 170, timeout).await?,
             fixture.cell_options(&cell).await?,
@@ -245,6 +255,30 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
                 )
             })
             .await?;
+            if mode == 3 {
+                let after = fixture.cluster.voters[0].log.performance_snapshot();
+                assert!(performance_before.available && after.available);
+                assert!(!performance_before.saturated && !after.saturated);
+                let publication = |snapshot: &RaftPerformanceSnapshot| {
+                    let operation = snapshot
+                        .operations
+                        .iter()
+                        .find(|operation| operation.name == "sql_publish")
+                        .expect("SQL publication counter");
+                    (operation.succeeded, operation.failed)
+                };
+                let before = publication(&performance_before);
+                let after = publication(&after);
+                publication_result = (|| -> Result<()> {
+                    ensure!(
+                        after.1 == before.1,
+                        "enrollment resolution occupied SQL before applied evidence could resolve it: {} failed calls",
+                        after.1 - before.1,
+                    );
+                    ensure!(after.0 - before.0 == 1, "one exact committed resolution");
+                    Ok(())
+                })();
+            }
             let state = fixture.runtimes[0]
                 .enrollment_state(route.history, cell.clone())
                 .await?;
@@ -348,6 +382,7 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
         drop(controllers);
         drop(pool);
         fixture.close().await?;
+        publication_result?;
     }
     Ok(())
 }

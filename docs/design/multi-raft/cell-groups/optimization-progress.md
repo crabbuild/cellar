@@ -4937,3 +4937,52 @@ the cadence candidate's source. No matching Linux image or new container
 measurement qualifies this client change yet. The disk expansion proposal is
 unapproved; no VM resource changes, data deletion or deadline increases are used
 to proceed. Full primitive, fault, feature and CG/OPT acceptance stays open.
+
+### Enrollment resolution waits for potentially decisive applied evidence
+
+Compiler input `a8b26ff9` removes an unnecessary SQL-worker round trip from the
+admitted enrollment owner. Absence at or below the preparation's applied term
+cannot resolve that producer. The dispatcher keeps its original ownership and
+waits on existing progress. A present record or newer term still goes through
+the unchanged SQL owner for exact binding/current-state validation and physical
+retirement. No result, authority or admission credit is granted by the skip.
+Deadlines, queues, banks, retries, worker counts and durability proofs remain.
+
+The actual controller regression holds physical manifest publication and checks
+the original creation, one initializer, retained producer/response admission,
+exact duplicate result, conflict refusal and joined close. Formatted before
+input `dddf5061` fails twice, each with five unsuccessful SQL resolution calls.
+That failure follows the other assertions and joined cleanup; only the
+materialized iteration is reached. Afterward, identical test bytes pass twice
+in both image forms, with zero failed resolution calls and one exact successful
+resolution per image. Only the production dispatcher differs between these
+before/after compiler manifests. All failed fixture bytes remain retained.
+
+The complete default execution suite passes 208 tests with two existing ignores;
+archive-controller passes 35 with 30 ignores. Focused strict Clippy passes.
+Three selected real-RustFS enrollment controls pass ten image/configuration
+iterations, covering original creation, serving authority and deadline ownership.
+They exercise three default ignores separately. The exact original backend stays
+ready, with unchanged identity, image, resource limits, restart count and start
+time. This remains host-native RF3 qualification, rather than constrained-node
+throughput or latency evidence.
+
+The full Raft tool remains failed: 25 pass and the separate rooted-128 diagnostic
+reaches its original 60-second enrollment deadline. Its failed fixture records
+111 SQL resolution calls with zero failed checks, alongside substantial SQL
+preparation and file-sync time. Zero failed resolution checks does not mean zero
+API errors. A separate diagnostic-only before probe records 100 successful
+enrollments consuming roughly the complete total budget, leaving 154 ms for the
+next call; no completed call exceeds two seconds. Its temporary timing markers
+are removed. These observations do not isolate an end-to-end speedup or close
+the cumulative enrollment latency gap.
+
+The [source-specific record](enrollment-resolution-qualification-2026-11-16.json)
+retains before/after hashes, counters, default-suite failure and real-backend
+scope. Formatting/layout and native dependency checks pass. The design tests
+first pass 43 cases and reject a stale catalog anchor; after reviewing the
+complete seven-line namespace payload binding diff, only catalog/birth hashes
+are re-pinned to `cbde019b`, with their excerpts and the other 22 anchors unchanged.
+All 44 design tests then pass. Historical runtime evidence, task acceptance and
+the missing CG-01 record stay unchanged. No Linux image, new constrained primitive
+matrix, independent failure-domain or complete feature/release gate is qualified.

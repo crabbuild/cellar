@@ -1373,6 +1373,11 @@ async fn controller_enrollment_survives_accepted_disconnect() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_defers_unprovable_sql_resolution() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment(1, 3)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_enrollment_resolves_after_deadline() -> Result<()> {
     Box::pin(runtime_fixture::owned_enrollment(1, 1)).await
 }
