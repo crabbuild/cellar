@@ -46,6 +46,18 @@ receipts. Configuration checks the actual compiled envelope against the host
 profile; append batching intersects that profile with policy limits and image
 capture still gates source output. No capacity limit is raised automatically.
 
+A verified binding child completes only protected intent/receipt and lane
+bookkeeping in its source. If the source was already clean at Quorum, that
+successful completion preserves its application-state read watermark. A following
+pure query, including a repeated acknowledgment probe, does not need another
+checkpoint solely for those rows. Dirty application/schema state, failed
+completion, S3 sources, cursor/local-state restrictions and current source/target
+fences retain their checks. Later mutations and final output still prove the
+complete physical source, including bookkeeping. No mutation authority follows
+from the read watermark. The physical version oracle passes native and isolated
+RustFS in both images at `df36b88c`; combined S3 output deadlines and the complete
+public cohort remain unqualified. See the current integration checkpoint.
+
 Fresh catalog creation can acknowledge its compiled provisioning intent from
 the request's owned enrollment response. The exact nonce-independent wire binds
 scope, resource, caller, operation and definition. History, creation, schema and

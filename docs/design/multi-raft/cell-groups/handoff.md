@@ -4,7 +4,43 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current catalog enrollment delivery
+## Current binding-read delivery
+
+Main `16c45b266` remains included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `df36b88c` keeps an
+already clean Quorum source-read watermark through successful protected binding
+completion. Pure follow-up reads avoid a redundant checkpoint. Application/schema
+writes, failed completion, S3, cursor/local-state checks, fresh source/target
+fences and full final-output/subsequent-mutation proofs remain.
+
+The physical RF3 version oracle fails before the change and passes native and
+isolated real RustFS, both images and clean/dirty/S3 cases. Final parent receipts
+and exact child effects remain. All **17 owning units** pass. Regression source
+matches the causal baseline; temporary probes are removed.
+
+**Qualification is partial.** Combined cohort 413 fails a materialized RustFS S3
+parent-3 deadline; unchanged isolated control 414 passes. Guards 415 are **7/8**:
+the remaining failure is materialized RustFS named-binding source S3 sequence 3.
+Its other three configurations pass, as do both initial-read, interleaving and
+interrupted named-binding recovery selections and native named bindings. The
+last child returns at 3543 ms of the original five seconds; final S3 publication,
+verification and output settlement are the next performance boundary.
+
+Public cohort 416 was skipped by that guard failure. Latest complete public
+result remains **7/16 at `c5f59695`**, not this revision. Do not replace failures
+with isolated passes, infer commit/archival timing from retained images, retry
+unknown mutations with new IDs or relax proof/deadline requirements.
+
+Aggregate 419 verifies frozen evidence and 12 retained failed voter disks. Build,
+strict library/all-test Clippy and repository checks pass. All jobs are terminal;
+owned backend/VM are stopped with objects retained. In-process RF3 and RustFS
+with one CPU/two GiB do not qualify the independent-voter release envelope.
+Counts stay **13/17, 147/195**. Next: S3 checkpoint/final-output progress, then the
+complete public cohort and all remaining primitive/recovery/hard-cutover gates.
+See the [current checkpoint](progress.md#current-integration-checkpoint) and
+ignored `.cellar/cg17-payload-01/event-read-state.json` for exact pins and records.
+
+## Previous catalog enrollment delivery
 
 Main `16c45b266` is fetched and included; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `c5f59695e` joins

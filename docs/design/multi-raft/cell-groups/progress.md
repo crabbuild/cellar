@@ -29,6 +29,58 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `16c45b266` remains included. **Runtime `df36b88c` preserves an already
+clean Quorum source-read watermark through verified binding completion.** Only
+protected receipt/lane bookkeeping may advance that watermark. A following pure
+read still proves preceding application state and checks the current source
+fence and target authority. Application/schema changes, failed completions, S3,
+cursor restrictions and connection-local state retain checkpoint requirements. Every
+later mutation and final response still prove the complete physical source.
+No new task, cache, admission capacity or format is added.
+
+The causal RF3 regression fails at `7afa23cd`: after a verified named child, a
+following read creates a redundant source checkpoint. Another voter's fresh
+quorum observations bracket a physically blocked follower query. At `df36b88c`,
+clean Quorum keeps its version, dirty/S3 sources advance, and final parent
+receipts and exactly-once child values remain required. Regression source is
+identical across the failing baseline and final runtime. Native and isolated
+real-RustFS selections pass both images and all three cases: **12 configurations**.
+An earlier fixture failure used a counter helper without its SQL table; it is
+retained as a prerequisite failure, not causal evidence. Temporary tracing is
+removed. All **17 owning units** pass, including marker refusal/schema checks and
+the existing catalog tests.
+
+**Combined qualification remains FAILED.** Cohort 413 passes native but fails
+RustFS materialized S3 parent sequence 3 with an ambiguous deadline. The unchanged
+isolated RustFS control 414 passes; it does not erase that failure or establish
+stability. Compatibility cohort 415 is **7/8**: both initial-read, interleaving
+and interrupted named-binding recovery selections, plus native named bindings,
+pass. RustFS named bindings report all four configurations; materialized source
+S3 sequence 3 times out, while the other three pass. Its last child returns after
+3543 ms, leaving less than 1.5 seconds of the original five-second budget for final
+source settlement. Existing archive logs show successive cut publication and
+verification. This identifies an investigation boundary, not an exclusive cause.
+All three failed regression voters retain images containing the final S3 receipt;
+image presence alone proves neither current serving state nor timely S3 coverage.
+
+**Current-source public cohort 416 did not run**, because the compatibility gate
+failed. The last complete public cohort remains **7/16 at `c5f59695`**, not current
+acceptance. Instrumented Axum trace 400 also passes before this change; it is
+diagnostic only. No public stability, measured speedup or full primitive support
+is claimed.
+
+Aggregate `CG-17-binding-read-aggregate-419-df36b88c` verifies frozen inputs,
+binaries, logs/backups and **12 retained failed voter disks**. Voters share one
+process and separate workspace disks; RustFS uses one CPU/two GiB. Build, strict
+library/all-test Clippy, formatting, layout, dependency and docs checks pass.
+Jobs are terminal; owned backend/VM are stopped and objects remain. Counts stay
+**13/17 tasks, 147/195 cases**; the generated implementation index remains accurate.
+Next: bounded S3 checkpoint/final-output publication and physical verification
+progress under original budgets, then the full public cohort, interrupted binding
+sealing, remaining primitive lifecycles and CG-13/17/15/16 hard-cutover gates.
+
+## Previous catalog enrollment checkpoint
+
 Main `16c45b266` is fetched and included. **Runtime `c5f59695e` joins fresh
 catalog configuration to its owned enrollment response.** Enrollment commits the
 initializer's definition, operation receipt and autonomous work. The adapter
