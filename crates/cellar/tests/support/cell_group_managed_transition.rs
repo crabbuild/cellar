@@ -12,6 +12,9 @@ use cellar::sdk::fleet_operations::{
     RaftFleetTransitionSealRequest, RaftFleetTransitionSourceSealRequest,
 };
 
+#[path = "cell_group_transition_diagnostics.rs"]
+pub(crate) mod diagnostics;
+
 #[path = "cell_group_managed_transition_preparation.rs"]
 mod preparation;
 
@@ -126,6 +129,13 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         FirstGroupSetup::Normal,
     ))
     .await?;
+    for root in &mut cluster.roots {
+        root.disable_cleanup(true);
+        eprintln!(
+            "retained managed transition disk: {}",
+            root.path().display()
+        );
+    }
     let merge = matches!(decision, Decision::SplitMerge { .. });
     let publication_only = matches!(decision, Decision::Publication);
     let expected_children = match decision {
@@ -136,6 +146,20 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         Decision::Cancel => 0,
     };
     let result = exercise(&mut cluster, rooted, decision).await;
+    if result.is_err() {
+        if let Err(error) = diagnostics::observations(&cluster).await {
+            eprintln!("managed transition observations failed: {error:#}");
+        }
+        if let Err(error) = diagnostics::memory(
+            &cluster.fixtures[0].store,
+            cluster.roots[0].path(),
+            "at-failure",
+        )
+        .await
+        {
+            eprintln!("managed transition memory snapshot failed: {error:#}");
+        }
+    }
     if merge {
         let shutdown = merge::close(
             cluster.nodes,
@@ -144,6 +168,17 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         )
         .await;
         cluster.fixtures[0].domain.shutdown().await;
+        if result.is_err() || shutdown.is_err() {
+            if let Err(error) = diagnostics::memory(
+                &cluster.fixtures[0].store,
+                cluster.roots[0].path(),
+                "after-close",
+            )
+            .await
+            {
+                eprintln!("managed transition memory snapshot failed: {error:#}");
+            }
+        }
         result?;
         return shutdown;
     }
@@ -162,6 +197,17 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         ))
         .await;
     cluster.fixtures[0].domain.shutdown().await;
+    if result.is_err() || joined.is_err() || joined_spares.iter().any(Result::is_err) {
+        if let Err(error) = diagnostics::memory(
+            &cluster.fixtures[0].store,
+            cluster.roots[0].path(),
+            "after-close",
+        )
+        .await
+        {
+            eprintln!("managed transition memory snapshot failed: {error:#}");
+        }
+    }
     result?;
     joined?;
     for result in joined_spares {

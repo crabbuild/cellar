@@ -11,13 +11,22 @@ use object_store::ObjectStore as _;
 mod cli;
 use cli::{first_group_plan, OperatorCli, FLEET, OWNER, READER};
 
+fn operator_root() -> Result<tempfile::TempDir> {
+    let mut root = tempfile::Builder::new()
+        .prefix("cellar-managed-operator-")
+        .tempdir()?;
+    root.disable_cleanup(true);
+    eprintln!("retained managed operator disk: {}", root.path().display());
+    Ok(root)
+}
+
 pub(super) async fn provision(
     f: &Fixture,
     directory: &RangeDirectory,
     voter: &RaftCells,
     setup: RaftManagedFirstGroupRequest,
 ) -> Result<FleetGroupAuthorization> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let cli = open_cli(
         f,
         directory,
@@ -79,7 +88,7 @@ pub async fn prepare_transition(
     request: &RaftFleetTransitionPrepareRequest,
     preparer: Option<(FleetGroupArchiveVerifier, CellGroupRecoveryPool)>,
 ) -> Result<RaftFleetTransitionPreparation> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let (bucket, mut control) = control(fixture, directory)?;
     if let Some((verifier, recovery)) = preparer {
         control = control.with_transition_preparer(verifier, recovery);
@@ -113,7 +122,7 @@ pub async fn capture_transition_source(
     request: &RaftFleetTransitionSourceSealRequest,
     preparer: (FleetGroupArchiveVerifier, CellGroupRecoveryPool),
 ) -> Result<RaftFleetTransitionSourceArchive> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let (bucket, mut control) = control(fixture, directory)?;
     control = control.with_transition_preparer(preparer.0, preparer.1);
     let cli = OperatorCli::start(&fixture.domain, bucket, control, root.path(), principal).await?;
@@ -145,7 +154,7 @@ pub async fn reopen_transition_retirement(
     principal: &str,
     request: &RaftFleetTransitionSourceSealRequest,
 ) -> Result<RaftFleetTransitionSourceRetirement> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let (bucket, control) = control(fixture, directory)?;
     let cli = OperatorCli::start(&fixture.domain, bucket, control, root.path(), principal).await?;
     let result = async {
@@ -176,7 +185,7 @@ pub async fn verify_transition_archive(
     preparer: (FleetGroupArchiveVerifier, CellGroupRecoveryPool),
     command_name: &str,
 ) -> Result<RaftFleetTransitionArchiveVerification> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let (bucket, mut control) = control(fixture, directory)?;
     control = control.with_transition_preparer(preparer.0, preparer.1);
     let cli = OperatorCli::start(&fixture.domain, bucket, control, root.path(), principal).await?;
@@ -211,7 +220,7 @@ pub async fn setup_transition_child(
     request: &RaftFleetTransitionChildSetupRequest,
     preparer: Option<(FleetGroupArchiveVerifier, CellGroupRecoveryPool)>,
 ) -> Result<RaftFleetTransitionChildSetup> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let (bucket, mut control) = control(fixture, directory)?;
     control = control.with_node_observer(observer.clone());
     if let Some((verifier, recovery)) = preparer {
@@ -246,7 +255,7 @@ pub async fn transition_status(
     principal: &str,
     expected: &RaftFleetTransitionStatus,
 ) -> Result<()> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let cli = open_cli(fixture, directory, root.path(), principal, None).await?;
     let result = cli
         .call(
@@ -273,7 +282,7 @@ pub async fn resume_transition(
     observer: &RaftCells,
     request: &RaftFleetTransitionResume,
 ) -> Result<RaftFleetTransitionResumeAcceptance> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
     let plan = root.path().join("transition-resume.json");
     std::fs::write(&plan, serde_json::to_vec(request)?)?;
@@ -300,7 +309,7 @@ pub async fn admit_transition(
     principal: &str,
     request: &RaftFleetTransitionAdmissionRequest,
 ) -> Result<RaftFleetTransitionAdmission> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let cli = open_cli(fixture, directory, root.path(), principal, None).await?;
     let plan = root.path().join("transition-admission.json");
     std::fs::write(&plan, serde_json::to_vec(request)?)?;
@@ -335,7 +344,7 @@ pub async fn authorize_transition_seal(
     observer: &RaftCells,
     request: &RaftFleetTransitionSealRequest,
 ) -> Result<RaftFleetTransitionSealAuthorization> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
     let plan = root.path().join("transition-seal-authorization.json");
     std::fs::write(&plan, serde_json::to_vec(request)?)?;
@@ -365,7 +374,7 @@ pub async fn seal_transition_source(
     observer: &RaftCells,
     request: &RaftFleetTransitionSourceSealRequest,
 ) -> Result<RaftFleetTransitionSourceCut> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
     let result = async {
         let plan = root.path().join("transition-seal-source.json");
@@ -421,7 +430,7 @@ pub async fn publish_transition(
     principal: &str,
     request: &RaftFleetTransitionPublishRequest,
 ) -> Result<RaftFleetTransitionPublication> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let cli = open_cli(fixture, directory, root.path(), principal, None).await?;
     let plan = root.path().join("transition-publication.json");
     std::fs::write(&plan, serde_json::to_vec(request)?)?;
@@ -452,7 +461,7 @@ pub async fn activate_transition_child(
     observer: &RaftCells,
     request: &RaftFleetTransitionActivationRequest,
 ) -> Result<RaftFleetTransitionActivation> {
-    let root = tempfile::tempdir()?;
+    let root = operator_root()?;
     let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
     let plan = root.path().join("transition-activation.json");
     std::fs::write(&plan, serde_json::to_vec(request)?)?;

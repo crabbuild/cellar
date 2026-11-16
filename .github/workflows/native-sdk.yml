@@ -494,6 +494,7 @@ jobs:
             ${{ runner.temp }}/native-failure-fixtures/**/delayed-cold-read.json
             ${{ runner.temp }}/native-failure-fixtures/**/accepted-prefix.json
             ${{ runner.temp }}/native-failure-fixtures/**/post-recovery-fetch.json
+            ${{ runner.temp }}/native-failure-fixtures/**/transition-failure-observations.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
