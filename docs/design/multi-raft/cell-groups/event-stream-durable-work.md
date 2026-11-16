@@ -18,6 +18,11 @@ Declare UUID or name-based stream bindings in the ordinary worker configuration.
 Bindings, principal identity and compiled definitions participate in admission
 and namespace identity. One generation activation owner configures resources and
 checks current catalog/stream state before pinning explicit and named bindings.
+Named adoption uses its fresh authorized name-resolution response as the catalog
+proof: it already validates active lifecycle, complete resource identity and all
+captured grant capabilities. Explicit UUIDs still need a separate current catalog
+read. Both forms independently check the current broker lifecycle and identity;
+no proof is reused across declarations or inferred from a name/configuration hint.
 It selects the shared host for Raft resources and never materializes another
 LTX-backed catalog or broker for the same declaration. Embedded hosts activate
 after provisioning the required groups; the daemon uses its startup hook.

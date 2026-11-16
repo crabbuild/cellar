@@ -4,31 +4,40 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current atomic first-fetch delivery
+## Current named catalog-adoption delivery
 
-Latest main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `d8d51a77` resolves
-subscription identity in the same target command as its first lease. Empty
-results pin identity too; later polls refuse reset/recreation, exact receipts
-retain replay authority, and source/target durability and original budgets stay.
+Main `16c45b266` is included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `0653bf668` reuses
+the fresh authorized name-resolution catalog proof during EventStream binding
+adoption. Explicit UUIDs still read the catalog, and both forms still check the
+broker's lifecycle and full identity. All durability, authority, quota and
+deadline checks remain. Atomic first-fetch identity/lease selection from
+`d8d51a77` remains in place.
 
-**82 owning checks pass.** Focused cohort 566 is **FAILED, 3/10**. Ordinary native
-EventStream lifecycle passes both image modes, including inbox/ack, retained
-restart and quorum refusal; registration and Fleet reference pass. Seven
-EventStream selections still fail activation, Consume or native publication/
-outbox recovery. The latter reaches sink Read sequence 6 after archive outage
-and full retained restart, then ambiguously refuses with
-`Execution(Refused(Unavailable))`. This is a concrete next recovery boundary,
-not an established cache, scheduler or archive cause. Other failures retain
-their original deadline or cold-activation boundary.
+The pre-feature regression fails on the redundant catalog call. Final **84
+owning checks pass**, including explicit-proof and broker-retirement/identity
+refusals. Locked build, strict Clippy and repository checks pass. A Rust
+incremental compiler ICE is excluded; final builds use non-incremental settings.
 
-Next: fix that post-restart Read refusal with an S3 target, autonomous readiness and remaining
-Consume progress, then Queue producer progress and all primitive/release gates.
-The full 16-case cohort was not repeated for this EventStream-only change; its
-last result remains FAILED6/16 at `6c876b46`. Keep sources and scopes separate.
-Final locked build, strict Clippy and repository checks pass. Aggregate 569
-verifies frozen evidence and 21 failed voter disks. Owned RustFS/VM are stopped,
-objects retained. Counts stay **13/17 tasks, 147/195 cases**. Exact pins are in
+**Current focused public qualification is FAILED, 9/10.** Native/Axum and
+real-RustFS lifecycle, both publication/outbox recovery paths, native
+independent-target-S3, registration and Fleet reference pass. The failure is
+real-RustFS Axum independent-target-S3 initial extents activation on node 0:
+`Runtime(DeadlineExceeded)`. Preserve its three voter disks and original budget.
+Do not rerun unchanged campaigns merely to replace the failure.
+
+The earlier post-outage/restart native sink Read refusal did not reproduce;
+its cause and fix are unproven. Diagnostic 576 failed earlier at activation;
+probes are removed. Current first-case transient compiler overlap is recorded,
+so make no uncontended timing or exclusive speedup claim. The complete cohort
+was not repeated; its last result remains FAILED6/16 at `6c876b46`.
+
+Next: close independent-S3 Axum activation and Queue producer progress, then
+finish EventStream's combined lost-reply/transfer, generation, pruning and
+slow-consumer/GC cases alongside the remaining primitive adapters. Complete
+CG-13/15 recovery/release before CG-16 hard cutover. Counts stay **13/17 tasks,
+147/195 cases**. Aggregate 599 verifies current frozen evidence and failed disks;
+owned RustFS/VM are stopped with objects retained. Exact pins and scope are in
 [progress](progress.md#current-integration-checkpoint) and ignored
 `.cellar/cg17-payload-01/event-read-state.json`.
 

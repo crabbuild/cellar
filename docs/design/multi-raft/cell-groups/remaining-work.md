@@ -57,23 +57,30 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `d8d51a77` resolves subscription identity with its first
-lease in one target command. Empty fetches retain their identity; later polls
-refuse reset, and full response validation precedes handle pinning. Original
-child receipts, source/target minimum proofs, deadlines and quotas remain.
-All 82 owning checks pass, including real-SQLite replay/competition/reset cases.
+main `16c45b266`. Runtime `0653bf668` reuses the fresh authorized named catalog
+adoption proof. Explicit UUIDs retain their separate catalog check; every binding
+still checks current broker lifecycle and full identity. Original budgets,
+quotas, receipts, fences and source/target durability minima remain. The baseline
+fails on the redundant catalog call; all **84 final owning checks pass**.
+Locked build, strict Clippy and repository checks pass. The failed incremental
+compiler reuse is excluded; final builds use non-incremental settings.
 
-**Focused EventStream/registration/Fleet qualification is FAILED, 3/10.** Ordinary
-native lifecycle passes both images, including public reads/writes, inbox/ack,
-retained restart, replay and quorum refusal. Registration and Fleet reference
-pass. Seven EventStream selections fail. A new concrete recovery boundary is
-native sink Read sequence 6 after archive outage and retained restart:
-`Execution(Refused(Unavailable))`, ambiguous. Its cause is unproven; other failures
-remain cold activation or Axum/RustFS Consume deadlines. Locked build, strict
-Clippy and repository checks pass. Aggregate 569 verifies frozen evidence and
-21 failed voter disks; owned backend/VM are stopped, objects retained. This does
-not qualify a complete primitive family. The full 16-case cohort was not repeated
-for this EventStream-only change; its last result stays FAILED6/16 at `6c876b46`.
+**Focused EventStream/registration/Fleet qualification is FAILED, 9/10.** Native
+and Axum lifecycle, their real-RustFS counterparts, native and RustFS publication/
+outbox recovery, native independent-target-S3, registration and Fleet reference
+pass. The remaining selection fails real-RustFS Axum independent-target-S3
+initial extents activation on node 0 with `Runtime(DeadlineExceeded)`; three
+voter disks are retained. Native post-outage retained-restart recovery passes;
+the earlier sink Read refusal does not reproduce, but its cause/fix is unproven.
+Do not infer an exclusive timing cause or stability from separate 3/10 and 9/10
+runs. First-case transient compiler overlap is recorded; no latency claim is made.
+
+Aggregate 599 verifies frozen evidence and current failed disks. Owned backend/
+VM are stopped with objects retained. Full EventStream acceptance still needs
+lost-reply/transfer, generation, pruning and slow-consumer/GC coverage. This is a
+selected public run, not complete primitive-family acceptance. The complete
+16-case cohort was not repeated; its last result stays FAILED6/16 at `6c876b46`.
+Counts remain **13/17 tasks, 147/195 cases**.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
@@ -151,22 +158,19 @@ Earlier catalog enrollment joining, bounded suspended scanning, exact checkpoint
 receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retain
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
-1. **Close target execution, readiness and Queue producer progress.** Close the
-   stream Read refusal with an S3 target after archive outage/retained restart, remaining
-   EventStream activation/Consume failures and Queue producer
-   deadlines (native materialized sequence 7, RustFS extents sequence 23) under
-   original budgets and quotas. Retained
-   source obligations must
-   autonomously resume, while catalog, broker, named binding, current birth and
-   destination proofs still gate readiness. Measure inside the target command:
-   current Axum Consume starts with 2,999 of 3,000 ms remaining. Inspect autonomous
-   catalog/broker readiness after initial history selection, not only enrollment
-   admission. RustFS Queue currently completes materialized delivery, then fails
-   extents production; retain both that evidence and the failed native producer.
-   Independent target-S3 cold activation remains
-   open. The isolated pre-feature/current native passes do not replace the
-   combined failure. Run another broad cohort after an implemented change or a
-   controlled finding justifies it; repeated unchanged campaigns do not close it.
+1. **Close independent-S3 Axum activation and Queue producer progress.** Current
+   focused qualification passes nine selections; the real-RustFS Axum target-S3
+   selection still expires at initial extents activation on node 0. Preserve
+   current catalog, broker, named binding, birth and destination proof gates
+   while making autonomous readiness complete within its original budget.
+   Native post-outage/restart Read now passes; retain the earlier ambiguous
+   refusal as unresolved historical evidence rather than claiming a cause or
+   fix. Queue production remains open: the last complete cohort fails native
+   materialized producer sequence 7 and RustFS extents sequence 23. Preserve
+   those failures and original quotas/deadlines. Then close EventStream's
+   combined lost-reply/transfer, generation, pruning and slow-consumer/GC matrix.
+   Run broader qualification after a relevant implementation or controlled
+   finding; repeated unchanged campaigns do not close these gates.
 2. **Finish S3 binding stability and interrupted recovery.** Current named bindings
    pass all eight backend/image/source-minimum configurations; preserve earlier
    source-S3 deadline failures and establish combined lifecycle progress. Preserve
