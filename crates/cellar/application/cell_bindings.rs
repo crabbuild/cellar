@@ -690,9 +690,6 @@ async fn run(
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
-    let trace_started = crate::asyncrt::mono_ms();
-    tracing::debug!(target: "cellar::raft::sql_ingress", phase="DEBUG-cg17-target-395-binding-start",
-        source=%source.history.cell.as_str(), parent=source.parent.sequence(), ordinal=intent.ordinal, enroll=intent.enroll);
     let history = if !intent.enroll {
         intent.candidate.clone()
     } else {
@@ -755,9 +752,6 @@ async fn run(
         storage.sync().await?;
     }
     io.begin_io()?;
-    tracing::debug!(target: "cellar::raft::sql_ingress", phase="DEBUG-cg17-target-395-dispatch",
-        source=%source.history.cell.as_str(), parent=source.parent.sequence(), ordinal=intent.ordinal,
-        elapsed_ms=crate::asyncrt::mono_ms().saturating_sub(trace_started));
     *selected.lock().unwrap() = Some(history.clone());
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
@@ -798,9 +792,6 @@ async fn run(
     };
     match result {
         Ok(receipt) => {
-            tracing::debug!(target: "cellar::raft::sql_ingress", phase="DEBUG-cg17-target-395-receipt",
-                source=%source.history.cell.as_str(), parent=source.parent.sequence(), ordinal=intent.ordinal,
-                elapsed_ms=crate::asyncrt::mono_ms().saturating_sub(trace_started));
             anyhow::ensure!(
                 receipt.id == intent.child
                     && receipt.version.history == history
@@ -808,9 +799,6 @@ async fn run(
                 CommandFailure::CorruptState
             );
             io.resume_writer().await?;
-            tracing::debug!(target: "cellar::raft::sql_ingress", phase="DEBUG-cg17-target-395-writer",
-                source=%source.history.cell.as_str(), parent=source.parent.sequence(), ordinal=intent.ordinal,
-                elapsed_ms=crate::asyncrt::mono_ms().saturating_sub(trace_started));
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.

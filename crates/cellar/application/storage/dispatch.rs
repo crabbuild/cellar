@@ -350,12 +350,6 @@ impl RaftDispatch {
             let (send, receive) = tokio::sync::oneshot::channel();
             let external = Arc::new(AtomicBool::new(false));
             let waiting = external.clone();
-            let trace_started = self.context.domain.mono_ms()?;
-            let trace_source = self
-                .context
-                .binding_source
-                .as_ref()
-                .map(|source| (source.history.cell.clone(), source.parent.sequence()));
             let task = Box::pin(async move {
                 let proof = async {
                     slot.admission.clone().await.map_err(anyhow::Error::msg)?;
@@ -367,9 +361,6 @@ impl RaftDispatch {
                     }
                 }
                 .await;
-                tracing::debug!(target: "cellar::raft::sql_ingress",
-                    phase="DEBUG-cg17-target-395-proof", source=?trace_source, read_only,
-                    success=proof.is_ok(), elapsed_ms=self.context.domain.mono_ms()?.saturating_sub(trace_started));
                 drop(slot);
                 let result = async {
                     proof?;
@@ -399,9 +390,6 @@ impl RaftDispatch {
                     .await
                 }
                 .await;
-                tracing::debug!(target: "cellar::raft::sql_ingress",
-                    phase="DEBUG-cg17-target-395-action", source=?trace_source,
-                    success=result.is_ok(), elapsed_ms=crate::asyncrt::mono_ms().saturating_sub(trace_started));
                 let _ = send.send(result);
                 Ok(())
             });

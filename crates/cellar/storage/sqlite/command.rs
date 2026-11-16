@@ -416,6 +416,35 @@ pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
     })
 }
 
+/// Complete a verified child in protected receipt/lane tables. These writes
+/// neither change application state nor authorize another mutation. A following
+/// pure read may keep an already clean Quorum application-state proof; final
+/// output and every later mutation still prove the complete source state.
+/// Dirty/S3 frames and failed completions cannot acquire this read watermark.
+pub(super) fn with_binding_completion<T>(
+    complete: impl FnOnce(&Connection) -> Result<T>,
+) -> Option<Result<T>> {
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let frame = current.as_ref()?;
+        let connection = frame.connection.try_borrow().ok()?;
+        let connection = connection.as_ref()?;
+        Some((|| {
+            let clean = match frame.quorum_read_base.get() {
+                Some(base) => command_marker(connection)? == base,
+                None => false,
+            };
+            let result = complete(connection)?;
+            if clean {
+                frame
+                    .quorum_read_base
+                    .set(Some(command_marker(connection)?));
+            }
+            Ok(result)
+        })())
+    })
+}
+
 pub(super) fn native_alarm_generation() -> Option<[u8; 16]> {
     CURRENT_COMMAND.with(|current| current.borrow().as_ref()?.native_alarm.get())
 }
@@ -682,9 +711,11 @@ pub(crate) fn commit_work(resources: &RaftStorageAuthority) -> HandlerFuture<()>
     })
 }
 
-/// A pure remote query needs proof of preceding source writes, not a new
+/// A pure remote query needs proof of preceding application writes, not a new
 /// source mutation of its own. S3 turns, new roots, live write cursors and
-/// connection-local state retain the ordinary checkpoint path.
+/// connection-local state retain the ordinary checkpoint path. A verified
+/// binding completion may preserve the existing clean Quorum read watermark
+/// through its protected bookkeeping; the full source still gates output.
 pub(crate) fn confirm_read_work(resources: &RaftStorageAuthority) -> HandlerFuture<()> {
     let clean = (|| -> Result<bool> {
         require_storage(resources, true)?;
@@ -716,6 +747,10 @@ pub(crate) fn confirm_read_work(resources: &RaftStorageAuthority) -> HandlerFutu
         result => Box::pin(async move { result.map(|_| ()) }),
     }
 }
+
+#[cfg(test)]
+#[path = "command_tests.rs"]
+mod tests;
 
 pub(super) fn failure() -> Option<String> {
     CURRENT_COMMAND.with(|current| current.borrow().as_ref()?.failure.borrow().clone())

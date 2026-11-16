@@ -508,11 +508,6 @@ impl Cells {
             let waker = Waker::from(rpc.ready.clone());
             let mut cx = Context::from_waker(&waker);
             if let Err(error) = admitted {
-                tracing::debug!(target: "cellar::raft::sql_ingress", phase="DEBUG-cg17-target-395-expired",
-                    cell=%rpc.cell.cell.as_str(), executor=rpc.executor.is_some(), resuming=rpc.resuming.is_some(),
-                    checkpoint=rpc.checkpoint.as_ref().map(|c| match &c.phase { CheckpointPhase::Applying(_)=>"applying", CheckpointPhase::Archiving(_)=>"archiving" }),
-                    query=rpc.turn.waiting_on_queries(), parked_io=rpc.turn.can_poll_parked_io(),
-                    contended=rpc.retention.lease.contended(), cause=%error);
                 timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
                 return true;
             }

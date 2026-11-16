@@ -185,7 +185,7 @@ pub(crate) fn refuse(intent: &Intent, history: &CellHistory) -> Result<()> {
 pub(crate) fn complete(intent: &Intent, history: &CellHistory, result: &[u8]) -> Result<()> {
     use sha2::{Digest, Sha256};
     let digest: [u8; 32] = Sha256::digest(result).into();
-    command::with(|connection| as_framework_sql(|| {
+    command::with_binding_completion(|connection| as_framework_sql(|| {
         control(connection, "SAVEPOINT __sys_raft_binding_complete")?;
         let result = (|| {
         let changed = connection.execute(
