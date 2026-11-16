@@ -185,6 +185,7 @@ impl RaftCells {
         args: Value,
         deadline: u64,
     ) -> HandlerFuture<Value> {
+        tracing::debug!(target: "cellar::raft::event_activation", probe = "DEBUG-cg17-retained-447", phase = "start", method, %scope, %name);
         let prepared = (|| -> Result<_> {
             self.check_open()?;
             anyhow::ensure!(
@@ -206,7 +207,9 @@ impl RaftCells {
             })
         })();
         Box::pin(async move {
-            let result = prepared?.await?;
+            let result = prepared?.await;
+            tracing::debug!(target: "cellar::raft::event_activation", probe = "DEBUG-cg17-retained-447", phase = "completed", method, %scope, %name, success = result.is_ok(), error = ?result.as_ref().err());
+            let result = result?;
             let value = crate::application::decode_rpc_result(&result)?.to_json()?;
             if let Some(error) = value.get("error") {
                 return Err(

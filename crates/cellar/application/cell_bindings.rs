@@ -727,6 +727,7 @@ async fn run(
             // transmitted enrollments never enter this wait.
             if !noted {
                 tracing::debug!(target: "cellar::raft::enrollment", phase = "binding-admission-wait", creation = ?intent.creation);
+                tracing::debug!(target: "cellar::raft::enrollment", probe = "DEBUG-cg17-retained-447", source = ?source.history, target = ?intent.candidate, parent = ?source.parent, error = ?result.as_ref().err());
                 noted = true;
             }
             dispatch.wait_admission().await?;
