@@ -158,6 +158,19 @@ representations with zero matches. Payload deadlines, uncertain cleanup under
 pressure, fitting-capacity wakes, fairness and all broader performance/release
 gates remain open.
 
+Performance evidence tooling at input `0ebbf597` now recognizes all 53 existing
+native operation phases, including the five per-command phases. Its native-name
+contract extractor accepts digits in names such as `s3`; complete historical
+evidence inventories remain explicit. Current phase samples still require the
+complete counter inventory, and mixed windows, missing/unknown metrics and
+impossible samples still refuse. The exact hosted `CellCommandS3Coverage` guard
+error reproduces locally before the repair. All 19 owning tests pass afterward;
+the full CI performance-guard command runs 343 tests with one skip and no failures.
+See the [metric vocabulary qualification](metric-vocabulary-qualification-2026-11-16.json).
+Only Python evidence tooling/tests change from runtime input `8fb09d7f`. This
+does not qualify new throughput/latency results or repair the separate native
+disaster authorization, container capacity or full release gates.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 

@@ -5,15 +5,15 @@ import copy
 from pathlib import Path
 import re
 import unittest
-from raft_metrics import BOUNDS, COUNTERS, FIELDS, OPERATIONS, delta, phases, periodic, samples, snapshot
+from raft_metrics import BOUNDS, COUNTERS, FIELDS, FIRST_GROUP_OPERATIONS, OPERATIONS, delta, phases, periodic, samples, snapshot
 
 
-def observation(source='1' * 32, stamp=1):
+def observation(source='1' * 32, stamp=1, operations=OPERATIONS):
     return {'source': source, 'available': True, 'saturated': False, 'sampled_at_us': str(stamp),
             'counters': [{'name': name, 'value': '0'} for name in COUNTERS],
             'operations': [{'name': name, **dict.fromkeys(FIELDS, '0'),
                             'buckets': [{'upper_us': None if upper is None else str(upper), 'count': '0'} for upper in BOUNDS]}
-                           for name in OPERATIONS]}
+                           for name in operations]}
 
 
 def completed(raw, duration, outcome='succeeded'):
@@ -36,7 +36,7 @@ class Measurements(unittest.TestCase):
     def test_metric_contract_matches_the_native_owner(self):
         rust = (Path(__file__).resolve().parents[2] / 'crates/cellar/durability/raft/performance.rs').read_text()
         def native_names(kind):
-            names = dict(re.findall(r'Self::(\w+) =>\s*(?:\{\s*)?"([a-z_]+)"',
+            names = dict(re.findall(r'Self::(\w+) =>\s*(?:\{\s*)?"([a-z0-9_]+)"',
                                     rust.split(f'impl {kind} {{', 1)[1].split('#[derive', 1)[0]))
             variants = re.findall(rf'{kind}::(\w+)',
                                   rust.split(f'const {kind.upper()}S:', 1)[1].split('];', 1)[0])
@@ -168,9 +168,27 @@ class Measurements(unittest.TestCase):
 
 
 class ReclamationVocabulary(unittest.TestCase):
-    def test_primitive_snapshots_preserve_complete_historical_counter_inventories(self):
+    def test_current_command_phases_require_the_complete_counter_inventory(self):
         for boundary in ('cell_kv_local_payload_preparations', 'sql_node_admission_refusals'):
             raw = observation()
+            raw['counters'] = raw['counters'][:COUNTERS.index(boundary)]
+            with self.subTest(boundary=boundary), self.assertRaises(ValueError):
+                snapshot(raw)
+
+    def test_retained_first_group_windows_keep_all_operations(self):
+        raw = observation(operations=FIRST_GROUP_OPERATIONS)
+        later = copy.deepcopy(raw)
+        later['sampled_at_us'] = '2'
+        self.assertEqual(tuple(delta(raw, later)['operations']), FIRST_GROUP_OPERATIONS)
+        with self.assertRaises(ValueError):
+            delta(raw, observation(stamp=2))
+        raw['operations'].pop()
+        with self.assertRaises(ValueError):
+            snapshot(raw)
+
+    def test_primitive_snapshots_preserve_complete_historical_counter_inventories(self):
+        for boundary in ('cell_kv_local_payload_preparations', 'sql_node_admission_refusals'):
+            raw = observation(operations=FIRST_GROUP_OPERATIONS)
             raw['counters'] = raw['counters'][:COUNTERS.index(boundary)]
             later = copy.deepcopy(raw)
             later['sampled_at_us'] = '2'
@@ -192,8 +210,7 @@ class ReclamationVocabulary(unittest.TestCase):
     def test_retained_routing_windows_keep_their_complete_source_vocabulary(self):
         for counter_count in (COUNTERS.index('cell_command_rpc_attempts'),
                               COUNTERS.index('cell_group_ticks_executed')):
-            raw = observation()
-            raw['operations'] = raw['operations'][:-3]
+            raw = observation(operations=FIRST_GROUP_OPERATIONS[:-3])
             raw['counters'] = raw['counters'][:counter_count]
             later = copy.deepcopy(raw)
             later['sampled_at_us'] = '2'
@@ -236,7 +253,7 @@ class ReclamationVocabulary(unittest.TestCase):
 
     def test_routing_counters_preserve_historical_windows_and_refuse_mixed_windows(self):
         from raft_metrics import RECOVERY_COUNTERS
-        before = observation()
+        before = observation(operations=FIRST_GROUP_OPERATIONS)
         before['counters'] = [row for row in before['counters'] if row['name'] in RECOVERY_COUNTERS]
         after = copy.deepcopy(before)
         after['sampled_at_us'] = '2'

@@ -8,7 +8,7 @@ started before the window; in-flight counts at both boundaries remain visible.
 """
 import re
 
-OPERATIONS = (
+FIRST_GROUP_OPERATIONS = (
     'engine_queue',
     'engine_file_sync',
     'engine_directory_sync',
@@ -57,6 +57,13 @@ OPERATIONS = (
     'first_group_archive',
     'first_group_attach',
     'first_group_quorum',
+)
+OPERATIONS = FIRST_GROUP_OPERATIONS + (
+    'cell_command_local',
+    'cell_command_s3_coverage',
+    'cell_command_output_check',
+    'cell_command_output_wait',
+    'cell_command_s3_freshness',
 )
 COUNTERS = (
     'engine_file_read_bytes',
@@ -188,12 +195,13 @@ SCHEMAS = ((LEGACY_OPERATIONS, LEGACY_COUNTERS, LEGACY_BOUNDS),
            (ARCHIVE_OPERATIONS + ('engine_purge',), ARCHIVE_COUNTERS, LEGACY_BOUNDS),
            # Retained measurement artifacts have a source-frozen vocabulary.
            # These schemas parse evidence only; they are not runtime readers.
-           (OPERATIONS[:-3], COUNTERS[:COUNTERS.index('cell_command_rpc_attempts')], BOUNDS),
-           (OPERATIONS[:-3], COUNTERS[:COUNTERS.index('cell_group_ticks_executed')], BOUNDS),
-           (OPERATIONS, COUNTERS[:COUNTERS.index('cell_kv_local_payload_preparations')], BOUNDS),
-           (OPERATIONS, COUNTERS[:COUNTERS.index('sql_node_admission_refusals')], BOUNDS),
-           (OPERATIONS[:-3], MAIN_ROUTING_COUNTERS, BOUNDS),
-           (OPERATIONS, RECOVERY_COUNTERS, BOUNDS),
+           (FIRST_GROUP_OPERATIONS[:-3], COUNTERS[:COUNTERS.index('cell_command_rpc_attempts')], BOUNDS),
+           (FIRST_GROUP_OPERATIONS[:-3], COUNTERS[:COUNTERS.index('cell_group_ticks_executed')], BOUNDS),
+           (FIRST_GROUP_OPERATIONS, COUNTERS[:COUNTERS.index('cell_kv_local_payload_preparations')], BOUNDS),
+           (FIRST_GROUP_OPERATIONS, COUNTERS[:COUNTERS.index('sql_node_admission_refusals')], BOUNDS),
+           (FIRST_GROUP_OPERATIONS[:-3], MAIN_ROUTING_COUNTERS, BOUNDS),
+           (FIRST_GROUP_OPERATIONS, RECOVERY_COUNTERS, BOUNDS),
+           (FIRST_GROUP_OPERATIONS, COUNTERS, BOUNDS),
            (OPERATIONS, COUNTERS, BOUNDS))
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
 

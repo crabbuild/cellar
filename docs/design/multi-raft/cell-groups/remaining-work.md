@@ -124,6 +124,18 @@ the broader backend campaign now fails actual PUTs. No new backend or constraine
 cohort can be qualified under these conditions. Preserve all failed data and
 resolve capacity through the existing approval boundary before another campaign.
 
+Hosted SDK qualification at `753afb8c` still fails three native disaster cases
+at `authorize-seal`. It also exposes a performance evidence guard that cannot
+extract `s3` operation names and omits five existing native command phases.
+The latter error reproduces locally and is repaired at tooling input `0ebbf597`:
+19 owning tests pass, and the exact CI guard command runs 343 tests with one skip
+and no failures. Complete historical evidence schemas remain explicit; current
+phase samples require every current counter. The
+[metric qualification](metric-vocabulary-qualification-2026-11-16.json) changes
+no Rust runtime inputs. Fresh hosted CI, disaster authorization and container
+capacity qualification remain open; the local guard repair does not establish
+release readiness.
+
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |
