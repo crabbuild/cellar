@@ -18,6 +18,49 @@ pub struct Gate {
 }
 
 #[derive(Debug)]
+pub struct EntryReadGate {
+    paths: Vec<Path>,
+    pub started: AtomicU64,
+    released: AtomicU64,
+    pub entered: Notify,
+    resume: Notify,
+}
+
+impl EntryReadGate {
+    pub fn release(&self, index: usize) {
+        self.released.fetch_or(1 << index, Ordering::Release);
+        self.resume.notify_waiters();
+    }
+
+    async fn wait(&self, path: &Path) {
+        let Some(index) = self.paths.iter().position(|expected| expected == path) else {
+            return;
+        };
+        let bit = 1 << index;
+        self.started.fetch_or(bit, Ordering::AcqRel);
+        self.entered.notify_one();
+        loop {
+            let resumed = self.resume.notified();
+            tokio::pin!(resumed);
+            resumed.as_mut().enable();
+            if self.released.load(Ordering::Acquire) & bit != 0 {
+                return;
+            }
+            resumed.await;
+        }
+    }
+}
+
+pub struct EntryReadHold(pub Arc<EntryReadGate>);
+
+impl Drop for EntryReadHold {
+    fn drop(&mut self) {
+        self.0.released.store(u64::MAX, Ordering::Release);
+        self.0.resume.notify_waiters();
+    }
+}
+
+#[derive(Debug)]
 pub struct Store {
     pub inner: Arc<dyn ObjectStore>,
     pub puts: AtomicUsize,
@@ -32,6 +75,7 @@ pub struct Store {
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
     held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
+    entry_reads: Mutex<Option<Arc<EntryReadGate>>>,
     held_put: Mutex<Option<(Path, Arc<Gate>)>>,
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
     publication: Mutex<Option<(u64, Arc<Gate>)>>,
@@ -64,6 +108,7 @@ impl Store {
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
             held: Mutex::new(None),
+            entry_reads: Mutex::new(None),
             held_put: Mutex::new(None),
             held_delete: Mutex::new(None),
             publication: Mutex::new(None),
@@ -111,6 +156,19 @@ impl Store {
 
     pub fn hold(&self, path: Path) -> Arc<Gate> {
         self.hold_after(path, 0)
+    }
+
+    pub fn hold_entry_reads(&self, paths: Vec<Path>) -> EntryReadHold {
+        assert!(!paths.is_empty() && paths.len() <= 64);
+        let gate = Arc::new(EntryReadGate {
+            paths,
+            started: AtomicU64::new(0),
+            released: AtomicU64::new(0),
+            entered: Notify::new(),
+            resume: Notify::new(),
+        });
+        *self.entry_reads.lock().unwrap() = Some(gate.clone());
+        EntryReadHold(gate)
     }
 
     pub fn hold_after(&self, path: Path, puts: usize) -> Arc<Gate> {
@@ -306,6 +364,10 @@ impl ObjectStore for Store {
             self.payload_gets.fetch_add(1, Ordering::AcqRel);
         }
         self.available()?;
+        let entries = self.entry_reads.lock().unwrap().clone();
+        if let Some(entries) = entries {
+            entries.wait(path).await;
+        }
         if path.as_ref().contains("/chunks/") && self.deny_chunk_reads.load(Ordering::Acquire) {
             self.denied_chunk_reads.fetch_add(1, Ordering::AcqRel);
             return Err(Error::Generic {

@@ -32,12 +32,32 @@ mod publication_fixture;
 mod rustfs;
 #[path = "support/cell_group_archive_tail.rs"]
 mod tail_fixture;
+#[path = "support/cell_group_archive_tail_window.rs"]
+mod tail_window_fixture;
 
 #[path = "support/cell_group_runtime.rs"]
 #[allow(dead_code, unused_imports)]
 mod runtime_fixture;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        tail_window_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        tail_window_fixture::qualify(rooted, rustfs::store("tail-read-window", rooted)?).await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
