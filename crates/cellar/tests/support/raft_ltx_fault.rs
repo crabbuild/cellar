@@ -45,6 +45,7 @@ pub struct Faults {
     pub before_directory_sync: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub before_snapshot_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub read_open: Mutex<Option<ReadOpenHook>>,
+    pub lock_open: Mutex<Option<ReadOpenHook>>,
     pub signal: Option<PathBuf>,
 }
 
@@ -70,6 +71,7 @@ impl Faults {
             before_directory_sync: Mutex::new(None),
             before_snapshot_close: Mutex::new(None),
             read_open: Mutex::new(None),
+            lock_open: Mutex::new(None),
             signal,
         })
     }
@@ -316,6 +318,10 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn lock_file(&self, path: &Path) -> io::Result<HostFileLock> {
+        let hook = self.faults.lock_open.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(path)?;
+        }
         DirectFileSystem.lock_file(path)
     }
 

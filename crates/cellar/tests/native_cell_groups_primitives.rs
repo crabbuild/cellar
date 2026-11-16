@@ -34,6 +34,8 @@ mod binding_enrollment;
 mod binding_reads;
 #[path = "support/cell_group_binding_recovery.rs"]
 mod binding_recovery;
+#[path = "support/cell_group_binding_writer.rs"]
+mod binding_writer;
 #[path = "support/cell_group_bindings.rs"]
 mod bindings;
 #[path = "support/blob_contract.rs"]
@@ -54,6 +56,17 @@ mod erase;
 mod event_streams;
 #[path = "support/cell_group_events.rs"]
 mod events;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
+    binding_writer::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
+    binding_writer::qualify(true).await
+}
 #[path = "support/cell_group_filesystem.rs"]
 mod filesystem;
 #[path = "support/cell_group_initial_read.rs"]
