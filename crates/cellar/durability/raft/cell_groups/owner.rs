@@ -286,8 +286,9 @@ pub struct CellGroupOwner {
     options: RaftRuntimeOptions,
     phase: Option<Phase>,
     waiting: Option<CellGroupTicket>,
-    // Only commit advances over already synced entries may wait for the next
-    // real persistence batch. Term/vote, entries and snapshots still sync first.
+    // A leader's retained SQL preparation can join commit metadata to its root
+    // publication. Follower and administrative acknowledgements keep their
+    // existing barriers; term/vote, entries and snapshots always sync first.
     deferred_commit: Option<HardState>,
     effects: VecDeque<CellGroupEffect>,
     deliveries: Vec<Weak<crate::raft::budget::Permit>>,
@@ -1114,7 +1115,6 @@ impl CellGroupOwner {
 
     fn protocol_ready(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
         self.phase.is_none()
-            && self.deferred_commit.is_none()
             && self.checkpoint.is_none()
             && self.apply_bytes < self.options.max_group_apply_bytes
             && self.selected_leader(cache)
@@ -2824,7 +2824,7 @@ impl CellGroupOwner {
         Ok(())
     }
 
-    fn defer_commit(&mut self, hard: HardState) -> Result<(), RuntimeError> {
+    fn defer_commit(&mut self, hard: HardState) -> Result<bool, RuntimeError> {
         let cache = self.group.read()?;
         if hard.term != cache.hard_state.term
             || hard.vote != cache.hard_state.vote
@@ -2840,10 +2840,29 @@ impl CellGroupOwner {
                 "commit-only publication binding".into(),
             ));
         }
-        if hard.commit > cache.hard_state.commit {
-            self.deferred_commit = Some(hard);
+        if hard.commit == cache.hard_state.commit {
+            return Ok(true);
         }
-        Ok(())
+        // Bound owner-thread inspection by the existing event quantum. A
+        // complete retained preparation is required for every newly committed
+        // entry; ordinary protocol/configuration work keeps its prior sync.
+        if self.node.raft.state != StateRole::Leader
+            || hard.commit - cache.hard_state.commit > self.options.max_events as u64
+            || (cache.hard_state.commit + 1..=hard.commit).any(|index| {
+                cache.entries.get(&index).is_none_or(|entry| {
+                    entry.get_entry_type() != EntryType::EntryNormal
+                        || entry.data.is_empty()
+                        || self
+                            .proposals
+                            .prepared_image(entry_position(entry), &entry.data)
+                            .is_none()
+                })
+            })
+        {
+            return Ok(false);
+        }
+        self.deferred_commit = Some(hard);
+        Ok(true)
     }
 
     fn messages(&mut self, messages: Vec<Message>) -> Result<(), RuntimeError> {
@@ -3016,7 +3035,11 @@ impl CellGroupOwner {
                     if let Some(commit) = commit {
                         let mut hard = self.group.initial_state()?.hard_state;
                         hard.commit = commit;
-                        self.defer_commit(hard)?;
+                        if !self.defer_commit(hard.clone())? {
+                            let mut write = GroupWrite::new(&self.group);
+                            write.hard_state = Some(hard);
+                            return self.persistence(write).map(Some);
+                        }
                     }
                 }
                 Some(Phase::Light(mut light)) => {
@@ -3243,8 +3266,10 @@ impl CellGroupOwner {
                                 let hard = write.hard_state.take().ok_or_else(|| {
                                     RuntimeError::Protocol("missing commit-only hard state".into())
                                 })?;
-                                self.defer_commit(hard)?;
-                                continue;
+                                if self.defer_commit(hard.clone())? {
+                                    continue;
+                                }
+                                write.hard_state = Some(hard);
                             }
                             return self.persistence(write).map(Some);
                         }

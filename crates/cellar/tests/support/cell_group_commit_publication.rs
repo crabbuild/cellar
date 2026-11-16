@@ -97,14 +97,66 @@ pub(crate) async fn foreign_ticket() -> Result<()> {
         let cell = history(&route, "commit-ticket")?;
         let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(1);")?;
         let cut = images::Cut::new(&[], &bytes, 0, true, false);
-        for voter in &mut cluster.voters {
-            voter.paused = true;
-        }
+        // Ordinary enrollment retains its existing protocol barrier. The new
+        // path applies to this leader's exact retained SQL preparation.
         cluster.voters[0]
             .owner
             .as_mut()
             .context("owner")?
-            .propose(request(&route, cell, 1, &cut)?)?;
+            .propose(request(&route, cell.clone(), 1, &cut)?)?;
+        cluster.drive(false).await?;
+        let authority = cluster.voters[0]
+            .owner
+            .as_ref()
+            .context("owner")?
+            .execution_authority(&cell)?;
+        let options = PrivateOptions {
+            directory: cluster._root.path().join("private-commit-ticket"),
+            host: cellar_ltx::LtxHost::new(
+                || 10,
+                |_| Ok(Duration::ZERO),
+                |path| async move { std::fs::read(path) },
+                |job| async move {
+                    job();
+                    Ok(())
+                },
+            ),
+            sqlite_vfs: None,
+            images: cluster.voters[0].images.clone(),
+            query_services: cellar_ltx::generation::ReadServices {
+                now_unix_millis: Arc::new(|| 10),
+                fill_random: Arc::new(|bytes| bytes.fill(17)),
+            },
+            application_digest: route.schema_digest,
+            limits: ExecutionLimits::default(),
+        };
+        let (executor, prepared) = cluster
+            .domain
+            .blocking(move || -> Result<_> {
+                let mut executor = CellPrivateExecutor::open(options, authority)?;
+                let CellStageOutcome::Prepared(prepared) =
+                    executor.stage(cell_attempt(250)?, true, |tx| {
+                        tx.execute("UPDATE value SET n=n+1", [])?;
+                        Ok(b"ticket-result".to_vec())
+                    })?
+                else {
+                    anyhow::bail!("new SQL preparation")
+                };
+                executor.mark_submitted(prepared.proposal())?;
+                Ok((executor, prepared))
+            })?
+            .await??;
+        for voter in &mut cluster.voters {
+            voter.paused = true;
+        }
+        anyhow::ensure!(matches!(
+            cluster.voters[0]
+                .owner
+                .as_mut()
+                .context("owner")?
+                .submit(prepared)?,
+            CellSubmissionOutcome::Accepted(_)
+        ));
         cluster.drive(false).await?;
         let original = cluster.voters[0]
             .held
@@ -169,6 +221,7 @@ pub(crate) async fn foreign_ticket() -> Result<()> {
         drop(applier);
         result?;
         cleanup?;
+        cluster.domain.blocking(move || executor.close())?.await??;
         Ok::<_, anyhow::Error>(())
     })
     .await
