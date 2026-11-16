@@ -25,6 +25,8 @@ pub struct Store {
     pub chunk_gets: AtomicUsize,
     pub chunk_get_entered: Notify,
     pub payload_gets: AtomicUsize,
+    pub deny_payload_reads: AtomicBool,
+    pub denied_payload_reads: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub lose_immutable_put_response: AtomicBool,
     pub lose_immutable_put_and_reads: AtomicBool,
@@ -57,6 +59,8 @@ impl Store {
             chunk_gets: AtomicUsize::new(0),
             chunk_get_entered: Notify::new(),
             payload_gets: AtomicUsize::new(0),
+            deny_payload_reads: AtomicBool::new(false),
+            denied_payload_reads: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             lose_immutable_put_response: AtomicBool::new(false),
             lose_immutable_put_and_reads: AtomicBool::new(false),
@@ -306,6 +310,13 @@ impl ObjectStore for Store {
             && !path.as_ref().contains("/ownership/")
         {
             self.payload_gets.fetch_add(1, Ordering::AcqRel);
+            if self.deny_payload_reads.load(Ordering::Acquire) {
+                self.denied_payload_reads.fetch_add(1, Ordering::AcqRel);
+                return Err(Error::Generic {
+                    store: "archive payload reads denied",
+                    source: "injected temporary I/O failure".into(),
+                });
+            }
         }
         self.available()?;
         if path.as_ref().contains("/chunks/") && self.deny_chunk_reads.load(Ordering::Acquire) {

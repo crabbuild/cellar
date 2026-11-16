@@ -24,6 +24,52 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_retries_temporary_payload_reads_with_its_original_intent() -> Result<()> {
+    Box::pin(runtime_fixture::payload_read_failure(
+        false,
+        Arc::new(object_store::memory::InMemory::new()),
+        runtime_fixture::PayloadFailure::Unavailable,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_archive_retries_temporary_payload_reads_with_its_original_intent() -> Result<()> {
+    Box::pin(runtime_fixture::payload_read_failure(
+        true,
+        Arc::new(object_store::memory::InMemory::new()),
+        runtime_fixture::PayloadFailure::Unavailable,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_missing_payload_remains_terminal() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::payload_read_failure(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+            runtime_fixture::PayloadFailure::Missing,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_corrupt_payload_remains_terminal() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::payload_read_failure(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+            runtime_fixture::PayloadFailure::Corrupt,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn quorum_command_reconnects_after_peer_idle_close() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::peer_connection_idle(rooted, false)).await?;
@@ -897,4 +943,55 @@ async fn rustfs_rooted_archive_retirement_coalesces_the_next_durable_intent() ->
         rustfs::store("retirement-coalescing", true)?,
     ))
     .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_retries_temporary_payload_reads_with_its_original_intent() -> Result<()> {
+    Box::pin(runtime_fixture::payload_read_failure(
+        false,
+        rustfs::store("payload-archive-retry", false)?,
+        runtime_fixture::PayloadFailure::Unavailable,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_rooted_archive_retries_temporary_payload_reads_with_its_original_intent(
+) -> Result<()> {
+    Box::pin(runtime_fixture::payload_read_failure(
+        true,
+        rustfs::store("payload-archive-retry", true)?,
+        runtime_fixture::PayloadFailure::Unavailable,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_missing_payload_remains_terminal() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::payload_read_failure(
+            rooted,
+            rustfs::store("payload-archive-missing", rooted)?,
+            runtime_fixture::PayloadFailure::Missing,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_corrupt_payload_remains_terminal() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::payload_read_failure(
+            rooted,
+            rustfs::store("payload-archive-corrupt", rooted)?,
+            runtime_fixture::PayloadFailure::Corrupt,
+        ))
+        .await?;
+    }
+    Ok(())
 }

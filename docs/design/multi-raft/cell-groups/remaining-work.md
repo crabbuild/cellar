@@ -89,11 +89,27 @@ through exact existing payload-pin/adoption identities and fresh proof checks;
 keep missing/corrupt data and failed journal barriers terminal. The three local
 native container-capacity passes do not reproduce its separate hosted failure.
 
+The subsequent [generic payload-I/O repair](payload-archive-retry-qualification-2026-11-16.json)
+at compiler input `b32cb4bc` keeps that archive owner retryable under its original
+exact journal intent and requires fresh byte verification. Missing/corrupt
+payloads and journal failures remain terminal. The unchanged owning fixture
+turns four expected stopped-owner failures into four passing retries, with
+terminal data-refusal controls preserved. Native core/archive/execution,
+selected API/recovery and strict Clippy gates pass; all 22 selected RustFS
+invocations pass, including two independent Axum KV invocations. Historical
+failed owners remain failed at their own source cuts. Broader payload
+deadline/backpressure, crash and release coverage remains required.
+
+A read-only check positively matches the original Docker and guest Engine and
+observes 823,226,368 bytes free, below the unchanged 6 GiB reserve. New constrained
+cohorts remain held; no resize, restart, pruning or reserve relaxation was used.
+The existing disk-expansion proposal still awaits approval.
+
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |
 | P0: isolate the failing boundary | Keep the physical-credit wake, cadence, dedicated lease-pool and applied-evidence enrollment regressions. Measure their effects in the constrained matrix before attributing earlier lease expiry or latency to a specific boundary. Resolve the remaining preparation, persistence and physical-close costs behind the cumulative rooted-128 enrollment timeout; its successful SQL resolution checks do not establish request success. |
-| P0: restore qualification | Reproduce native disaster authorization, container capacity sampling and the materialized Axum KV archive-outage failure. Keep uncertain outcomes, original identities, deadlines and refusal assertions. A later narrow pass cannot replace a failed broader owner. |
+| P0: restore qualification | Reproduce native disaster authorization and container capacity sampling at their owning boundaries. Extend the qualified generic payload-I/O retry to other deadline/backpressure and uncertain-cleanup scenarios only with exact identity/proof and terminal data-refusal evidence. Keep original deadlines and refusal assertions. A later narrow pass cannot replace a failed broader owner. |
 | P1: prove performance | Obtain complete passing SQL/KV/Queue cases in every durability mode, then a matched-source before/after comparison with p50/p95/p99, errors, CPU, I/O and archive lag. Failed or unmeasured windows cannot establish a speedup. |
 | P1: finish lifecycle and public contracts | Close full CG-17, remaining authority/read partition cases, physical reclamation with retained owners, once-only capacity settlement and repeated reserve-aware movement. |
 | P1: qualify the release | Run combined-source recovery/crash/wake/transition and feature/SDK/Axum/daemon gates, plus independent physical failure domains. Three containers in one Colima VM do not qualify domain loss. |

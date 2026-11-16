@@ -106,6 +106,29 @@ JS/Node failure unqualified. See the qualification's `kv_outage_followup` for
 source scopes, retained failures, snapshots and checks. No production behavior
 changes in this diagnostic follow-up, and no isolated latency gain is claimed.
 
+At compiler input `b32cb4bc`, generic payload-store I/O no longer permanently
+stops the archive owner. It retries through the original exact journal intent;
+byte verification and pin/adoption reconciliation still precede coverage.
+Missing/corrupt payloads and failed journal barriers retain terminal handling.
+The real-controller regression fails twice per image form before the change
+and passes with identical fixture bytes afterward. Two actual denied reads
+preserve the same serialized Reserve intent and grant no coverage; restoring
+the original bytes then produces independently verified exact-cut coverage.
+
+The [payload archive retry qualification](payload-archive-retry-qualification-2026-11-16.json)
+records the seven-line production change, initial fixture capability refusal,
+valid red controls and retained data. Native qualification passes and joins:
+core 1,232, controller 41, archive 40, execution 208, ordinary SQL and immutable
+payload tests, selected native/Axum SQL/KV/Queue and interrupted-binding checks,
+strict all-target Clippy and repository gates. All 22 selected original-RustFS
+invocations pass, including the formerly failing Axum KV fixture twice in
+independent prefixes. The backend identity, resources, restart count and start
+time remain unchanged. The evidence scans 46 actual private representations
+with zero matches. This closes the reproduced generic-I/O archive progress
+path within the recorded scope; other typed payload errors retain their prior
+policy. The constrained performance, rooted-128, remaining SDK/recovery and
+complete OPT/CG gates remain open.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 

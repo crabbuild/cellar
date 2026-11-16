@@ -945,7 +945,8 @@ pub(super) use sql::{
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
-    archive_controller_tail_rollover, archived_groups_reclaim_independently,
+    archive_controller_tail_rollover, archived_groups_reclaim_independently, payload_read_failure,
+    PayloadFailure,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{
