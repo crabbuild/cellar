@@ -4,7 +4,47 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current retained-target delivery
+## Current bounded tail-read delivery
+
+Main `16c45b266` is included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `7937adc1` overlaps
+two tail-entry downloads under existing reservations, retaining ordered complete
+object checks, independent replay and final physical verification. It joins the
+scheduled window on failure and adds no task, cache, format, deadline or quota.
+
+The serial baseline fails its overlap oracle. Final native/real-RustFS regressions
+pass both images, including actual-data, corruption, admission/join and unchanged
+serving-state checks: four configurations. Baseline/final fixture assertions are
+unchanged; formatter reflow and project-selection correction are recorded, so do
+not claim byte-identical tests. Archive safety is **11/11**. Named bindings are
+**eight passing image/source-minimum configurations**, including retained restart
+and original five-second S3 requests. This does not prove timing stability or an
+exclusive speedup cause.
+
+**The complete public cohort is FAILED, 7/16.** SDK source-proof/history,
+registration, real-RustFS Queue and Fleet reference pass. All eight EventStream
+selections fail initial activation/Consume. Axum Consume begins execution with
+2,999 of 3,000 ms remaining; investigate inside the actual target command and its
+metadata/proof path, rather than assuming pre-command discovery spent the budget.
+Initial catalog history selection takes 451/835 ms in two failures before status
+polling expires; inspect autonomous catalog/broker reconciliation. These are
+localization evidence, not established exclusive causes. Native Queue materialized
+528 passes, but extents producer sequence 11 expires; do not label it a drain
+failure. RustFS passes both 528-message images with p99 1,157/2,614 ms. Historical
+8/16 and isolated passes do not replace current failures. Do not repeat unchanged
+broad campaigns merely to find a pass.
+
+Aggregate 502 verifies frozen evidence and **27 retained failed voter disks**.
+Final locked build, strict library/all-test Clippy, format/layout/dependency checks
+pass. All jobs are terminal; owned RustFS/VM are stopped, objects retained. Counts
+remain **13/17 tasks, 147/195 cases**. Full primitive families, backend outage/cold
+discovery, CG-13/17/15/16 release and hard cutover remain open. Next delivery must
+close actual EventStream target execution/readiness and native Queue producer
+progress under the original budgets. See
+[progress](progress.md#current-integration-checkpoint) and ignored
+`.cellar/cg17-payload-01/event-read-state.json` for pins and preserved failures.
+
+## Previous retained-target delivery
 
 Main `16c45b266` remains included; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `2b4ae45e` tries one
@@ -21,7 +61,7 @@ admission. Exact parent receipt/replay, child effect and initialization counts
 remain. Earlier fixture failures are not causal evidence; no assertion was relaxed.
 Temporary activation probes are removed.
 
-**Current complete public result is FAILED, 8/16.** SDK source-proof/history,
+**At `2b4ae45e`, the complete public result is FAILED, 8/16.** SDK source-proof/history,
 registration, native Queue, target-S3 Axum and Fleet reference pass. Seven
 EventStream selections fail initial activation/Consume. RustFS Queue passes
 the materialized 528-message case, then extents drain/wait expires. Historical 14/16 at `a0fe85d1` is not

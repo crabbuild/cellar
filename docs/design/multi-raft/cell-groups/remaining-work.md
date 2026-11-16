@@ -57,7 +57,30 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `2b4ae45e` adds one fresh retained-target lookup after a
+main `16c45b266`. Runtime `7937adc1` pipelines two archive-tail entry downloads
+under the existing byte/operation reservations, preserving ordered object checks,
+independent replay and physical verification. A serial baseline fails the overlap
+oracle; native/real-RustFS and both images pass the data, bounded-window,
+corruption/join and unchanged-serving-state checks. Eleven archive safety cases
+pass. Named bindings pass all eight backend/image/source-minimum configurations,
+including retained restart and original five-second S3 requests. Their prior
+deadlines do not reproduce here; this is not exclusive cause, speedup or stability
+evidence.
+
+**The current complete original public cohort is FAILED, 7/16.** SDK
+source-proof/history, registration, real-RustFS Queue and Fleet reference pass.
+All eight EventStream selections fail initial activation or Consume. An Axum
+Consume begins with 2,999 ms of 3,000 ms remaining, so inspect execution inside
+the actual target command. Two initial catalog history selections take 451/835 ms
+before readiness polling expires; inspect autonomous catalog/broker reconciliation.
+Neither observation proves an exclusive cause. Native Queue materialized 528
+passes, then extents producer sequence 11 expires; no complete extents drain
+result exists. RustFS passes both 528-message image forms with p99 1,157/2,614 ms.
+Aggregate 502 retains 27 failed voter disks and verifies the frozen evidence.
+Final build, strict library/all-test Clippy and repository checks pass; owned
+RustFS/VM are stopped. Complete primitive and release gates remain open.
+
+Previously, runtime `2b4ae45e` added one fresh retained-target lookup after a
 known pre-initializer refusal. A different creator still needs durable source
 selection before child dispatch; the candidate's own proof, uncertain identities,
 normal command admission and current fences remain. A causal public regression
@@ -65,7 +88,7 @@ fails with only the fallback removed and passes native/real RustFS and both imag
 at final source: four configurations with original eight-slot admission, one SQL
 worker/voter, exact parent replay and one child effect/initialization.
 
-**The complete original public cohort is FAILED, 8/16.** SDK source-proof/history,
+**That runtime's original public cohort is FAILED, 8/16.** SDK source-proof/history,
 registration, native Queue, target-S3 Axum and Fleet reference pass. Seven
 EventStream selections fail initial activation or Consume. RustFS Queue passes
 the materialized 528-message/unique-ID oracle, then extents drain/wait expires. The previous
@@ -77,7 +100,8 @@ establish stability, an exclusive regression cause or speedup.
 Compatibility cohort 455 is 5/6 at `055c2183`, with production identical to final `2b4ae45e`; later
 changes add the causal fixture. Both named Quorum configurations, interrupted
 recovery and read regressions pass. RustFS named source-S3 materialized command 3/extents command 7
-still exceed original budgets. Before this feature, instrumented cohort 450 passes and 451
+exceeded original budgets there; current cohort 499 passes all eight configurations.
+Before that feature, instrumented cohort 450 passes and 451
 fails both selected activation cases. Native initial configure took 2.1 of three seconds,
 then polling expired. Shared-worker/provisioning and S3 proof phase costs remain
 investigation boundaries, not established exclusive causes.
@@ -90,18 +114,23 @@ Earlier catalog enrollment joining, bounded suspended scanning, exact checkpoint
 receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retain
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
-1. **Stabilize combined activation, Consume and Queue drain.** Close the seven
-   current EventStream activation/Consume failures and real-store extents Queue
-   drain under original deadlines and quotas. Retained source obligations must
+1. **Close target execution, readiness and Queue producer progress.** Close the
+   eight current EventStream activation/Consume failures and native extents Queue
+   producer sequence 11 deadline under original budgets and quotas. Retained
+   source obligations must
    autonomously resume, while catalog, broker, named binding, current birth and
-   destination proofs still gate readiness. Measure phase costs and shared-worker
-   scheduling at the failing boundaries; preserve the source with nearly its full
-   remaining budget at Consume. Independent target-S3 native cold activation is
-   still open. The isolated pre-feature/current native passes do not replace the
+   destination proofs still gate readiness. Measure inside the target command:
+   current Axum Consume starts with 2,999 of 3,000 ms remaining. Inspect autonomous
+   catalog/broker readiness after initial history selection, not only enrollment
+   admission. RustFS Queue currently passes both images; retain that evidence and
+   the failed native producer. Independent target-S3 cold activation remains
+   open. The isolated pre-feature/current native passes do not replace the
    combined failure. Run another broad cohort after an implemented change or a
    controlled finding justifies it; repeated unchanged campaigns do not close it.
-2. **Reduce consecutive S3 source proof and final-output costs.** Close the
-   materialized S3 named-binding deadline after restart. Preserve the original
+2. **Finish S3 binding stability and interrupted recovery.** Current named bindings
+   pass all eight backend/image/source-minimum configurations; preserve earlier
+   source-S3 deadline failures and establish combined lifecycle progress. Preserve
+   the original
    five-second budget, exact birth/route, physical custody, coverage,
    version/witness and stored receipt checks. Reduce bounded replay/settlement
    work without weakening proofs or repeatedly running unchanged broad matrices.

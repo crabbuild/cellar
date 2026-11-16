@@ -29,6 +29,54 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `16c45b266` remains included. **Runtime `7937adc1` pipelines two archive-tail
+entry downloads within the existing validated byte and operation reservations.**
+It preserves descriptor order, complete digest/length checks, independent LTX
+replay and final physical closure verification. A failure stops window extension
+and joins its scheduled peer before releasing admission. No task, cache, format,
+deadline or quota is added.
+
+The serial baseline at `045e9fe8` fails the overlapping-read oracle. Final native
+and real-RustFS regressions pass both image forms: **four configurations**. They
+hold the first two GETs independently, check the two-read bound and exact recovered
+SQLite images, then corrupt a stored entry and require refusal, joined work and
+unchanged serving state. The sole production difference is `archive/tail.rs`;
+the fixture also has recorded formatter reflow and a correction from forbidden
+Tokio selection to the project wrapper. Assertions are unchanged, but test source
+is not byte-identical. Earlier setup failures are retained separately.
+
+**Archive safety passes 11/11. Named bindings pass all eight native/RustFS,
+image and source-minimum configurations**, including original five-second S3
+requests and retained restart. The prior S3 binding deadlines do not reproduce in
+this campaign. This is current scoped qualification, not exclusive attribution
+of those timing failures or a measured speedup/stability result.
+
+**The complete original public cohort is FAILED, 7/16.** Both SDK source-proof
+and history-resolution selections, registration, real-RustFS Queue and ordinary
+Fleet reference pass. All eight EventStream selections fail initial activation or
+Consume. An Axum Consume attempt starts with 2,999 ms of its original 3,000 ms
+remaining; follow-up must inspect execution inside the target command. Initial
+catalog history selection takes 451/835 ms in two failed cases before readiness
+polling expires. These observations localize follow-up without proving an exclusive
+cause. Native Queue completes materialized 528-message/unique-ID delivery, then
+extents producer sequence 11 times out; it has no complete extents drain result.
+RustFS completes both 528-message image forms, with batch p99 1,157/2,614 ms and
+elapsed load time 32,818/40,626 ms. Original limits remain. Neither its pass nor
+the focused binding passes replace the nine failed public selections. Historical
+8/16 at `2b4ae45e` and 14/16 at `a0fe85d1` are not current acceptance.
+
+Aggregate `CG-17-tail-window-aggregate-502-7937adc1` verifies frozen binaries,
+logs/backups, shared source pins and **27 retained failed voter disks**. Locked
+build, strict library/all-test Clippy, formatting, layout and dependency checks
+pass. Jobs are terminal; owned RustFS/VM are stopped with objects retained.
+In-process RF3 and RustFS with one CPU/two GiB remain below release scope.
+Counts remain **13/17 tasks, 147/195 cases**; no complete primitive family or
+release/hard cutover is accepted. Next: target-side EventStream execution and
+autonomous catalog/broker readiness, native Queue extents producer progress, then
+complete primitive lifecycle/recovery and independent-voter release qualification.
+
+## Previous retained-target checkpoint
+
 Main `16c45b266` remains included. **Runtime `2b4ae45e` tries one fresh retained
 history lookup after a proven pre-initializer enrollment refusal.** A different
 creator can join through the existing durable source-selection checkpoint before
