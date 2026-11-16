@@ -20,6 +20,13 @@ struct PausedCell {
 impl Cell for PausedCell {
     fn invoke(self: Arc<Self>, _: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
+            if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Prepare") {
+                self.calls.fetch_add(1, Ordering::AcqRel);
+                let value = update(&self.storage, 1)?;
+                self.gates[0].entered.notify_one();
+                self.gates[0].release.notified().await;
+                return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
+            }
             if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Add") {
                 let value = update(&self.storage, 2)?;
                 return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
@@ -98,14 +105,25 @@ fn hold_apply(faults: &physical::Faults) -> (Release, tokio::sync::oneshot::Rece
 }
 
 pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
-    run_mode(rooted, store, false).await
+    run_mode(rooted, store, Mode::Continuation).await
 }
 
 pub async fn checkpoint(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
-    run_mode(rooted, store, true).await
+    run_mode(rooted, store, Mode::Checkpoint).await
 }
 
-async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bool) -> Result<()> {
+pub async fn preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode(rooted, store, Mode::Preparation).await
+}
+
+enum Mode {
+    Continuation,
+    Checkpoint,
+    Preparation,
+}
+
+async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) -> Result<()> {
+    let checkpoint = matches!(mode, Mode::Checkpoint);
     let calls = Arc::new(AtomicUsize::new(0));
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
     let reader = Arc::new(ReadGate::default());
@@ -121,6 +139,7 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
         })?
         .json_cell_rpc("Run", [183; 32])?
         .json_cell_rpc("Add", [184; 32])?
+        .json_cell_rpc("Prepare", [186; 32])?
         .query("Hold", [185; 32], move |_, _| {
             query_reader.hold();
             Ok(vec![])
@@ -259,6 +278,51 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
             let options = interleaving::command(188, 1, Durability::Quorum)?;
             let run = source.contract("Run")?;
             let add = other.contract("Add")?;
+            if matches!(mode, Mode::Preparation) {
+                let (release, started) = hold_apply(&faults);
+                let (other_result, prepared) = tokio::join!(
+                    other.command(
+                        &add,
+                        b"{}".to_vec(),
+                        interleaving::command(189, 1, Durability::Quorum)?,
+                    ),
+                    async {
+                        let observed = async {
+                            cellar::asyncrt::timeout(TIMEOUT, started).await??;
+                            let status = cluster.hosts[0].group(group)?.status().await?;
+                            ensure!(status.applied.index < status.committed, "held unrelated committed apply");
+                            let contract = source.contract("Prepare")?;
+                            let mut command = Box::pin(source.command(&contract, b"{}".to_vec(), options.clone()));
+                            tokio::select! {
+                                result = &mut command => anyhow::bail!("command completed before preparation: {result:?}"),
+                                result = cellar::asyncrt::timeout(Duration::from_secs(1), gates[0].entered.notified()) => {
+                                    result.context("new cell preparation blocked by unrelated committed apply")?;
+                                }
+                            }
+                            ensure!(calls.load(Ordering::Acquire) == 1);
+                            let status = cluster.hosts[0].group(group)?.status().await?;
+                            ensure!(status.applied.index < status.committed, "preparation waited for group catch-up");
+                            gates[0].release.notify_one();
+                            ensure!(
+                                cellar::asyncrt::timeout(Duration::from_millis(30), &mut command).await.is_err(),
+                                "private preparation acknowledged before contiguous root publication"
+                            );
+                            drop(release);
+                            let result = command.await?;
+                            ensure!(result.durability == Durability::Quorum && result.result == b"1");
+                            let replay = source.command(&contract, b"{}".to_vec(), options.clone()).await?;
+                            ensure!(replay.version == result.version && replay.result == result.result);
+                            ensure!(calls.load(Ordering::Acquire) == 1, "replay reran preparation");
+                            Ok::<_, anyhow::Error>(())
+                        }.await;
+                        gates[0].release.notify_one();
+                        observed
+                    },
+                );
+                prepared?;
+                other_result?;
+                return Ok(());
+            }
             let initial_apply = checkpoint.then(|| hold_apply(&faults));
             let (result, observed) = tokio::join!(
                 source.command(&run, b"{}".to_vec(), options.clone()),

@@ -1932,6 +1932,34 @@ async fn proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn new_rpc_preparation_overlaps_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(rpc_progress::preparation(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("RPC preparation progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_new_rpc_preparation_overlaps_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "rpc-preparation-progress",
+            rooted,
+        )?));
+        Box::pin(rpc_progress::preparation(rooted, store))
+            .await
+            .with_context(|| format!("RustFS RPC preparation progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(rpc_progress::checkpoint(
