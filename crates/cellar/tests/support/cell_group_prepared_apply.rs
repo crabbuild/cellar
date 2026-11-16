@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 pub(crate) enum PreparationCase {
     Live,
     Expired,
+    Transferred,
     Corrupt,
 }
 
@@ -138,6 +139,14 @@ pub(crate) async fn verified_preparation_handoff(
         let committed = held
             .remove(&route.history)
             .context("held committed apply")?;
+        if matches!(case, PreparationCase::Transferred) {
+            let executor = executor.take().unwrap();
+            fixture
+                .cluster
+                .domain
+                .blocking(move || executor.close())?
+                .await??;
+        }
         let prior = committed.base.marker().clone();
         let deny = Arc::new(AtomicBool::new(true));
         let denials = Arc::new(AtomicUsize::new(0));

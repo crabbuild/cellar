@@ -566,6 +566,24 @@ async fn verified_extent_preparation_passes_to_committed_apply() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn materialized_apply_custody_survives_producer_close() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(
+        false,
+        runtime_fixture::PreparationCase::Transferred,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn extent_apply_custody_survives_producer_close() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(
+        true,
+        runtime_fixture::PreparationCase::Transferred,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn expired_materialized_preparation_requires_independent_replay() -> Result<()> {
     runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Expired)
         .await
