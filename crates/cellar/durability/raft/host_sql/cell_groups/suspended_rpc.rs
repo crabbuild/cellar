@@ -489,18 +489,18 @@ impl Cells {
             } else {
                 rpc.check(now)
             };
-            let mut yield_queries = false;
+            let mut yield_io = false;
             if admitted.is_ok()
                 && rpc.executor.is_some()
                 && rpc.retention.lease.contended()
-                && rpc.turn.waiting_on_queries()
+                && rpc.turn.waiting_on_owned_io()
             {
                 match rpc.turn.can_park() {
-                    Ok(ready) => yield_queries = ready,
+                    Ok(ready) => yield_io = ready,
                     Err(error) => admitted = Err(error),
                 }
             }
-            if admitted.is_ok() && !rpc.ready.0.swap(false, Ordering::AcqRel) && !yield_queries {
+            if admitted.is_ok() && !rpc.ready.0.swap(false, Ordering::AcqRel) && !yield_io {
                 self.suspended.push_back(rpc);
                 continue;
             }
@@ -511,8 +511,8 @@ impl Cells {
                 timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
                 return true;
             }
-            if yield_queries {
-                // The SQL owner observes contention even if remote query I/O
+            if yield_io {
+                // The SQL owner observes contention even if remote owned I/O
                 // has not woken. Yield before polling application continuation.
                 match rpc.try_park(&self.activations, now) {
                     Ok(()) => {

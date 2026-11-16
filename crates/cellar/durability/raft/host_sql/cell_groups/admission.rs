@@ -34,7 +34,7 @@ struct WriterGate {
     waiting: AtomicUsize,
 }
 
-struct Waiting(Arc<WriterGate>);
+pub(super) struct Waiting(Arc<WriterGate>);
 
 impl Drop for Waiting {
     fn drop(&mut self) {
@@ -162,6 +162,25 @@ impl Drop for CellLease {
 }
 
 impl Admission {
+    /// A synchronous pre-enqueue refusal can also depend on a parked writer.
+    /// Keep that dependency visible until its original waiter retries/cancels;
+    /// this schedules yielding and grants no SQL admission or authority.
+    pub(super) fn note_writer_wait(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<Option<Waiting>, ExecutionError> {
+        let state = self.state.lock().map_err(|_| unavailable())?;
+        if state.closed {
+            return Err(unavailable());
+        }
+        let key = (cell.cluster, cell.namespace, cell.cell.clone());
+        let Some(gate) = state.writers.get(&key).and_then(Weak::upgrade) else {
+            return Ok(None);
+        };
+        gate.waiting.fetch_add(1, Ordering::AcqRel);
+        Ok(Some(Waiting(gate)))
+    }
+
     /// Local writer release need not produce another Raft apply notification.
     pub(super) fn writer_progress(&self) -> tokio::sync::watch::Receiver<()> {
         self.writers.subscribe()

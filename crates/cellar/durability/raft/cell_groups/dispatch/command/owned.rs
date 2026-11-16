@@ -387,6 +387,9 @@ impl CellCommandInvocation {
                     // or finish, then acquire fresh authority under this same
                     // request ID, inputs, route ticket and original deadline.
                     // Worker/callback errors never acquire this retry proof.
+                    let _writer_wait = sql
+                        .note_writer_wait(&attempt.request().cell)
+                        .map_err(CellDispatchError::Execution)?;
                     let timer = self
                         .dispatcher
                         .domain

@@ -572,6 +572,14 @@ impl CellGroupSqlPool {
         self.inner.admission.writer_progress()
     }
 
+    pub(crate) fn note_writer_wait(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<impl Send + Sync, ExecutionError> {
+        self.admit()?;
+        self.inner.admission.note_writer_wait(cell)
+    }
+
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
         let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;

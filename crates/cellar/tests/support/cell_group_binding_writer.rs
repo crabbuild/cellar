@@ -242,7 +242,8 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                                 ..Default::default()
                             },
                         )
-                        .await.context("source-worker suspension observer")?;
+                        .await
+                        .context("source-worker suspension observer")?;
                     ensure!(before.result == b"0");
                     drop(before);
                     control.deny.store(true, Ordering::Release);
@@ -279,8 +280,11 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         .map_err(anyhow::Error::from)
         .and_then(std::convert::identity);
     let joined = managed_fixture::close_group_nodes_with_groups(
-        std::mem::take(&mut cluster.nodes), &cluster.hosts, 2,
-    ).await;
+        std::mem::take(&mut cluster.nodes),
+        &cluster.hosts,
+        2,
+    )
+    .await;
     if work.is_err() || joined.is_err() {
         for root in std::mem::take(&mut cluster.roots) {
             eprintln!("retained binding-writer disk: {}", root.keep().display());

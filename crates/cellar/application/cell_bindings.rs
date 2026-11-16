@@ -687,7 +687,6 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
-    tracing::debug!(target: "cellar::raft::sql_ingress", parent=?source.parent, child=?intent.child, cell=%intent.route.cell.as_str(), remaining_ms=?dispatch.remaining_timeout().map(|d| d.as_millis()), "DEBUG-cg17-execution-506 binding entered");
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -768,7 +767,6 @@ async fn run(
     }
     io.begin_io()?;
     *selected.lock().unwrap() = Some(history.clone());
-    tracing::debug!(target: "cellar::raft::sql_ingress", parent=?source.parent, child=?intent.child, cell=%history.cell.as_str(), remaining_ms=?dispatch.remaining_timeout().map(|d| d.as_millis()), "DEBUG-cg17-execution-506 binding target selected");
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
     options.durability = intent.route.durability;
@@ -808,7 +806,6 @@ async fn run(
     };
     match result {
         Ok(receipt) => {
-            tracing::debug!(target: "cellar::raft::sql_ingress", parent=?source.parent, child=?intent.child, remaining_ms=?dispatch.remaining_timeout().map(|d| d.as_millis()), "DEBUG-cg17-execution-506 binding receipt");
             anyhow::ensure!(
                 receipt.id == intent.child
                     && receipt.version.history == history
@@ -816,7 +813,6 @@ async fn run(
                 CommandFailure::CorruptState
             );
             io.resume_writer().await?;
-            tracing::debug!(target: "cellar::raft::sql_ingress", parent=?source.parent, child=?intent.child, remaining_ms=?dispatch.remaining_timeout().map(|d| d.as_millis()), "DEBUG-cg17-execution-506 binding resumed");
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
