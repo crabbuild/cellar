@@ -57,55 +57,45 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Qualified runtime `0a6fb57b67` lets internal event metadata
-select a retained local applied history behind verified namespace routing. This
-is only a locator: actual metadata still requires fresh quorum and independent
-target S3 proof. Public name/absence cuts, source proof and all serving fences
-remain. No new task/cache/format/deadline/quota is introduced. Commit/root batching,
-`LinearizableAfter`, exact preparation handoff and parallel bootstrap remain.
+latest main `16c45b266`. Runtime `37ceab030`, qualified at `2d9c2766e`, lets new
+private commands overlap exact pending mutations for other cells. Dispatch and
+writer acquisition require the same leader/route/image fences and a bounded
+certificate for every pending entry. Same-cell, enrollment, administration and
+unknown work still wait. Reads, ordered publication and acknowledgement proofs
+remain unchanged; no task/cache/format/deadline/quota is added.
 
-**43 integration selections and 190 units pass.** The new owning regression
-passes native/RustFS and both images, including fresh-query and quorum-loss guards.
-Its byte-identical baseline fails the redundant name-cut predicate in native
-materialized mode; extents are not reached there. Election setup is separately
-settled before the cost oracle. Locked build, strict library/all-test Clippy and
-repository checks pass. This qualifies retained history selection, not a complete
-primitive or request-latency fix.
+**49 focused integration selections and 191 units pass**, including native/real
+RustFS and both image forms, held-sync refusal before acknowledgement, exact
+replay and interrupted named-binding recovery. Locked build, strict Clippy and
+repository checks pass. The baseline fails the callback-entry predicate; the
+final fixture keeps its assertions and uses execution-domain polling.
 
-**Complete original public cohort 735 is FAILED, 7/16.** SDK source-proof/current
-histories pass native/RustFS; registration and Fleet pass. Only ordinary
-RustFS/Axum passes among eight EventStream selections. Native/Axum Consume time out
-with ambiguous sequence **2** outcomes; the other EventStream failures are initial
-activation, including ordinary RustFS extents and both independent target-S3
-ingresses. Queue loads fail materialized production: native **17**, RustFS **12**,
-both ambiguous despite **2,945/2,999 ms** remaining at target entry. Neither completes
-528 messages; extent load is not reached. Preserve complete identities and earlier
-unknown outcomes.
-
-Four frozen baseline/current native/Axum counterbalanced trials all pass, using the
-current failed cohort's exact binary. They do not replace the 7/16 result or prove
-stability, exclusive cause, absence of regression or speedup. Prior 13/16 remains
-historical. Diagnostic 726 identifies one different retained activation failure in
-history discovery before SQL; its probes are removed.
+**Original public cohort 762 is FAILED, 7/16.** Seven EventStream selectors fail
+activation or Consume; Queue loads fail producer **18** natively and **7** on
+RustFS, both ambiguous. Neither reaches the complete 528-message oracle. SDK
+source-proof/history, registration, Fleet and ordinary RustFS/Axum EventStream
+pass. Consume remains ambiguous at sequence **2**. Preserve all original identities.
 
 The next feature priorities are:
 
-1. Close public activation and actual Consume/Queue execution and durable
-   settlement within original budgets. Distinguish writer admission, exact
-   receipt progress and archive/apply scheduling using the failed paths.
-2. Complete existing autonomous binding reconciliation and safe sequence
-   retirement/sealing. Recover uncertain calls with their original history,
-   identity and inputs; do not regenerate commands or extend deadlines.
-3. Complete the combined primitive lifecycle/recovery matrix, then CG-13/15's
-   managed recovery and independent-voter release gates and CG-16's final cutover.
+1. Close `__streamAck` dispatch/sealing, `__streamConfigure` activation and Queue
+   native-work settlement within original budgets. Retained image inventory gives
+   operation-level leads, but selected-root/receipt confirmation is still needed.
+2. Complete autonomous interrupted bindings and safe unused-sequence sealing,
+   then the remaining primitive adapters and combined lifecycle/recovery matrix.
+3. Close CG-13/15 managed recovery and independent-voter release qualification,
+   then CG-16 cutover. Review due-effect and final S3 whole-group waits as possible
+   liveness constraints; no exclusive failure cause is established yet.
 
-Aggregate 738 verifies frozen evidence, byte-identical owning fixtures, unchanged
-original public bodies and 27 failed public voter disks, plus baseline/diagnostic
-retention. Owned RustFS/VM are stopped, objects retained. Native RF3 shares a
-process and separate disks; RustFS uses one CPU/two GiB. Counts remain **13/17 tasks,
-147/195 cases**. The generated index is current; full validation still lacks the
-historical CG-01 ignored evidence file. No full-family, release or hard-cutover
-acceptance is added. Do not repeat unchanged broad campaigns merely to seek a pass.
+Public preflight has no compiler, but postflight records two processes of unknown
+origin/overlap. This failed cohort is not a latency or stability result. Owning and
+control pre/post snapshots are empty. Aggregate 765 verifies frozen evidence and
+27 failed public voter disks; diagnostic 763c inspects 92 possibly historical
+materialized images and grants no serving/commit proof. Owned RustFS/VM are stopped,
+objects retained. RF3 voters remain in one process on separate workspace disks;
+RustFS uses one CPU/two GiB. Counts remain **13/17 tasks, 147/195 cases**. The index
+is current; full validation still lacks historical CG-01 evidence. Do not replace
+failed public evidence with isolated passes or repeat unchanged broad campaigns.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
@@ -183,18 +173,16 @@ Earlier catalog enrollment joining, bounded suspended scanning, exact checkpoint
 receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retain
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
-1. **Close target execution and interrupted primitive progress.** Exact cell
-   change waits and verified preparation handoff are implemented and qualified.
-   Consume still expires inside target execution; final catalog activation and
-   startup refusal remain unresolved. Complete autonomous child/ack settlement
-   using existing scheduled reconciliation, original receipts, sequence
-   retirement/sealing and current owner/generation fences. Finish Queue production
-   under original budgets. Native producer sequence 36 is ambiguous; RustFS's
-   untagged deadline needs exact-stage attribution. Neither load completes. Retain
-   earlier native sequence 14, RustFS sequence 12, subscription `Change` sequence
-   18 and all prior uncertain identities. Finish lost-reply/transfer, generation,
-   pruning and slow-consumer/GC coverage. Broaden qualification after relevant
-   implementation changes or controlled findings, with original budgets and quotas.
+1. **Close actual ack, configuration and Queue settlement.** Independent-cell
+   preparation is delivered. Consume still expires at sequence 2; initial event
+   activation and Queue production remain open. Confirm the selected-root state
+   behind diagnostic `__streamAck` prepared/sealing and `__streamConfigure` intents,
+   then implement bounded dispatch and settlement with existing identities and
+   fences. Native/RustFS producers **18/7** are ambiguous and neither load completes.
+   Preserve earlier unknown outcomes in their source-pinned records. Finish
+   lost-reply/transfer, generation, pruning and slow-consumer/GC coverage. Broaden
+   qualification after implementation changes or controlled findings, with original
+   budgets and quotas.
 2. **Finish S3 binding stability and interrupted recovery.** Current named bindings
    pass all eight backend/image/source-minimum configurations; preserve earlier
    source-S3 deadline failures and establish combined lifecycle progress. Preserve
@@ -364,7 +352,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. Ordinary RPC roots/sync, bounded activations, configuration and same-cell interleaving have scoped coverage. Canonical SDK commands, queries, receipts and enrollment now wait for source proof, retain independent target contracts and support recursive forwarding. At `2f42cb5f`, the public KV cursor checkpoint passes three owning native selections, focused strict Clippy and all six primitive real-RustFS cases, including current-incarnation discovery, with matching executable hashes and both image modes. The earlier intermittent S3 failure remains unresolved. See the [checkpoint](progress.md#cg-17-storage-keyset-cursors). | Finish generation-aware named bindings, other output/dispatch adapters, remaining Storage methods, compiled export/deployment audit and real evidence producers. Deliver committed due work and remaining family/provider adapters, then pass all 32 cases and the matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
+| CG-17 | In progress. At `2d9c2766e`, independent private preparation passes native/RustFS and both images; 49 focused integration selections and 191 units pass. Original public cohort remains FAILED, 7/16: activation/Consume and both Queue loads remain open. See the [current checkpoint](progress.md#current-integration-checkpoint) for timing contention and image-inventory limits. Earlier SQL/KV, Workflow and payload checkpoints remain scoped. | Close ack/configuration/Queue progress, autonomous recovery and safe sealing, then remaining family/provider adapters, deployment/export audit and all 32 cases in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 

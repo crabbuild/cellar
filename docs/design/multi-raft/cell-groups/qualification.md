@@ -455,6 +455,15 @@ admitted child work and gates parent output; this is not a cross-cell transactio
 or an automatic handler-recovery protocol. Synchronous callbacks, immutable
 queries and open atomic transactions cannot acquire this dispatch permit.
 
+New private command entry may overlap only independently certified mutations
+for other cells in the committed suffix. Recheck this authority after acquiring
+the cell writer, before any callback enters. The owning regression holds actual
+physical image/page sync, requires another cell's callback to enter, and refuses
+its response until contiguous durable publication; exact replay must not rerun
+the callback. This grants no read lease or background-effect/S3 output authority.
+The held-I/O fixture uses two SQL workers; original public qualification retains
+its one-worker profile, request budgets and admission quotas.
+
 A proven SDK wait can release the source writer, including for a recursive call
 to the same cell. If the child reaches admission before its parent parks, only
 a received writer-lease refusal before enqueue grants a wait under the original

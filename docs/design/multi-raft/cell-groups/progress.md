@@ -29,6 +29,75 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `37ceab030`, qualified at
+`2d9c2766e`, allows a private command to prepare while exact mutations for other
+cells await group apply.** Both dispatch and writer acquisition recheck the live
+leader's current-term applied barrier, route, membership and selected cell image.
+The entire pending suffix must match this leader's admitted mutations for other
+cells within the existing event quantum. Same-cell, enrollment, administrative,
+missing and inherited entries refuse the overlap. Group readiness, queries,
+contiguous root publication and quorum/S3 acknowledgement retain their proofs.
+No task, cache, format, quota or deadline is added.
+
+**49 focused integration selections and 191 units pass on the final source.**
+The two owning selections cover native/real RustFS and both image forms: four
+configurations. A real held physical sync permits the second cell's callback to
+enter but no response to settle; releasing it permits durable completion and
+exact replay with one callback invocation. Baseline `a7c3b0f6a` fails the callback
+entry oracle in native materialized mode. Runtime `37ceab030` passes with identical
+fixtures. Final `2d9c2766e` changes only the test's select macro to execution-domain
+polling, preserving its assertions, and requalifies it. The 47 controls cover
+sync, ordered apply, membership, leader replacement, reads, receipts, preparation,
+archive safety, checkpoint/continuation progress and interrupted named bindings.
+New unit guards reject altered entries, same-cell work, enrollment and controls.
+
+The final campaigns run sequentially. Earlier overlapping unit/control records
+and the initial Clippy macro refusal are retained; the final runs replace them
+for acceptance. Locked build, strict Cellar library/all-test Clippy, formatting,
+layout, dependency and docs checks pass. Owning/control compiler pre/post
+snapshots are empty; frozen executable copies are flushed before fixture entry.
+
+**The complete original public cohort 762 is FAILED, 7/16.** SDK source-proof and
+current-history dispatch pass native/RustFS, as do registration and Fleet. Only
+ordinary RustFS/Axum passes among eight EventStream selections. Native/Axum and
+ordinary RustFS Consume fail with ambiguous sequence **2**; explicit native/RustFS
+activation and both independent target-S3 ingresses also fail. The RustFS Consume
+error records target entry with **2,917 ms** of the original three-second budget
+remaining. Neither Queue load completes its 528-message oracle: native producer
+**18** and RustFS producer **7** expire ambiguously; RustFS target entry retains
+**2,867 ms**. Extent load is not reached. Preserve these full identities and earlier
+uncertain calls. The preparation feature does not close the public MVP gate.
+
+Public compiler preflight is empty, but postflight captures two compiler processes
+whose origin and overlap interval are unknown. Treat this as a contended failed
+run, not latency, stability, exclusive-cause or release qualification. The public
+bodies, supporting fixtures, budgets and quotas remain unchanged. No unchanged
+pass-seeking replay replaces it.
+
+Offline diagnostic 763 finds no remaining disposable working databases. Inventory
+763c reads copies of **92 retained materialized images** without changing originals.
+Native/Axum Consume images contain prepared/sealing `__streamAck` intents and a
+completed `__streamNextResolved`; activation images contain `__streamConfigure`
+intents. These can be historical generations: no selected root is decoded, so
+this proves neither current commit, an unresolved-obligation count nor the cause
+of a deadline. First correlate them with selected-root/receipt state, then close
+ack dispatch/sealing, configuration progress and Queue native-work settlement.
+Remaining whole-group waits in due-effect discovery and final S3 output are
+investigation opportunities, not established causes.
+
+Aggregate 765 verifies frozen logs/binaries, fixture identity, original public
+bodies, **27 failed public voter disks** and three baseline disks. Owned RustFS/VM
+are stopped with objects retained. Voters share one native process and separate
+workspace disks; RustFS uses one CPU/two GiB. This is below independent-Linux-voter
+release scope. Counts remain **13/17 tasks, 147/195 cases**. The generated index is
+current; full plan validation still lacks historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`. Next finish the public primitive
+execution/recovery matrix, then CG-13/15 managed recovery and release qualification
+and CG-16 cutover. Exact records are in ignored
+`.cellar/cg17-payload-01/preparation-state-767.json`.
+
+## Previous retained metadata checkpoint
+
 Latest main `16c45b266` is included. **Qualified runtime `0a6fb57b67` lets internal
 event metadata select a retained cell history from a live local voter's applied
 tree after verified, bounded namespace routing.** This is a locator only. The

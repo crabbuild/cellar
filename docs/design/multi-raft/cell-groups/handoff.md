@@ -4,7 +4,52 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current retained metadata delivery
+## Current independent preparation delivery
+
+Latest main `16c45b266` is included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `37ceab030` and final
+qualification source `2d9c2766e` allow new private commands to overlap only exact,
+durably logged mutations admitted for other cells by the same leader. Both
+initial dispatch and writer acquisition enforce the certificate and all existing
+term/route/membership/image fences. Read cuts, ordered publication and quorum/S3
+acknowledgements retain their separate proofs. No new task/cache/format/quota or
+deadline. Commit/root batching and retained metadata locators remain delivered.
+
+**49 focused integration selections and 191 units pass.** Owning native/RustFS
+and both images require callback entry during held physical apply, no early
+acknowledgement and exact replay with one invocation. Baseline `a7c3b0f6a` fails;
+`37ceab030` passes with identical fixtures. Final `2d9c2766e` changes only the
+test select macro, retains its assertions and reruns all selected checks serially.
+Final locked build, strict library/all-test Clippy and repository checks pass.
+Earlier overlap/Clippy failures remain recorded and are superseded by final runs.
+
+**Original public cohort 762 is FAILED, 7/16.** SDK source-proof/history,
+registration, Fleet and ordinary RustFS/Axum EventStream pass. Seven EventStream
+selectors fail activation or Consume; sequence **2** stays ambiguous. Queue
+production fails at native **18** and RustFS **7**, also ambiguous. Neither reaches
+528 messages or extent load. Retain all 27 failed voter disks and earlier unknown
+identities. Public preflight is empty but postflight sees two compiler processes
+of unknown origin/interval; there is no latency, exclusive-cause or stability
+claim. Owning/control pre/post snapshots are empty.
+
+Diagnostic 763c inventories 92 retained materialized image copies. Native/Axum
+Consume images show `__streamAck` prepared/sealing and `__streamNextResolved`
+completed; activation images show `__streamConfigure`. They may be historical:
+selected roots are not decoded and these are not current-commit/absence proofs.
+Next confirm the selected receipt/root, then implement ack dispatch/sealing,
+configuration progress and Queue native-work settlement under original budgets.
+Investigate due-effect/final-S3 whole-group waits without weakening read or output
+proofs. Finish the primitive matrix and CG-13/15/16 after those public gates close.
+
+Aggregate 765 verifies source, logs, binaries and retained failures. RustFS/VM are
+stopped, objects retained. Voters remain in one process on separate workspace
+disks; real RustFS1CPU2GiB is below independent-voter release scope. Counts stay
+**13/17 tasks, 147/195 cases**; index current, historical CG-01 evidence still missing.
+Use ignored `.cellar/cg17-payload-01/preparation-state-767.json`,
+[progress](progress.md#current-integration-checkpoint) and
+[priorities](remaining-work.md#primitive-delivery-priority).
+
+## Previous retained metadata delivery
 
 Latest main `16c45b266` is included; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Qualified runtime `0a6fb57b67`

@@ -164,6 +164,14 @@ No slow callback or image preparation runs on the consensus tick loop. Group/nod
 byte quotas include queued, prepared, in-flight and ambiguous work; charge physical
 owners until they release it, even after the request waiter is cancelled.
 
+Private command preparation keeps the current-term applied leader barrier and
+its selected cell image. It may overlap an unapplied committed suffix only when
+that leader matches every durably logged entry to its own admitted mutation of a
+different cell, within the existing event quantum. Same-cell, enrollment,
+administrative, missing and inherited entries keep admission closed. This grants
+private execution only; read barriers, ordered publication and quorum/S3
+acknowledgements retain their separate proofs.
+
 Data entries carry cell history, route binding, schema, mutation sequence,
 base/result image, receipt/proposal identity and bounded LTX payload. Administrative
 entries are explicitly typed: enroll, membership, checkpoint, seal, install,
