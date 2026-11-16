@@ -9,6 +9,8 @@ mod durable_bucket;
 mod fixture;
 #[path = "support/lease_renewal.rs"]
 mod lease_renewal;
+#[path = "support/lease_renewal_stamp.rs"]
+mod lease_renewal_stamp;
 #[path = "support/node_assets.rs"]
 mod node_assets;
 #[path = "support/node_events.rs"]

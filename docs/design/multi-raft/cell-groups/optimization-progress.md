@@ -31,6 +31,53 @@ Implementation starts from `d0c2873f` (the shared cell-group runtime merged into
 execution, archive/lifecycle ownership and persistence work. None of OPT-01
 through OPT-08 is accepted as complete by this record.
 
+### Lease readback continuity
+
+Compiler input `31cc0e00` retains bounded information about unresolved ordinary
+lease writes under the held ETag. Reading the old root does not cancel native
+work; a later attempt's folded-log stamp must not erase an earlier possible
+winner. Historical candidates require the original node, lineage, address,
+protocol and generation, a remembered None/Open stamp and bounded expiry.
+Recovery and sealing states do not enter that history. Displacing the ETag
+invalidates its old guards.
+
+Positive readback and applied completion require continuous prior authority at
+both latest observed clock bounds. Adoption cannot revive an expired prior
+lease or replace an older possible winner's sample with a newer callback time.
+The monotonic anchor retains the earliest sample, expiry-delta and observed
+remaining-time bounds. Original deadlines, work banks, worker counts, wire
+format, durability proofs and retry identities remain unchanged.
+
+Eight of eleven public lease tests fail against the unchanged core; all eleven
+pass afterward within the full 107-test pure-core integration suite. The frozen
+native fixture uses the public Node, actual Fleet publisher and conditional
+SQLite object store. An original physical CAS commits after its response is
+lost; the next actual Open-stamped CAS rejects. The old core closes the owner
+before its prior expiry. Two fixed-core invocations retain authority, execute
+one unreissued HTTP mutation, verify value 1 across a full TTL and check the
+stored generation, Open ensemble and Fleet-ack marker. Both nodes, the physical
+task and the explicit observer domain join; the caller executor remains usable.
+The full default library also passes 1,233 tests with its two existing ignores.
+Its first serial sweep fails thirteen mocked Unix-socket binds because the
+harness temporary path exceeds macOS `SUN_LEN`. The identical frozen executable
+passes the same serial command after only shortening that unique temporary
+prefix on the same workspace volume. Both runs remain recorded; no runtime
+deadline, assertion, worker or resource limit changes.
+The [qualification record](lease-readback-qualification-2026-11-16.json) pins
+final identical fixtures, compiler/executable/profile hashes, earlier fixture
+failures, the initial observer-domain failure and private retention audits.
+
+At parent `46bc043a`, all four Typed RPC jobs and all three JavaScript jobs
+pass, while both full native jobs fail. Its focused Linux disaster build succeeds
+and reports six passes, three failures and eight RustFS ignores. Post-failure
+physical probes report `Overloaded` on five peers in each failed six-node case;
+those nontransactional observations do not establish cause. This component
+isolates a known readback race, not the original RPC COMMIT timing. Genuine
+expiry still fences, and the Linux disaster failures remain open. The original
+RustFS still has zero available bytes against its unchanged 6 GiB reserve.
+No constrained SQL/KV/Queue campaign, measured percentile/throughput gain or
+complete CG/OPT qualification follows from these focused checks.
+
 ### Queued prepared submissions
 
 Compiler input `816bcded` collects adjacent prepared submissions already queued

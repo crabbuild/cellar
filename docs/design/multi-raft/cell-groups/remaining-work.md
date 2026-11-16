@@ -48,16 +48,31 @@ checkpoint does not replace the constrained matrix below.
 
 The next priorities are:
 
-1. **Close the SDK correctness/qualification failures.** On parent `f979d7a66`,
-   `disaster_outbox_ambiguity_refuses`, `disaster_retry_and_old_token_refusal`
-   and `transition_disaster_selects_complete_closure` fail in both Python
-   modes; the managed recovery-barrier case also fails in 3.14. The separate
-   Node package compatibility/restart case exceeds its original 250 ms handler
-   budget, although shutdown joins. Preserve new failed data before reproducing
-   it: that existing Node fixture currently auto-cleans its temporary directory.
-   All four parent Typed RPC jobs pass; this does not accept the full SDK gate
-   or qualify the later batching source. Keep original deadlines, identities,
-   fencing and recovery refusal behavior.
+1. **Close the SDK correctness/qualification failures.** The focused Linux
+   disaster workflow at `46bc043a` builds successfully, then passes six cases
+   and fails `disaster_outbox_ambiguity_refuses`,
+   `disaster_retry_and_old_token_refusal` and
+   `transition_disaster_selects_complete_closure`, with eight explicit RustFS
+   ignores. Its retained post-failure physical probes report `Overloaded` on
+   five of six nodes; the three-node diagnostic control passes. These samples
+   are not transactional and do not establish the failure's cause. Separately,
+   the full Typed RPC run at `f28d92b3` loses lease authority during native
+   COMMIT tails; one replica's commit completes after its legitimate fence.
+   All four Typed RPC jobs pass on `46bc043a`, which does not prove a causal
+   repair of that older tail. An owner's later mismatch still needs causal
+   qualification. Preserve those
+   failures and original identities while repairing lease reconciliation and
+   diagnosing control/inventory progress. All three JavaScript jobs also pass
+   at `46bc043a`; the same 100-case Node delivery loop also passes locally with a
+   different Node patch/platform and now retains its original data. Those passes
+   do not explain the earlier handler-budget failure or accept the full SDK
+   gate. Keep original deadlines, fencing and recovery refusal behavior.
+   The [lease readback follow-up](lease-readback-qualification-2026-11-16.json)
+   at `31cc0e00` recognizes retained ordinary candidates across changed stamps
+   while refusing expired authority. Its eleven core controls and two exact
+   native invocations pass with unchanged final fixtures. That causal local
+   repair does not establish the older RPC body's identity or close the
+   separate Linux disaster failures.
 2. **Continue measured worker and physical-lifetime optimization.** Proposal
    collection is one stage. Profile ordered apply/image publication, producer
    cleanup and transport batching under unchanged banks; qualify actual prepared
