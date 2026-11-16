@@ -122,18 +122,22 @@ pub(crate) async fn verified_preparation_handoff(
                 .await??;
         }
         let mut held = BTreeMap::new();
-        let deadline = fixture.cluster.domain.mono_ms()? + 5_000;
-        while !held.contains_key(&route.history) {
-            fixture.pump(&[route.history], &mut held).await?;
-            anyhow::ensure!(
-                fixture.cluster.domain.mono_ms()? < deadline,
-                "committed apply not delivered"
-            );
-            if !held.contains_key(&route.history) {
-                let next = fixture.cluster.domain.mono_ms()? + 1;
-                fixture.cluster.domain.sleep_until(next)?.await;
-            }
-        }
+        let domain = fixture.cluster.domain.clone();
+        domain
+            .run(async {
+                cellar::asyncrt::timeout(Duration::from_secs(5), async {
+                    loop {
+                        fixture.pump(&[route.history], &mut held).await?;
+                        if held.contains_key(&route.history) {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        cellar::asyncrt::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+                .await
+                .context("committed apply not delivered")?
+            })
+            .await??;
         let committed = held
             .remove(&route.history)
             .context("held committed apply")?;
