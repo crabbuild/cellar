@@ -18,6 +18,12 @@ pub(crate) trait Host {
         Ok(false)
     }
 
+    /// Prepare only a declared broker's birth. This is never binding readiness;
+    /// catalog reconciliation and independent target proofs still gate serving.
+    fn prepare_broker(&self, _principal: &str, _definition: &Definition) -> HandlerFuture<()> {
+        Box::pin(async { Ok(()) })
+    }
+
     fn rpc(
         &self,
         principal: &str,

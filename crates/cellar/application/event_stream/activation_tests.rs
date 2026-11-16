@@ -110,6 +110,95 @@ fn binding_declaration(named: bool) -> (super::super::Binding, BindingConfig) {
 }
 
 #[tokio::test]
+async fn broker_birth_preparation_and_catalog_bootstrap_make_progress_together() -> Result<()> {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    struct Bootstrap {
+        entered: Arc<AtomicBool>,
+        completed: Arc<AtomicBool>,
+        catalog: Arc<tokio::sync::Notify>,
+        active: Value,
+    }
+
+    impl super::Host for Bootstrap {
+        fn prepare_broker(&self, principal: &str, declared: &Definition) -> HandlerFuture<()> {
+            let admitted = principal == "app" && declared == &definition();
+            let entered = self.entered.clone();
+            let completed = self.completed.clone();
+            let catalog = self.catalog.clone();
+            Box::pin(async move {
+                anyhow::ensure!(admitted, "preparation changed its declared owner/resource");
+                entered.store(true, Ordering::SeqCst);
+                // Preparation cannot finish until the catalog runs. Awaiting
+                // either whole path before starting the other cannot pass.
+                catalog.notified().await;
+                completed.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            _args: Value,
+        ) -> HandlerFuture<Value> {
+            let admitted = principal == "app";
+            let validated = authority.validate_target(&scope, Some(&name), method);
+            let entered = self.entered.clone();
+            let catalog = self.catalog.clone();
+            let active = self.active.clone();
+            Box::pin(async move {
+                anyhow::ensure!(admitted);
+                validated?;
+                match method {
+                    "__catalogConfigure" => {
+                        anyhow::ensure!(
+                            entered.load(Ordering::SeqCst),
+                            "catalog bootstrap ran before broker preparation was polled"
+                        );
+                        catalog.notify_one();
+                    }
+                    "__catalogStatus" => (),
+                    _ => anyhow::bail!("unexpected bootstrap call {method}"),
+                }
+                Ok(active)
+            })
+        }
+    }
+    let declared = definition();
+    let host = Bootstrap {
+        entered: Arc::new(AtomicBool::new(false)),
+        completed: Arc::new(AtomicBool::new(false)),
+        catalog: Arc::new(tokio::sync::Notify::new()),
+        active: json!({"state":"active","resource":declared.resource.id,
+            "operation":super::super::raft::operation("app", &declared)?,
+            "accepted_revision":"1",
+            "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))}),
+    };
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let observed = domain
+        .run(crate::asyncrt::timeout(
+            std::time::Duration::from_secs(1),
+            configure(&host, &[("app".into(), declared)], &[]),
+        ))
+        .await?;
+    domain.shutdown().await;
+    observed??;
+    assert!(
+        host.completed.load(Ordering::SeqCst),
+        "catalog success dropped preparation"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn named_adoption_uses_its_current_catalog_proof_but_still_checks_the_partition() -> Result<()>
 {
     let (binding, named) = binding_declaration(true);
