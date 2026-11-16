@@ -154,6 +154,8 @@ pub(crate) fn next_resolved(context: &Context, body: &Value) -> Result<Fetch> {
     next_from(&db, &definition, name, body, true)
 }
 
+/// Execute after current Consume authorization. Both RPC forms use this same
+/// transaction; only the resolved form may select an initially unknown identity.
 pub(super) fn next_from(
     db: &Storage,
     definition: &Definition,

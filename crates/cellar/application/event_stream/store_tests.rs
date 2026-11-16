@@ -4,7 +4,6 @@
 use super::*;
 use crate::application::{storage::Resources, Activation};
 use crate::engine_api::{Compat, WorkerConfigOptions};
-use anyhow::Context as _;
 use std::sync::Arc;
 
 const SCOPE: &str = "__EventStream:retention-test";
