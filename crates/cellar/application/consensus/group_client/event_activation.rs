@@ -324,7 +324,13 @@ impl RaftCells {
             })
         })();
         Box::pin(async move {
-            let result = prepared?.await?;
+            eprintln!(
+                "DEBUG-cg17-activation-689 activation_start method={method} wall={}",
+                crate::asyncrt::wall_ms()
+            );
+            let result = prepared?.await;
+            eprintln!("DEBUG-cg17-activation-689 activation_reply method={method} success={} wall={} error={:?}", result.is_ok(), crate::asyncrt::wall_ms(), result.as_ref().err());
+            let result = result?;
             let value = crate::application::decode_rpc_result(&result)?.to_json()?;
             if let Some(error) = value.get("error") {
                 return Err(

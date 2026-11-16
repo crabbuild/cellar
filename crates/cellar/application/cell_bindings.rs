@@ -687,6 +687,13 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
+    eprintln!(
+        "DEBUG-cg17-activation-689 binding_enter source={} target={} sequence={} remaining={:?}",
+        source.history.cell.as_str(),
+        intent.route.cell.as_str(),
+        intent.child.sequence(),
+        dispatch.remaining_timeout()
+    );
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -772,6 +779,13 @@ async fn run(
     options.durability = intent.route.durability;
     let result = loop {
         options.timeout = dispatch.remaining_timeout()?;
+        eprintln!(
+            "DEBUG-cg17-activation-689 child_start source={} target={} sequence={} remaining={:?}",
+            source.history.cell.as_str(),
+            intent.route.cell.as_str(),
+            intent.child.sequence(),
+            dispatch.remaining_timeout()
+        );
         let result = source
             .host
             .command(
@@ -804,6 +818,13 @@ async fn run(
         // child identity and input and consume the original deadline.
         dispatch.wait_admission().await?;
     };
+    eprintln!(
+        "DEBUG-cg17-activation-689 child_reply source={} target={} success={} remaining={:?}",
+        source.history.cell.as_str(),
+        intent.route.cell.as_str(),
+        result.is_ok(),
+        dispatch.remaining_timeout()
+    );
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
