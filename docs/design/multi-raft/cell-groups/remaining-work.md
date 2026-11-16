@@ -100,16 +100,35 @@ invocations pass, including two independent Axum KV invocations. Historical
 failed owners remain failed at their own source cuts. Broader payload
 deadline/backpressure, crash and release coverage remains required.
 
+The subsequent [payload admission repair](payload-archive-pressure-qualification-2026-11-16.json)
+at compiler input `8fb09d7f` also preserves archive progress on typed `Overloaded`.
+An actual held foreground GET forces shared admission pressure; repeated failures
+retain the original exact journal intent without coverage. Joining that GET then
+permits fresh byte verification and independently verified exact-cut coverage.
+The corrected identical fixture fails twice per image form before the repair and
+passes afterward. Final-source controller/Clippy/repository gates pass; the
+preceding source's broader native behavior passes retain their own scope and its
+failed fixture lint remains recorded. All eight owning RustFS selections pass,
+but the full backend campaign remains **FAILED: 8/18**, with ten broader failures
+including actual PUT HTTP 500 responses. This closes only the reproduced
+operation-admission progress boundary; payload deadlines, uncertain cleanup,
+fitting-credit wakes and sustained fairness remain open.
+
 A read-only check positively matches the original Docker and guest Engine and
 observes 823,226,368 bytes free, below the unchanged 6 GiB reserve. New constrained
 cohorts remain held; no resize, restart, pruning or reserve relaxation was used.
-The existing disk-expansion proposal still awaits approval.
+The existing disk-expansion proposal still awaits approval. A later read-only
+check of the active RustFS `/data` named Docker volume observes 100% usage and
+zero available bytes. Readiness HTTP 200 does not establish write availability;
+the broader backend campaign now fails actual PUTs. No new backend or constrained
+cohort can be qualified under these conditions. Preserve all failed data and
+resolve capacity through the existing approval boundary before another campaign.
 
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |
 | P0: isolate the failing boundary | Keep the physical-credit wake, cadence, dedicated lease-pool and applied-evidence enrollment regressions. Measure their effects in the constrained matrix before attributing earlier lease expiry or latency to a specific boundary. Resolve the remaining preparation, persistence and physical-close costs behind the cumulative rooted-128 enrollment timeout; its successful SQL resolution checks do not establish request success. |
-| P0: restore qualification | Reproduce native disaster authorization and container capacity sampling at their owning boundaries. Extend the qualified generic payload-I/O retry to other deadline/backpressure and uncertain-cleanup scenarios only with exact identity/proof and terminal data-refusal evidence. Keep original deadlines and refusal assertions. A later narrow pass cannot replace a failed broader owner. |
+| P0: restore qualification | Restore original-backend write capacity without deleting retained failures or relaxing the reserve. Reproduce native disaster authorization and container capacity sampling at their owning boundaries. Extend the qualified generic-I/O/operation-admission retries to payload deadlines, uncertain cleanup and fitting-credit wakes only with exact identity/proof and terminal data-refusal evidence. Keep original deadlines and refusal assertions. A later narrow pass cannot replace a failed broader owner. |
 | P1: prove performance | Obtain complete passing SQL/KV/Queue cases in every durability mode, then a matched-source before/after comparison with p50/p95/p99, errors, CPU, I/O and archive lag. Failed or unmeasured windows cannot establish a speedup. |
 | P1: finish lifecycle and public contracts | Close full CG-17, remaining authority/read partition cases, physical reclamation with retained owners, once-only capacity settlement and repeated reserve-aware movement. |
 | P1: qualify the release | Run combined-source recovery/crash/wake/transition and feature/SDK/Axum/daemon gates, plus independent physical failure domains. Three containers in one Colima VM do not qualify domain loss. |

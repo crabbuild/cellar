@@ -7,6 +7,7 @@ use futures_util::FutureExt;
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum PayloadFailure {
     Unavailable,
+    Backpressure,
     Missing,
     Corrupt,
 }
@@ -19,6 +20,11 @@ fn expected(error: &CellGroupArchiveControlError, failure: PayloadFailure) -> bo
                 CellGroupPayloadError::Storage(object_store::Error::Generic { .. }),
             )),
             PayloadFailure::Unavailable,
+        ) | (
+            CellGroupArchiveControlError::Archive(CellGroupArchiveError::Payload(
+                CellGroupPayloadError::Overloaded,
+            )),
+            PayloadFailure::Backpressure,
         ) | (
             CellGroupArchiveControlError::Archive(CellGroupArchiveError::Payload(
                 CellGroupPayloadError::Missing,
@@ -92,7 +98,14 @@ pub(crate) async fn payload_read_failure(
     let (mut fixture, route, _, _) =
         Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?;
     let (mut config, archive_remote) = registration(&fixture, &route, rooted).await?;
-    let pool = CellGroupPayloadPool::new(Default::default())?;
+    let pool = CellGroupPayloadPool::new(CellGroupPayloadLimits {
+        max_operations: if matches!(failure, PayloadFailure::Backpressure) {
+            1
+        } else {
+            2
+        },
+        ..Default::default()
+    })?;
     let catalog = Catalog::new(archive_remote, Default::default())?;
     let namespace = fixture
         .cluster
@@ -119,7 +132,7 @@ pub(crate) async fn payload_read_failure(
         )
         .await?;
     fixture.drive(Some(accepted.position.index)).await?;
-    config.io = config.io.with_payloads(pool);
+    config.io = config.io.with_payloads(pool.clone());
     let objects = remote.inner.list(None).try_collect::<Vec<_>>().await?;
     let path = objects
         .iter()
@@ -136,6 +149,7 @@ pub(crate) async fn payload_read_failure(
         .clone();
     match failure {
         PayloadFailure::Unavailable => remote.deny_payload_reads.store(true, Ordering::Release),
+        PayloadFailure::Backpressure => (),
         PayloadFailure::Missing => remote.inner.delete(&path).await?,
         PayloadFailure::Corrupt => {
             remote
@@ -143,6 +157,31 @@ pub(crate) async fn payload_read_failure(
                 .put(&path, bytes::Bytes::from(vec![0; body.len()]).into())
                 .await?;
         }
+    }
+    // A real admitted GET owns the sole I/O slot while its actual store read
+    // waits. Archive and foreground callers share this same payload pool.
+    let mut held = if matches!(failure, PayloadFailure::Backpressure) {
+        let gate = remote.hold(path);
+        let read_payloads = payloads.clone();
+        let read_cell = cell.clone();
+        let read_reference = reference.clone();
+        let read = Box::pin(fixture.cluster.domain.spawn(async move {
+            read_payloads
+                .get(&read_cell, &read_reference, Duration::from_secs(5))
+                .await
+        })?);
+        Some((gate, read))
+    } else {
+        None
+    };
+    if let Some((gate, read)) = &mut held {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            cellar::asyncrt::select! {
+                _ = gate.entered.notified() => Ok::<_, anyhow::Error>(()),
+                _ = read.as_mut() => anyhow::bail!("admitted payload read did not reach its held adapter"),
+            }
+        }).await.context("real payload operation holds admission")??;
+        assert_eq!(pool.usage().operations, 1);
     }
     let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
     let owner = &controllers[0];
@@ -170,7 +209,11 @@ pub(crate) async fn payload_read_failure(
             "unverified payload became coverage"
         );
         let original = pending(&fixture).await?;
-        if matches!(failure, PayloadFailure::Unavailable) && !first.stopped {
+        let transient = matches!(
+            failure,
+            PayloadFailure::Unavailable | PayloadFailure::Backpressure
+        );
+        if transient && !first.stopped {
             let denied = remote.denied_payload_reads.load(Ordering::Acquire);
             tokio::time::timeout(Duration::from_secs(5), async {
                 loop {
@@ -183,11 +226,15 @@ pub(crate) async fn payload_read_failure(
                         "unavailable bytes became coverage"
                     );
                     if status.attempts > first.attempts
-                        && remote.denied_payload_reads.load(Ordering::Acquire) > denied
-                        && status
-                            .error
-                            .as_ref()
-                            .is_some_and(|error| expected(error, failure))
+                        && (!matches!(failure, PayloadFailure::Unavailable)
+                            || remote.denied_payload_reads.load(Ordering::Acquire) > denied)
+                        && status.error.as_ref().is_some_and(|error| {
+                            expected(error, failure)
+                                && !Arc::ptr_eq(
+                                    error,
+                                    first.error.as_ref().expect("observed typed error"),
+                                )
+                        })
                     {
                         break Ok::<_, anyhow::Error>(());
                     }
@@ -203,6 +250,13 @@ pub(crate) async fn payload_read_failure(
             );
             let gets = remote.payload_gets.load(Ordering::Acquire);
             remote.deny_payload_reads.store(false, Ordering::Release);
+            if let Some((gate, read)) = held.take() {
+                remote.clear();
+                gate.release.notify_one();
+                let actual = read.await??;
+                assert_eq!(actual.as_ref(), body.as_ref());
+                drop(actual);
+            }
             published(owner, route.history, accepted.position.index).await?;
             let coverage =
                 verified_current(&fixture, &config, rooted, "payload-retry-audit").await?;
@@ -230,6 +284,15 @@ pub(crate) async fn payload_read_failure(
     .catch_unwind()
     .await;
     remote.deny_payload_reads.store(false, Ordering::Release);
+    let held_joined = if let Some((gate, read)) = held.take() {
+        remote.clear();
+        gate.release.notify_one();
+        read.await
+            .map_err(anyhow::Error::from)
+            .and_then(|result| result.map(drop).map_err(anyhow::Error::from))
+    } else {
+        Ok(())
+    };
     for controller in &controllers {
         controller.close().await?;
     }
@@ -240,9 +303,13 @@ pub(crate) async fn payload_read_failure(
         Ok(result) => result?,
         Err(panic) => std::panic::resume_unwind(panic),
     };
+    held_joined?;
     assert_eq!(
         stopped,
-        !matches!(failure, PayloadFailure::Unavailable),
+        !matches!(
+            failure,
+            PayloadFailure::Unavailable | PayloadFailure::Backpressure
+        ),
         "external-byte error has the wrong terminal classification: {failure:?}"
     );
     Ok(())

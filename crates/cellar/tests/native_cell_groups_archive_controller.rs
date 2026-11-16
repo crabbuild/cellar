@@ -24,6 +24,26 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_retries_payload_admission_after_the_actual_reader_joins() -> Result<()> {
+    Box::pin(runtime_fixture::payload_read_failure(
+        false,
+        Arc::new(object_store::memory::InMemory::new()),
+        runtime_fixture::PayloadFailure::Backpressure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_archive_retries_payload_admission_after_the_actual_reader_joins() -> Result<()> {
+    Box::pin(runtime_fixture::payload_read_failure(
+        true,
+        Arc::new(object_store::memory::InMemory::new()),
+        runtime_fixture::PayloadFailure::Backpressure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_retries_temporary_payload_reads_with_its_original_intent() -> Result<()> {
     Box::pin(runtime_fixture::payload_read_failure(
         false,
@@ -994,4 +1014,27 @@ async fn rustfs_archive_corrupt_payload_remains_terminal() -> Result<()> {
         .await?;
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_retries_payload_admission_after_the_actual_reader_joins() -> Result<()> {
+    Box::pin(runtime_fixture::payload_read_failure(
+        false,
+        rustfs::store("payload-archive-pressure", false)?,
+        runtime_fixture::PayloadFailure::Backpressure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_rooted_archive_retries_payload_admission_after_the_actual_reader_joins(
+) -> Result<()> {
+    Box::pin(runtime_fixture::payload_read_failure(
+        true,
+        rustfs::store("payload-archive-pressure", true)?,
+        runtime_fixture::PayloadFailure::Backpressure,
+    ))
+    .await
 }

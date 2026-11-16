@@ -126,8 +126,37 @@ independent prefixes. The backend identity, resources, restart count and start
 time remain unchanged. The evidence scans 46 actual private representations
 with zero matches. This closes the reproduced generic-I/O archive progress
 path within the recorded scope; other typed payload errors retain their prior
-policy. The constrained performance, rooted-128, remaining SDK/recovery and
-complete OPT/CG gates remain open.
+policy at that source cut. The constrained performance, rooted-128, remaining
+SDK/recovery and complete OPT/CG gates remain open.
+
+At compiler input `8fb09d7f`, payload operation-admission pressure also leaves
+the archive owner retryable. A real foreground GET fills the focused fixture's
+single operation slot and waits at the actual store read. The identical fixture
+fails twice per image form before the classifier repair and passes afterward.
+Two completed `Overloaded` failures preserve the same serialized Reserve intent
+without coverage. Joining the original GET then permits fresh byte verification
+and independently verified exact-cut coverage. Only the focused test reduces
+operation capacity from two to one; production limits and deadlines are unchanged.
+
+The [pressure qualification](payload-archive-pressure-qualification-2026-11-16.json)
+retains exact inputs, executable identities, failed controls and fixture disks.
+Final-source controller qualification passes 43 tests, strict library/controller
+Clippy and repository checks. The preceding `c7fd8ee6` source has identical
+production bytes and passes the broader native archive/API/recovery checks; its
+failed fixture-select lint is retained separately and corrected through Cellar's
+execution API before the final exact before/after comparison.
+
+RustFS qualification remains **FAILED: 8/18 selected invocations pass**. All
+eight pressure/generic-I/O/data-refusal selections pass; all ten broader
+API/payload/recovery invocations fail, including actual PUT HTTP 500 responses.
+A read-only observation finds the original RustFS `/data` on its named Docker
+volume at 100% usage with zero available bytes. Readiness still returns HTTP 200;
+it does not establish write availability. The original identity, image, limits,
+start time and restart count remain unchanged. No resize, restart, pruning,
+relocation or reserve relaxation is performed. The record scans 46 actual private
+representations with zero matches. Payload deadlines, uncertain cleanup under
+pressure, fitting-capacity wakes, fairness and all broader performance/release
+gates remain open.
 
 The first change implements the command outcome and authenticated advice
 foundation:

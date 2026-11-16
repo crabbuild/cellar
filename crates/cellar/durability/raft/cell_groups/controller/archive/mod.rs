@@ -1201,7 +1201,7 @@ fn confirm_coverage(
 }
 
 fn archive_retryable(error: &CellGroupArchiveError) -> bool {
-    // Payload I/O can fail during byte verification or exact pin/adoption
+    // Payload admission and I/O can fail during byte verification or exact pin/adoption
     // reconciliation. Retry through the existing journaled archive intent;
     // coverage still requires independently verified bytes. Missing/corrupt
     // payloads and failed journal barriers remain terminal.
@@ -1213,6 +1213,7 @@ fn archive_retryable(error: &CellGroupArchiveError) -> bool {
             | CellGroupArchiveError::Expired
             | CellGroupArchiveError::Unconfirmed
             | CellGroupArchiveError::Storage(_)
+            | CellGroupArchiveError::Payload(CellGroupPayloadError::Overloaded)
             | CellGroupArchiveError::Payload(CellGroupPayloadError::Storage(
                 object_store::Error::Generic { .. }
             ))

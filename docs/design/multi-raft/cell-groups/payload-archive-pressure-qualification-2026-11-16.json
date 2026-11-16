@@ -1,0 +1,1755 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-16T13:54:38.387318+00:00",
+  "component_status": "OWNING_PASSED_BROADER_FAILED",
+  "complete_release_qualified": false,
+  "base_revision": "753afb8c7a116cad7ed6139530921ccfd0184fa1",
+  "source_digest": "8fb09d7fd04153500119add4bf31844bc1aa83c9212a466ac73959d0963d83c5",
+  "source_inputs": 3456,
+  "mechanism": "Payload(Overloaded) is retryable in the existing bounded archive owner, alongside the previously qualified generic payload-store I/O retry. The next attempt loads the original durable intent and reconciles its exact payload pin/adoption identities. Coverage still requires independently verified bytes. No business callback is replayed.",
+  "production_delta": "One typed Overloaded arm and an invariant-comment update in the private archive retry classifier. No pool, deadline, resource, persistence, authority or format change. Missing/corrupt/retired payloads and journal/worker errors retain their existing handling. Other payload error variants retain their prior policy.",
+  "owning_oracle": {
+    "helper": "crates/cellar/tests/support/cell_group_archive_payload_retry.rs",
+    "before_sha256": "200f70769e6966e341697f2a806d0b5cb37e43eb4d95dd6734a3ab40626d41ea",
+    "after_sha256": "200f70769e6966e341697f2a806d0b5cb37e43eb4d95dd6734a3ab40626d41ea",
+    "same_bytes": true,
+    "before_archive_entrypoints_preserved_as_exact_prefix": true,
+    "before_archive_entrypoints_byte_identical": true,
+    "boundary": "Real RF3 runtimes/controllers, filesystem and committed SQLite external-payload reference. A real foreground GET acquires the shared payload pool and waits at the actual object-store read. The focused test reduces max_operations from the production default of two to one to force real typed admission pressure; all other defaults and production limits are unchanged. Observe Overloaded, a completed second failure and zero coverage under the same serialized Reserve intent. Release and join the original GET, verify its exact body, then require fresh archive byte verification, independent exact-cut coverage and payload readback. Owners join before final stopped-owner classification.",
+    "scope": "Twice per image form on each backend. Generic I/O retry and fresh missing/corrupt-byte terminal controls remain. The five-second operation/observation limits are unchanged; this is a correctness oracle, not a throughput benchmark."
+  },
+  "before": {
+    "status": "REPRODUCED",
+    "source_digest": "c9dd0debc49bf03085e9cab63a719eae2e32b509d7fc8cf2d1a1ef6c0b95fda4",
+    "production_inputs_unchanged": true,
+    "changed_inputs_from_published_source": [
+      "crates/cellar/tests/native_cell_groups_archive_controller.rs",
+      "crates/cellar/tests/support/cell_group_archive_payload_retry.rs"
+    ],
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "executable": {
+      "sha256": "97184d8f15ef99febc8ff5eb257817538a409421e07b0cf215ebefe4f7c55b6d",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "stages": [
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 179.19063587501296,
+        "log_sha256": "756fdcf963f38786b7183a7cedd0a2f0bf5e720dfcf3af6cb78548b3bd46bc70",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--no-run",
+          "--message-format=json"
+        ]
+      },
+      {
+        "name": "materialized-1",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.36546445899875835,
+        "log_sha256": "265f80191e4ce66433a5b24e1cbffc6e8a29b07f6e2644eb92ba7fca26376961",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:frozen-controller-tests>",
+          "--exact",
+          "archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "extents-1",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.4152048329997342,
+        "log_sha256": "7737260d0d2fa8b2473e8e539a7dec4219ebf40599ad835553345883ebc684d8",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:frozen-controller-tests>",
+          "--exact",
+          "rooted_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "materialized-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.3513290829723701,
+        "log_sha256": "43c90850aca2f737769a1935e14add42f48483bc54aaca03516dc8fcb61865f0",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:frozen-controller-tests>",
+          "--exact",
+          "archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "extents-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.4016942499729339,
+        "log_sha256": "9762f0e89d8891822519a6a2a9b8335cdc7a1d7918005757c86bfb13d4b77d46",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:frozen-controller-tests>",
+          "--exact",
+          "rooted_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_retries_temporary_payload_reads_with_its_original_intent",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4373247080075089,
+        "log_sha256": "6a2d00eda6cbd8b3449076cc3765bb556cf554742871d6895151adf4b1d26c9d",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:frozen-controller-tests>",
+          "--exact",
+          "archive_retries_temporary_payload_reads_with_its_original_intent",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "rooted_archive_retries_temporary_payload_reads_with_its_original_intent",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4697634580079466,
+        "log_sha256": "6d1a297bdf9fd297dd5c2f7b783809e2d29917b07b2d08ed6f41e70e37d57d60",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:frozen-controller-tests>",
+          "--exact",
+          "rooted_archive_retries_temporary_payload_reads_with_its_original_intent",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_missing_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7622134579869453,
+        "log_sha256": "78e3ff3c6d472d3e59cd77fa54c52c07662966c377d7e01b5d69cd37ce1f1cf9",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:frozen-controller-tests>",
+          "--exact",
+          "archive_missing_payload_remains_terminal",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_corrupt_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7754971249960363,
+        "log_sha256": "753f152b38d3d5eba1ad6d48141bdf991198f33186361179864a499cc53d6a96",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:frozen-controller-tests>",
+          "--exact",
+          "archive_corrupt_payload_remains_terminal",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      }
+    ],
+    "retained": {
+      "directories": 10,
+      "regular_files": 559
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true
+  },
+  "initial_fixture_failure": {
+    "status": "FAILED",
+    "source_digest": "00f89a786e1b09fb40074139f6058e7195050e3a235216c890b4eb9823c7af37",
+    "stages": [
+      {
+        "name": "compile",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 14.75828612499754,
+        "log_sha256": "12aed6dd55f96ffb98945f4cacced407b69bc62f0ea9afb3846f56d91473dca4",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--no-run",
+          "--message-format=json"
+        ]
+      }
+    ],
+    "awake_joined": true,
+    "interpretation": "The first new fixture did not compile because ExecutionDomain is not cloneable. It was corrected to use its owned task-spawn API before the valid red control. This compilation failure is not product failure evidence."
+  },
+  "native": {
+    "status": "PASSED",
+    "source_digest": "8fb09d7fd04153500119add4bf31844bc1aa83c9212a466ac73959d0963d83c5",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "changed_inputs_from_before": [
+      "crates/cellar/durability/raft/cell_groups/controller/archive/mod.rs"
+    ],
+    "executables": {
+      "native_cell_groups_archive_controller": {
+        "sha256": "c0e5106b3af2e0e16c2b0f45d23af4f09c773e7ab3cc6d7d405a1eee5de7cd69",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_archive": {
+        "sha256": "19d29f584314fba9103b9485ee3b37bf759c07df636029d66fa73373fe818c49",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "226fddf10754e4127d4a3c3a0681d79ab3b217c9e6ebb2e18df6c47976afcbd5",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "raft_cell_group_payloads": {
+        "sha256": "8fab34fb4047e860b39ea6a69a186276015f7981b88b4db3788f532cc3dbffe7",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_sql": {
+        "sha256": "892c38a84f924775199565bcc1b9b1ee50056199d72374676d7e722629e07618",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "initial_focused_executable_matches_final": true,
+    "stages": [
+      {
+        "name": "compile-controller",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 190.18289829202695,
+        "log_sha256": "8881b350cf4dbd48ef4f78cba4eb189281b01d3495b3e75f312fa3b0e099a4fb",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--no-run",
+          "--message-format=json"
+        ]
+      },
+      {
+        "name": "materialized-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4892860410036519,
+        "log_sha256": "27a6d9d958355655f471b7829a31e25419f67ce3d3b7c155a30fb3598d11ed2a",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "extents-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.5121665000042412,
+        "log_sha256": "a98948859dcab5cc658d15a8bac646ae890f2988d58910e136a22ad91bac2770",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "rooted_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "materialized-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4652054169855546,
+        "log_sha256": "78cc422a340e06f5e193fb485c742a8dadc08087e0972dd790bd91beb8a1eef3",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "extents-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.47350833399104886,
+        "log_sha256": "ea10bfd8619b4c5bf3f62e11b30de54adc5dc1c9ad8d05d6969fcc8b3905a7ae",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "rooted_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_retries_temporary_payload_reads_with_its_original_intent",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.5268136250087991,
+        "log_sha256": "06197796ed5235c859e43befa6c2bdb41029985a0885a240c898fdfb14a06205",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_retries_temporary_payload_reads_with_its_original_intent",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "rooted_archive_retries_temporary_payload_reads_with_its_original_intent",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.5182477500056848,
+        "log_sha256": "dcd71ed9668a0f2a7443e9fd44a3f594b219574f9c6b3f3a09a435c02bf9b00b",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "rooted_archive_retries_temporary_payload_reads_with_its_original_intent",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_missing_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8968976250034757,
+        "log_sha256": "13b51e64644b31cc95d86410162fa939c128d02cda86b1a7db3958c9587c3788",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_missing_payload_remains_terminal",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_corrupt_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8267051249858923,
+        "log_sha256": "9ff4e415ee5310d1c508ce73d9534e2c67adb0ca1affef6f5003566bdc7496d4",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_corrupt_payload_remains_terminal",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "compile-integration",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 84.35737979100668,
+        "log_sha256": "97d6cd3f480537f82c483204ad577aef1388e3659a18ebdfa02be4c9aacece53",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--test",
+          "native_cell_groups_archive",
+          "--test",
+          "native_cell_groups_primitives",
+          "--test",
+          "native_sql",
+          "--test",
+          "raft_cell_group_payloads",
+          "--no-run",
+          "--message-format=json"
+        ]
+      },
+      {
+        "name": "full-native_cell_groups_archive_controller",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 163.41328750000685,
+        "log_sha256": "070d0d518a9de557ae07d459f4fec0f14ac8759859effe6dc8618daaafe1ddf3",
+        "footers": [
+          [
+            "ok",
+            "43",
+            "0",
+            "38"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "strict-clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 113.86418320800294,
+        "log_sha256": "a96df1b50d4c6863d5e1c398e71c586f931d5ae0713211c638d496383612d438",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar",
+          "--lib",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--",
+          "-D",
+          "warnings",
+          "--force-warn",
+          "dead_code"
+        ]
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 103.7248299579951,
+        "log_sha256": "9833826b89d1d07ac2e9f1e58f497bd844e4f24c85077369bbdf3e7f4145ae91",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "format",
+          "--check"
+        ]
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.13446774997282773,
+        "log_sha256": "01a630e67452ad35898cc79ea495e87662dea35fe963c96243d6d18d493fe029",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "check-layout"
+        ]
+      },
+      {
+        "name": "documentation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8029108339978848,
+        "log_sha256": "28e351ca9fb7b6e302f33f3313c96f1cf69939d9f74fae18787b0bbe6ace144e",
+        "footers": [],
+        "argv": [
+          "python3",
+          "tools/docs/check.py"
+        ]
+      },
+      {
+        "name": "native-dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.42266049998579547,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+        "footers": [],
+        "argv": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ]
+      },
+      {
+        "name": "design-plan",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.3248760419955943,
+        "log_sha256": "d5594fffbdb47de1050d8a29ee1648d64ae222427819c45bdc4f4b87dbc102a8",
+        "footers": [],
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "docs/design/multi-raft/cell-groups",
+          "-p",
+          "test_plan.py"
+        ]
+      }
+    ],
+    "retained": {
+      "directories": 20,
+      "regular_files": 1181,
+      "scope": "Record remaining joined native fixture disks and their exact bytes. Existing default helpers may clean successful temporary roots; no complete-disk retention is claimed for them. In-memory object stores are process-local. Original failed container/volume/image and shared RustFS data are separately retained."
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "scope": "Corrected-fixture exact before/after pressure/refusal controls, full archive controller, matching integration compilation and strict library/controller Clippy. Broader native behavior checks at the preliminary source retain their own source scope; final-source APIs run against RustFS."
+  },
+  "rustfs": {
+    "status": "FAILED",
+    "source_digest": "8fb09d7fd04153500119add4bf31844bc1aa83c9212a466ac73959d0963d83c5",
+    "selected_invocations": 18,
+    "passed_invocations": 8,
+    "failed_invocations": 10,
+    "executables": {
+      "native_cell_groups_archive_controller": {
+        "sha256": "c0e5106b3af2e0e16c2b0f45d23af4f09c773e7ab3cc6d7d405a1eee5de7cd69",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "226fddf10754e4127d4a3c3a0681d79ab3b217c9e6ebb2e18df6c47976afcbd5",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_archive": {
+        "sha256": "19d29f584314fba9103b9485ee3b37bf759c07df636029d66fa73373fe818c49",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "raft_cell_group_payloads": {
+        "sha256": "8fab34fb4047e860b39ea6a69a186276015f7981b88b4db3788f532cc3dbffe7",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "cli": {
+      "sha256": "69ca8d8a3052794ab1fc49515349ef985c2383b4a5e532cea757f907ba597a3f",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    },
+    "stages": [
+      {
+        "name": "materialized-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9635579579917248,
+        "log_sha256": "10e86bbb8dff61a6387dfd47dfa7d924b2b5665af2896e0d46e7690da3795c6c",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "extents-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9741112079937011,
+        "log_sha256": "ce5cfb8dc5417e4355cb4245389d4b8f0d76d7d313ff7cba9d63de29eadda1b7",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_rooted_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "materialized-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9787064999982249,
+        "log_sha256": "2074e3000ceff3be9a71d2b2d4aa525df92cd88e71c9b48ad73c3da6e1672b19",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "extents-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9626180829945952,
+        "log_sha256": "c58d6e859c0cc2e4e97cd5bae88ae4396acd2d3a4a2e915d82c6ca0490025a90",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_rooted_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "generic-materialized",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9509977919806261,
+        "log_sha256": "454e8c8b7ba63ca0b33adf8a116eb263d889304276010f609229f00f48ffc328",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_archive_retries_temporary_payload_reads_with_its_original_intent",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "generic-extents",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9906616670195945,
+        "log_sha256": "7e2e6d70d0429be754cb7fd7385c8d5028d6471fedecc197ffe46fe185afe94a",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_rooted_archive_retries_temporary_payload_reads_with_its_original_intent",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "missing-terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.614962541993009,
+        "log_sha256": "af784a98a74b57a425b2de4617f6678a69188011e6e0bf7516e9904320cb5e67",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_archive_missing_payload_remains_terminal",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "corrupt-terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.6542882079957053,
+        "log_sha256": "3f93388b5daadca68f17e6b481b3c3c281f4f74bc4efea9f4a8726e3b627f764",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_archive_corrupt_payload_remains_terminal",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "native-sql",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 19.01127995798015,
+        "log_sha256": "3a8033aa0438e5d124707f0a8ffd3d29e8c0e0b84929ac1c44752676c548318e",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_ordinary_sql_bindings_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "axum-sql",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 7.208588541980134,
+        "log_sha256": "f996e730ce6a4b03522f8f720baf458c7ff847c03eef9f6d78224476ef8ec0ec",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "native-kv",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 6.701134374976391,
+        "log_sha256": "7efbfd5c19c5d5f6bafca9724ffe27c348aec6c2dd3b6ef4a0b1d377db25a740",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_ordinary_kv_bindings_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "axum-kv",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 50.90036825000425,
+        "log_sha256": "a315bda57fdda005cc3de10b1ab73a093a26cd5101040c935e70760e4f694cb5",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_axum_kv_bindings_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "axum-kv-repeat",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 7.173396875004983,
+        "log_sha256": "70f178af7745da154a1d21428feb0a42f430e8ab17f4959d2283cf628fedcba3",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_axum_kv_bindings_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "native-queue",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 2.5098647919949144,
+        "log_sha256": "b42b3e5c12ea008a05ea0d46dd7105e46546e3623e6edb769e27f937cbc38e52",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_ordinary_queue_callbacks_use_shared_quorum",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "axum-queue",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 2.1324707500170916,
+        "log_sha256": "428daddaa57ac71e856cff8f40a8da9e3feef6d28c3782215f3870c2a3b4be23",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "queue-proof",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 2.4255257500044536,
+        "log_sha256": "e70708e4a87f67137a1f6c645ffff4681eb550e652740608b4f11bac48b2ddf7",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "immutable-payloads",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 3.384830166993197,
+        "log_sha256": "f1a0b9be1f43d09f17d1aba49820552ff0c9a639dcaeeada4749d0e5ada49f51",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:raft_cell_group_payloads-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_immutable_payloads_confirm_bytes_and_preserve_old_recovery_cuts",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "payload-root-gc",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 2.0383420409925748,
+        "log_sha256": "1071270d1fdc9204518f08dc3888ed5329104f1a4c8017b272c0370a05562bf6",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive-executable>",
+          "--ignored",
+          "--exact",
+          "rustfs_external_payload_recovery_and_gc_preserve_retained_cuts_and_readers",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      }
+    ],
+    "retained_directories": 16,
+    "retained_regular_files": 1585,
+    "original_backend_unchanged": true,
+    "ready_http_status": 200,
+    "backend_limits": {
+      "cpus": 1000000000,
+      "memory": 2147483648,
+      "swap": 2147483648
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "scope": "Original shared RustFS with host-native RF3 voters. Only the first eight owning pressure/generic/refusal selections pass; all ten subsequent broader selections fail, including actual PUT HTTP 500 responses. The active data filesystem is observed with zero available space. These failed API invocations do not qualify public API behavior. Four pressure repeats, two generic-I/O controls, missing/corrupt controls spanning both image forms, native/Axum SQL/KV/Queue (Axum KV twice independently), Queue proof-before-consumer, immutable payload uncertain-CAS/reader/collection and retained-root recovery/GC. No constrained-container or independent failure-domain qualification."
+  },
+  "preceding_qualification": "payload-archive-retry-qualification-2026-11-16.json",
+  "limits": [
+    "No current matching Linux image or complete three 1-vCPU/2-GiB-node SQL/KV/Queue four-mode comparison. The latest complete older matrix remains four passing and eight failing cases. The original disk expansion proposal remains unanswered; no resize, restart, prune or reserve relaxation was performed.",
+    "No isolated throughput/latency improvement or complete OPT/CG release gate. The original-budget rooted-128 enrollment failure, hosted disaster authorization/container-capacity gaps, feature-mode, partition, physical-accounting, repeated-movement and broader crash/recovery qualification remain open.",
+    "Only typed payload Overloaded admission progress is added here. Payload deadlines, uncertain cleanup under pressure and other error variants require their own evidence. Earlier failed owners remain failed at their original source cuts; earlier broad passes retain their own source scope."
+  ],
+  "preliminary_candidate": {
+    "status": "FAILED",
+    "source_digest": "c7fd8ee6e3e2aed01236d7db828896b25d140f87a91f3878675cf91531d4b77e",
+    "production_bytes_identical_to_final": true,
+    "changed_final_input": "crates/cellar/tests/support/cell_group_archive_payload_retry.rs",
+    "correction": "Use the repository execution-domain fair select macro instead of forbidden tokio::select. No oracle assertion, timeout or production code changed. The corrected fixture reestablishes the exact final before/after red control.",
+    "stages": [
+      {
+        "name": "compile-controller",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 439.6114812919841,
+        "log_sha256": "3c0f7d7586720c1818562ebd8a07553e0c6d50edaa94221fd819fcadbd846cec",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--no-run",
+          "--message-format=json"
+        ]
+      },
+      {
+        "name": "materialized-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.443038625002373,
+        "log_sha256": "39a3f658f9ffffdc77bef88d58b3df9b79d5632e90e296ead6d0a4721e3e7022",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "extents-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4407530000025872,
+        "log_sha256": "498385374905ba43aaac06dba7024a602ff6b1c818e82f15d69ab05f771753fa",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "rooted_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "materialized-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4593406249769032,
+        "log_sha256": "d0589fd2010b471679f22d5f9de7007dcf2500136d2b8c6bf28de4e03a392180",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "extents-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4850017499993555,
+        "log_sha256": "260c05c609809fe47262ecb5b3bf85313775f8635f2385fb04977320dcdf5a37",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "rooted_archive_retries_payload_admission_after_the_actual_reader_joins",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_retries_temporary_payload_reads_with_its_original_intent",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4474569169979077,
+        "log_sha256": "ebd0638ec8bc73a2c5a30fbbadf95aedc774d8095f3f913b75f10b294935d52d",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_retries_temporary_payload_reads_with_its_original_intent",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "rooted_archive_retries_temporary_payload_reads_with_its_original_intent",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4338687499985099,
+        "log_sha256": "9d59d581ca49e8762166c36b15791942e570f2e8136cfe4200d9b366c3e220da",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "rooted_archive_retries_temporary_payload_reads_with_its_original_intent",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_missing_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7193064589810092,
+        "log_sha256": "66ab2f0c1fa5ab7389036db8d1bcba21b9ebdf067ad24cb9ca61584f7b688502",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_missing_payload_remains_terminal",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "archive_corrupt_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7806535419949796,
+        "log_sha256": "7d57d2906d1d3ecde4f5712ef3931659a3de3c48750b5f1fb6790841f4c56ff6",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--exact",
+          "archive_corrupt_payload_remains_terminal",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "compile-integration",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 95.83812470801058,
+        "log_sha256": "044a6ebe802970b5bde97cfbe56cef5a19472fe9a6ad5080a0c75722775c6a77",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--test",
+          "native_cell_groups_archive",
+          "--test",
+          "native_cell_groups_primitives",
+          "--test",
+          "native_sql",
+          "--test",
+          "raft_cell_group_payloads",
+          "--no-run",
+          "--message-format=json"
+        ]
+      },
+      {
+        "name": "full-native_cell_groups_archive_controller",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 154.15958604202024,
+        "log_sha256": "1c5c5ab60bb9ebce22dbb325750ef0dcc6e71bab36636b71c821067f291f246e",
+        "footers": [
+          [
+            "ok",
+            "43",
+            "0",
+            "38"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive_controller-executable>",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "full-native_cell_groups_archive",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 65.40979474998312,
+        "log_sha256": "33a58f418bfd25e4c57a54f92afad194a7f1618bb8f2e98e8c3ad8c9ce099351",
+        "footers": [
+          [
+            "ok",
+            "40",
+            "0",
+            "10"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_archive-executable>",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "full-native_sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.18434545802301727,
+        "log_sha256": "87f53918d05a7be9215c374e12526e652ebcef80761feefc58580c3a734af7dc",
+        "footers": [
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_sql-executable>",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "full-raft_cell_group_payloads",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.09985916598816402,
+        "log_sha256": "58de85e608e4cd9026afc9efd2c9a0fba31155a1dd7b0487d252fa375afe0f0e",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "1"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:raft_cell_group_payloads-executable>",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 70.70721291701193,
+        "log_sha256": "ac4463d3dd4bfbd18938354a09ba1b60339ba7ac7228d7e7fc93c579697341a3",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--exact",
+          "ordinary_sql_bindings_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "axum_sql_bindings_and_operators_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 71.10397058300441,
+        "log_sha256": "7f5829b7cfb114c8a20667dac94913f07abcbbeca3d1c10f62015b1d74c3139e",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--exact",
+          "axum_sql_bindings_and_operators_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 102.35288229200523,
+        "log_sha256": "9637998d3bfd679a57879b271cb98d7d40affb3267aa1c2d7b2dc152143f944a",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--exact",
+          "ordinary_kv_bindings_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "axum_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 104.11421695898753,
+        "log_sha256": "2714a543620d851ca4b214a6b1bf0151dd1a501d8b9107e018bd8d59f87ac406",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--exact",
+          "axum_kv_bindings_use_managed_shared_groups",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "ordinary_queue_callbacks_use_shared_quorum",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 140.48701329200412,
+        "log_sha256": "09e44d726f58590ce77310769bcd88cbedd50c41c9dd2e191c6d59c094df6152",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--exact",
+          "ordinary_queue_callbacks_use_shared_quorum",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 49.15007124998374,
+        "log_sha256": "360fb8bd03b00918871af12b945b3159d7a6af55d215ab86e3853c91551d8ab4",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--exact",
+          "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 70.39508020799258,
+        "log_sha256": "aa15f0ee30f2c24f4cfd92d60c404182140b640f5e3a4805b8ab3fa2f8cddb84",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--exact",
+          "queue_four_in_flight_preserves_acknowledged_messages",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 145.04043720799382,
+        "log_sha256": "48d32c434dc037d16e2b49dbff6e4d36f030cdf8c9e43c4dcf07a9e70e6ebc32",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "argv": [
+          "<frozen-artifact:native_cell_groups_primitives-executable>",
+          "--exact",
+          "interrupted_sql_bindings_recover_without_replaying_business_calls",
+          "--test-threads=1",
+          "--show-output"
+        ]
+      },
+      {
+        "name": "strict-clippy",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 119.32372124999529,
+        "log_sha256": "9fa32d7eb7cfaa76b99c2964f566604b56075e4b77fb4ac98476d9d86664932f",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar",
+          "--lib",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--",
+          "-D",
+          "warnings",
+          "--force-warn",
+          "dead_code"
+        ]
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 109.86106820800342,
+        "log_sha256": "9833826b89d1d07ac2e9f1e58f497bd844e4f24c85077369bbdf3e7f4145ae91",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "format",
+          "--check"
+        ]
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.33344483299879357,
+        "log_sha256": "01a630e67452ad35898cc79ea495e87662dea35fe963c96243d6d18d493fe029",
+        "footers": [],
+        "argv": [
+          "cargo",
+          "check-layout"
+        ]
+      },
+      {
+        "name": "documentation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8431308750004973,
+        "log_sha256": "28e351ca9fb7b6e302f33f3313c96f1cf69939d9f74fae18787b0bbe6ace144e",
+        "footers": [],
+        "argv": [
+          "python3",
+          "tools/docs/check.py"
+        ]
+      },
+      {
+        "name": "native-dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4410435419995338,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+        "footers": [],
+        "argv": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ]
+      },
+      {
+        "name": "design-plan",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.4999985420145094,
+        "log_sha256": "fef98ccb9b2d57c009a275c3c11861468d7db46203734dfc232fa764a15eaf3b",
+        "footers": [],
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "docs/design/multi-raft/cell-groups",
+          "-p",
+          "test_plan.py"
+        ]
+      }
+    ],
+    "retained": {
+      "directories": 22,
+      "regular_files": 1190,
+      "scope": "Record remaining joined native fixture disks and their exact bytes. Existing default helpers may clean successful temporary roots; no complete-disk retention is claimed for them. In-memory object stores are process-local. Original failed container/volume/image and shared RustFS data are separately retained."
+    },
+    "awake_joined": true,
+    "source_inputs_unchanged": true,
+    "scope": "All selected native behavior checks pass, including full archive controller (43), archive (40), ordinary SQL, immutable payloads, native/Axum SQL/KV, Queue callback/proof/ack reconciliation and interrupted SQL binding recovery. Strict Clippy fails only on the new fixture macro, so the owner remains FAILED. Final-source controller/Clippy and matching RustFS API checks are recorded separately."
+  },
+  "backend_capacity_observation": {
+    "observed_at": "2026-11-16T13:54:37.538883+00:00",
+    "engine_matched": true,
+    "data_mount_type": "volume",
+    "filesystem": "/dev/vdb1",
+    "total_bytes": 168502136832,
+    "used_bytes": 160540114944,
+    "available_bytes": 0,
+    "usage": "100%",
+    "unchanged_reserve_bytes": 6442450944,
+    "reserve_met": false,
+    "observation": "The active RustFS /data is the original named Docker volume on the VM disk, not the separate historical host workspace path. Actual PUTs return HTTP 500 while readiness remains HTTP 200. Zero available data space is observed; no raw server error body proves a more specific internal cause.",
+    "action": "Read-only observation. No resize, restart, pruning, relocation, quota/reserve change or new campaign. All failed fixture data and shared objects retained."
+  },
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "credential_matches": 0,
+    "excluded": "Credentials, private configurations and keys, environment responses, raw node/store/job logs and fixture data."
+  }
+}
