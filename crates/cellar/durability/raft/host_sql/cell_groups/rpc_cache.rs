@@ -96,6 +96,7 @@ impl RpcCache {
         now: u64,
     ) -> Result<RpcActivation, ExecutionError> {
         if self.closed.load(Ordering::Acquire) {
+            tracing::debug!(target: "cellar::raft::sql_ingress", cell = cell.cell.as_str(), "DEBUG-cg17-restart-read-573 rpc-cache-closed");
             return Err(unavailable());
         }
         let prior = {

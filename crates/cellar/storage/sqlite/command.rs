@@ -722,11 +722,12 @@ pub(crate) fn confirm_read_work(resources: &RaftStorageAuthority) -> HandlerFutu
         CURRENT_COMMAND.with(|current| {
             let current = current.borrow();
             let frame = current.as_ref().context("missing read source command")?;
+            let current = frame.dispatch.get().is_some_and(|dispatch| dispatch.fence.continuation_current());
+            if !current {
+                tracing::debug!(target: "cellar::raft::sql_ingress", source = frame.dispatch.get().and_then(|dispatch| dispatch.binding_source.as_ref()).map(|source| source.history.cell.as_str()).unwrap_or("-"), term_current = frame.dispatch.get().is_some_and(|dispatch| dispatch.fence.term_current()), "DEBUG-cg17-restart-read-573 source-read-fence");
+            }
             ensure!(
-                frame
-                    .dispatch
-                    .get()
-                    .is_some_and(|dispatch| dispatch.fence.continuation_current()),
+                current,
                 crate::application::consensus::CommandFailure::Unavailable
             );
             let Some(base) = frame.quorum_read_base.get() else {

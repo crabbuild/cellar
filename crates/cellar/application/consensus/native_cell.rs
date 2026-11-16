@@ -200,8 +200,11 @@ impl LiveCell for NativeActivation {
             .instance
             .lock()
             .map_err(|_| CommandFailure::Unavailable)?
-            .clone()
-            .ok_or(CommandFailure::Unavailable)?;
+            .clone();
+        if instance.is_none() {
+            tracing::debug!(target: "cellar::raft::sql_ingress", cell = context.identity().map(|identity| identity.scope.as_str()).unwrap_or("-"), retired = self.resources.retired.load(std::sync::atomic::Ordering::Acquire), "DEBUG-cg17-restart-read-573 native-instance-retired");
+        }
+        let instance = instance.ok_or(CommandFailure::Unavailable)?;
         Ok(instance.invoke(context, invocation))
     }
 

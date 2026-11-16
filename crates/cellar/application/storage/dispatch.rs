@@ -216,10 +216,11 @@ impl RaftDispatch {
 
     fn remaining(&self) -> Result<Duration> {
         crate::storage::require_raft_dispatch_storage(&self.authority)?;
-        anyhow::ensure!(
-            self.context.fence.continuation_current(),
-            consensus::CommandFailure::Unavailable
-        );
+        let current = self.context.fence.continuation_current();
+        if !current {
+            tracing::debug!(target: "cellar::raft::sql_ingress", source = self.context.binding_source.as_ref().map(|source| source.history.cell.as_str()).unwrap_or("-"), term_current = self.context.fence.term_current(), "DEBUG-cg17-restart-read-573 dispatch-source-fence");
+        }
+        anyhow::ensure!(current, consensus::CommandFailure::Unavailable);
         let now = self
             .context
             .domain
