@@ -3,6 +3,7 @@
 //! Exercise the real archive downloader, digest checks and physical replay.
 
 use super::*;
+use anyhow::ensure;
 use std::sync::atomic::Ordering;
 
 async fn entered(gate: &archive_store::EntryReadGate) {
