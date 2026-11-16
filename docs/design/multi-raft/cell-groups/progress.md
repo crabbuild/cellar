@@ -29,51 +29,54 @@ for the next delivery.
 
 ## Current integration checkpoint
 
-Main `16c45b266` is included. **Runtime `0653bf668` reuses a named
-EventStream binding's current authorized catalog-adoption proof.** Name
-resolution already checks the active lifecycle, complete resource identity and
-all captured grant capabilities. Explicit UUID bindings still perform their
-independent catalog read; both forms still require a fresh broker lifecycle and
-identity check. No proof is shared across declarations. Original receipts,
-fences, source/target durability minima, quotas and deadlines remain.
+Main `16c45b266` is included. **Runtime `5fa5bf8a3` installs a declared broker's
+configuration, grants, subscription identities and captured clock in its own
+creation image.** Catalog intent retains its separate creation transaction.
+Broker creation needs no native activation; existing broker rows, including
+retired incarnations, are preserved. Catalog reconciliation, its ordinary child
+configure command/receipt, current binding proofs and target minimum durability
+still gate readiness. Named catalog-proof reuse and atomic first-fetch identity/
+lease selection remain. Original fences, quotas and deadlines are unchanged.
 
-The causal baseline `44931ad1` fails the new activation regression with
-`expected __streamResolve, observed __catalogResolve`. Final owning checks are
-**83 EventStream tests plus one mutation-classification test, all passing**.
-They require the named shortcut, explicit catalog proof, and broker retirement/
-identity refusal for both forms. The baseline used incremental compilation;
-reusing it hit a Rust compiler ICE, so final qualification uses the original
-non-incremental settings. A borrowing-only test cleanup followed the baseline;
-no byte-identical artifact, build-speed or runtime speedup claim is made.
-Locked build, strict library/all-test Clippy and repository checks pass.
+The broker initializer has a new contract digest. Format markers remain at 1;
+there is no old-template reader, silent reinterpretation or migration. This is a
+hard compatibility boundary for broker registration, not an online conversion.
 
-**Focused public cohort 596 is FAILED, 9/10.** Native and Axum EventStream
-lifecycle, their real-RustFS counterparts, native and RustFS publication/outbox
-recovery, native independent-target-S3 durability, registration and Fleet
-reference pass. Successful lifecycle/recovery selections cover both image
-modes, public reads/writes, retained restart, replay and quorum refusal under
-unchanged budgets. The remaining selection is real RustFS with Axum and
-independent target-S3 durability: initial extents-image activation on node 0
-expires with `Runtime(DeadlineExceeded)`. Its three voter disks are retained.
+The valid pre-feature baseline `cb46662f` fails because no declared stream exists
+before callback entry. Final **100 owning checks pass**: 83 EventStream, 13
+wire/authority and four enrollment-intent tests. The regression source is
+byte-identical before/after the feature. It requires creation rollback, captured
+time and stable subscription identities on re-entry. Earlier private-module
+compile and invalid-retention fixture attempts are excluded from acceptance.
+Locked build, strict library/all-test Clippy and format/layout/dependency/docs
+checks pass under the original non-incremental opt1/assertion settings.
 
-Native publication/outbox recovery now passes after archive outage and retained
-restart. The earlier sink Read sequence 6 ambiguous
-`Execution(Refused(Unavailable))` at `d8d51a77` does not reproduce; its cause and
-fix remain unproven. Diagnostic 576 failed earlier at activation and emitted no
-tagged refusal probes. All temporary probes are removed. The earlier focused
-3/10 result and current 9/10 are separate observations, not exclusive-cause or
-stability evidence. The first current selection may briefly overlap an extra
-compiler observed at launch; that limitation is recorded, with no latency claim.
+**Current focused public cohort 618 is FAILED, 7/10.** Ordinary native/Axum and
+real-RustFS EventStream lifecycle pass both image modes. Native publication/
+outbox recovery, registration and Fleet reference pass. Three selections fail:
+real-RustFS publication/outbox recovery reaches subscription pause/resume
+administration, then sink `Change` sequence 18 expires with an ambiguous
+`Runtime(DeadlineExceeded)`; direct native and Axum independent-target-S3 cases
+expire at initial materialized-image activation on node 0. Nine failed voter
+disks are retained. Do not retry the ambiguous mutation under a new identity.
 
-This selected EventStream/registration/Fleet run does not replace the complete
-16-case cohort's last result, FAILED6/16 at `6c876b46`. Aggregate 599 verifies
-records, frozen binaries and three current failed voter disks; earlier failures
-remain preserved separately. RF3 voters share one process on separate workspace
-disks; real RustFS uses one CPU/two GiB. Owned backend/VM are stopped with objects
-retained. Acceptance remains **13/17 tasks, 147/195 cases**. Full EventStream
-acceptance also needs the combined lost-reply/transfer, generation, pruning and
-slow-consumer/GC matrix. Next: independent-S3 Axum cold activation, Queue producer
-progress, then the complete primitive/recovery/release matrix and hard cutover.
+This proves the creation-state behavior, not a fix for the public deadlines.
+The earlier 9/10 at `0653bf668` is a separate historical result; no speedup,
+regression cause or timing stability is established by comparing the counts.
+The earlier native post-restart sink Read refusal remains unproven as fixed,
+although current native recovery passes. No temporary probes or public fixture
+changes are introduced. The compiler preflight initially refused another
+checkout's live build; the actual campaign started after it finished and build
+output was flushed.
+
+Aggregate 621 verifies current frozen records/binaries and nine failed disks.
+Owned RustFS/VM are stopped with objects retained. RF3 voters share one process
+on separate workspace disks; RustFS uses one CPU/two GiB. This selected run does
+not replace the complete 16-case cohort's last result, FAILED6/16 at `6c876b46`.
+Counts remain **13/17 tasks, 147/195 cases**. Next: independent-S3 cold activation
+and subscription administration deadlines, Queue producer progress, EventStream's
+combined lost-reply/transfer/generation/pruning/slow-consumer matrix, then the
+remaining primitive/recovery/release gates and hard cutover.
 
 ## Previous proven binding-writer checkpoint
 

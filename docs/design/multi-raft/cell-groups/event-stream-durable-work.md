@@ -74,6 +74,16 @@ from the read watermark. The physical version oracle passes native and isolated
 RustFS in both images at `df36b88c`; combined S3 output deadlines and the complete
 public cohort remain unqualified. See the current integration checkpoint.
 
+Each service installs its own compiled state in its private creation
+transaction. The catalog stores its pending intent; a declared broker stores the
+configuration, grants, subscription identities and captured creation clock in
+its initial image, without constructing a native activation. Existing broker
+rows, including retired incarnations, remain untouched. The normal child
+configure command/receipt and independent target durability still gate catalog
+activation; a broker image alone grants no binding readiness. The broker
+initializer has a distinct contract digest for this hard cutover. Format markers
+stay at 1; no old-template reader or data migration is provided.
+
 Fresh catalog creation can acknowledge its compiled provisioning intent from
 the request's owned enrollment response. The exact nonce-independent wire binds
 scope, resource, caller, operation and definition. History, creation, schema and

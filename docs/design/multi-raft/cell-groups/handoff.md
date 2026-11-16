@@ -4,41 +4,43 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current named catalog-adoption delivery
+## Current broker creation delivery
 
 Main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `0653bf668` reuses
-the fresh authorized name-resolution catalog proof during EventStream binding
-adoption. Explicit UUIDs still read the catalog, and both forms still check the
-broker's lifecycle and full identity. All durability, authority, quota and
-deadline checks remain. Atomic first-fetch identity/lease selection from
-`d8d51a77` remains in place.
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `5fa5bf8a3` commits
+the declared broker configuration, grants, subscriptions and captured clock in
+its private creation image. Existing broker rows remain untouched. Catalog
+readiness, normal child configure command/receipt, independent target durability
+and all current fences remain. Named adoption proof reuse and atomic first-fetch
+identity/lease selection are retained. The new broker initializer digest is a
+hard compatibility boundary; format markers stay 1, with no old-data migration.
 
-The pre-feature regression fails on the redundant catalog call. Final **84
-owning checks pass**, including explicit-proof and broker-retirement/identity
-refusals. Locked build, strict Clippy and repository checks pass. A Rust
-incremental compiler ICE is excluded; final builds use non-incremental settings.
+Valid baseline 612 at `cb46662f` fails on missing broker state before callback.
+Final **100 owning checks pass**, with the regression source byte-identical.
+Locked build, strict Clippy and repository checks pass. Earlier compile/invalid
+fixture preparations do not count. Public fixtures, budgets and quotas remain.
 
-**Current focused public qualification is FAILED, 9/10.** Native/Axum and
-real-RustFS lifecycle, both publication/outbox recovery paths, native
-independent-target-S3, registration and Fleet reference pass. The failure is
-real-RustFS Axum independent-target-S3 initial extents activation on node 0:
-`Runtime(DeadlineExceeded)`. Preserve its three voter disks and original budget.
-Do not rerun unchanged campaigns merely to replace the failure.
+**Current selected public cohort 618 is FAILED, 7/10.** Ordinary native/Axum and
+real-RustFS lifecycle, native publication/outbox recovery, registration and Fleet
+reference pass. RustFS publication/outbox recovery fails at subscription pause/
+resume `Change` sequence 18, ambiguously exceeding its deadline. Both direct
+native and Axum independent-target-S3 selections fail initial materialized-image
+activation on node 0. Nine failed voter disks are preserved. Keep the ambiguous
+operation's identity and reconcile it; do not invent a fresh retry identity.
 
-The earlier post-outage/restart native sink Read refusal did not reproduce;
-its cause and fix are unproven. Diagnostic 576 failed earlier at activation;
-probes are removed. Current first-case transient compiler overlap is recorded,
-so make no uncontended timing or exclusive speedup claim. The complete cohort
-was not repeated; its last result remains FAILED6/16 at `6c876b46`.
+The creation-state gap is fixed at its owning boundary; public deadline causes
+remain unproven. Earlier 9/10 at `0653bf668` and the full cohort's last FAILED6/16
+at `6c876b46` are separate historical scopes, not current acceptance. The native
+post-restart Read refusal did not reproduce; do not claim its cause/fix. No
+probes or public budget changes are present. Actual qualification started after
+the blocking compiler finished and build writeback was flushed.
 
-Next: close independent-S3 Axum activation and Queue producer progress, then
-finish EventStream's combined lost-reply/transfer, generation, pruning and
-slow-consumer/GC cases alongside the remaining primitive adapters. Complete
-CG-13/15 recovery/release before CG-16 hard cutover. Counts stay **13/17 tasks,
-147/195 cases**. Aggregate 599 verifies current frozen evidence and failed disks;
-owned RustFS/VM are stopped with objects retained. Exact pins and scope are in
-[progress](progress.md#current-integration-checkpoint) and ignored
+Next: close S3 cold activation and subscription administration, then Queue public
+producer deadlines. Finish the combined EventStream fault/lifecycle matrix and
+remaining primitives, CG-13/15 recovery/release, then CG-16 cutover. Counts stay
+**13/17 tasks, 147/195 cases**. Aggregate 621 verifies current evidence and nine
+failed disks; owned RustFS/VM are stopped with objects retained. Exact pins and
+scope are in [progress](progress.md#current-integration-checkpoint) and ignored
 `.cellar/cg17-payload-01/event-read-state.json`.
 
 ## Previous proven binding-writer delivery

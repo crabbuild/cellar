@@ -57,30 +57,32 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `0653bf668` reuses the fresh authorized named catalog
-adoption proof. Explicit UUIDs retain their separate catalog check; every binding
-still checks current broker lifecycle and full identity. Original budgets,
-quotas, receipts, fences and source/target durability minima remain. The baseline
-fails on the redundant catalog call; all **84 final owning checks pass**.
-Locked build, strict Clippy and repository checks pass. The failed incremental
-compiler reuse is excluded; final builds use non-incremental settings.
+main `16c45b266`. Runtime `5fa5bf8a3` commits compiled broker configuration,
+grants, subscription identities and captured time in its own creation image.
+Existing broker rows remain untouched. Catalog readiness and the normal child
+configure receipt still gate activation, with original proofs, budgets, quotas
+and fences. A new initializer contract digest creates a hard broker registration
+boundary; format markers stay 1, with no legacy reader or migration.
 
-**Focused EventStream/registration/Fleet qualification is FAILED, 9/10.** Native
-and Axum lifecycle, their real-RustFS counterparts, native and RustFS publication/
-outbox recovery, native independent-target-S3, registration and Fleet reference
-pass. The remaining selection fails real-RustFS Axum independent-target-S3
-initial extents activation on node 0 with `Runtime(DeadlineExceeded)`; three
-voter disks are retained. Native post-outage retained-restart recovery passes;
-the earlier sink Read refusal does not reproduce, but its cause/fix is unproven.
-Do not infer an exclusive timing cause or stability from separate 3/10 and 9/10
-runs. First-case transient compiler overlap is recorded; no latency claim is made.
+The valid pre-feature regression fails on missing broker state before callback.
+All **100 final owning checks pass**, with byte-identical regression source.
+Locked build, strict Clippy and repository checks pass. Earlier rejected test
+preparations are excluded. **Current focused public qualification is FAILED,
+7/10.** Ordinary native/Axum and real-RustFS lifecycle, native publication/outbox
+recovery, registration and Fleet reference pass. RustFS publication/outbox fails
+subscription administration at sink `Change` sequence 18 with an ambiguous
+deadline. Direct native and Axum independent-target-S3 selections fail initial
+materialized-image activation on node 0. Nine voter disks are retained.
 
-Aggregate 599 verifies frozen evidence and current failed disks. Owned backend/
-VM are stopped with objects retained. Full EventStream acceptance still needs
-lost-reply/transfer, generation, pruning and slow-consumer/GC coverage. This is a
-selected public run, not complete primitive-family acceptance. The complete
-16-case cohort was not repeated; its last result stays FAILED6/16 at `6c876b46`.
-Counts remain **13/17 tasks, 147/195 cases**.
+The earlier 9/10 at `0653bf668` is historical; neither a speedup nor a regression
+cause follows from these counts. The old post-restart Read refusal remains
+unproven as fixed, although current native recovery passes. Aggregate 621
+verifies frozen evidence; owned backend/VM are stopped with objects retained.
+The actual campaign began after the other checkout's compiler finished and
+build writeback was flushed. No public budget, quota or fixture changes occur.
+This selected run does not replace the full cohort's last FAILED6/16 at
+`6c876b46`. Counts remain **13/17 tasks, 147/195 cases**; full primitive support
+and hard cutover remain open.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
@@ -158,19 +160,20 @@ Earlier catalog enrollment joining, bounded suspended scanning, exact checkpoint
 receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retain
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
-1. **Close independent-S3 Axum activation and Queue producer progress.** Current
-   focused qualification passes nine selections; the real-RustFS Axum target-S3
-   selection still expires at initial extents activation on node 0. Preserve
-   current catalog, broker, named binding, birth and destination proof gates
-   while making autonomous readiness complete within its original budget.
-   Native post-outage/restart Read now passes; retain the earlier ambiguous
-   refusal as unresolved historical evidence rather than claiming a cause or
-   fix. Queue production remains open: the last complete cohort fails native
-   materialized producer sequence 7 and RustFS extents sequence 23. Preserve
-   those failures and original quotas/deadlines. Then close EventStream's
-   combined lost-reply/transfer, generation, pruning and slow-consumer/GC matrix.
-   Run broader qualification after a relevant implementation or controlled
-   finding; repeated unchanged campaigns do not close these gates.
+1. **Close S3 activation and subscription administration, then Queue production.**
+   Both direct native and Axum target-S3 selections expire at initial
+   materialized-image activation on node 0. RustFS publication/outbox recovery
+   reaches subscription pause/resume but sink `Change` sequence 18 expires
+   ambiguously. Preserve the original identity and reconcile unknown outcomes.
+   Keep current catalog, broker, birth and destination proofs while making the
+   complete path finish within its original deadline. The creation-state
+   regression now passes; it does not establish the public timeout's cause.
+   Queue's ordinary HTTP producer calls `send_batch`; its last full campaign
+   fails native materialized sequence 7 and RustFS extents sequence 23. Retain
+   those failures and original quotas/budgets. Then complete EventStream's
+   lost-reply/transfer, generation, pruning and slow-consumer/GC matrix.
+   Repeat broader qualification after a relevant implementation or controlled
+   finding; unchanged reruns do not close these gates.
 2. **Finish S3 binding stability and interrupted recovery.** Current named bindings
    pass all eight backend/image/source-minimum configurations; preserve earlier
    source-S3 deadline failures and establish combined lifecycle progress. Preserve
