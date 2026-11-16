@@ -4,46 +4,51 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current cell-change read delivery
+## Current commit/root publication delivery
 
-Main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `ed8fd243b`, qualified
-at `9a43d4712`, delivers public SDK `LinearizableAfter(CellVersionToken)` and
-wires pending catalog status through it. The authenticated exact cell must advance
-before a fresh quorum ReadIndex begins. Existing bounded admission holds the wait
-without SQL/image work; unrelated cells and ordinary readers remain independent.
-Current authority, separate target minima and caller-side strict version checks
-remain. Catalog activation consumes prior responses before waiting again.
-Authenticated query mode 4 is new; markers stay 1. Original deadlines and quotas
-remain. Verified local preparation handoff and parallel bootstrap remain delivered.
+Latest main `16c45b266` is included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime and qualified source
+`d5af055628` combine leader commit-only metadata with applied-root publication
+only for a bounded prefix of exact live SQL preparations. Followers, membership,
+control entries and absent/expired preparations keep their original persistence
+barriers. Term/vote, log and snapshot sync remain. The private local-engine commit
+ticket permits preparation only; physical image/page and atomic root/hard-state
+sync still precede authority and successful output. Reads retain protocol barriers
+while apply catches up; new writes wait for the actual committed prefix.
+Original budgets, quotas and marker 1 remain. `LinearizableAfter`, exact preparation
+handoff and parallel bootstrap remain delivered.
 
-**33 integration checks and 135 units pass**, including both images, exact-cell
-waiting, fresh post-change quorum, ordinary-reader progress, cancellation, actual
-TLS follower dispatch, wrong histories, receipts, preparation and archive safety.
-The eager-barrier negative fails both safety oracles. The final fixture retains
-that assertion and subsequently replays held replies; do not claim byte-identical
-fixtures. Locked build, strict library/all-test Clippy and repository checks pass.
+**41 integration checks and 180 units pass**, including both images, held physical
+sync/no early settlement, foreign-ticket refusal, follower/membership/restart,
+read barriers, receipts, preparation corruption/expiry and archive safety. Locked
+build, strict library/all-test Clippy and repository checks pass. Negative 710
+fails both original metadata-barrier predicates; later fixture oracle/wait fixes
+are recorded, so do not claim byte-identical fixtures. Nine controls rejected an
+overly broad candidate and all pass unchanged on the final source. Excluded hung
+fixtures and initial backend setup failure remain preserved; probes are removed.
 
-**The complete original public cohort 698 is FAILED, 6/16.** SDK source-proof and
-current histories pass native/RustFS, plus registration and Fleet. All eight
-EventStream selections fail initial activation or Consume; native ingress with an
-independent S3 target returns `Runtime(Closed)`. Native Queue producer sequence 36
-is ambiguous. RustFS Queue has an untagged deadline whose substage remains open.
-Neither load completes 528 messages. Preserve original identities and all 30
-failed public voter disks. Aggregate 702 verifies frozen evidence, diagnostic and
-negative-control failures. Probes are removed. Owned RustFS/VM are stopped with
-objects retained. In-process RF3 and RustFS with one CPU/two GiB do not qualify
-independent Linux voters. Historical/isolated passes establish no timing stability
-or exclusive speedup/regression attribution.
+**Complete original public cohort 719 is FAILED, 13/16.** Seven EventStream
+selections pass, including real-RustFS publication/subscription recovery and both
+independent-S3 ingresses. Native publication/subscription passes materialized
+images but fails extent-image outbox restart activation at node 0. Both Queue
+loads fail materialized production: native sequence **9**, RustFS sequence **12**,
+both ambiguous with target attempts starting at **2,899/2,915 ms** remaining.
+Neither emits a completed 528-message result; extents are unrun. SDK source-proof,
+current histories, registration and Fleet pass. Preserve original identities,
+earlier uncertain calls and all **nine failed public voter disks**.
 
-Next close actual target Consume execution/settlement, final catalog activation
-and startup refusal, then Queue producer/settlement progress under original
-budgets. Existing scheduled reconciliation and safe sequence retirement/sealing
-must be completed and qualified; do not duplicate them. Change waits and exact
-preparation handoff are delivered. Complete primitive lifecycle, CG-13/15
-recovery/release and CG-16 cutover remain. Counts stay **13/17 tasks, 147/195 cases**.
-Full plan validation retains the missing historical CG-01 evidence file; ordinary
-docs checks pass. See [progress](progress.md#current-integration-checkpoint),
+Aggregate 721 verifies frozen evidence. Some rejected broad control fixtures did
+not retain disks; do not claim otherwise. Owned RustFS/VM are stopped, objects
+retained. In-process RF3 and RustFS at one CPU/two GiB do not qualify independent
+Linux voters. Empty compiler snapshots and historical/isolated passes establish
+no exclusive speedup or timing stability.
+
+Next close native extent outbox restart activation and Queue target execution/
+settlement under original budgets, then complete primitive lifecycle, CG-13/15
+recovery/release and CG-16 cutover. Finish existing autonomous reconciliation and
+safe sequence sealing rather than duplicating them. Counts remain **13/17 tasks,
+147/195 cases**. Full plan validation retains the missing historical CG-01 file;
+ordinary docs checks pass. See [progress](progress.md#current-integration-checkpoint),
 [priorities](remaining-work.md#primitive-delivery-priority) and ignored
 `.cellar/cg17-payload-01/event-read-state.json` for exact pins and preserved failures.
 

@@ -57,39 +57,50 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `ed8fd243b`, qualified at `9a43d4712`, delivers public
-SDK `LinearizableAfter(CellVersionToken)` and pending catalog change waits. The
-exact authenticated cell must advance before a fresh quorum ReadIndex begins;
-existing bounded admission waits without SQL/image work. Unrelated-cell progress
-cannot satisfy it. Ordinary reads, current authority, independent target minima
-and caller-side strict advancement checks remain. Catalog activation drops the
-previous response before waiting again. Query mode 4 is new; markers remain 1.
-Original budgets/quotas remain; no task or cache is added. Verified local
-preparation handoff and parallel bootstrap remain delivered.
+latest main `16c45b266`. Qualified runtime `d5af055628` combines leader-only
+commit metadata with applied-root sync for a bounded prefix of exact live SQL
+preparations. Followers, membership/control entries and missing/expired
+preparations keep their original barriers. A private local-engine ticket permits
+preparation, never serving; actual image/page and atomic root/hard-state sync still
+gate authority/output. Read barriers remain available during apply; new writes
+wait for the actual committed prefix. Budgets, quotas and marker 1 remain.
+`LinearizableAfter`, verified preparation handoff and parallel bootstrap remain
+delivered.
 
-**33 integration checks and 135 units pass**, including actual TLS follower
-reads, both image forms, post-change quorum, cancellation, wrong histories,
-receipts and physical/archive guards. Locked build, strict library/all-test
-Clippy and repository checks pass. The eager-barrier negative fails both safety
-oracles; final tests replay held replies after the unchanged assertion. Earlier
-weak-oracle and dropped-reply attempts are excluded.
+**41 integration checks and 180 units pass**, including both image forms, held
+physical-sync refusal, foreign tickets, membership/follower/restart, read barriers,
+receipts and physical/archive guards. Locked build, strict library/all-test Clippy
+and repository checks pass. The original negative metadata-barrier predicates fail
+at baseline. Final fixture oracle/wait corrections are recorded; nine existing
+controls that rejected a broader candidate now pass unchanged.
 
-**Complete original public cohort 698 remains FAILED, 6/16.** SDK source-proof
-and current histories pass native/RustFS, plus registration and Fleet. All eight
-EventStream selections fail initial activation or Consume; native ingress with
-independent target S3 returns `Runtime(Closed)`. Native Queue producer sequence 36
-is ambiguous. RustFS Queue has an untagged deadline with unresolved substage.
-Neither load completes 528 messages. Preserve original identities and earlier
-uncertain calls.
+**Complete original public cohort 719 remains FAILED, 13/16.** Seven of eight
+EventStream selections pass. Native publication/subscription passes materialized
+images, then fails extent-image outbox restart activation at node 0. Both Queue
+loads fail materialized production: native sequence **9**, RustFS sequence **12**,
+both ambiguous. Target execution starts with **2,899/2,915 ms** of the original
+three-second budget remaining. Neither completes 528 messages and extents are not
+reached. SDK source-proof/current histories pass native/RustFS; registration and
+Fleet pass. Preserve these and earlier unknown identities.
 
-Aggregate 702 verifies frozen evidence and 30 failed public voter disks, plus
-retained diagnostic and negative-control failures. Owned RustFS/VM are stopped
-with objects retained. RF3 voters share one process on separate workspace disks;
-RustFS uses one CPU/two GiB. Public compiler pre/post snapshots are empty; these
-and historical cohort 682's 8/16 establish no exclusive timing attribution or
-stability. Counts stay **13/17 tasks, 147/195 cases**. Full plan validation still
-lacks the historical CG-01 ignored evidence file. Full primitive/release and hard
-cutover gates remain open.
+The next feature priorities are:
+
+1. Close extent-image retained outbox activation, including autonomous work after
+   all nodes restart and current independent catalog/broker proofs.
+2. Close Queue target execution and durable settlement under the original load
+   budgets. Reconcile existing uncertain calls and qualify safe sequence sealing;
+   do not regenerate command identities or enlarge timeouts.
+3. Complete combined primitive lifecycle/recovery, then CG-13/15's managed recovery
+   and independent-voter release matrix and CG-16's final cutover.
+
+Aggregate 721 verifies frozen evidence and nine failed public voter disks, plus
+retained diagnostic/negative/excluded fixture records. Some rejected broad-control
+fixtures have logs/executables but no retained disks. Owned RustFS/VM are stopped,
+objects retained. In-process RF3 and RustFS at one CPU/two GiB remain below release
+scope; empty compiler snapshots establish no exclusive latency attribution.
+Counts stay **13/17 tasks, 147/195 cases**. Full plan validation still lacks the
+historical CG-01 ignored evidence file; ordinary docs checks pass. No full-family,
+release or hard-cutover acceptance is added.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for

@@ -6,6 +6,31 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Leader commit/root publication
+
+Qualified runtime `d5af055628` combines commit-only metadata with applied-root
+publication for a bounded leader prefix backed entirely by exact live SQL
+preparations. The local lease/engine-bound ticket permits image preparation before
+that metadata sync; it grants no serving authority. Log entries and term/vote
+changes already have their own durability barrier. Real image/page and atomic
+root/hard-state sync still gate successful output. Followers, membership/control
+entries and missing/expired preparations keep separate commit persistence.
+Existing read protocol barriers remain available during apply; write admission
+uses the actual committed prefix. No task, cache, budget or format is added.
+
+Three new physical regressions and 38 existing integration controls pass, as do
+180 units, locked build, strict Clippy and repository checks. Baseline fails both
+independent-barrier predicates; final fixtures also hold actual root sync and
+refuse foreign replica tickets. An overly broad candidate failed nine controls;
+all pass unchanged with the final eligibility/read-barrier fix. Fixture oracle
+corrections and excluded attempts remain recorded.
+
+The complete original public cohort 719 is **FAILED, 13/16**: seven EventStream
+selections pass, while native extent-image outbox restart activation and both
+Queue loads fail. This establishes the scoped publication behavior, not timing
+stability, a complete primitive/OPT package or release. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
 ## Cell-version change waits
 
 Runtime `ed8fd243b`, qualified at `9a43d4712`, adds public SDK

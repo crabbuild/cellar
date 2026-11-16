@@ -511,6 +511,22 @@ image closure, sync changed manifest pages, then atomically persist the group ro
 and applied=N in the engine. Publish and acknowledge only after the marker succeeds.
 Old roots remain pinned until no recovery/reader/transfer owner needs them.
 
+A leader may combine commit-only hard-state metadata with that atomic root
+publication when every entry in the newly committed prefix has an exact live
+retained SQL preparation. Inspection is bounded by the existing owner event
+quantum. Term/vote changes, log entries and snapshots still sync first. Followers,
+membership/control entries and absent/expired preparations retain independent
+commit-metadata persistence.
+
+Before publication, only a private ticket from the same live local group/engine
+lease may authorize preparation of the durable entry. It binds durable term/vote,
+position and exact entry bytes; it is neither persisted nor accepted from peers.
+It grants no execution or output authority. Image/page verification and sync, then
+actual atomic root/hard-state sync, remain mandatory before settlement. Read
+protocol barriers remain available during apply; write admission observes actual
+Raft committed progress and waits for its applied root. Cancellation or a failed
+physical sync cannot publish a successful receipt or resurrect a prior authority.
+
 | Crash cut | Required outcome |
 | --- | --- |
 | Before image sync | Recover prior root; no output credited. |
