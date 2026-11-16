@@ -218,6 +218,19 @@ SDK qualification also fails four native disaster cases in the 3.14 job and
 embedded-Python compilation of `python-fleet` on missing `crate::object_clients`.
 Those separate boundaries remain open at this checkpoint.
 
+The Python measuring frontend's compile error is subsequently reproduced and
+repaired at input `dbef0707`. Declaring its existing `object_clients` module
+restores the same shared application/lease client factory already used by the
+native executables. The identical owning example check reports two `E0433`
+errors before the three-line wiring repair and passes afterward. Its existing
+real HTTP cross-runtime factory test passes from the Python example executable;
+all `cellar-python` embed test targets compile, and example Clippy/repository
+checks pass. See the [frontend qualification](python-fleet-clients-qualification-2026-11-16.json).
+No runtime-library, factory, dependency, quota or deadline changes follow native
+input `1ac2cced`. This local Python 3.14.6 GIL build/control does not qualify full
+adapter runtime or free-threaded ABI execution; fresh hosted CI and the separate
+disaster/lease/performance gates remain required.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 
