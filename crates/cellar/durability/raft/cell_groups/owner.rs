@@ -52,6 +52,7 @@ pub struct CellGroupTicket {
     digest: [u8; 32],
     pub(super) admission: Option<Arc<crate::raft::budget::Permit>>,
     pub(crate) preparation: Option<Arc<crate::raft::budget::Permit>>,
+    pub(crate) prepared_image: Option<Arc<crate::raft::execution::CellPreparedImage>>,
 }
 
 impl CellGroupTicket {
@@ -1978,14 +1979,27 @@ impl CellGroupOwner {
         if !prepared.belongs_to(&engine, group) {
             return Err(RuntimeError::Invalid("prepared submission owner".into()));
         }
+        let image = prepared.prepared_image();
+        if image
+            .upgrade()
+            .is_some_and(|image| !image.accepts(&engine, group, prepared.term(), prepared.bytes()))
+        {
+            return Err(RuntimeError::Invalid(
+                "prepared image submission binding".into(),
+            ));
+        }
         self.prepared_only = true;
-        prepared.submit(&engine, group, || {
+        let result = prepared.submit(&engine, group, || {
             self.live()?;
             if prepared.term().get() != self.node.raft.term {
                 return Err(RuntimeError::StaleCompletion);
             }
             self.try_propose(prepared.bytes().to_vec(), Some(prepared.log_reservation()?))
-        })
+        })?;
+        if let crate::raft::execution::CellSubmissionOutcome::Accepted(accepted) = &result {
+            self.proposals.attach_prepared_image(accepted, image);
+        }
+        Ok(result)
     }
 
     fn try_propose(
@@ -2662,6 +2676,7 @@ impl CellGroupOwner {
             digest,
             admission: None,
             preparation: None,
+            prepared_image: None,
         })
     }
 
@@ -3152,7 +3167,9 @@ impl CellGroupOwner {
                     else {
                         return Ok(None);
                     };
-                    let ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;
+                    let mut ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;
+                    ticket.prepared_image =
+                        self.proposals.prepared_image(ticket.position, &entry.data);
                     self.applying = Some(ticket.clone());
                     return Ok(Some(CellGroupEffect::Apply(Box::new(CellGroupApply {
                         ticket,

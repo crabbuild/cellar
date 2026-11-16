@@ -57,6 +57,7 @@ struct PendingCell {
     request: CommandRequest,
     result: CellVersion,
     _preview: Preview,
+    _prepared_image: std::sync::Arc<super::CellPreparedImage>,
     submitted: bool,
     rpc_step: Option<u64>,
     rpc_prior_steps: u64,
@@ -416,19 +417,12 @@ impl CellPrivateExecutor {
         // Prepare the same physical result that committed apply will select.
         // Neither this deterministic name nor its live pin grants publication;
         // apply still independently replays the entry and persists its marker.
-        let preview = if matches!(
-            update.result.commitment,
-            crate::application::consensus::ImageCommitment::Sha256(_)
-        ) {
-            crate::raft::cell_groups::materialized_image_id(
-                &self.authority.cell().version.history,
-                sequence.get(),
-                crate::raft::working::materialized_result(update.result, &update.files)
-                    .map_err(private_failure)?,
-            )?
-        } else {
-            attempt.preview
-        };
+        let preview = super::images::cell_preview_id(
+            &self.authority.cell().version.history,
+            sequence.get(),
+            &update,
+            attempt.preview,
+        )?;
         let preview = self
             .options
             .images
@@ -444,6 +438,13 @@ impl CellPrivateExecutor {
         log_reservation
             .encoded(bytes.len())
             .map_err(|error| authority_failure(error.into()))?;
+        let preparation = super::CellPreparedImage::new(
+            self.authority.engine_owner().clone(),
+            route.history,
+            self.authority.term(),
+            &bytes,
+            &preview,
+        );
         let prepared = CellPreparedCommand::new(
             bytes,
             attempt.proposal,
@@ -451,7 +452,8 @@ impl CellPrivateExecutor {
             route.history,
             self.authority.engine_owner().clone(),
         )
-        .with_log_reservation(log_reservation);
+        .with_log_reservation(log_reservation)
+        .with_prepared_image(&preparation);
         self.pending = Some(PendingCell {
             prepared: prepared.clone(),
             request: attempt.request,
@@ -461,6 +463,7 @@ impl CellPrivateExecutor {
                 image: update.result.into(),
             },
             _preview: preview,
+            _prepared_image: preparation,
             submitted: false,
             rpc_step: None,
             rpc_prior_steps: 0,

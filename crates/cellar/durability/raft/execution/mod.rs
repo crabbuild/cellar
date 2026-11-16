@@ -8,10 +8,12 @@ use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
+mod prepared_image;
 mod submission;
 pub(crate) use cell::{
     authority_failure, CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn,
 };
+pub(crate) use prepared_image::CellPreparedImage;
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
 pub(crate) mod binding_seal;
 mod command;

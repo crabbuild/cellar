@@ -7,7 +7,7 @@ use cellar_logic::{
     cell_group::GroupHistory,
     consensus::{ProposalId, Term},
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 #[derive(Default)]
 enum Decision {
@@ -27,6 +27,7 @@ struct Submission {
 #[derive(Clone)]
 pub struct CellPreparedCommand {
     log_reservation: Option<Arc<crate::raft::cell_groups::log_retention::LogReservation>>,
+    prepared_image: Weak<super::CellPreparedImage>,
     bytes: Arc<Vec<u8>>,
     proposal: ProposalId,
     term: Term,
@@ -57,6 +58,7 @@ impl CellPreparedCommand {
     ) -> Self {
         Self {
             log_reservation: None,
+            prepared_image: Weak::new(),
             bytes: Arc::new(bytes),
             proposal,
             term,
@@ -74,6 +76,15 @@ impl CellPreparedCommand {
     ) -> Self {
         self.log_reservation = Some(lease);
         self
+    }
+
+    pub(super) fn with_prepared_image(mut self, image: &Arc<super::CellPreparedImage>) -> Self {
+        self.prepared_image = Arc::downgrade(image);
+        self
+    }
+
+    pub(crate) fn prepared_image(&self) -> Weak<super::CellPreparedImage> {
+        self.prepared_image.clone()
     }
 
     pub(crate) fn log_reservation(

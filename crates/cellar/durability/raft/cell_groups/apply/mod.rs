@@ -210,6 +210,20 @@ impl CellGroupApplier {
         work: &CellGroupApply,
     ) -> Result<PreparedGroupManifest, ExecutionError> {
         self.check(work)?;
+        let preparation = work.ticket.prepared_image.as_ref();
+        if preparation.is_some_and(|image| {
+            !image.accepts(
+                &self.group.owner,
+                self.history(),
+                work.ticket.position().term,
+                &work.entry.data,
+            )
+        }) {
+            return Err(ExecutionError::Invalid(
+                "committed preparation input/owner binding",
+            ));
+        }
+        let prepared_image = preparation.map(|image| image.image());
         let mut owner = self.storage.try_lock().map_err(|error| match error {
             std::sync::TryLockError::WouldBlock => ExecutionError::Busy,
             std::sync::TryLockError::Poisoned(_) => {
@@ -218,14 +232,15 @@ impl CellGroupApplier {
         })?;
         let next = if work.entry.get_entry_type() == ::raft::prelude::EntryType::EntryConfChangeV2 {
             let cache = self.group.read().map_err(storage)?;
-            owner.prepare_entry(
+            owner.prepare_entry_with_image(
                 &work.base,
                 &work.entry,
                 Some((&cache.conf_state, &cache.membership)),
                 false,
+                prepared_image,
             )?
         } else {
-            owner.prepare_entry(&work.base, &work.entry, None, false)?
+            owner.prepare_entry_with_image(&work.base, &work.entry, None, false, prepared_image)?
         };
         self.check(work)?;
         Ok(next)

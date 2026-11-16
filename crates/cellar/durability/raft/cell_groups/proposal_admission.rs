@@ -12,7 +12,7 @@ use cellar_logic::{
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 pub(super) struct Candidate {
     cell: CellId,
@@ -31,6 +31,7 @@ struct Accepted {
     candidate: Candidate,
     acceptance: CellGroupProposal,
     _permit: Permit,
+    prepared_image: Weak<crate::raft::execution::CellPreparedImage>,
 }
 
 pub(super) enum Admission {
@@ -39,7 +40,8 @@ pub(super) enum Admission {
 }
 
 /// At most one record per pending logical name, bounded by max_requests. No LTX
-/// payload or image pin is retained. Clearing on role loss is safe because new
+/// payload or image pin is retained; optional local preparations are weak.
+/// Clearing on role loss is safe because new
 /// admission requires a current-term applied barrier covering inherited entries.
 #[derive(Default)]
 pub(super) struct ProposalAdmission {
@@ -135,8 +137,43 @@ impl ProposalAdmission {
                 candidate,
                 acceptance,
                 _permit: permit,
+                prepared_image: Weak::new(),
             },
         );
+    }
+
+    pub(super) fn attach_prepared_image(
+        &mut self,
+        acceptance: &CellGroupProposal,
+        image: Weak<crate::raft::execution::CellPreparedImage>,
+    ) {
+        let Some(cell) = self.positions.get(&acceptance.position.index) else {
+            return;
+        };
+        let Some(accepted) = self.cells.get_mut(cell) else {
+            return;
+        };
+        if accepted.acceptance.position == acceptance.position
+            && accepted.acceptance.digest == acceptance.digest
+            && accepted.acceptance.group == acceptance.group
+        {
+            accepted.prepared_image = image;
+        }
+    }
+
+    pub(super) fn prepared_image(
+        &self,
+        position: LogPosition,
+        bytes: &[u8],
+    ) -> Option<Arc<crate::raft::execution::CellPreparedImage>> {
+        let cell = self.positions.get(&position.index)?;
+        let accepted = self.cells.get(cell)?;
+        if accepted.acceptance.position != position
+            || accepted.candidate.payload != <[u8; 32]>::from(Sha256::digest(bytes))
+        {
+            return None;
+        }
+        accepted.prepared_image.upgrade()
     }
 
     pub(super) fn applied(&mut self, position: LogPosition) {

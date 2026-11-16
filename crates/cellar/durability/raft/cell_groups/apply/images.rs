@@ -74,6 +74,7 @@ impl CellGroupApplyImages {
         &self,
         request: ImageApply<'_>,
         verify_existing: bool,
+        prepared_image: Option<&CellImagePin>,
     ) -> Result<EnrollmentImage, ExecutionError> {
         let ImageApply {
             cell,
@@ -148,7 +149,22 @@ impl CellGroupApplyImages {
                     segments,
                 };
                 let id = image_id(cell, sequence, update.result)?;
-                if verify_existing {
+                let local = match prepared_image {
+                    Some(CellImagePin::Materialized(pin)) if images.owns(pin) => Some(pin),
+                    _ => None,
+                };
+                if let Some(pin) = local {
+                    if pin.id() != id || pin.state() != update.result {
+                        return Err(ExecutionError::Invalid(
+                            "prepared materialized image result",
+                        ));
+                    }
+                    // The ticket binds the exact already replayed input. Read
+                    // the complete destination again so a warm pin never hides
+                    // missing or corrupt bytes. Publication still follows sync.
+                    pin.verify_and_sync().map_err(storage)?;
+                    CellImagePin::Materialized(pin.clone())
+                } else if verify_existing {
                     CellImagePin::Materialized(
                         images
                             .prepare_verified(id, base, &update)
@@ -223,15 +239,38 @@ impl CellGroupApplyImages {
                         .map_err(storage)?,
                     segments,
                 };
-                let prepared = images
-                    .prepare_transient_image_root(
-                        base,
-                        &update,
-                        limits,
-                        &mut vec![0; EXTENT_BYTES as usize],
-                    )
-                    .map_err(storage)?;
-                CellImagePin::Extents(Arc::new(prepared.image))
+                let local = match prepared_image {
+                    Some(CellImagePin::Extents(pin)) if images.owns_image(pin) => Some(pin),
+                    _ => None,
+                };
+                let prepared = if let Some(pin) = local {
+                    if pin.reference() != update.result
+                        || pin.manifest().binding() != update.binding
+                        || pin.manifest().geometry() != update.geometry
+                    {
+                        return Err(ExecutionError::Invalid("prepared extent image result"));
+                    }
+                    // Recheck actual root and extent bytes on this same live
+                    // inventory. The original input proof supplies the exact
+                    // delta relation, never current serving/commit authority.
+                    images
+                        .seal_image_root(
+                            pin.manifest().clone(),
+                            &mut vec![0; EXTENT_BYTES as usize],
+                        )
+                        .map_err(storage)?
+                } else {
+                    images
+                        .prepare_transient_image_root(
+                            base,
+                            &update,
+                            limits,
+                            &mut vec![0; EXTENT_BYTES as usize],
+                        )
+                        .map_err(storage)?
+                        .image
+                };
+                CellImagePin::Extents(Arc::new(prepared))
             }
             _ => return Err(ExecutionError::Invalid("apply image representation")),
         };

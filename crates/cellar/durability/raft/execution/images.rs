@@ -255,6 +255,23 @@ pub(super) enum Preview {
     Rooted(Arc<SealedImageRoot>),
 }
 
+pub(super) fn cell_preview_id(
+    cell: &cellar_logic::cell_group::CellHistory,
+    sequence: u64,
+    update: &crate::raft::working::CapturedUpdate,
+    fallback: ImageId,
+) -> Result<ImageId, ExecutionError> {
+    match update.result.commitment {
+        ImageCommitment::Sha256(_) => crate::raft::cell_groups::materialized_image_id(
+            cell,
+            sequence,
+            crate::raft::working::materialized_result(update.result, &update.files)
+                .map_err(private_failure)?,
+        ),
+        ImageCommitment::Extents(_) => Ok(fallback),
+    }
+}
+
 pub(super) enum WorkingImage {
     Materialized(Box<crate::raft::working::Working>),
     Rooted(Box<super::rooted_working::RootWorking>),
