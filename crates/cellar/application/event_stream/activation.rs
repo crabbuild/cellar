@@ -110,43 +110,52 @@ pub(crate) async fn configure(
                 Err(error) => return Err(error),
             }
         }
-        let configured = rpc(host, script, authority.clone(), event_stream::catalog_scope(&definition.resource)?, event_stream::catalog_name(&definition.resource)?,
-            "__catalogConfigure", json!([{"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(bytes)}])).await?;
-        let pending = matches!(configured["state"].as_str(), Some("creating" | "updating"));
-        anyhow::ensure!(
-            configured["resource"].as_str() == Some(definition.resource.id.as_str())
-                && configured["operation"].as_str() == Some(operation.as_str())
-                && (configured["state"].as_str() == Some("active") || pending),
-            "event resource configuration is pending: {}",
-            configured["last_error"]
-        );
-        // A repeated operation returns history. Check the catalog's current
-        // revision/digest and lifecycle before accepting deployment readiness.
-        loop {
-            let current = rpc(
-                host,
-                script,
-                authority.clone(),
-                event_stream::catalog_scope(&definition.resource)?,
-                event_stream::catalog_name(&definition.resource)?,
-                "__catalogStatus",
-                json!([{}]),
-            )
-            .await?;
-            if matches_definition(&current, definition, &digest) {
-                break;
-            }
+        let preparation = host.prepare_broker(script, definition);
+        let reconciliation = async {
+            let configured = rpc(host, script, authority.clone(), event_stream::catalog_scope(&definition.resource)?, event_stream::catalog_name(&definition.resource)?,
+                "__catalogConfigure", json!([{"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(bytes)}])).await?;
+            let pending = matches!(configured["state"].as_str(), Some("creating" | "updating"));
             anyhow::ensure!(
-                pending
-                    && matches!(current["state"].as_str(), Some("creating" | "updating"))
-                    && current["resource"].as_str() == Some(definition.resource.id.as_str())
-                    && current["operation"].as_str() == Some(operation.as_str()),
-                "event resource does not match the current deployment definition"
+                configured["resource"].as_str() == Some(definition.resource.id.as_str())
+                    && configured["operation"].as_str() == Some(operation.as_str())
+                    && (configured["state"].as_str() == Some("active") || pending),
+                "event resource configuration is pending: {}",
+                configured["last_error"]
             );
-            // A live reconciler owns the mutation. Poll only its current state;
-            // the host retains the original activation deadline and cancellation.
-            crate::asyncrt::sleep(std::time::Duration::from_millis(10)).await;
-        }
+            // A repeated operation returns history. Check the catalog's current
+            // revision/digest and lifecycle before accepting deployment readiness.
+            loop {
+                let current = rpc(
+                    host,
+                    script,
+                    authority.clone(),
+                    event_stream::catalog_scope(&definition.resource)?,
+                    event_stream::catalog_name(&definition.resource)?,
+                    "__catalogStatus",
+                    json!([{}]),
+                )
+                .await?;
+                if matches_definition(&current, definition, &digest) {
+                    break;
+                }
+                anyhow::ensure!(
+                    pending
+                        && matches!(current["state"].as_str(), Some("creating" | "updating"))
+                        && current["resource"].as_str() == Some(definition.resource.id.as_str())
+                        && current["operation"].as_str() == Some(operation.as_str()),
+                    "event resource does not match the current deployment definition"
+                );
+                // A live reconciler owns the mutation. Poll only its current state;
+                // the host retains the original activation deadline and cancellation.
+                crate::asyncrt::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        // Only two bounded owner operations overlap for this declaration.
+        // Neither an applied birth hint nor preparation grants readiness.
+        let (prepared, reconciled) = futures_util::join!(preparation, reconciliation);
+        prepared?;
+        reconciled?;
     }
     let mut activated = Vec::new();
     for declaration in declarations {

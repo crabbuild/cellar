@@ -628,7 +628,7 @@ impl RaftCells {
 
 /// Read-only readiness precedes enrollment/business dispatch. Reuse the same
 /// logical candidate and absolute deadline; no submitted mutation is retried.
-async fn ready_name(
+pub(super) async fn ready_name(
     owner: &RaftCells,
     candidate: &CellHistory,
     deadline: u64,

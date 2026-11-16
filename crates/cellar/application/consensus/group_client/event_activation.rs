@@ -65,6 +65,15 @@ impl event_stream::activation::Host for ActivationHost {
         self.owner.event_configuration_known(authority)
     }
 
+    fn prepare_broker(
+        &self,
+        principal: &str,
+        definition: &event_stream::Definition,
+    ) -> HandlerFuture<()> {
+        self.owner
+            .prepare_event_broker(principal, definition, self.deadline)
+    }
+
     fn rpc(
         &self,
         _principal: &str,
@@ -174,6 +183,115 @@ impl RaftCells {
                 .map_err(|error| format!("{error:#}")),
         );
         result
+    }
+
+    /// Create only a declared broker birth, never update or invoke its code.
+    /// Existing applied locators may skip preparation; catalog reconciliation
+    /// and fresh independent proofs still decide serving readiness.
+    pub(crate) fn prepare_event_broker(
+        &self,
+        principal: &str,
+        definition: &event_stream::Definition,
+        deadline: u64,
+    ) -> HandlerFuture<()> {
+        use crate::raft::completion::RuntimeError;
+        use cellar_logic::consensus::{IncarnationId, ProposalId};
+        use rand::RngCore as _;
+        let prepared = (|| -> Result<_> {
+            self.check_open()?;
+            let caller = event_stream::Authority::deployment(principal, definition)?;
+            let scope = event_stream::cell_scope(&definition.resource)?;
+            let route = self.handle.core.host.event_ingress_route(
+                &scope,
+                "__streamConfigure",
+                &Authority::Event(caller),
+                &self.handle.core.log,
+            )?;
+            if route.history_hint.is_some() {
+                return Ok(None);
+            }
+            let remaining = deadline
+                .checked_sub(self.handle.domain.mono_ms()?)
+                .filter(|n| *n != 0)
+                .ok_or(RuntimeError::DeadlineExceeded)?;
+            // Only routing/creation metadata is retained here. The registered
+            // initializer and routed enrollment own their separate byte banks.
+            let (_, memory) = self.metadata_admission(Duration::from_millis(remaining), 8192)?;
+            let mut creation = [0; 16];
+            let mut incarnation = [0; 16];
+            let mut rng = crate::asyncrt::rng("declared-broker-preparation");
+            rng.fill_bytes(&mut creation);
+            rng.fill_bytes(&mut incarnation);
+            creation[0] |= 1;
+            incarnation[0] |= 1;
+            let candidate = CellHistory {
+                cluster: route.cluster,
+                namespace: route.namespace,
+                cell: route.cell,
+                incarnation: IncarnationId::new(incarnation)?,
+            };
+            Ok(Some((
+                candidate,
+                ProposalId::new(creation)?,
+                route.schema,
+                route.durability,
+                memory,
+            )))
+        })();
+        let owner = self.internal_observer();
+        Box::pin(async move {
+            let Some((candidate, creation, schema, durability, _memory)) = prepared? else {
+                return Ok(());
+            };
+            // A name observation chooses only whether creation is needed. It
+            // cannot adopt configuration, grant a binding, or acknowledge data.
+            if super::sql_ingress::ready_name(&owner, &candidate, deadline)
+                .await?
+                .is_some()
+            {
+                return Ok(());
+            }
+            let remaining = deadline
+                .checked_sub(owner.handle.domain.mono_ms()?)
+                .filter(|n| *n != 0)
+                .ok_or(RuntimeError::DeadlineExceeded)?;
+            let request = CellEnrollmentRequest {
+                creation,
+                durability,
+            };
+            match owner
+                .cell(candidate.clone())?
+                .enroll(request, Duration::from_millis(remaining))
+                .await
+            {
+                Ok(proof) => {
+                    anyhow::ensure!(
+                        proof.record().cell() == &candidate
+                            && proof.record().creation() == creation
+                            && proof.record().schema() == schema
+                            && proof.durability() >= durability,
+                        super::super::CommandFailure::CorruptState
+                    );
+                    Ok(())
+                }
+                Err(error) => loop {
+                    owner.check_open()?;
+                    // A concurrent trusted owner can win the same name. Join
+                    // its current locator without retransmitting an unknown
+                    // creation or changing this attempt's original identity.
+                    match super::sql_ingress::ready_name(&owner, &candidate, deadline).await {
+                        Ok(Some(_)) => return Ok(()),
+                        Ok(None) => (),
+                        Err(_) => return Err(error.into()),
+                    }
+                    let now = owner.handle.domain.mono_ms()?;
+                    let next = now
+                        .saturating_add(owner.handle.core.controller.limits().retry_interval_ms)
+                        .min(deadline);
+                    owner.handle.domain.sleep_until(next)?.await;
+                },
+            }
+        })
     }
 
     pub(crate) fn activate_event_rpc(

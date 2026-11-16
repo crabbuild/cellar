@@ -258,6 +258,21 @@ impl event_stream::activation::Host for ActivationHost {
             .event_configuration_known(authority)
     }
 
+    fn prepare_broker(
+        &self,
+        principal: &str,
+        definition: &event_stream::Definition,
+    ) -> crate::application::HandlerFuture<()> {
+        if self.shared.contains(principal) {
+            self.owner
+                .as_ref()
+                .expect("shared activation retains its owner")
+                .prepare_event_broker(principal, definition, self.deadline)
+        } else {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
     fn rpc(
         &self,
         principal: &str,
