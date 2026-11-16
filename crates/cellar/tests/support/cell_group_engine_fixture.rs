@@ -200,9 +200,29 @@ impl Cluster {
         store: Arc<dyn object_store::ObjectStore>,
         birth_options: ClusterBirthOptions,
     ) -> Result<Self> {
+        Self::with_store_birth_in_domain(
+            options,
+            root,
+            filesystem,
+            schema,
+            store,
+            birth_options,
+            ExecutionDomain::new(tokio::runtime::Handle::current()),
+        )
+        .await
+    }
+
+    async fn with_store_birth_in_domain(
+        options: RaftRuntimeOptions,
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        schema: [u8; 32],
+        store: Arc<dyn object_store::ObjectStore>,
+        birth_options: ClusterBirthOptions,
+        domain: ExecutionDomain,
+    ) -> Result<Self> {
         let minimum = birth_options.minimum;
         let log_limits = birth_options.log;
-        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let history = GroupHistory {
             cluster: ClusterId::new([1; 16])?,
             namespace: NamespaceId::new([2; 16])?,

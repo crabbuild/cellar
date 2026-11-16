@@ -20,6 +20,8 @@ mod receipts;
 #[path = "cell_group_s3_remote.rs"]
 mod remote;
 use super::*;
+#[path = "cell_group_archive_retirement.rs"]
+mod retirement;
 pub(crate) use enrollment::{
     enrollment_output_during_apply, s3_enrollment, s3_enrollment_deadline,
 };
@@ -31,6 +33,7 @@ pub(crate) use receipts::{
     s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
 };
 pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
+pub(crate) use retirement::retirement_coalesces_next_archive_intent;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[path = "cell_group_connection_idle.rs"]
@@ -60,6 +63,10 @@ enum Resources {
     BackgroundCoalescing,
     Retention(CellGroupLogRetentionLimits),
     Storage {
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    },
+    JournalStorage {
         root: tempfile::TempDir,
         filesystem: Arc<dyn cellar_ltx::FileSystem>,
     },
@@ -144,6 +151,7 @@ impl Harness {
         resources: Option<Resources>,
     ) -> Result<Self> {
         let background_coalescing = matches!(resources, Some(Resources::BackgroundCoalescing));
+        let journal_storage = matches!(&resources, Some(Resources::JournalStorage { .. }));
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let initializations = Arc::new(AtomicUsize::new(0));
@@ -200,8 +208,21 @@ impl Harness {
             ))
             .await?;
             Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?
-        } else if let Some(Resources::Storage { root, filesystem }) = resources {
-            let cluster = Cluster::with_store_birth(
+        } else if let Some(
+            Resources::Storage { root, filesystem }
+            | Resources::JournalStorage { root, filesystem },
+        ) = resources
+        {
+            let domain = if journal_storage {
+                ExecutionDomain::with_filesystem(
+                    tokio::runtime::Handle::current(),
+                    filesystem.clone(),
+                    None,
+                )
+            } else {
+                ExecutionDomain::new(tokio::runtime::Handle::current())
+            };
+            let cluster = Cluster::with_store_birth_in_domain(
                 RaftRuntimeOptions::default(),
                 root,
                 filesystem.clone(),
@@ -217,6 +238,7 @@ impl Harness {
                     minimum,
                     log: ClusterLogLimits::default(),
                 },
+                domain,
             )
             .await?;
             Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?

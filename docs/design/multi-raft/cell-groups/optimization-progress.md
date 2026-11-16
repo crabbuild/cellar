@@ -60,8 +60,31 @@ quorum refusal behind `pinned resource query`. Alternate error formatting now
 retains the cause chain and direct SQL error families. The original refusal
 assertion remains unchanged. The qualification separates the workspace source,
 final error-reporting source, retained failures and independent test namespaces.
-The full measuring-tool suite still has two rooted-128 enrollment timeouts under
-its original budget, despite passing narrower invocations.
+That checkpoint's full measuring-tool suite retains two rooted-128 enrollment
+timeouts under its original budget, despite passing narrower invocations.
+
+Archive retirement now folds a confirmed predecessor release into the next
+durable journal intent. Successful early exits and final cleanup still persist
+cleared debt; successor remote mutations still wait for the exact intent's file
+and directory barriers. The real-controller regression observes one standalone
+journal replacement before the change and zero afterward, twice per image form.
+The same four checks pass against the original shared RustFS. This avoids one
+complete journal store on an eligible advance; it does not establish a hardware
+flush count or an end-to-end throughput/latency gain. See the
+[archive retirement qualification](archive-retirement-qualification-2026-11-16.json)
+for frozen inputs, unchanged fixture bytes, failed controls and retained data.
+
+At compiler input `2ac6b776`, the core library (1,232 passes), execution (208),
+archive controller (37), selected SQL/KV/Queue and recovery cases, strict
+all-target Clippy, formatting and layout pass. The full measuring-tool target
+still fails rooted-128 enrollment at its original 60-second deadline (25 passes,
+one failure), despite two exact passes. RustFS passes 14 of 15 selected
+invocations: materialized Axum KV fails to reach the injected archive PUT outage
+within its deadline; its extent iteration passes. Both failed owners remain
+failed. The original backend identity, resources and data remain unchanged.
+Hosted CI on published `65f888af` also retains native disaster authorization,
+primitive-catalogue and named-container capacity failures. These remain release
+gaps; the component optimization accepts no complete OPT or CG gate.
 
 The first change implements the command outcome and authenticated advice
 foundation:

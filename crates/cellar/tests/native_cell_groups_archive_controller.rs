@@ -89,6 +89,24 @@ async fn s3_response_precedes_previous_archive_hold_retirement() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_retirement_coalesces_the_next_durable_intent() -> Result<()> {
+    Box::pin(runtime_fixture::retirement_coalesces_next_archive_intent(
+        false,
+        Arc::new(object_store::memory::InMemory::new()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_archive_retirement_coalesces_the_next_durable_intent() -> Result<()> {
+    Box::pin(runtime_fixture::retirement_coalesces_next_archive_intent(
+        true,
+        Arc::new(object_store::memory::InMemory::new()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_s3_response_precedes_previous_archive_hold_retirement() -> Result<()> {
     for rooted in [false, true] {
@@ -859,4 +877,24 @@ async fn s3_checkpoint_credit_release_wakes_original_request() -> Result<()> {
         .await?;
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_retirement_coalesces_the_next_durable_intent() -> Result<()> {
+    Box::pin(runtime_fixture::retirement_coalesces_next_archive_intent(
+        false,
+        rustfs::store("retirement-coalescing", false)?,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_rooted_archive_retirement_coalesces_the_next_durable_intent() -> Result<()> {
+    Box::pin(runtime_fixture::retirement_coalesces_next_archive_intent(
+        true,
+        rustfs::store("retirement-coalescing", true)?,
+    ))
+    .await
 }

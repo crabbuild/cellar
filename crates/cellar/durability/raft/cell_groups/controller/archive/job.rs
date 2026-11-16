@@ -207,23 +207,31 @@ async fn select(
     })
 }
 
-/// Release an unused previous hold. False leaves its journaled ownership intact;
-/// it prevents another archive allocation, not verification of the current head.
+#[derive(Clone, Copy)]
+enum Retirement {
+    Unchanged,
+    Retained,
+    Cleared,
+}
+
+/// Release an unused previous hold. Cleared debt remains replayable on disk
+/// until the caller stores its next transition or successful terminal result.
+/// Retained ownership prevents allocation, not verification of the current head.
 async fn retire(
     context: &Context,
     execution: &ControllerExecution,
     record: &mut Record,
-) -> Result<bool> {
+) -> Result<Retirement> {
     if let Some(previous) = &record.retire {
         let retained = context.uses.retains(previous)?;
         if retained {
-            return Ok(false);
+            return Ok(Retirement::Retained);
         }
         context.registry.release(execution, previous).await?;
         record.retire = None;
-        store(context, execution, record).await?;
+        return Ok(Retirement::Cleared);
     }
-    Ok(true)
+    Ok(Retirement::Unchanged)
 }
 
 /// Finish unretained predecessor debt after publication/proof work has joined.
@@ -233,7 +241,12 @@ pub(super) async fn finish(context: &Context, execution: &ControllerExecution) -
     let mut record = load(context, execution).await?;
     if record.retire.is_some() {
         context.authority.require_current().await?;
-        retire(context, execution, &mut record).await?;
+        if matches!(
+            retire(context, execution, &mut record).await?,
+            Retirement::Cleared
+        ) {
+            store(context, execution, &record).await?;
+        }
     }
     Ok(())
 }
@@ -256,7 +269,11 @@ pub(super) async fn drive(
         .await
         .map_err(CellGroupArchiveBindingError::from)?;
     let mut record = load(context, execution).await?;
-    let allocation_ready = retire(context, execution, &mut record).await?;
+    let mut retirement = retire(context, execution, &mut record).await?;
+    let allocation_ready = !matches!(retirement, Retirement::Retained);
+    // The old exact release is already idempotent across a failed journal
+    // store. Fold its cleared debt into the next durable intent when advancing;
+    // no successor remote mutation may precede that intent's original barriers.
     // Quiet maintenance can finish predecessor cleanup without discarding the
     // node's one physical proof. This is the exact journaled head, independently
     // recovered earlier and still admitted; the advisory marker cannot create it.
@@ -272,6 +289,9 @@ pub(super) async fn drive(
                 .map_err(|error| Error::Runtime(error.into()))?
                 .ok_or(Error::Runtime(RuntimeError::NotReady))?;
             if coverage.marker().position().index >= current.position().index {
+                if matches!(retirement, Retirement::Cleared) {
+                    store(context, execution, &record).await?;
+                }
                 return Ok(Outcome::Verified(Driven {
                     published: coverage.marker().clone(),
                     coverage: coverage.clone(),
@@ -343,6 +363,7 @@ pub(super) async fn drive(
         }
         record.pending = Pending::None;
         store(context, execution, &record).await?;
+        retirement = Retirement::Unchanged;
     }
     if matches!(record.pending, Pending::None) {
         let current = runtime
@@ -361,6 +382,9 @@ pub(super) async fn drive(
             {
                 tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group,
                     stage = "maintenance-complete", index = head.marker().position().index.get());
+                if matches!(retirement, Retirement::Cleared) {
+                    store(context, execution, &record).await?;
+                }
                 return Ok(Outcome::Maintenance(head.marker().clone()));
             }
             // A queued output may already be covered even when later group
@@ -382,6 +406,9 @@ pub(super) async fn drive(
                         receiver(registration)?,
                     )
                     .await?;
+                if matches!(retirement, Retirement::Cleared) {
+                    store(context, execution, &record).await?;
+                }
                 return Ok(Outcome::Verified(Driven {
                     published: coverage.marker().clone(),
                     coverage,

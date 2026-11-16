@@ -65,10 +65,23 @@ the original durable constructor and image/Raft/S3 barriers are unchanged. Its
 avoided-work oracle and broader limits. Repeated passing native enrollment runs
 do not erase the earlier timeout or establish a constrained-node speedup.
 
+The [archive retirement checkpoint](archive-retirement-qualification-2026-11-16.json)
+at compiler input `2ac6b776` avoids a standalone journal replacement while keeping
+the next exact intent's durable barriers. Its owning regression passes native
+and original RustFS repeats in both image forms. Broader qualification remains
+failed: the full measuring-tool target has one original-budget rooted-128
+timeout, and materialized Axum KV does not reach its injected archive PUT outage
+before its deadline (14/15 RustFS invocations pass). Hosted CI at published
+`65f888af` also fails three native disaster cases at `authorize-seal`, the
+primitive catalogue's renamed Workflow owner, and named-container capacity
+placement. Preserve those failures and diagnose their owning boundaries before
+claiming release readiness or comparing rates.
+
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |
 | P0: isolate the failing boundary | Keep the physical-credit wake, cadence, dedicated lease-pool and applied-evidence enrollment regressions. Measure their effects in the constrained matrix before attributing earlier lease expiry or latency to a specific boundary. Resolve the remaining preparation, persistence and physical-close costs behind the cumulative rooted-128 enrollment timeout; its successful SQL resolution checks do not establish request success. |
+| P0: restore qualification | Repair the stale primitive owner path and reproduce native disaster authorization, container capacity sampling and the materialized Axum KV archive-outage failure. Keep uncertain outcomes, original identities, deadlines and refusal assertions. A later narrow pass cannot replace a failed broader owner. |
 | P1: prove performance | Obtain complete passing SQL/KV/Queue cases in every durability mode, then a matched-source before/after comparison with p50/p95/p99, errors, CPU, I/O and archive lag. Failed or unmeasured windows cannot establish a speedup. |
 | P1: finish lifecycle and public contracts | Close full CG-17, remaining authority/read partition cases, physical reclamation with retained owners, once-only capacity settlement and repeated reserve-aware movement. |
 | P1: qualify the release | Run combined-source recovery/crash/wake/transition and feature/SDK/Axum/daemon gates, plus independent physical failure domains. Three containers in one Colima VM do not qualify domain loss. |
