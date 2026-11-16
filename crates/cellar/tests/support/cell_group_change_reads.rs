@@ -20,7 +20,8 @@ async fn mutate(
     pool: &CellGroupSqlPool,
     cell: &CellHistory,
     attempt: u8,
-) -> Result<()> {
+    hold_read_quorum: bool,
+) -> Result<cellar_logic::consensus::LogIndex> {
     let group = fixture.cluster.birth.route().history;
     let authority = fixture.runtimes[0]
         .execution_authority(group, cell.clone())
@@ -38,7 +39,34 @@ async fn mutate(
     pool.mark_submitted(cell.clone(), prepared.proposal())
         .await?;
     let accepted = accepted_sql(&fixture.runtimes[0], &prepared).await?;
-    fixture.drive(Some(accepted.position.index)).await?;
+    if hold_read_quorum {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let mut complete = true;
+                for runtime in &fixture.runtimes {
+                    complete &=
+                        runtime.status(group).await?.applied.index >= accepted.position.index;
+                }
+                if complete {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                fixture
+                    .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                        message.to != 1
+                            || !matches!(
+                                message.get_msg_type(),
+                                raft::prelude::MessageType::MsgHeartbeatResponse
+                                    | raft::prelude::MessageType::MsgReadIndexResp
+                            )
+                    })
+                    .await?;
+                tokio::task::yield_now().await;
+            }
+        })
+        .await??;
+    } else {
+        fixture.drive(Some(accepted.position.index)).await?;
+    }
     drop(
         pool.finish(
             fixture.runtimes[0]
@@ -47,7 +75,7 @@ async fn mutate(
         )
         .await?,
     );
-    Ok(())
+    Ok(accepted.position.index)
 }
 
 pub(crate) async fn run(rooted: bool) -> Result<()> {
@@ -79,7 +107,7 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
         drop(selected(&mut fixture, 0, &b, CellReadConsistency::Linearizable).await?);
         assert!(changed.as_mut().now_or_never().is_none());
         let count = barriers(&fixture)?;
-        mutate(&mut fixture, &pool, &b, 231).await?;
+        mutate(&mut fixture, &pool, &b, 231, false).await?;
         assert!(
             changed.as_mut().now_or_never().is_none(),
             "another cell released the wait"
@@ -89,7 +117,12 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
             count,
             "unrelated commit issued ReadIndex"
         );
-        mutate(&mut fixture, &pool, &a, 232).await?;
+        let changed_at = mutate(&mut fixture, &pool, &a, 232, true).await?;
+        runtime.status(route.history).await?;
+        assert!(
+            changed.as_mut().now_or_never().is_none(),
+            "cell change reused a quorum barrier from before the change"
+        );
         let authority = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if let Some(result) = changed.as_mut().now_or_never() {
@@ -104,6 +137,10 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
         assert!(
             authority.barrier().is_some(),
             "changed read has no fresh quorum"
+        );
+        assert!(
+            authority.barrier().unwrap().index >= changed_at,
+            "change read selected an older quorum cut"
         );
         let current = authority.cell().version.clone();
         let options = fixture.cell_options(&a).await?;
