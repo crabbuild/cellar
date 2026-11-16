@@ -231,6 +231,53 @@ input `1ac2cced`. This local Python 3.14.6 GIL build/control does not qualify fu
 adapter runtime or free-threaded ABI execution; fresh hosted CI and the separate
 disaster/lease/performance gates remain required.
 
+At compiler input `bb325bdb`, the ordinary storage worker skips periodic purge
+when the engine's existing policy reports no eligible rewrite/delete work. Such
+a pass previously still appended and synced Cellar's durable root fence. Every
+later durable write rearms the check. Managed scheduling already uses the same
+predicate; eligible purge, explicit purge, shutdown and settlement retain their
+barriers. Production intervals, thresholds, banks and deadlines are unchanged.
+
+The [periodic purge qualification](periodic-purge-qualification-2026-11-16.json)
+records two identical-oracle failures before the change and two passes afterward.
+Each invocation previously adds one idle periodic sync and another after a real
+durable write; both periodic syncs become zero. The application write and explicit
+purge retain their syncs. Eligible physical deletion and live-history restart
+also pass. These are filesystem API work counts, not hardware flush counts or
+an end-to-end throughput/percentile result.
+
+The existing scheduled-purge-failure test initially times out because its engine
+contains no eligible files. Final input `9b684f00` changes only that fixture after
+`bb325bdb`: it seeds eligible files before the fault, preserves the original
+20-ms interval, five-second observation, exact failed-purge count, I/O close,
+joined lock release and recovery assertions, and verifies all sixteen retained
+entries. It passes twice; the full storage target passes 23 tests with one
+existing ignore. Core 1,233 and controller 46 pass, and their executable hashes,
+along with the measuring executable, are unchanged by the fixture correction.
+Strict affected-target Clippy and repository checks pass. Thirty-seven retained
+fixture directories and 25,049 files have verified manifests. The initial legacy
+fault fixture cleaned its temporary disk; its complete source/log/footer remain,
+and the corrected fixture retains its disk on every exit.
+
+Broader qualification remains failed. Both focused rooted-128 invocations still
+reach the original 60-second enrollment limit with zero periodic purges on all
+three nodes; the complete measuring target passes 25 tests and fails one. This
+removes reproduced work but does not repair the remaining preparation,
+persistence and physical-close latency. Another checkout's compiler was observed
+during this wave; native wall times are not an isolated comparison. A matched
+read-only backend check again observes zero available bytes on the original
+RustFS data volume, below the unchanged 6-GiB reserve. No new backend campaign,
+resource change, complete OPT/CG gate or measured speedup is qualified.
+
+The complete failed `edeb5c0d5` Typed RPC artifact also narrows its lease incident.
+Owner and ingress reach native COMMIT within one millisecond, then spend about
+774 and 668 milliseconds inside that call. The owner starts with 664 milliseconds
+of prior authority; its async timeout overruns by only two milliseconds, and it
+fences about 110 milliseconds before the late commit completes. This identifies
+native COMMIT elapsed time, not an isolated device-sync cause or a repaired RPC
+gate. Preserve the original one-second lease and fence; late completion cannot
+revive the fenced process or justify a fresh identity for an unknown mutation.
+
 The first change implements the command outcome and authenticated advice
 foundation:
 

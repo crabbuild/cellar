@@ -179,43 +179,75 @@ async fn idle_worker_reclaims_compacted_files_and_preserves_other_groups() -> Re
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn scheduled_purge_failure_closes_and_joins_storage_before_reopen() -> Result<()> {
-    let directory = tempfile::tempdir()?;
+    let mut directory = tempfile::tempdir()?;
+    directory.disable_cleanup(true);
+    eprintln!(
+        "retained eligible purge disk: {}",
+        directory.path().display()
+    );
     let path = directory.path().join("node");
+    // Periodic maintenance requires actual eligible work. Preserve the synced
+    // history before installing the failure on its next physical purge owner.
+    seed_purge(&path).await?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let gate = Gate::new(None);
-    let mut configuration = options(&path, LogOpenMode::Create, 1);
+    let mut configuration = purge_options(&path, LogOpenMode::Resume, 2);
     configuration.purge_interval_ms = Some(20);
-    let log = start(
-        &domain,
-        configuration,
-        Arc::new(FaultFileSystem { gate: gate.clone() }),
-    )
-    .await?;
-    let group = log.create_group(bootstrap(10)).await?;
-    let _release = gate.arm(FAIL_SYNC);
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while group.applied().is_ok() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
+    let checked = async {
+        let log = start(
+            &domain,
+            configuration,
+            Arc::new(FaultFileSystem { gate: gate.clone() }),
+        )
+        .await?;
+        let release = gate.arm(FAIL_SYNC);
+        let observed = async {
+            let group = log.group(&bootstrap(10).scope)?;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while group.applied().is_ok() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await?;
+            Ok::<_, anyhow::Error>(())
         }
-    })
-    .await?;
-    ensure!(matches!(log.close().await, Err(LogError::Io(_))));
-    ensure!(log
-        .performance_snapshot()
-        .operations
-        .iter()
-        .any(|op| op.name == "engine_purge" && op.failed == 1));
-    // The failed maintenance pass returns only after releasing the engine and
-    // directory lock. Its synced group must still recover under a new owner.
-    let log = start(
-        &domain,
-        options(&path, LogOpenMode::Resume, 2),
-        Arc::new(DirectFileSystem),
-    )
-    .await?;
-    let group = log.group(&bootstrap(10).scope)?;
-    ensure!(group.first_index()? == 2 && group.applied()?.position.index.get() == 1);
-    log.close().await?;
+        .await;
+        let closed = log.close().await;
+        drop(release);
+        observed?;
+        ensure!(matches!(closed, Err(LogError::Io(_))));
+        ensure!(log
+            .performance_snapshot()
+            .operations
+            .iter()
+            .any(|op| op.name == "engine_purge" && op.failed == 1));
+        // The failed pass must release its engine/directory lock before the
+        // same disk reopens, preserving the full original committed history.
+        let log = start(
+            &domain,
+            options(&path, LogOpenMode::Resume, 3),
+            Arc::new(DirectFileSystem),
+        )
+        .await?;
+        let recovered = (|| {
+            let group = log.group(&bootstrap(10).scope)?;
+            ensure!(group.first_index()? == 2 && group.applied()?.position.index.get() == 1);
+            ensure!(group.initial_state()?.hard_state.commit == 17);
+            let entries = group.entries(2, 18, None, GetEntriesContext::empty(false))?;
+            ensure!(
+                entries.len() == 16
+                    && entries
+                        .iter()
+                        .all(|entry| { entry.data.iter().all(|byte| *byte == entry.index as u8) })
+            );
+            Ok::<_, anyhow::Error>(())
+        })();
+        let closed = log.close().await;
+        recovered?;
+        closed?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
     domain.shutdown().await;
-    Ok(())
+    checked
 }

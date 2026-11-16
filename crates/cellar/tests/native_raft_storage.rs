@@ -76,6 +76,139 @@ async fn start(
     Ok(domain.run(ReplicaLog::open(options, fs)).await??)
 }
 
+fn operation_count(log: &ReplicaLog, name: &str) -> Result<u64> {
+    let performance = log.performance_snapshot();
+    ensure!(performance.available && !performance.saturated);
+    Ok(performance
+        .operations
+        .iter()
+        .find(|operation| operation.name == name)
+        .ok_or_else(|| anyhow::anyhow!("missing operation {name}"))?
+        .count)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn periodic_purge_preserves_ineligible_engine_fences() -> Result<()> {
+    let mut directory = tempfile::tempdir()?;
+    directory.disable_cleanup(true);
+    eprintln!(
+        "retained periodic purge disk: {}",
+        directory.path().display()
+    );
+    let path = directory.path().join("node");
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut configuration = options(&path, LogOpenMode::Create, 1);
+    configuration.purge_interval_ms = Some(25);
+    let log = start(&domain, configuration, Arc::new(DirectFileSystem)).await?;
+    let checked = async {
+        let group = log.create_group(bootstrap(10)).await?;
+        let before = log.segment_inventory().await?;
+        let syncs = operation_count(&log, "engine_file_sync")?;
+        let purges = operation_count(&log, "engine_purge")?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let idle = log.segment_inventory().await?;
+        let idle_syncs = operation_count(&log, "engine_file_sync")?;
+        let idle_purges = operation_count(&log, "engine_purge")?;
+
+        // A real durable write rearms periodic maintenance. An engine below
+        // its purge threshold still has no physical rewrite/delete work.
+        let mut write = GroupWrite::new(&group);
+        write.entries = vec![entry(2, 7, b"retained")];
+        write.hard_state = Some(hard(&group, 7, 2, 2)?);
+        log.persist(OperationId::new(1), vec![write]).await?;
+        let written = log.segment_inventory().await?;
+        let written_syncs = operation_count(&log, "engine_file_sync")?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let after = log.segment_inventory().await?;
+        let after_syncs = operation_count(&log, "engine_file_sync")?;
+        let after_purges = operation_count(&log, "engine_purge")?;
+
+        // Explicit purge retains its physical fence even when no files can
+        // be reclaimed. The optimization belongs only to periodic scheduling.
+        log.purge().await?;
+        let explicit = log.segment_inventory().await?;
+        let explicit_syncs = operation_count(&log, "engine_file_sync")?;
+        let explicit_purges = operation_count(&log, "engine_purge")?;
+        ensure!(group.initial_state()?.hard_state.commit == 2);
+        ensure!(group.entries(2, 3, None, GetEntriesContext::empty(false))?[0].data == b"retained"[..]);
+        eprintln!(
+            "periodic purge observations: idle_purges={} idle_syncs={} rearmed_purges={} rearmed_total_syncs={} explicit_purges={} explicit_syncs={}",
+            idle_purges - purges, idle_syncs - syncs, after_purges - idle_purges,
+            after_syncs - idle_syncs, explicit_purges - after_purges,
+            explicit_syncs - after_syncs,
+        );
+        ensure!(
+            before.durable_sequence == idle.durable_sequence
+                && idle_syncs == syncs
+                && idle_purges == purges,
+            "ineligible periodic purge added an idle engine fence"
+        );
+        ensure!(
+            after.durable_sequence == written.durable_sequence
+                && after_syncs == written_syncs
+                && after_purges == idle_purges,
+            "ineligible periodic purge added a fence after durable write"
+        );
+        ensure!(written.durable_sequence > idle.durable_sequence && written_syncs > idle_syncs);
+        ensure!(
+            explicit.durable_sequence > after.durable_sequence
+                && explicit_syncs > after_syncs
+                && explicit_purges == after_purges + 1,
+            "explicit purge lost its physical fence"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let closed = log.close().await;
+    domain.shutdown().await;
+    checked?;
+    closed?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn periodic_purge_reclaims_eligible_files_and_preserves_live_history() -> Result<()> {
+    let mut directory = tempfile::tempdir()?;
+    directory.disable_cleanup(true);
+    eprintln!(
+        "retained eligible purge disk: {}",
+        directory.path().display()
+    );
+    let path = directory.path().join("node");
+    seed_purge(&path).await?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut configuration = purge_options(&path, LogOpenMode::Resume, 2);
+    configuration.purge_interval_ms = Some(100);
+    let log = start(&domain, configuration, Arc::new(DirectFileSystem)).await?;
+    let checked = async {
+        let before = log.segment_inventory().await?;
+        let after = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let after = log.segment_inventory().await?;
+                if before
+                    .files()
+                    .iter()
+                    .any(|file| !after.files().iter().any(|next| next.id == file.id))
+                {
+                    break Ok::<_, anyhow::Error>(after);
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+        ensure!(operation_count(&log, "engine_purge")? > 0);
+        ensure!(after.durable_sequence > before.durable_sequence);
+        check_purge_group(&log)?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let closed = log.close().await;
+    domain.shutdown().await;
+    checked?;
+    closed?;
+    verify_after_purge(&path).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn vote_survives_restart() -> Result<()> {
     let directory = tempfile::tempdir()?;

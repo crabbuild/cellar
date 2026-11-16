@@ -170,10 +170,35 @@ runtime qualification. Full Python adapter runtime/3.14t execution and fresh
 hosted CI remain required; the native disaster and Typed RPC lease failures are
 separate unresolved boundaries.
 
+The [periodic purge qualification](periodic-purge-qualification-2026-11-16.json)
+removes two reproduced periodic file-sync calls per owning test invocation while
+preserving actual durable writes, explicit purge and eligible deletion/recovery.
+Final input `9b684f00` passes storage 23, core 1,233, controller 46 and strict
+affected-target Clippy/repository checks. The legacy fault fixture now seeds
+eligible files and retains its original failure/join/reopen assertions and
+five-second budget. The core/controller/measuring executable hashes remain
+unchanged by that fixture-only follow-up. Earlier failed owners remain recorded.
+
+This is not a rooted-128 latency repair: both focused invocations still exhaust
+the original 60 seconds with no periodic purges on any voter; the full measuring
+target passes 25 and fails one. Continue at preparation, persistence and physical
+close rather than attributing the remaining timeout to this removed work. Shared
+host compiler activity prevents an isolated wall-time comparison. The original
+RustFS data volume is again observed with zero available bytes, below reserve;
+no constrained or real-backend campaign runs and no VM settings change.
+
+The complete failed hosted RPC artifact localizes its owner renewal to about
+774 ms inside native COMMIT after starting with 664 ms of authority. Timeout
+delivery overruns by only 2 ms, and the watchdog fences before that commit
+finishes. This narrows that incident beyond the bounded ambiguous-renewal trace;
+it does not separate sync/checkpoint/native-scheduling causes or repair the gate.
+Keep the original lease and fence, preserve new disks, and do not replay an
+unknown warmup mutation under a fresh identity.
+
 | Priority | Required outcome |
 | --- | --- |
 | P0: request and authority progress | Resolve SQL/KV/Queue deadline failures and node lease expiry without extending deadlines, weakening fences, increasing banks or retrying an ambiguous mutation under a fresh identity. Queue delivery must verify all acknowledged IDs and bodies; an incomplete drain is unqualified. |
-| P0: isolate the failing boundary | Keep the physical-credit wake, cadence, dedicated lease-pool and applied-evidence enrollment regressions. Measure their effects in the constrained matrix before attributing earlier lease expiry or latency to a specific boundary. Resolve the remaining preparation, persistence and physical-close costs behind the cumulative rooted-128 enrollment timeout; its successful SQL resolution checks do not establish request success. |
+| P0: isolate the failing boundary | Keep the physical-credit wake, cadence, eligible-purge/failure-reopen, dedicated lease-pool and applied-evidence enrollment regressions. Measure their effects in the constrained matrix before attributing earlier lease expiry or latency to a specific boundary. Resolve the remaining preparation, persistence and physical-close costs behind the cumulative rooted-128 enrollment timeout; its successful SQL resolution checks do not establish request success. |
 | P0: restore qualification | Restore original-backend write capacity without deleting retained failures or relaxing the reserve. Requalify Python runtime/free-threaded modes after the repaired frontend module, and reproduce current native disaster/voter restart and typed-RPC lease failures at their owning boundaries. Preserve the historical container-capacity failure despite current JS CI passes. Extend native payload-credit progress to cancellation/deadline/uncertain-cleanup coverage and real-backend qualification with exact identity/proof and terminal data refusals. Keep original deadlines and refusal assertions. A later narrow pass cannot replace a failed broader owner. |
 | P1: prove performance | Obtain complete passing SQL/KV/Queue cases in every durability mode, then a matched-source before/after comparison with p50/p95/p99, errors, CPU, I/O and archive lag. Failed or unmeasured windows cannot establish a speedup. |
 | P1: finish lifecycle and public contracts | Close full CG-17, remaining authority/read partition cases, physical reclamation with retained owners, once-only capacity settlement and repeated reserve-aware movement. |

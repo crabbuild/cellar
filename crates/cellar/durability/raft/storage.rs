@@ -2634,7 +2634,14 @@ impl Worker {
                 if let Some(interval) = self.options.purge_interval_ms {
                     let now = domain.mono_ms().map_err(|_| LogError::Closed)?;
                     if now >= purge_at {
-                        self.purge()?;
+                        // A no-op engine purge would still add our durable
+                        // fence. Match managed scheduling's engine predicate;
+                        // every later write rearms this metadata-only check.
+                        if self.engine.needs_purge() {
+                            self.purge()?;
+                        } else {
+                            self.purge_pending = false;
+                        }
                         purge_at = domain
                             .mono_ms()
                             .map_err(|_| LogError::Closed)?
