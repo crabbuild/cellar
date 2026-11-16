@@ -34,14 +34,8 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
         .await?;
     for name in ["alpha", "beta", "cell-000", "cell-001"] {
-        checkpoint_fixture::advance_partition(
-            &mut cluster,
-            name,
-            &expected[name],
-            rooted,
-            Some(2),
-        )
-        .await?;
+        checkpoint_fixture::advance_partition(&mut cluster, name, &expected[name], rooted, Some(2))
+            .await?;
         expected.insert(
             name.into(),
             images::image(Some(&expected[name]), "UPDATE value SET n=n+1")?,
