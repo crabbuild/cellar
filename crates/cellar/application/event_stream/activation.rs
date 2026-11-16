@@ -159,24 +159,28 @@ pub(crate) async fn configure(
             declaration.resolve(serde_json::from_value(resolved["resource"].clone())?)?
         };
         let authority = Authority::resolution(&binding)?;
-        // Retirement intent closes new binding adoption before delegated
-        // partition closure finishes. Check both authorities; partition-only
-        // resolution could accept a still-active partition during retirement.
-        let catalog = rpc(
-            host,
-            script,
-            authority.clone(),
-            event_stream::catalog_scope(&binding.resource)?,
-            event_stream::catalog_name(&binding.resource)?,
-            "__catalogResolve",
-            json!([{}]),
-        )
-        .await?;
-        let resource: event_stream::Resource = serde_json::from_value(catalog["resource"].clone())?;
-        anyhow::ensure!(
-            catalog["state"].as_str() == Some("active") && resource == binding.resource,
-            "catalog binding identity differs from the deployment"
-        );
+        // Name resolution already checked the current catalog lifecycle and
+        // every captured grant capability. An explicit UUID has no such proof.
+        // Both paths still check the independently authorized partition below;
+        // neither a name hint nor an active partition can replace catalog proof.
+        if declaration.resource.id.is_some() {
+            let catalog = rpc(
+                host,
+                script,
+                authority.clone(),
+                event_stream::catalog_scope(&binding.resource)?,
+                event_stream::catalog_name(&binding.resource)?,
+                "__catalogResolve",
+                json!([{}]),
+            )
+            .await?;
+            let resource: event_stream::Resource =
+                serde_json::from_value(catalog["resource"].clone())?;
+            anyhow::ensure!(
+                catalog["state"].as_str() == Some("active") && resource == binding.resource,
+                "catalog binding identity differs from the deployment"
+            );
+        }
         let encoded = event_stream::encoding::json(&binding, 64 << 10)?;
         let resolved = rpc(
             host,
