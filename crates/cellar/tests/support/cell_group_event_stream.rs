@@ -3,6 +3,10 @@
 //! Public publication, leased delivery and source/inbox recovery on shared RF3.
 
 use super::*;
+
+#[path = "cell_group_event_activation.rs"]
+mod activation;
+pub use activation::qualify as qualify_retained_metadata;
 use cellar::sdk::event_stream::{self as events, BatchOptions, Event, Stream};
 use cellar::sdk::OutboxOptions;
 use serde::Serialize;

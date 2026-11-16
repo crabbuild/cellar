@@ -429,17 +429,6 @@ pub(super) fn run(
     domain: &crate::asyncrt::DomainToken,
     binding_ready: bool,
 ) -> Result<CellSqlOutcome, ExecutionError> {
-    let probe = std::time::Instant::now();
-    let probe_event = matches!(
-        &query.callback,
-        Callback::Registered {
-            admission: crate::application::consensus::QueryAdmission::Event(_),
-            ..
-        }
-    );
-    if probe_event {
-        tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="sql-enter", cell=%query.authority.cell().version.history.cell.as_str(), left=?domain.mono_ms().map(|now| query.authority.deadline().saturating_sub(now)));
-    }
     let check = |query: &Query| {
         if query.cancelled.load(Ordering::Acquire) || query.closing.load(Ordering::Acquire) {
             return Err(unavailable());
@@ -496,9 +485,6 @@ pub(super) fn run(
         _ => return Err(ExecutionError::Invalid("cell query image storage")),
     }
     .map_err(crate::raft::execution::storage)?;
-    if probe_event {
-        tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="sql-open", cell=%query.authority.cell().version.history.cell.as_str(), elapsed=probe.elapsed().as_millis());
-    }
     let clock = QueryClock(AssertUnwindSafe(domain.clone()));
     let deadline = query.authority.deadline();
     let cancelled = query.cancelled.clone();

@@ -733,8 +733,6 @@ impl CellQueryInvocation {
         retention: Option<crate::raft::host_sql::cell_groups::ReadRetention>,
     ) -> Result<CellQueryResponse, CellDispatchError> {
         let cell = &attempt.request().cell;
-        let probe = std::time::Instant::now();
-        tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="query-start", cell=%cell.cell.as_str(), invocation=?self.request.invocation, left=?self.dispatcher.domain.mono_ms().map(|now| attempt.deadline_ms().saturating_sub(now)));
         let schema = self.dispatcher.class.schema_digest();
         let consistency = match &self.request.consistency {
             CellQueryConsistency::Stale => CellReadConsistency::Stale,
@@ -779,7 +777,6 @@ impl CellQueryInvocation {
             )
             .await
             .map_err(CellDispatchError::Runtime)?;
-        tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="query-authority", cell=%cell.cell.as_str(), invocation=?self.request.invocation, elapsed=probe.elapsed().as_millis());
         if authority.route() != attempt.route() || authority.cell().version.history != *cell {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
@@ -810,7 +807,6 @@ impl CellQueryInvocation {
                     CellDispatchError::Execution(error)
                 }
             })?;
-        tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="query-sql", cell=%cell.cell.as_str(), invocation=?self.request.invocation, elapsed=probe.elapsed().as_millis());
         if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3) {
             let client = self
                 .dispatcher
@@ -825,12 +821,10 @@ impl CellQueryInvocation {
                     attempt.deadline_ms(),
                 )
                 .await?;
-            tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="query-s3", cell=%cell.cell.as_str(), invocation=?self.request.invocation, elapsed=probe.elapsed().as_millis());
             settled
                 .proof
                 .require_current(&self.dispatcher.domain, attempt.deadline_ms())
                 .await?;
-            tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="query-current", cell=%cell.cell.as_str(), invocation=?self.request.invocation, elapsed=probe.elapsed().as_millis());
             selected = *settled.selected;
             selected.retain_archive(settled.proof);
         }

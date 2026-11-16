@@ -179,8 +179,6 @@ impl RaftCells {
         let owner = self.internal_observer();
         Box::pin(async move {
             let invocation = prepared?;
-            let probe = std::time::Instant::now();
-            tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="metadata-start", cell=%route.cell.as_str(), ?invocation, after=after.is_some(), left=?owner.handle.domain.mono_ms().map(|now| deadline.saturating_sub(now)));
             let remaining = || -> anyhow::Result<Duration> {
                 owner.check_open()?;
                 Ok(Duration::from_millis(
@@ -224,7 +222,6 @@ impl RaftCells {
                                 found?.ok_or(RuntimeError::NotFound)?
                             }
                         };
-                        tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="metadata-history", cell=%route.cell.as_str(), ?invocation, elapsed=probe.elapsed().as_millis(), left=?owner.handle.domain.mono_ms().map(|now| deadline.saturating_sub(now)));
                         let response = owner
                             .handle
                             .core
@@ -264,7 +261,6 @@ impl RaftCells {
                         Ok((RpcData::Structured(retained.retain_bytes(bytes)), token))
                     }
                     .await;
-                    tracing::debug!(target: "cellar::raft::sql_ingress", marker="DEBUG-cg17-restart-724", phase="metadata-result", cell=%route.cell.as_str(), ?invocation, elapsed=probe.elapsed().as_millis(), error=?result.as_ref().err(), left=?owner.handle.domain.mono_ms().map(|now| deadline.saturating_sub(now)));
                     match result {
                         Err(error) if super::read_admission::retryable(&error) => {
                             // A cold selected image can temporarily refuse a

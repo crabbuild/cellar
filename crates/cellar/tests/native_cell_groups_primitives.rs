@@ -111,6 +111,18 @@ fn event_stream_registration_requires_resolved_host_owned_declarations() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_event_activation_uses_locators_but_requires_current_quorum() -> Result<()> {
+    Box::pin(event_streams::qualify_retained_metadata(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_retained_event_activation_uses_locators_but_requires_current_quorum() -> Result<()>
+{
+    Box::pin(event_streams::qualify_retained_metadata(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn clean_initial_queries_reuse_quorum_source_proof() -> Result<()> {
     Box::pin(initial_reads::qualify(false)).await
 }
