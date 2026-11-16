@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 #[derive(Clone, Copy)]
 pub(crate) enum PreparationCase {
     Live,
+    Sealed,
     Expired,
     Transferred,
     Corrupt,
@@ -148,6 +149,13 @@ pub(crate) async fn verified_preparation_handoff(
                 .await??;
         }
         let prior = committed.base.marker().clone();
+        if matches!(case, PreparationCase::Sealed) {
+            anyhow::ensure!(!rooted, "materialized seal contract");
+            faults.all_directory_files.store(true, Ordering::Release);
+        }
+        let image_barriers = faults.image_seals.lock().unwrap().len();
+        let directory_barriers = faults.events.lock().unwrap().iter()
+            .filter(|event| **event == "directory-sync").count();
         let deny = Arc::new(AtomicBool::new(true));
         let denials = Arc::new(AtomicUsize::new(0));
         let denied = denials.clone();
@@ -199,6 +207,22 @@ pub(crate) async fn verified_preparation_handoff(
                 "leader replayed a locally verified base instead of joining its preparation",
             )?
         };
+        if matches!(case, PreparationCase::Sealed) {
+            anyhow::ensure!(
+                faults.image_seals.lock().unwrap().len() == image_barriers
+                    && faults.events.lock().unwrap().iter().filter(|event| **event == "directory-sync").count() == directory_barriers,
+                "committed apply repeated an already completed local image persistence barrier"
+            );
+            anyhow::ensure!(
+                fixture.cluster.voters[0]
+                    .log
+                    .cell_group(&route.history)?
+                    .group_manifest()?
+                    .as_ref()
+                    == Some(&prior),
+                "physical preparation published an uncommitted root"
+            );
+        }
         if !matches!(case, PreparationCase::Expired) {
             anyhow::ensure!(
                 denials.load(Ordering::Acquire) == 0,

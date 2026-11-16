@@ -575,6 +575,12 @@ async fn verified_materialized_preparation_passes_to_committed_apply() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_apply_reuses_owned_image_persistence_barrier() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Sealed)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn verified_extent_preparation_passes_to_committed_apply() -> Result<()> {
     runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Live)
         .await
