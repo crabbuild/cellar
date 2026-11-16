@@ -513,6 +513,19 @@ pub(crate) fn event_rpc(
     )
 }
 
+fn s3_binding_probe(
+    trace: Option<(std::time::Instant, &'static str)>,
+    phase: &'static str,
+    parent: Option<CommandId>,
+    child: Option<CommandId>,
+) {
+    if let Some((started, operation)) = trace {
+        tracing::debug!(target: "cellar::raft::binding_stage",
+            marker = "DEBUG-cg17-s3-binding-624", operation, phase,
+            elapsed_ms = started.elapsed().as_millis(), ?parent, ?child);
+    }
+}
+
 fn rpc_admitted(
     context: &Context,
     scope: String,
@@ -522,6 +535,12 @@ fn rpc_admitted(
     call_scope: crate::host_rpc::CallScope,
     event: Option<super::consensus::native_event_rpc::Authority>,
 ) -> HandlerFuture<RpcData> {
+    let diagnostic = match method.as_str() {
+        "__streamConfigure" => Some((std::time::Instant::now(), "configure")),
+        "__streamSubscriptionChange" => Some((std::time::Instant::now(), "change")),
+        _ => None,
+    };
+    s3_binding_probe(diagnostic, "called", None, None);
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
         context.check_binding_turn()?;
@@ -619,6 +638,7 @@ fn rpc_admitted(
                 .ok_or(CommandFailure::UnsupportedCapability)?
                 .clone(),
         );
+        s3_binding_probe(diagnostic, "prepare_begin", Some(source.parent), None);
         let action = dispatch.clone();
         let action_source = source.clone();
         let (identity, call) = crate::storage::raft_bindings::prepare(
@@ -638,6 +658,7 @@ fn rpc_admitted(
                         io,
                         observed,
                         observed_command,
+                        diagnostic,
                     )
                     .await
                     .map(|value| (value, lease))
@@ -645,6 +666,12 @@ fn rpc_admitted(
                 Ok((identity, call))
             },
         )?;
+        s3_binding_probe(
+            diagnostic,
+            "prepare_ready",
+            Some(source.parent),
+            Some(identity),
+        );
         Ok((identity, selected, command, call))
     })();
     Box::pin(async move {
@@ -662,6 +689,7 @@ fn rpc_admitted(
         } else {
             reply.await
         };
+        s3_binding_probe(diagnostic, "reply_ready", None, Some(initial_command));
         result.map_err(|cause| {
             if cause.is::<CallError>() {
                 cause
@@ -686,7 +714,14 @@ async fn run(
     io: RaftDispatchIo,
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
+    diagnostic: Option<(std::time::Instant, &'static str)>,
 ) -> Result<RpcData> {
+    s3_binding_probe(
+        diagnostic,
+        "run_entered",
+        Some(source.parent),
+        Some(intent.child),
+    );
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -765,11 +800,23 @@ async fn run(
         *command.lock().unwrap() = Some(intent.child);
         storage.sync().await?;
     }
+    s3_binding_probe(
+        diagnostic,
+        "history_ready",
+        Some(source.parent),
+        Some(intent.child),
+    );
     io.begin_io()?;
     *selected.lock().unwrap() = Some(history.clone());
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
     options.durability = intent.route.durability;
+    s3_binding_probe(
+        diagnostic,
+        "command_begin",
+        Some(source.parent),
+        Some(intent.child),
+    );
     let result = loop {
         options.timeout = dispatch.remaining_timeout()?;
         let result = source
@@ -804,6 +851,12 @@ async fn run(
         // child identity and input and consume the original deadline.
         dispatch.wait_admission().await?;
     };
+    s3_binding_probe(
+        diagnostic,
+        "command_returned",
+        Some(source.parent),
+        Some(intent.child),
+    );
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -813,6 +866,12 @@ async fn run(
                 CommandFailure::CorruptState
             );
             io.resume_writer().await?;
+            s3_binding_probe(
+                diagnostic,
+                "receipt_writer_restored",
+                Some(source.parent),
+                Some(intent.child),
+            );
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
@@ -823,6 +882,12 @@ async fn run(
                     _lease: memory,
                 });
             }
+            s3_binding_probe(
+                diagnostic,
+                "source_completed",
+                Some(source.parent),
+                Some(intent.child),
+            );
             super::consensus::native_rpc::decode_response(&receipt.result)
         }
         Err(cause) => {
