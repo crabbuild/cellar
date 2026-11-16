@@ -139,10 +139,12 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             let source_node = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
             let target_node = (source_node + 1) % cluster.hosts.len();
             let leader = managed_fixture::leader(&cluster.hosts, child_group).await?;
-            cluster.hosts[leader]
-                .group(child_group)?
-                .transfer_leader(MemberId::new(target_node as u64 + 1)?)
-                .await?;
+            if leader != target_node {
+                cluster.hosts[leader]
+                    .group(child_group)?
+                    .transfer_leader(MemberId::new(target_node as u64 + 1)?)
+                    .await?;
+            }
             cellar::asyncrt::timeout(TIMEOUT, async {
                 loop {
                     if managed_fixture::leader(&cluster.hosts, child_group).await? == target_node {
