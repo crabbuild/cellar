@@ -73,7 +73,7 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
         &reference,
         receiver(&pool, &applier, &cluster)?,
     ));
-    tokio::select! {
+    cellar::asyncrt::select! {
         result = &mut pending => {
             result?;
             anyhow::bail!("tail verification ended before overlapping reads");
@@ -118,7 +118,7 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
         &reference,
         receiver(&pool, &applier, &cluster)?,
     ));
-    tokio::select! {
+    cellar::asyncrt::select! {
         result = &mut pending => {
             anyhow::bail!("tail verification ended before both reads entered: {}", result.is_ok());
         }
