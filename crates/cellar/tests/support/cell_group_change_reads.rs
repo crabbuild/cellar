@@ -119,7 +119,7 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
         );
         let changed_at = mutate(&mut fixture, &pool, &a, 232, true).await?;
         runtime.status(route.history).await?;
-        assert!(
+        anyhow::ensure!(
             changed.as_mut().now_or_never().is_none(),
             "cell change reused a quorum barrier from before the change"
         );
