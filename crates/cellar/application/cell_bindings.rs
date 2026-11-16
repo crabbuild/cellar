@@ -720,33 +720,19 @@ async fn run(
                         )
                 });
             if !not_admitted {
-                break result.map(|()| intent.candidate.clone());
+                break result;
             }
             // A known admission refusal proves no initializer entered. Retain the
-            // durable source intent, candidate and creation ID while waiting.
-            // A cold route may already have a different retained creator. Join
-            // only a fresh name observation; the selection below must still be
-            // committed in the source before any child command can begin.
-            // The candidate's own creation still needs its enrollment proof.
-            // One lookup bounds discovery work during repeated refusals.
+            // durable source intent, candidate and creation ID. Unknown or
+            // transmitted enrollments never enter this wait.
             if !noted {
-                if let Ok(Some(history)) = source
-                    .host
-                    .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
-                    .await
-                {
-                    if history != intent.candidate {
-                        break Ok(history);
-                    }
-                }
                 tracing::debug!(target: "cellar::raft::enrollment", phase = "binding-admission-wait", creation = ?intent.creation);
                 noted = true;
             }
-            // Unknown or transmitted enrollment failures never enter this wait.
             dispatch.wait_admission().await?;
         };
         match enrolled {
-            Ok(history) => history,
+            Ok(()) => intent.candidate.clone(),
             Err(error) => match source
                 .host
                 .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
