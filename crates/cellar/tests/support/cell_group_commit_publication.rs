@@ -3,8 +3,9 @@
 //! Commit metadata joins the exact applied-root sync, never its acknowledgement.
 
 use super::*;
+use raft::Storage as _;
 
-pub(super) async fn run(rooted: bool) -> Result<()> {
+pub(crate) async fn run(rooted: bool) -> Result<()> {
     let (mut fixture, route, cell, _) = enrolled_sql_cells(rooted).await?;
     let work = async {
         let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
