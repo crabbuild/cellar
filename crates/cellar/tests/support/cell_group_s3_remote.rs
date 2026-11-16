@@ -65,7 +65,7 @@ impl Remote {
         )?)
     }
 
-    pub(super) async fn rebind(self, h: &Harness, dispatcher: CellGroupDispatcher) -> Result<Self> {
+    async fn rebind(self, h: &Harness, dispatcher: CellGroupDispatcher) -> Result<Self> {
         let Self { gateway, router } = self;
         drop(gateway);
         let gateway = match Self::install_gateway(h, dispatcher).await {

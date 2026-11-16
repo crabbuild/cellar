@@ -203,7 +203,7 @@ async fn run(
     archive_controller::published(&h.controllers[0], h.route.history, warm_index).await?;
     let gateway_store = archive_controller::archive_store::Store::around(global.clone());
     let remote = remote::Remote::start(&h, gateway(&h, gateway_store.clone()).await?).await?;
-    // Warm the source ingress and verify the receiver's initial route.
+    // Warm the receiver too. It must still perform fresh discovery after stop.
     let found = remote::command_using(
         &h,
         &remote,
@@ -217,12 +217,6 @@ async fn run(
     assert_eq!(found.result(), b"warm");
     drop(found);
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
-    // A warm receiver may reuse its checked route during a metadata outage.
-    // Replace only that receiver before stopping RustFS: cold discovery must
-    // still refuse, without executing a callback or consuming log capacity.
-    let cold = gateway(&h, gateway_store.clone()).await?;
-    assert_eq!(cold.route_cache_usage()?.entries, 0);
-    let remote = remote.rebind(&h, cold).await?;
     let fresh_gets = gateway_store.gets.load(Ordering::SeqCst);
     let probe = ObjectPath::from("backend-probe");
     let probe_bytes = vec![29_u8; 128];
