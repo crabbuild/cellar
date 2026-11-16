@@ -22,6 +22,9 @@ pub struct Store {
     pub inner: Arc<dyn ObjectStore>,
     pub puts: AtomicUsize,
     pub gets: AtomicUsize,
+    pub immutable_missing_gets: AtomicUsize,
+    pub immutable_creates: AtomicUsize,
+    pub immutable_create_conflicts: AtomicUsize,
     pub payload_gets: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub lose_immutable_put_response: AtomicBool,
@@ -51,6 +54,9 @@ impl Store {
             inner,
             puts: AtomicUsize::new(0),
             gets: AtomicUsize::new(0),
+            immutable_missing_gets: AtomicUsize::new(0),
+            immutable_creates: AtomicUsize::new(0),
+            immutable_create_conflicts: AtomicUsize::new(0),
             payload_gets: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             lose_immutable_put_response: AtomicBool::new(false),
@@ -225,7 +231,20 @@ impl ObjectStore for Store {
         }
         let immutable =
             matches!(opts.mode, PutMode::Create) && path.as_ref().contains("/generations/");
-        let result = self.inner.put_opts(path, payload, opts).await?;
+        let result = self.inner.put_opts(path, payload, opts).await;
+        if immutable
+            && matches!(
+                &result,
+                Err(Error::AlreadyExists { .. } | Error::Precondition { .. })
+            )
+        {
+            self.immutable_create_conflicts
+                .fetch_add(1, Ordering::AcqRel);
+        }
+        let result = result?;
+        if immutable {
+            self.immutable_creates.fetch_add(1, Ordering::AcqRel);
+        }
         if immutable
             && self
                 .lose_immutable_put_response
@@ -305,7 +324,12 @@ impl ObjectStore for Store {
             gate.entered.notify_one();
             gate.release.notified().await;
         }
-        self.inner.get_opts(path, opts).await
+        let result = self.inner.get_opts(path, opts).await;
+        if path.as_ref().contains("/generations/") && matches!(&result, Err(Error::NotFound { .. }))
+        {
+            self.immutable_missing_gets.fetch_add(1, Ordering::AcqRel);
+        }
+        result
     }
 
     async fn delete(&self, path: &Path) -> Result<()> {

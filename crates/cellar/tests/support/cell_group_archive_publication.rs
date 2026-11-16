@@ -5,6 +5,90 @@
 use super::*;
 use std::collections::BTreeMap;
 
+pub(super) async fn create_then_confirm(rooted: bool, remote: Arc<dyn ObjectStore>) -> Result<()> {
+    for confirmation_denied in [false, true] {
+        let store = archive_store::Store::around(Arc::new(object_store::prefix::PrefixStore::new(
+            remote.clone(),
+            Path::from(if confirmation_denied {
+                "confirmation"
+            } else {
+                "fresh"
+            }),
+        )));
+        let s = Scenario::with_store(rooted, Default::default(), store).await?;
+        if confirmation_denied {
+            let created = s.remote.immutable_creates.load(Ordering::Acquire);
+            s.remote.deny_chunk_reads.store(true, Ordering::Release);
+            let denied = s.checkpoint(&s.upload).await;
+            anyhow::ensure!(
+                denied.is_err(),
+                "unconfirmed object upload returned success"
+            );
+            anyhow::ensure!(
+                s.remote.immutable_creates.load(Ordering::Acquire) > created,
+                "confirmation must fail after an actual conditional create"
+            );
+            anyhow::ensure!(
+                s.remote.denied_chunk_reads.load(Ordering::Acquire) > 0,
+                "created bytes were not independently read"
+            );
+            s.remote.deny_chunk_reads.store(false, Ordering::Release);
+        } else {
+            s.remote
+                .lose_immutable_put_response
+                .store(true, Ordering::Release);
+        }
+        let checkpoint = s.checkpoint(&s.upload).await?;
+        anyhow::ensure!(
+            s.remote.immutable_missing_gets.load(Ordering::Acquire) == 0,
+            "fresh immutable upload issued a speculative missing GET"
+        );
+        anyhow::ensure!(
+            !s.remote.lose_immutable_put_response.load(Ordering::Acquire),
+            "lost immutable create response was not exercised"
+        );
+        let conflicts = s.remote.immutable_create_conflicts.load(Ordering::Acquire);
+        let retried = s.checkpoint(&s.upload).await?;
+        anyhow::ensure!(
+            retried == checkpoint,
+            "identical checkpoint retry changed immutable reference"
+        );
+        anyhow::ensure!(
+            s.remote.immutable_create_conflicts.load(Ordering::Acquire) > conflicts,
+            "retry did not verify a conditional-create conflict"
+        );
+        let (path, metadata) = index(s.remote.as_ref(), &checkpoint).await?;
+        let selected = &cell_objects(&path, &metadata, "alpha")[0];
+        let original = s.remote.inner.get(selected).await?.bytes().await?;
+        let mut damaged = original.to_vec();
+        damaged[0] ^= 0x80;
+        s.remote.inner.put(selected, damaged.clone().into()).await?;
+        let rejected = s.checkpoint(&s.upload).await;
+        anyhow::ensure!(
+            matches!(rejected, Err(error) if matches!(
+                error.downcast_ref::<CellGroupArchiveError>(), Some(CellGroupArchiveError::Invalid("object digest/length"))
+            )),
+            "corrupt immutable object was not refused"
+        );
+        anyhow::ensure!(
+            s.remote.inner.get(selected).await?.bytes().await?.as_ref() == damaged,
+            "conditional retry overwrote corruption evidence"
+        );
+        // Restore only this deliberately injected fault, after proving that
+        // upload refused it and preserved the damaged bytes.
+        s.remote.inner.put(selected, original.into()).await?;
+        let tail = s.tail(&s.upload, &checkpoint).await?;
+        let coverage = s.publish(&s.upload, &tail).await?;
+        tail_fixture::check_images(&s.cluster, coverage.recovery().manifest(), &s.expected).await?;
+        let hold = coverage.hold().clone();
+        drop(coverage);
+        drop(tail);
+        s.registry.release(&s.cluster.domain, &hold).await?;
+        s.finish().await?;
+    }
+    Ok(())
+}
+
 pub(super) async fn moving_upload_cut(rooted: bool) -> Result<()> {
     let mut s = Scenario::new(rooted).await?;
     let checkpoint = s.checkpoint(&s.upload).await?;

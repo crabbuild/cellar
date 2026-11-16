@@ -40,6 +40,31 @@ mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::create_then_confirm(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::create_then_confirm(
+            rooted,
+            rustfs::store("immutable-create-confirm", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn external_payload_recovery_and_gc_preserve_retained_cuts_and_readers() -> Result<()> {
     for rooted in [false, true] {
         payload_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new())).await?;
