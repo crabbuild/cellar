@@ -85,6 +85,44 @@ Those hosted observations belong to that parent source; they are not candidate
 SDK qualification. Full SDK/feature/daemon, primitive, fault, movement/wake,
 independent-domain and CG/OPT release gates remain open.
 
+### Managed transition failure evidence
+
+Test-only source `c19203ee` has compiler input `02983021`; production inputs
+remain at the batching checkpoint. The all-features native disaster target
+passes nine tests with eight explicit RustFS ignores. Two exact controls on
+that source, plus its full-target control, use three real managed voters to
+check metadata-only output, private synthetic object retention and unchanged
+canonical fleet/directory state. An earlier expanded fixture also passes nine
+tests. Before those controls, two exact retry invocations and the original
+eight-test serial target pass locally. These runs do not reproduce the hosted
+Linux failure and do not establish a repair.
+
+On published runtime head `f845e8a3`, the standard-Python native job fails the
+three public disaster cases; two authorization refusals retain
+`unavailable / outcome unknown`. Its full free-threaded Typed RPC job also
+fails while the other three Typed RPC jobs pass. These source-specific hosted
+gates remain open. The original business assertions, request identities,
+five-second budgets and fault policy are unchanged.
+
+Failed managed transitions now sample bounded post-failure catalog, enrollment,
+trust, control and authenticated physical-inventory metadata before joined close.
+Only that fixed report joins CI's structured-observation upload allowlist.
+Synthetic memory objects are sampled directly into private numbered files;
+external stores are untouched. Those nontransactional samples grant no admission,
+capacity or recovery proof. Raw objects, manifests, databases, configuration and
+credentials are excluded from upload. Successful all-disk-loss oracles still
+erase their original voter/cache roots, with no pre-erasure backup.
+
+Affected-target Clippy, formatting/layout, native dependencies and all 44 design
+checks pass. The reviewed baseline changes only the CI anchor among 24 anchors;
+runtime baseline and task/profile acceptance remain unchanged. The
+[qualification record](transition-diagnostics-qualification-2026-11-16.json)
+retains exact source/executable/profile hashes, earlier preflight failure,
+separate intentional erasures and private retention audits. A fresh read-only
+backend check still finds zero available bytes against the unchanged 6 GiB
+reserve, with the same original identity, resources, start and restart count.
+No constrained performance comparison, hosted repair or CG/OPT acceptance follows.
+
 ### Earlier component checkpoints
 
 The explicit SQL read path uses `Database::prepare_read_only` and the existing
