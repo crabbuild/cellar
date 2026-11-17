@@ -7,6 +7,8 @@ use super::*;
 use crate::application::{cell_bindings::Route, HandlerFuture};
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
+use cellar_logic::consensus::{IncarnationId, ProposalId};
+use rand::RngCore as _;
 
 fn retained_bytes(route: &Route) -> anyhow::Result<usize> {
     route
@@ -51,7 +53,15 @@ impl RaftCells {
             let (_, memory) = self.metadata_admission(timeout, retained_bytes(&route)?)?;
             let read = native_queue_query::is_metadata(&admitted.args)?;
             if read {
-                native_queue_query::validate_identity(&admitted.scope, admitted.name.as_deref())?;
+                // Validate bounded private query bytes before a missing name
+                // may create anything. The final read encodes under its own
+                // admission after discovery/enrollment releases this bank.
+                native_queue_query::encode(
+                    &admitted.scope,
+                    admitted.name.as_deref(),
+                    &admitted.args,
+                    route.max_input_bytes,
+                )?;
             }
             drop(memory);
             Ok((route, read))
@@ -93,12 +103,12 @@ impl RaftCells {
                             .await?
                     }
                 };
-                let Some(history) = history else {
-                    // Only a verified absence enters the existing resource
-                    // creation protocol. Errors or a failed read cannot do so.
-                    return owner
-                        .queue_operator_command(admitted, call_scope, deadline)
-                        .await;
+                let history = match history {
+                    Some(history) => history,
+                    // Only fresh, verified absence admits creation. Enrollment
+                    // installs the inspection schema; no metadata command is
+                    // needed after its original minimum is proven.
+                    None => owner.enroll_queue_inspection(&route, deadline).await?,
                 };
                 route.history_hint = Some(history);
                 route.contract = native_queue_query::contract();
@@ -137,5 +147,78 @@ impl RaftCells {
             )
             .await
         })
+    }
+
+    async fn enroll_queue_inspection(
+        &self,
+        route: &Route,
+        deadline: u64,
+    ) -> anyhow::Result<CellHistory> {
+        let remaining = || -> anyhow::Result<Duration> {
+            self.check_open()?;
+            Ok(Duration::from_millis(
+                deadline
+                    .checked_sub(self.handle.domain.mono_ms()?)
+                    .filter(|ms| *ms > 0)
+                    .ok_or(RuntimeError::DeadlineExceeded)?,
+            ))
+        };
+        let (_, _memory) = self.metadata_admission(remaining()?, 8192)?;
+        let mut creation = [0; 16];
+        let mut incarnation = [0; 16];
+        let mut rng = crate::asyncrt::rng("queue-inspection-enrollment");
+        rng.fill_bytes(&mut creation);
+        rng.fill_bytes(&mut incarnation);
+        creation[0] |= 1;
+        incarnation[0] |= 1;
+        let creation = ProposalId::new(creation)?;
+        let candidate = CellHistory {
+            cluster: route.cluster,
+            namespace: route.namespace,
+            cell: route.cell.clone(),
+            incarnation: IncarnationId::new(incarnation)?,
+        };
+        match self
+            .cell(candidate.clone())?
+            .enroll(
+                CellEnrollmentRequest {
+                    creation,
+                    durability: route.durability,
+                },
+                remaining()?,
+            )
+            .await
+        {
+            Ok(proof) => {
+                anyhow::ensure!(
+                    proof.record().cell() == &candidate
+                        && proof.record().creation() == creation
+                        && proof.record().schema() == route.schema
+                        && proof.durability() >= route.durability,
+                    CommandFailure::CorruptState
+                );
+                // Release enrollment output and its physical admission before
+                // the query selects and independently proves its current image.
+                Ok(candidate)
+            }
+            Err(error) => loop {
+                // An unknown creation never permits another candidate or a
+                // command retry. A concurrent creator may own the logical name;
+                // only fresh discovery can select it, then the query rechecks
+                // current history/route/quorum and its own S3 minimum.
+                match super::sql_ingress::ready_name(self, &candidate, deadline).await {
+                    Ok(Some(history)) => return Ok(history),
+                    Ok(None) => (),
+                    Err(_) => return Err(error.into()),
+                }
+                let delay = (remaining()?.as_millis() as u64)
+                    .min(self.handle.core.controller.limits().retry_interval_ms);
+                let now = self.handle.domain.mono_ms()?;
+                self.handle
+                    .domain
+                    .sleep_until(now.saturating_add(delay).min(deadline))?
+                    .await;
+            },
+        }
     }
 }
