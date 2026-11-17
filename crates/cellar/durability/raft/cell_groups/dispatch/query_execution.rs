@@ -229,10 +229,13 @@ impl CellQueryExecution {
                 .await
                 .map_err(CellDispatchError::Runtime)?;
         }
-        // Operator inspection uses the leader's Queue retention policy, just
+        // Queue metadata uses the leader's retention policy, just
         // like its mutating RPCs. A follower's node-local limits may differ.
         // This role check does not replace the fresh quorum authority below.
-        let queue_term = if matches!(self.admission, QueryAdmission::QueueOperator(_)) {
+        let queue_term = if matches!(
+            self.admission,
+            QueryAdmission::QueueOperator(_) | QueryAdmission::QueueMetrics(_)
+        ) {
             let observation = runtime
                 .observe(attempt.route().history)
                 .await

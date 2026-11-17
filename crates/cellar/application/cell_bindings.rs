@@ -312,10 +312,11 @@ enum ReadAccess {
 }
 
 fn read_resource(scope: &str, method: &str) -> bool {
-    scope
-        .split_once(':')
-        .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
-        && super::workflow::read_operation(method).is_some()
+    super::consensus::native_queue_metrics::is_method(scope, method)
+        || (scope
+            .split_once(':')
+            .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
+            && super::workflow::read_operation(method).is_some())
 }
 
 pub(crate) fn resource_rpc(
@@ -420,17 +421,33 @@ fn rpc_read(
                 route.max_input_bytes,
             )?,
             ReadAccess::Resource | ReadAccess::Binding => {
-                super::consensus::native_rpc::encode_request(
-                    name.as_deref(),
-                    &args,
-                    route.max_input_bytes,
-                )?
+                if super::consensus::native_queue_metrics::is_method(&scope, &method) {
+                    super::consensus::native_queue_metrics::encode(
+                        &scope,
+                        name.as_deref(),
+                        &args,
+                        route.max_input_bytes,
+                    )?
+                } else {
+                    super::consensus::native_rpc::encode_request(
+                        name.as_deref(),
+                        &args,
+                        route.max_input_bytes,
+                    )?
+                }
             }
         };
-        // Reads have no remote mutation/intent to reconcile. The same owned I/O
-        // driver proves prior source writes and retains physical read admission.
-        let call =
-            dispatch.schedule_read(move |remaining| source.host.query(route, input, remaining));
+        // Unknown Queue names can require schema genesis. That uses the full
+        // source I/O checkpoint; read-only proof reuse cannot authorize creation.
+        // A captured existing history never enters genesis, even if it later
+        // refuses a query. Neither path allocates a child business sequence.
+        let genesis = super::consensus::native_queue_metrics::is_method(&scope, &method)
+            && route.history_hint.is_none();
+        let call = if genesis {
+            dispatch.schedule_io(move |remaining| source.host.query(route, input, remaining))
+        } else {
+            dispatch.schedule_read(move |remaining| source.host.query(route, input, remaining))
+        };
         Ok((
             call,
             crate::rpc_reservation::Reservation::shared(Arc::new(lease)),

@@ -388,13 +388,16 @@ pub(crate) enum QueryAdmission {
     Public,
     Event(super::Durability),
     QueueOperator(super::Durability),
+    QueueMetrics(super::Durability),
 }
 
 impl QueryAdmission {
     pub(crate) fn minimum(self) -> Option<super::Durability> {
         match self {
             Self::Public => None,
-            Self::Event(minimum) | Self::QueueOperator(minimum) => Some(minimum),
+            Self::Event(minimum) | Self::QueueOperator(minimum) | Self::QueueMetrics(minimum) => {
+                Some(minimum)
+            }
         }
     }
 }
@@ -1526,6 +1529,12 @@ impl RaftClass {
             .map(|_| super::native_queue_query::contract())
     }
 
+    pub(crate) fn queue_metrics_query_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::QUEUE_CLASS
+            && self.binding_contract("__queueMetrics").is_some())
+        .then(super::native_queue_metrics::contract)
+    }
+
     pub(crate) fn validate_query_admission(
         &self,
         contract: &OperationContract,
@@ -1543,6 +1552,12 @@ impl RaftClass {
                 Ok(())
             }
             QueryAdmission::QueueOperator(_) => Err(RegistrationError::ContractMismatch),
+            QueryAdmission::QueueMetrics(_)
+                if self.queue_metrics_query_contract().as_ref() == Some(contract) =>
+            {
+                Ok(())
+            }
+            QueryAdmission::QueueMetrics(_) => Err(RegistrationError::ContractMismatch),
         }
     }
 
@@ -1855,6 +1870,9 @@ impl RaftClass {
                     QueryAdmission::Event(_) => super::native_event_query::invoke(&context, input),
                     QueryAdmission::QueueOperator(_) => {
                         super::native_queue_query::invoke(&context, input)
+                    }
+                    QueryAdmission::QueueMetrics(_) => {
+                        super::native_queue_metrics::invoke(&context, input)
                     }
                 }
             })

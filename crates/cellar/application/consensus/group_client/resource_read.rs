@@ -38,6 +38,12 @@ impl RaftCells {
                 {
                     QueryAdmission::QueueOperator(route.durability)
                 }
+                super::super::CommandAdmission::Public
+                    if class == crate::deploy::QUEUE_CLASS
+                        && route.contract == super::super::native_queue_metrics::contract() =>
+                {
+                    QueryAdmission::QueueMetrics(route.durability)
+                }
                 _ => anyhow::bail!(CommandFailure::UnsupportedCapability),
             };
             if source_proven {

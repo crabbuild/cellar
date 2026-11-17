@@ -13,6 +13,7 @@ enum Family {
     Public,
     Event,
     Queue,
+    QueueMetrics,
 }
 
 pub(in crate::raft) struct CellQueryCall {
@@ -48,6 +49,7 @@ impl CellQueryCall {
             QueryAdmission::Public => b"CLGCQQ01".to_vec(),
             QueryAdmission::Event(_) => b"CLGCEY01".to_vec(),
             QueryAdmission::QueueOperator(_) => b"CLGCQY01".to_vec(),
+            QueryAdmission::QueueMetrics(_) => b"CLGQMY01".to_vec(),
         };
         if let Some(minimum) = self.admission.minimum() {
             if !request.consistency.is_linearizable() {
@@ -109,6 +111,10 @@ impl CellQueryCall {
         Self::decode_inner(bytes, limit, Family::Queue)
     }
 
+    pub fn decode_queue_metrics(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
+        Self::decode_inner(bytes, limit, Family::QueueMetrics)
+    }
+
     fn decode_inner(bytes: &[u8], limit: usize, family: Family) -> Result<Self, TransportError> {
         if bytes.len() > limit {
             return Err(TransportError::Limit);
@@ -118,6 +124,7 @@ impl CellQueryCall {
             Family::Public => b"CLGCQQ01",
             Family::Event => b"CLGCEY01",
             Family::Queue => b"CLGCQY01",
+            Family::QueueMetrics => b"CLGQMY01",
         };
         if body.take(8)? != expected {
             return Err(TransportError::Protocol);
@@ -130,10 +137,11 @@ impl CellQueryCall {
                 1 => cellar_logic::consensus::Durability::S3,
                 _ => return Err(TransportError::Protocol),
             };
-            if matches!(family, Family::Event) {
-                QueryAdmission::Event(minimum)
-            } else {
-                QueryAdmission::QueueOperator(minimum)
+            match family {
+                Family::Event => QueryAdmission::Event(minimum),
+                Family::Queue => QueryAdmission::QueueOperator(minimum),
+                Family::QueueMetrics => QueryAdmission::QueueMetrics(minimum),
+                Family::Public => return Err(TransportError::Protocol),
             }
         };
         let invocation = ProposalId::new(body.array()?).map_err(|_| TransportError::Identity)?;

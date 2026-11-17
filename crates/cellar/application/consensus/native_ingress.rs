@@ -101,7 +101,11 @@ fn submit(
             .split_once(':')
             .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
             && crate::application::workflow::read_operation(&method).is_some();
-        anyhow::ensure!(!resource || read, CommandFailure::UnsupportedCapability);
+        let queue_metrics = super::native_queue_metrics::is_method(&scope, &method);
+        anyhow::ensure!(
+            !resource || read || queue_metrics,
+            CommandFailure::UnsupportedCapability
+        );
         if !resource {
             context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
         }
@@ -168,6 +172,9 @@ fn submit(
         admitted.reservation = admitted
             .reservation
             .with_reply_limit(call_scope.reply_limit());
+        if queue_metrics {
+            return Ok(owner.queue_metrics(admitted, call_scope, deadline, native));
+        }
         Ok(match native {
             Some(configuration) if read => {
                 owner.workflow_read(admitted, call_scope, deadline, configuration)

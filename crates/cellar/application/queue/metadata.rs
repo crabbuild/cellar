@@ -152,3 +152,8 @@ pub(crate) fn read(storage: &Storage, body: &Value) -> Result<Value> {
     let (retention, maximum) = crate::queue_policy::inspection_limits();
     Metadata::new(storage, retention, maximum).read(body, super::now())
 }
+
+pub(crate) fn metrics(storage: &Storage) -> Result<Value> {
+    let (retention, maximum) = crate::queue_policy::inspection_limits();
+    Metadata::new(storage, retention, maximum).metrics(super::now(), false)
+}

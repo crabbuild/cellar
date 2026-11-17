@@ -1178,7 +1178,10 @@ pub async fn qualify_sdk_metadata(real: bool, external: bool) -> Result<()> {
         for source_minimum in [Durability::Quorum, Durability::S3] {
             for target_minimum in [Durability::Quorum, Durability::S3] {
                 let store = Arc::new(if real {
-                    catalog_fault::Store::around(rustfs::store("queue-sdk-metrics", rooted)?)
+                    let purpose = format!(
+                        "queue-sdk-metrics-{source_minimum:?}-{target_minimum:?}-axum-{external}"
+                    );
+                    catalog_fault::Store::around(rustfs::store(&purpose, rooted)?)
                 } else {
                     catalog_fault::Store::default()
                 });
@@ -1242,6 +1245,34 @@ pub async fn qualify_sdk_metadata(real: bool, external: bool) -> Result<()> {
                     let after=query().await?;
                     ensure!(before.version == after.version && before.result == after.result,
                         "stateful/stateless SDK Queue metrics changed its target version or allocator");
+
+                    // Exercise lazy genesis from the source-proof I/O driver,
+                    // independently of the stateless cold-read oracle above.
+                    drop((receipt, replay, recorded));
+                    let fast_id = CellId::new(cellar::engine_api::queue_cell_scope(FAST))?;
+                    ensure!(s.cluster.hosts[0].resolve_cell_history(
+                        s.queue.cluster, s.queue.namespace, fast_id.clone(), QueryOptions::default(),
+                    ).await?.is_none());
+                    let mut second = options(2)?; second.durability = source_minimum;
+                    let cold = source.command(&contract,
+                        serde_json::to_vec(&json!({"queue":"FAST","record":true}))?, second,
+                    ).await?;
+                    ensure!(empty_metrics(serde_json::from_slice(&cold.result)?));
+                    ensure!(cold.durability >= source_minimum);
+                    let fast_history = s.cluster.hosts[0].resolve_cell_history(
+                        s.queue.cluster, s.queue.namespace, fast_id, QueryOptions::default(),
+                    ).await?.context("source metrics enrolled its exact Queue")?;
+                    let fast = s.cluster.hosts[0].cell(fast_history)?;
+                    let fast_state = fast.query(ProposalId::new([236;16])?,
+                        &fast.contract("__sqlIngressSequence")?, 0u64.to_be_bytes().to_vec(), QueryOptions::default(),
+                    ).await?;
+                    ensure!(fast_state.version.sequence.get() == 1 && fast_state.result == unused,
+                        "source-proven cold metrics dispatched a target business command");
+                    let recorded = source.query(ProposalId::new([237;16])?,
+                        &source.contract("MetricsReads")?, vec![], QueryOptions::default(),
+                    ).await?;
+                    ensure!(recorded.result == b"2");
+                    ensure!(s.signals.deliveries.lock().unwrap().is_empty());
 
                     if target_minimum == Durability::S3 {
                         let denied=store.denied_group_archive_writes.load(Ordering::Acquire);

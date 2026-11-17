@@ -10,7 +10,7 @@ use crate::raft::completion::RuntimeError;
 use cellar_logic::consensus::{IncarnationId, ProposalId};
 use rand::RngCore as _;
 
-fn retained_bytes(route: &Route) -> anyhow::Result<usize> {
+pub(super) fn retained_bytes(route: &Route) -> anyhow::Result<usize> {
     route
         .max_input_bytes
         .checked_mul(2)
@@ -86,31 +86,9 @@ impl RaftCells {
                             .ok_or(RuntimeError::DeadlineExceeded)?,
                     ))
                 };
-                let history = match route.history_hint.clone() {
-                    Some(history) => Some(history),
-                    None => {
-                        owner
-                            .locate_resource_history(
-                                route.cluster,
-                                route.namespace,
-                                route.cell.clone(),
-                                QueryOptions {
-                                    timeout: remaining()?,
-                                    ..Default::default()
-                                },
-                                false,
-                            )
-                            .await?
-                    }
-                };
-                let history = match history {
-                    Some(history) => history,
-                    // Only fresh, verified absence admits creation. Enrollment
-                    // installs the inspection schema; no metadata command is
-                    // needed after its original minimum is proven.
-                    None => owner.enroll_queue_inspection(&route, deadline).await?,
-                };
-                route.history_hint = Some(history);
+                owner
+                    .resolve_queue_metadata(&mut route, deadline, false)
+                    .await?;
                 route.contract = native_queue_query::contract();
                 let (_, memory) =
                     owner.metadata_admission(remaining()?, retained_bytes(&route)?)?;
@@ -149,10 +127,61 @@ impl RaftCells {
         })
     }
 
-    async fn enroll_queue_inspection(
+    pub(super) async fn resolve_queue_metadata(
+        &self,
+        route: &mut Route,
+        deadline: u64,
+        source_proven: bool,
+    ) -> anyhow::Result<()> {
+        if source_proven {
+            super::super::require_framework_dispatch()?;
+        }
+        anyhow::ensure!(
+            route.admission == super::super::CommandAdmission::Public
+                && route
+                    .cell
+                    .as_str()
+                    .split_once(':')
+                    .is_some_and(|(class, _)| class == crate::deploy::QUEUE_CLASS),
+            CommandFailure::UnsupportedCapability
+        );
+        self.check_open()?;
+        let remaining = deadline
+            .checked_sub(self.handle.domain.mono_ms()?)
+            .filter(|ms| *ms > 0)
+            .ok_or(RuntimeError::DeadlineExceeded)?;
+        if route.history_hint.is_none() {
+            let observed = self
+                .locate_resource_history(
+                    route.cluster,
+                    route.namespace,
+                    route.cell.clone(),
+                    QueryOptions {
+                        timeout: Duration::from_millis(remaining),
+                        ..Default::default()
+                    },
+                    source_proven,
+                )
+                .await?;
+            // Only a verified fresh absence enters schema genesis. A read has
+            // no target business operation, binding sequence or replay debt.
+            // Enrollment remains independently idempotent and node-owned.
+            route.history_hint = Some(match observed {
+                Some(history) => history,
+                None => {
+                    self.enroll_queue_metadata(route, deadline, source_proven)
+                        .await?
+                }
+            });
+        }
+        Ok(())
+    }
+
+    async fn enroll_queue_metadata(
         &self,
         route: &Route,
         deadline: u64,
+        source_proven: bool,
     ) -> anyhow::Result<CellHistory> {
         let remaining = || -> anyhow::Result<Duration> {
             self.check_open()?;
@@ -180,7 +209,7 @@ impl RaftCells {
         };
         match self
             .cell(candidate.clone())?
-            .enroll(
+            .enroll_direct(
                 CellEnrollmentRequest {
                     creation,
                     durability: route.durability,
@@ -206,7 +235,14 @@ impl RaftCells {
                 // command retry. A concurrent creator may own the logical name;
                 // only fresh discovery can select it, then the query rechecks
                 // current history/route/quorum and its own S3 minimum.
-                match super::sql_ingress::ready_name(self, &candidate, deadline).await {
+                match super::sql_ingress::ready_name_scoped(
+                    self,
+                    &candidate,
+                    deadline,
+                    source_proven,
+                )
+                .await
+                {
                     Ok(Some(history)) => return Ok(history),
                     Ok(None) => (),
                     Err(_) => return Err(error.into()),

@@ -633,6 +633,18 @@ pub(super) async fn ready_name(
     candidate: &CellHistory,
     deadline: u64,
 ) -> anyhow::Result<Option<CellHistory>> {
+    ready_name_scoped(owner, candidate, deadline, false).await
+}
+
+pub(super) async fn ready_name_scoped(
+    owner: &RaftCells,
+    candidate: &CellHistory,
+    deadline: u64,
+    source_proven: bool,
+) -> anyhow::Result<Option<CellHistory>> {
+    if source_proven {
+        super::super::require_framework_dispatch()?;
+    }
     let mut noted = false;
     loop {
         let now = owner.handle.domain.mono_ms()?;
@@ -640,17 +652,29 @@ pub(super) async fn ready_name(
             .checked_sub(now)
             .filter(|remaining| *remaining != 0)
             .ok_or(RuntimeError::DeadlineExceeded)?;
-        let result = owner
-            .resolve_cell_history(
-                candidate.cluster,
-                candidate.namespace,
-                candidate.cell.clone(),
-                QueryOptions {
-                    timeout: Duration::from_millis(remaining),
-                    ..QueryOptions::default()
-                },
-            )
-            .await;
+        let options = QueryOptions {
+            timeout: Duration::from_millis(remaining),
+            ..QueryOptions::default()
+        };
+        let result = if source_proven {
+            owner
+                .resolve_cell_history_direct(
+                    candidate.cluster,
+                    candidate.namespace,
+                    candidate.cell.clone(),
+                    options,
+                )
+                .await
+        } else {
+            owner
+                .resolve_cell_history(
+                    candidate.cluster,
+                    candidate.namespace,
+                    candidate.cell.clone(),
+                    options,
+                )
+                .await
+        };
         match result {
             Err(error)
                 if matches!(

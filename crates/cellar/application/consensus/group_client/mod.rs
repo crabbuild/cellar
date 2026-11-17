@@ -130,6 +130,7 @@ mod names;
 mod node;
 mod observation;
 mod origins;
+mod queue_metrics;
 mod queue_read;
 mod read_admission;
 mod recovery;

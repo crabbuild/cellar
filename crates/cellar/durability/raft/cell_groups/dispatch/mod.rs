@@ -694,6 +694,8 @@ fn fingerprint(
         QueryAdmission::Event(cellar_logic::consensus::Durability::S3) => 2,
         QueryAdmission::QueueOperator(cellar_logic::consensus::Durability::Quorum) => 3,
         QueryAdmission::QueueOperator(cellar_logic::consensus::Durability::S3) => 4,
+        QueryAdmission::QueueMetrics(cellar_logic::consensus::Durability::Quorum) => 5,
+        QueryAdmission::QueueMetrics(cellar_logic::consensus::Durability::S3) => 6,
     }]);
     hash.update(cell_image_history_digest(cell));
     hash.update(limits.timeout.as_nanos().to_be_bytes());

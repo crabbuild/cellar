@@ -735,6 +735,7 @@ fn private_event_commands_bind_purpose_and_refuse_public_command_bodies() {
         "Query",
         "EventQuery",
         "QueueQuery",
+        "QueueMetricsQuery",
         "Command",
         "BindingRetirement",
         "Enrollment",
@@ -818,6 +819,7 @@ fn private_resource_queries_authenticate_purpose_and_minimum_without_public_admi
             for purpose in [
                 "Query",
                 if queue { "EventQuery" } else { "QueueQuery" },
+                "QueueMetricsQuery",
                 "Command",
                 "EventCommand",
                 "Enrollment",
@@ -840,6 +842,77 @@ fn private_resource_queries_authenticate_purpose_and_minimum_without_public_admi
             call.request.consistency = CellQueryConsistency::Stale;
             assert!(call.encode(4096).is_err());
         }
+    }
+}
+
+#[test]
+fn queue_metrics_queries_keep_a_distinct_authenticated_purpose_and_minimum() {
+    use crate::application::consensus::QueryAdmission;
+    use crate::raft::cell_groups::CellQueryConsistency;
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    for minimum in [Durability::Quorum, Durability::S3] {
+        let mut call = cell_call(CellQueryConsistency::Linearizable);
+        assert!(
+            cell::CellQueryCall::decode_queue_metrics(&call.encode(4096).unwrap(), 4096).is_err()
+        );
+        call.admission = QueryAdmission::QueueMetrics(minimum);
+        let bytes = call.encode(4096).unwrap();
+        assert_eq!(
+            cell::CellQueryCall::decode_queue_metrics(&bytes, 4096)
+                .unwrap()
+                .encode(4096)
+                .unwrap(),
+            bytes
+        );
+        assert!(cell::CellQueryCall::decode(&bytes, 4096).is_err());
+        assert!(cell::CellQueryCall::decode_event(&bytes, 4096).is_err());
+        assert!(cell::CellQueryCall::decode_queue(&bytes, 4096).is_err());
+        assert!(cell::CellQueryCall::decode_queue_metrics(&bytes, bytes.len() - 1).is_err());
+        for end in 0..bytes.len() {
+            assert!(cell::CellQueryCall::decode_queue_metrics(&bytes[..end], 4096).is_err());
+        }
+        let route = Route::new_shared(
+            identity(1).node_identity(),
+            "node-1",
+            &identity(2),
+            "node-2",
+            &cell_observation().version.history,
+            [9; 32],
+        )
+        .unwrap()
+        .for_queue_metrics_query()
+        .unwrap();
+        assert!(route.requires_command_grant());
+        assert!(route.is_queue_metrics_query());
+        assert!(!route.is_queue_query() && !route.is_event_query() && !route.is_command());
+        let request = RequestHead::new(route, 4, &bytes);
+        let head = request_head(&auth, &[3; 32], &request, &bytes, &options).unwrap();
+        for purpose in [
+            "Query",
+            "QueueQuery",
+            "EventQuery",
+            "Command",
+            "EventCommand",
+            "Enrollment",
+            "Receipt",
+            "Name",
+        ] {
+            let mut value = serde_json::to_value(&request).unwrap();
+            value["route"]["purpose"] = serde_json::json!(purpose);
+            let changed = FrameHead {
+                prefix: head.prefix,
+                header: serde_json::to_vec(&value).unwrap(),
+                tag: head.tag,
+                payload_len: head.payload_len,
+            };
+            assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+        }
+        let mut corrupt = bytes;
+        corrupt[8] = 9;
+        assert!(cell::CellQueryCall::decode_queue_metrics(&corrupt, 4096).is_err());
+        call.request.consistency = CellQueryConsistency::Stale;
+        assert!(call.encode(4096).is_err());
     }
 }
 
