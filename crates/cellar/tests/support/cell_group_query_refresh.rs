@@ -129,9 +129,25 @@ pub(crate) async fn automatic_queries_finish_catalog_refresh(rooted: bool) -> Re
                 assert_eq!(response.observation().version.history, cell);
                 assert_eq!(response.replica().member, MemberId::new(2)?);
             } else {
+                let error = response.err().context("catalog refusal")?;
                 anyhow::ensure!(
-                    response.is_err(),
-                    "old query crossed a replacement or failed confirmation"
+                    matches!(
+                        (mode, error.as_ref()),
+                        (
+                            1,
+                            CellDispatchError::Routing(CellRoutingError {
+                                reason: CellRoutingFailure::StaleAttempt,
+                                ..
+                            })
+                        ) | (
+                            2,
+                            CellDispatchError::Routing(CellRoutingError {
+                                reason: CellRoutingFailure::Catalog(_),
+                                ..
+                            })
+                        )
+                    ),
+                    "mode {mode}: expected catalog refusal, observed {error}"
                 );
             }
             assert_eq!(
