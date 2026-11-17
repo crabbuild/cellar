@@ -7,6 +7,10 @@ use super::*;
 use cellar::sdk::workflow::{Event, Step, WaitOptions};
 use cellar_native::clone::StructuredValue;
 
+#[path = "cell_group_workflow_lifecycle.rs"]
+mod lifecycle;
+pub use lifecycle::qualify as lifecycle;
+
 fn application(
     signals: Arc<contract::Signals>,
     scheduled: bool,
@@ -222,6 +226,9 @@ async fn workflow(
     steps: Step,
     signals: Arc<contract::Signals>,
 ) -> Result<StructuredValue> {
+    if event.instance_id == "lifecycle" {
+        return lifecycle::workflow(ctx, steps, signals).await;
+    }
     if let Some(schedule) = event.schedule {
         let scheduled = signals.clone();
         let output = steps
@@ -295,6 +302,15 @@ async fn workflow(
 }
 
 async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_json::Value> {
+    call_at(cluster, 0, action, id).await
+}
+
+async fn call_at(
+    cluster: &ManagedCluster,
+    node: usize,
+    action: &str,
+    id: &str,
+) -> Result<serde_json::Value> {
     let started = cellar::asyncrt::mono_ms();
     let response = reqwest::Client::builder()
         .no_proxy()
@@ -302,7 +318,7 @@ async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_
         .build()?
         .get(format!(
             "http://{}/{action}/{id}",
-            cluster.nodes[0].info().public_address
+            cluster.nodes[node].info().public_address
         ))
         .send()
         .await?;
