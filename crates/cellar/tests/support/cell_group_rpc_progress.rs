@@ -125,42 +125,24 @@ pub async fn preparation_one_worker(rooted: bool, store: Arc<catalog_fault::Stor
     run_mode_with_workers(rooted, store, Mode::Preparation, 1).await
 }
 
-pub async fn private_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
-    for checkpoint in [false, true] {
-        run_mode_with_workers(
-            rooted,
-            store.clone(),
-            if checkpoint {
-                Mode::CheckpointPreview
-            } else {
-                Mode::Preview
-            },
-            1,
-        )
-        .await?;
-    }
-    Ok(())
+pub async fn private_preparation(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bool) -> Result<()> {
+    run_mode_with_workers(rooted, store, if checkpoint {
+        Mode::CheckpointPreview
+    } else {
+        Mode::Preview
+    }, 1).await.with_context(|| format!("private image rooted={rooted} checkpoint={checkpoint}"))
 }
 
 pub async fn registered_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     run_mode_with_workers(rooted, store, Mode::RegisteredPreview, 1).await
 }
 
-pub async fn cancelled_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
-    for checkpoint in [false, true] {
-        run_mode_with_workers(
-            rooted,
-            store.clone(),
-            if checkpoint {
-                Mode::CancelledCheckpointPreview
-            } else {
-                Mode::CancelledPreview
-            },
-            1,
-        )
-        .await?;
-    }
-    Ok(())
+pub async fn cancelled_preparation(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bool) -> Result<()> {
+    run_mode_with_workers(rooted, store, if checkpoint {
+        Mode::CancelledCheckpointPreview
+    } else {
+        Mode::CancelledPreview
+    }, 1).await.with_context(|| format!("cancelled private image rooted={rooted} checkpoint={checkpoint}"))
 }
 
 enum Mode {
@@ -416,6 +398,7 @@ async fn run_mode_with_workers(
                     },
                     async {
                         cellar::asyncrt::timeout(TIMEOUT, started).await??;
+                        eprintln!("PRIVATE_IMAGE_PREPARATION_GATE rooted={rooted}");
                         let status = cluster.hosts[0].group(group)?.status().await?;
                         ensure!(status.applied.index == status.committed, "private image reached Raft before its persistence barrier");
                         let response = cellar::asyncrt::timeout(Duration::from_secs(1), source.query(
