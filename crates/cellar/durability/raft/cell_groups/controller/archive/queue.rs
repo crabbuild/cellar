@@ -62,7 +62,10 @@ impl PublicationQueue {
             .iter()
             .position(|group| *group == selected)
             .expect("selected queued archive");
-        let selected = self.groups.remove(position).expect("selected queued archive");
+        let selected = self
+            .groups
+            .remove(position)
+            .expect("selected queued archive");
         self.foreground_turns = if foreground == Some(selected) {
             self.foreground_turns
                 .saturating_add(1)
