@@ -739,8 +739,11 @@ pub(crate) use namespace_host::{
     registration_and_deadline as host_registration_and_deadline,
 };
 
+#[path = "cell_group_query_refresh.rs"]
+mod query_refresh;
 #[path = "cell_group_query_routing.rs"]
 mod query_routing;
+pub(crate) use query_refresh::automatic_queries_finish_catalog_refresh;
 pub(crate) use query_routing::{
     automatic_queries_keep_first_progress, automatic_queries_leave_blocked_local,
     controller_routed_queries,

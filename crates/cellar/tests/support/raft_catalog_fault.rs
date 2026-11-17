@@ -338,6 +338,7 @@ pub struct Store {
     pub view_waiting: AtomicBool,
     pub view_resume: tokio::sync::Notify,
     pub fail_directory_reads: AtomicBool,
+    pub group_head_read: RegistryGate,
     pub hold_group_head_reads: AtomicBool,
     pub active_group_head_reads: AtomicUsize,
     pub group_head_reads_resume: tokio::sync::Notify,
@@ -754,6 +755,9 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().ends_with("/cell-groups/head") {
+            self.group_head_read.pause().await;
+        }
         let gate = self.binding_namespace_reads.lock().unwrap().clone();
         if let Some(gate) = gate.filter(|gate| path.as_ref().contains(&gate.namespace)) {
             gate.wait().await;

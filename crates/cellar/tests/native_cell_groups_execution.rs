@@ -1685,6 +1685,22 @@ async fn rooted_automatic_queries_keep_first_progress_during_failover() -> Resul
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn automatic_queries_join_catalog_refresh_before_first_reply() -> Result<()> {
+    Box::pin(runtime_fixture::automatic_queries_finish_catalog_refresh(
+        false,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn rooted_automatic_queries_join_catalog_refresh_before_first_reply() -> Result<()> {
+    Box::pin(runtime_fixture::automatic_queries_finish_catalog_refresh(
+        true,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn shared_controller_queries_without_local_group_require_grants() -> Result<()> {
     Box::pin(runtime_fixture::nonmember_controller_queries(false)).await
 }
