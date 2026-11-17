@@ -275,8 +275,6 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
     )
 }
 
-/// Configure an owned image; exact receipt replay never samples fresh time.
-/// Creation supplies its captured clock without constructing an activation.
 /// Inspect an exact compiled configuration without opening schema, sampling
 /// time, rearming maintenance or acquiring a command/lease sequence. Genesis
 /// already records this receipt; later configuration still needs a mutation.
@@ -343,6 +341,8 @@ pub(super) fn configuration_receipt_read(
     )
 }
 
+/// Configure an owned image; exact receipt replay never samples fresh time.
+/// Creation supplies its captured clock without constructing an activation.
 pub(super) fn initialize_storage(
     db: &Storage,
     scope: &str,

@@ -1,7 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Event metadata uses immutable strong reads, without enrollment or a
-//! command sequence. All discovery, archive proof and output share one deadline.
+//! Event metadata uses immutable strong reads without a command sequence.
+//! Provisioning may join schema genesis after a full source checkpoint.
+//! All discovery, archive proof and output share one deadline.
 
 use super::super::{native_event_rpc, CommandFailure};
 use super::*;
@@ -142,8 +143,34 @@ impl RaftCells {
         deadline: u64,
         source_proven: bool,
     ) -> HandlerFuture<RpcData> {
-        let read = self.query_resource_after(route, input, deadline, source_proven, None);
-        Box::pin(async move { read.await.map(|(value, _)| value) })
+        let prepared = (|| -> anyhow::Result<_> {
+            if !source_proven || route.history_hint.is_some() {
+                return Ok(false);
+            }
+            super::super::require_framework_dispatch()?;
+            anyhow::ensure!(
+                route.admission == super::super::CommandAdmission::Event
+                    && input.len() <= route.max_input_bytes,
+                CommandFailure::UnsupportedCapability
+            );
+            super::super::native_event_query::broker_genesis(route.cell.as_str(), &input)
+        })();
+        let owner = self.internal_observer();
+        Box::pin(async move {
+            let mut route = route;
+            if prepared? {
+                // Genesis owns only a creation identity. The exact configuration
+                // is read afterwards with fresh quorum and target-minimum proof;
+                // no unused child business sequence can be left behind.
+                owner
+                    .resolve_resource_metadata(&mut route, deadline, true)
+                    .await?;
+            }
+            owner
+                .query_resource_after(route, input, deadline, source_proven, None)
+                .await
+                .map(|(value, _)| value)
+        })
     }
 }
 

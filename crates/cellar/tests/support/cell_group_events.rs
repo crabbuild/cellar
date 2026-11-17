@@ -286,11 +286,15 @@ async fn qualify_host(
         .with_test_writer()
         .try_init();
     for rooted in [false, true] {
-        let label = match (external, target_minimum) {
-            (false, Durability::Quorum) => "events",
-            (true, Durability::Quorum) => "events-axum",
-            (false, Durability::S3) => "events-target-s3",
-            (true, Durability::S3) => "events-axum-target-s3",
+        let label = match (enrollment_only, external, target_minimum) {
+            (true, false, Durability::Quorum) => "events-genesis",
+            (true, true, Durability::Quorum) => "events-axum-genesis",
+            (true, false, Durability::S3) => "events-genesis-target-s3",
+            (true, true, Durability::S3) => "events-axum-genesis-target-s3",
+            (false, false, Durability::Quorum) => "events",
+            (false, true, Durability::Quorum) => "events-axum",
+            (false, false, Durability::S3) => "events-target-s3",
+            (false, true, Durability::S3) => "events-axum-target-s3",
         };
         let store = Arc::new(if real_rustfs {
             catalog_fault::Store::around(rustfs::store(label, rooted)?)

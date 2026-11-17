@@ -135,6 +135,7 @@ mod queue_read;
 mod read_admission;
 mod recovery;
 mod repair;
+mod resource_genesis;
 mod resource_read;
 mod scoped_dispatch;
 mod services;

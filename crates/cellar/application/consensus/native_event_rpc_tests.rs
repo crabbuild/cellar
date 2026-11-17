@@ -124,6 +124,76 @@ fn configuration_probe_refuses_other_methods_authority_and_truncated_headers() -
     Ok(())
 }
 
+#[test]
+fn broker_receipt_genesis_requires_exact_provisioning_wire_before_creation() -> Result<()> {
+    use super::super::native_event_query::broker_genesis;
+    use base64::Engine as _;
+
+    let definition = definition();
+    let scope = event_stream::cell_scope(&definition.resource)?;
+    let name = event_stream::cell_name(&definition.resource)?;
+    let caller = event_stream::Authority::deployment("shop", &definition)?;
+    let body = serde_json::json!({
+        "operation": event_stream::raft::operation("shop", &definition)?,
+        "definition": base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&definition)?),
+    });
+    let wire = |method: &str, caller: event_stream::Authority, body: serde_json::Value| {
+        encode(
+            &scope,
+            Some(&name),
+            method,
+            Authority::Event(caller),
+            &RpcData::Json(serde_json::json!([body]).to_string()),
+            256 << 10,
+        )
+    };
+    let input = wire("__streamConfigureReceipt", caller.clone(), body.clone())?;
+    assert!(broker_genesis(&scope, &input)?);
+    for end in [0, 8, input.len() - 1] {
+        assert!(broker_genesis(&scope, &input[..end]).is_err());
+    }
+    let ordinary: event_stream::Authority = serde_json::from_value(serde_json::json!({
+        "resource":definition.resource,"principal":"shop","grant":"owner","action":"Configure",
+    }))?;
+    assert!(broker_genesis(
+        &scope,
+        &wire("__streamConfigureReceipt", ordinary.clone(), body.clone())?
+    )
+    .is_err());
+    for invalid in [
+        serde_json::json!({}),
+        serde_json::json!({"operation":"a".repeat(32), "definition":body["definition"]}),
+        serde_json::json!({"operation":body["operation"], "definition":"!invalid"}),
+        serde_json::json!({"operation":body["operation"], "definition":"x".repeat(128 << 10)}),
+    ] {
+        assert!(broker_genesis(
+            &scope,
+            &wire("__streamConfigureReceipt", caller.clone(), invalid)?
+        )
+        .is_err());
+    }
+    let mut other = definition.clone();
+    other.resource.id = "00000000000000000000000000000002".into();
+    let foreign = serde_json::json!({
+        "operation":event_stream::raft::operation("shop", &other)?,
+        "definition":base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&other)?),
+    });
+    assert!(broker_genesis(
+        &scope,
+        &wire("__streamConfigureReceipt", caller.clone(), foreign)?
+    )
+    .is_err());
+    for method in ["__streamResolve", "__streamRead"] {
+        assert!(!broker_genesis(
+            &scope,
+            &wire(method, ordinary.clone(), body.clone())?
+        )?);
+    }
+    let command = wire("__streamConfigure", caller, body)?;
+    assert!(!broker_genesis(&scope, &command)?);
+    Ok(())
+}
+
 #[tokio::test]
 async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result<()> {
     use cellar_logic::{

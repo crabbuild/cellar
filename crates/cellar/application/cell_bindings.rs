@@ -437,12 +437,14 @@ fn rpc_read(
                 }
             }
         };
-        // Unknown Queue names can require schema genesis. That uses the full
-        // source I/O checkpoint; read-only proof reuse cannot authorize creation.
-        // A captured existing history never enters genesis, even if it later
-        // refuses a query. Neither path allocates a child business sequence.
-        let genesis = super::consensus::native_queue_metrics::is_method(&scope, &method)
-            && route.history_hint.is_none();
+        // Unknown Queue names and broker provisioning receipts can require
+        // schema genesis. Creation needs the full source I/O checkpoint;
+        // read-only proof reuse cannot authorize it. A captured existing history
+        // never enters genesis. Neither path allocates a child business sequence.
+        let genesis = route.history_hint.is_none()
+            && (super::consensus::native_queue_metrics::is_method(&scope, &method)
+                || (route.admission == super::consensus::CommandAdmission::Event
+                    && super::consensus::native_event_query::broker_genesis(&scope, &input)?));
         let call = if genesis {
             dispatch.schedule_io(move |remaining| source.host.query(route, input, remaining))
         } else {

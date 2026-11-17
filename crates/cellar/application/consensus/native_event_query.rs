@@ -24,6 +24,25 @@ pub(crate) fn is_metadata(method: &str) -> bool {
     )
 }
 
+/// Only a host provisioning receipt may lazily initialize a broker. Validate
+/// its bounded definition, exact operation and target before creation; ordinary
+/// metadata reads retain their missing-name refusal.
+pub(crate) fn broker_genesis(scope: &str, input: &[u8]) -> anyhow::Result<bool> {
+    let request = native_event_rpc::decode(scope, input)?;
+    if request.method != "__streamConfigureReceipt" {
+        return Ok(false);
+    }
+    let native_event_rpc::Authority::Event(caller) = request.authority else {
+        anyhow::bail!(super::CommandFailure::UnsupportedCapability);
+    };
+    event_stream::raft::validate_broker_genesis(
+        scope,
+        &caller,
+        &event_stream::broker::body(&request.rpc.args)?,
+    )?;
+    Ok(true)
+}
+
 /// Only a coherent selected receipt's typed absence permits a configuration
 /// mutation. Malformed responses and proof/authorization failures remain errors.
 pub(crate) fn configuration_operation_absent(
