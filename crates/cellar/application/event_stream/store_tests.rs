@@ -305,6 +305,9 @@ async fn broker_configuration_receipt_preserves_state_and_requires_exact_authori
         let encoded = serde_json::to_vec(&definition)?;
         let digest = hex::encode(Sha256::digest(&encoded));
         db.system_sql("UPDATE __sys_stream SET config_operation=?,config_digest=?", &[operation.clone().into(),digest.clone().into()])?;
+        // This older retention fixture inserts a synthetic cursor. Configuration
+        // updates require its start policy to use the real initializer's codec.
+        db.system_sql("UPDATE __sys_stream_subscriptions SET start=?", &[serde_json::to_string(&definition.subscriptions[0].start)?.into()])?;
         let body = json!({"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(encoded)});
         let read = |caller: &Authority, body: &Value| super::super::metadata::read(
             &db, &scope, "__streamConfigureReceipt",

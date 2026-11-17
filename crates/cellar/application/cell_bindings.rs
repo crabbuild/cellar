@@ -542,10 +542,7 @@ pub(crate) fn event_rpc(
                 Err(error)
                     if super::consensus::native_event_query::configuration_target_missing(
                         &error,
-                    ) =>
-                {
-                    ()
-                }
+                    ) => {}
                 Err(error) => return Err(error),
             }
             rpc_admitted(
