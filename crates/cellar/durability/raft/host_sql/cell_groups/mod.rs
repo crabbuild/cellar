@@ -387,6 +387,8 @@ pub struct CellSqlUsage {
     pub running_workers: usize,
     pub worker_capacity: usize,
     pub queued_or_running: usize,
+    /// Reserved progress lanes, retained through queued and physical apply.
+    /// The independent apply bank counts individual retained operations.
     pub completion_reservations: usize,
 }
 

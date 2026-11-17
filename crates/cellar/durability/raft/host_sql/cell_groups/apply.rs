@@ -18,14 +18,15 @@ pub(in crate::raft::host_sql) struct ApplyRequest {
     applier: CellGroupApplier,
     work: CellGroupApply,
     reply: oneshot::Sender<Result<CellGroupPreparedApply, ExecutionError>>,
-    _slot: Option<tokio::sync::OwnedSemaphorePermit>,
+    _slot: Arc<tokio::sync::OwnedSemaphorePermit>,
+    _queued_slot: Option<tokio::sync::OwnedSemaphorePermit>,
     queued: crate::raft::performance::Timer,
 }
 
 /// Physical apply retains its independent byte/item admission until joined and
-/// delivered. The completion semaphore reserves only its SQL-owner queue entry;
-/// dequeuing releases that slot so unrelated groups can enter the existing apply
-/// budget while earlier file I/O is blocked. Task metadata is bounded too.
+/// delivered. A shared completion-lane lease survives physical work. Dequeue
+/// releases only its one-entry queue permit, so unrelated groups can enter the
+/// existing apply bank while earlier I/O is blocked. Task metadata is bounded too.
 pub(in crate::raft::host_sql) struct ApplyTasks {
     tasks: FuturesUnordered<crate::asyncrt::TaskHandle<()>>,
     capacity: usize,
@@ -76,7 +77,7 @@ impl ApplyTasks {
                 Poll::Pending => std::thread::park(),
             }
         }
-        request._slot.take();
+        request._queued_slot.take();
         let owner = domain.clone();
         self.tasks.push(
             domain
@@ -174,11 +175,7 @@ impl CellGroupSqlPool {
         ) % self.inner.workers.len() as u64;
         let worker = &self.inner.workers[index as usize];
         worker.domain.mono_ms().map_err(|_| unavailable())?;
-        let slot = worker
-            .completion_slots
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| overloaded())?;
+        let (slot, queued_slot) = worker.completion_slots.acquire()?;
         self.admit()?;
         let (reply, wait) = oneshot::channel();
         worker
@@ -188,7 +185,8 @@ impl CellGroupSqlPool {
                 applier: applier.clone(),
                 work,
                 reply,
-                _slot: Some(slot),
+                _slot: slot,
+                _queued_slot: Some(queued_slot),
                 queued: worker
                     .performance
                     .timer(crate::raft::performance::Operation::SqlQueue),

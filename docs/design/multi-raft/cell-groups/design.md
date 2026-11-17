@@ -167,6 +167,14 @@ apply prefix, snapshot/archive jobs and topology transitions. A cell owns receip
 admission, private execution, pending proposal, image/query pins and effect state.
 The node owns log engine, extent store, transport, SQL worker pool and global quotas.
 
+Physical image and manifest apply runs in execution-domain blocking work under
+the independent apply byte/item bank and controller concurrency. Each SQL owner
+keeps one reserved progress lane while queued or physical apply uses it, with
+one queued apply envelope and bounded live task handles. Its callbacks continue
+while file I/O is pending. Shutdown joins all physical apply before releasing
+SQLite owners or the SQL-pool lease. Durable publication and acknowledgment
+retain the same barriers and complete-prefix checks.
+
 One unresolved data proposal per cell is sufficient initially. Prepare different
 cells concurrently through fair queues; serialize publication by group log index.
 No slow callback or image preparation runs on the consensus tick loop. Group/node
