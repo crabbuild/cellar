@@ -249,7 +249,7 @@ impl CellQueryExecution {
         };
         let trace_event = matches!(self.admission, QueryAdmission::Event(_));
         if trace_event {
-            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-authority-start", invocation=?self.request.invocation, cell=%cell.cell, minimum=?self.admission.minimum());
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-authority-start", invocation=?self.request.invocation, cell=%cell.cell.as_str(), minimum=?self.admission.minimum());
         }
         let authority = runtime
             .read_authority(
@@ -264,7 +264,7 @@ impl CellQueryExecution {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
         if trace_event {
-            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-authority-ready", invocation=?self.request.invocation, cell=%cell.cell, version=authority.cell().version.sequence.get());
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-authority-ready", invocation=?self.request.invocation, cell=%cell.cell.as_str(), version=authority.cell().version.sequence.get());
         }
         let mut selected = sql
             .query_registered_retained(
@@ -294,7 +294,7 @@ impl CellQueryExecution {
                 }
             })?;
         if trace_event {
-            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-image-ready", invocation=?self.request.invocation, cell=%cell.cell, version=selected.observation().version.sequence.get());
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-image-ready", invocation=?self.request.invocation, cell=%cell.cell.as_str(), version=selected.observation().version.sequence.get());
         }
         if let Some(term) = queue_term {
             let observation = runtime

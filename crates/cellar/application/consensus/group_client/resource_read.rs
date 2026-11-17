@@ -68,7 +68,7 @@ impl RaftCells {
             let operation = async {
                 let trace_event = matches!(admission, QueryAdmission::Event(_));
                 if trace_event {
-                    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="resource-start", invocation=?invocation, cell=%route.cell, hinted=route.history_hint.is_some(), after=after.is_some(), remaining=deadline.saturating_sub(owner.handle.domain.mono_ms()?));
+                    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="resource-start", invocation=?invocation, cell=%route.cell.as_str(), hinted=route.history_hint.is_some(), after=after.is_some(), remaining=deadline.saturating_sub(owner.handle.domain.mono_ms()?));
                 }
                 let mut backoff_ms = 10;
                 loop {
