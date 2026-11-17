@@ -116,8 +116,12 @@ On shared-group durability, authenticated `info` and `peek` inspect an existing
 Queue through a private linearizable query. They preserve its committed version
 and ingress allocator and never install work, expire leases or invoke a native
 factory. Pause, resume, purge and redrive retain their command/receipt path.
-Only a verified fresh name absence may enter the ordinary creation protocol;
-a read or discovery failure cannot select that path.
+Only verified fresh name absence may enroll a missing Queue at its declared
+minimum. Enrollment output is released before independently proving the query's
+selected image; cold inspection consumes no ingress command or sequence. An
+unknown enrollment retains its original candidate/creation and can only join a
+freshly discovered history. A read or discovery failure cannot create another
+candidate. Input bounds and identity are validated before creation.
 
 Inspection uses the leader's node-local Queue limits and rejects a leadership
 or term change across SQL selection. It still obtains fresh quorum authority.
@@ -150,18 +154,19 @@ remain mandatory; authority waiting never authorizes callback replay.
 
 ## Qualification and remaining scope
 
-Runtime `ca4bffb71` closes the archive journal's concurrent stat/open race while
-retaining bounds, identity, receipt/coverage and live serving checks. All six
-journal tests and the native Queue claim/lease proof case pass. The RustFS proof
-selection still fails before its gate while warming a cold S3-minimum DLQ:
-binding command **1** has an unknown deadline outcome. Real-RustFS Queue load
-passes both image formats, delivering **528 unique messages each**. Native
-materialized mode also delivers 528; native extent producer command **6** expires
-ambiguously. The earlier eight leased messages and other unknown producer/
-binding identities remain unresolved. These results do not close full Queue
-compatibility; see the
+Runtime `bef322b4a` serves cold operator inspection directly from the enrolled
+image: all **eight native/RustFS image/minimum configurations** pass the unused
+ingress-sequence and enrollment-version oracle. Both original claim/lease proof
+selections now pass, including cold S3 DLQ onboarding. Original Queue cohort 1032
+is still **FAILED, 9/14**. All three ordinary native/RustFS/Axum extent lifecycles
+fail on parent client 47, command **2**, which calls SDK `Queue.metrics()` on the
+DLQ. This distinct SDK path still uses a command for a metadata-only handler and
+needs the source-proven read adapter. Native load producer **26** and RustFS
+extent producer **22** expire ambiguously; RustFS materialized mode delivers
+**528 unique messages**. Earlier leased messages and unknown identities remain.
+These results do not close full Queue compatibility; see the
 [current checkpoint](progress.md#current-integration-checkpoint) for exact scope,
-failed controls and the next onboarding/producer/claim/callback settlement work.
+failed controls and the next SDK-read/producer/claim/callback settlement work.
 
 
 The [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness)

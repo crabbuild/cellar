@@ -57,39 +57,45 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Runtime `ca4bffb71` closes the concrete archive journal
-stat/open race: a reader bounds one immutable opened generation, with exact
-identity/canonical checks and all archive coverage/serving fences retained.
-**Six journal tests pass**, including deterministic real-filesystem publication
-before/after open and invalid lengths/identities. Baseline `b9a35f5b` fails the
-unchanged complete-generation test with the production error. Bounded, joined
-private-image preparation and immutable Queue inspection remain in place;
+latest main `16c45b266`. Runtime `bef322b4a` closes cold authenticated Queue
+inspection's unnecessary post-enrollment command. Fresh verified absence may
+enroll at the declared minimum, then an immutable query independently proves its
+selected image. Unknown creation retains one identity and may join only fresh
+name discovery. **All eight native/RustFS image/minimum configurations pass**:
+enrollment version 1 and ingress sequence 1 remain unchanged. Baseline `dacd78e11`
+fails the byte-identical regression. Three private wire/admission units pass.
+Journal snapshots and bounded joined private-image preparation remain in place;
 private writer opening and enrollment still use the SQL worker.
 
-**Original proof/archive controls 1013 are FAILED, 11/12.** The native Queue
-claim/lease proof case now passes, along with all ten native/RustFS archive safety
-controls. RustFS Queue proof still fails before its proof gate while warming the
-cold DLQ at its declared minimum: binding command **1** expires ambiguously.
+**Original Queue cohort 1032 is FAILED, 9/14.** Read version/allocator preservation,
+fresh-quorum and S3 refusal, both claim/lease proof selections and Fleet
+conformance pass. This includes the original RustFS cold S3 DLQ warm-up that
+failed in 1013. Three ordinary native/RustFS/Axum extent lifecycles fail on parent
+client **47**, command **2**: SDK `Queue.metrics()` against the DLQ. Its metadata-only
+handler still uses the command path. Native load producer **26** expires before
+a completion marker; RustFS materialized load delivers **528 unique messages**,
+then extent producer **22** expires. Those timed-out calls retain unknown outcomes.
 
-**Original public cohort 1015 is FAILED, 8/16.** SDK source proof/history,
-registration and Fleet pass. **Real RustFS Queue load passes both image formats,
-528 unique messages per format.** Native materialized load also delivers 528;
-native extent producer command **6** expires ambiguously. One native-ingress
-RustFS EventStream lifecycle passes; the other seven EventStream selections fail
-activation or ambiguous Consume **2**. Earlier ambiguous identities and the
-deadline-control queue-count failure remain open. Assertions and budgets are
-unchanged; a fresh pass does not resolve an earlier unknown command.
+The last complete public cohort, 1015 at `ca4bffb71`, remains **FAILED, 8/16**,
+before this Queue-only feature. Seven EventStream paths failed activation or
+Consume **2** there; they were not rerun here. Earlier ambiguous identities,
+leased messages and the deadline-control queue-count failure remain open. A fresh
+pass does not resolve an earlier unknown command. Original assertions, budgets,
+quotas and durability minima remain unchanged.
 
 The next feature priorities are:
 
-1. Close cold S3 Queue onboarding and native extent producer settlement within
-   their original budgets. Reconcile binding **1** and producer **6** using their
-   exact histories and receipts; preserve prior unknown commands. The journal
-   race is fixed, but it was not established as every timeout's cause.
-2. Close exact Queue claim/lease/callback settlement and autonomous drain.
-   Reconcile the earlier eight leased identities and completion receipts, then
-   qualify the combined proof/load paths. A RustFS load pass is not full Queue
-   support, and opening/enrollment still occupy the shared SQL worker.
+1. Implement the actual SDK Queue metrics read adapter. Preserve source
+   checkpointing, declared-binding authorization, independent target S3 minima,
+   private query admission, current policy/term fences and cold-resource
+   semantics. Lock down target-version preservation before rerunning the three
+   original lifecycle failures. The extra metadata command is established;
+   it is not yet proven to cause every observed deadline.
+2. Close exact Queue producer/claim/lease/callback settlement and autonomous
+   drain under the original budgets. Reconcile producer **26/native** and
+   **22/RustFS** and the earlier leased identities using exact histories and
+   receipts. Preserve all unknown commands. Opening/enrollment still occupy the
+   shared SQL worker; locate actual blocking work before further optimization.
 3. Close EventStream activation and Consume/source settlement under the original
    budgets, including independent S3 minima. Finish autonomous interrupted
    binding recovery and safe unused-sequence sealing, then the remaining
@@ -98,18 +104,17 @@ The next feature priorities are:
    qualification, then CG-16 cutover. Resolve the deadline-control queue-count
    contract without suppressing its failure or weakening callback/ownership checks.
 
-Unit 1011 and public 1015 record empty compiler pre/postflight snapshots; baseline
-1007 and proof 1013 observe independent compilation and remain diagnostic. No
-isolated load timing, exclusive cause, full-family or release acceptance is
-claimed. Voters share one process/separate workspace disks, RustFS1CPU2GiB.
-Locked build, strict library/all-test Clippy and repository checks pass, with
-normal incremental compilation disabled and original assertions enabled. The
-owned backend/VM are stopped, objects retained. All **27 current qualification
-failure disks** and earlier failures remain. Counts stay **13/17 tasks, 147/195
-cases**; generated index current, historical CG-01 evidence missing. Aggregate
-1017 records source, artifact/log hashes and byte-identical regression/load
-boundaries. See the preceding private-image checkpoint for its scoped 24
-configurations and failed cohorts 991/993.
+Cohort 1032 records independent compilation at preflight and an empty postflight;
+it remains diagnostic. No isolated load timing, stability, exclusive cause,
+full-family or release acceptance is claimed. Voters share one process/separate
+workspace disks, RustFS1CPU2GiB. Locked build, strict library/all-test Clippy and
+repository checks pass, with normal incremental compilation disabled and original
+assertions enabled. The owned backend/VM are stopped, objects retained. All
+**18 failure disks** from this turn's baseline and qualification, plus earlier
+failures, remain. Counts stay **13/17 tasks, 147/195 cases**; generated index
+current, historical CG-01 evidence missing. Aggregate 1036 records source,
+artifact/log hashes and byte-identical regression/load boundaries. Previous
+journal/private-image checkpoints retain their scoped results and failed cohorts.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for

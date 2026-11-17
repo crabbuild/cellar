@@ -43,6 +43,16 @@ catalog revision floor, deadline and attempt bank. Incoming RPCs execute locally
 and cannot forward again. Receipt absence remains ambiguous and releases no
 original producer.
 
+Authenticated Queue `info`/`peek` use immutable linearizable inspection. Fresh
+verified name absence may enroll the Queue at its declared minimum, then release
+enrollment output before independently proving the query's selected image.
+Cold inspection leaves the ingress command sequence unused. Unknown creation keeps
+its original candidate and can only join a freshly discovered history; discovery
+failure cannot create another candidate. Wire bounds, current Queue policy/term,
+Quorum/S3 minima and the original absolute deadline still apply. SDK Queue
+`metrics()` currently retains its separate command adapter; its read cutover is
+tracked in the cell-group remaining work.
+
 The joined managed directory worker discovers one selected group per namespace
 turn. Its advisory cache shares the transport route limit. Discovery grants no
 namespace read/write permission or engine ownership. An admitted local engine

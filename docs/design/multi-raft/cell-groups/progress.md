@@ -29,6 +29,66 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `bef322b4a` serves cold authenticated
+Queue `info`/`peek` by enrollment followed by an immutable query.** Fresh verified
+absence may enter the existing enrollment protocol at the declared minimum.
+Success checks its exact creation, history, schema and durability, then releases
+enrollment output before the query independently proves its selected image.
+No inspection command or ingress sequence is consumed. Input bounds and identity
+are checked before creation. Unknown enrollment retains one candidate/creation;
+only fresh discovery can join an existing name, without retransmitting a new
+creation or business command. Original admission, deadlines and serving fences
+remain; mutating operators retain their command/receipt path.
+
+**Both new selectors pass all eight native/real-RustFS image/minimum
+configurations.** Cold `info` and `peek` preserve enrollment version 1 and leave
+ingress sequence 1 unused. Baseline `dacd78e11` fails that exact semantic oracle;
+all three fixture files are byte-identical on final source. Three owning private
+query wire/admission units also pass.
+
+**Original Queue cohort 1032 is FAILED, 9/14.** Version/allocator preservation,
+fresh-quorum refusal, selected S3 coverage/refusal and Fleet conformance pass.
+Both native and RustFS claim/lease proof selections pass, including the original
+cold S3 DLQ warm-up that failed in 1013. This closes the selected control, not an
+earlier command's unknown outcome or every timing failure.
+
+Three ordinary native/RustFS/Axum lifecycle selections fail in extents on parent
+client **47**, command **2**, with an ambiguous deadline. The unchanged fixture
+maps this call to SDK `Queue.metrics()` against the DLQ after delivery/retry.
+That SDK API still invokes `__queueMetrics` through a command, although its broker
+handler only reads metadata; it is distinct from the operator path fixed here.
+Native load fails producer **26** before a completion marker. RustFS materialized
+load delivers **528 unique messages**, then extent producer **22** expires
+ambiguously. The original load body remains byte-identical to published
+`3445aa7fe`; the ordinary lifecycle body is unchanged from `9c28031f2`.
+
+The latest complete public cohort remains 1015 at `ca4bffb71`, **FAILED, 8/16**,
+before this Queue-only feature. EventStream was not rerun here. No full primitive
+family or independent-voter release gate is accepted. Independent compilation is
+recorded at cohort preflight; postflight is empty. Results are diagnostic and
+establish no isolated latency, stability or exclusive timing cause. Voters share
+one process/separate workspace disks; new cold cases use one SQL worker and eight
+ordinary slots. RustFS uses one CPU/two GiB. Owning fixture limits are unchanged.
+
+Locked library/integration build, strict library/all-test Clippy, formatting,
+layout, native dependency, documentation and generated-plan checks pass. Normal
+`CARGO_INCREMENTAL=0`, test optimization 1, debug assertions and overflow checks
+remain. A missing test re-export was corrected before the semantic baseline;
+its failed build is retained. All **18 failure disks** from this turn's baseline
+and qualification, plus earlier failures and unknown identities, remain.
+Ignored aggregate 1036 under `.cellar/cg17-payload-01/` verifies source,
+executable/log hashes, fixture fidelity and metrics. Owned RustFS/VM are stopped
+with objects retained.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next implement the actual SDK
+Queue metrics read adapter with source checkpointing, declared-binding authority,
+independent target minima and cold-resource semantics. Then close exact producer/
+claim/callback settlement, EventStream activation/Consume and autonomous binding
+recovery/sealing, followed by the full primitive/recovery/release matrix. The
+generated plan is current; historical CG-01 evidence remains missing.
+
+## Previous archive journal snapshot checkpoint
+
 Latest main `16c45b266` is included. **Runtime `ca4bffb71` reads one complete
 archive journal generation across concurrent atomic publication.** Publication
 already writes and syncs an immutable file, renames it and syncs its directory.
