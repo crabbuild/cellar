@@ -150,6 +150,15 @@ An ambiguous submitted command is retried only with its original cell-scoped
 command identity. An unavailable catalog may prevent births
 and topology changes; it does not turn a known group's write path into S3 quorum.
 
+Automatic immutable reads keep the first destination's work alive under the
+original deadline while a serial fallback lane tries trusted replicas. At most
+two waiters run concurrently and every attempt consumes the same finite ticket
+bank. Captured input and invocation admission are shared; physical SQL, transport
+and archive work retain their existing bounded reservations until joined. Each
+destination independently proves the requested consistency and durability. A
+late first result must still match the invocation's currently selected route;
+an observed successor, incomplete refresh or expired deadline refuses it.
+
 ## Runtime and persistence
 
 Split the current host's combined `Cell` owner into a group owner and bounded cell

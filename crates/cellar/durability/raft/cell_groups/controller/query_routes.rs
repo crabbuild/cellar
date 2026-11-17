@@ -13,6 +13,25 @@ use crate::raft::transport::TransportError;
 use cellar_logic::consensus::{CommandFailure, MemberId};
 use std::time::Duration;
 
+enum QueryWinner {
+    Primary(Result<CellQueryResponse, Error>),
+    Fallback(Result<CellQueryResponse, Error>),
+}
+
+// Exhausting fallback tickets or its deadline never invalidates an outstanding
+// first read. Catalog fences and other terminal failures still refuse at once.
+fn wait_for_primary(error: &Error) -> bool {
+    retryable(error)
+        || matches!(
+            error,
+            Error::Routing(crate::raft::cell_groups::CellRoutingError {
+                reason: crate::raft::cell_groups::CellRoutingFailure::AttemptsExhausted
+                    | crate::raft::cell_groups::CellRoutingFailure::Deadline,
+                ..
+            })
+        )
+}
+
 struct Destination<'a> {
     runtime: &'a CellGroupRuntime,
     sql: &'a CellGroupSqlPool,
@@ -135,8 +154,164 @@ impl Destination<'_> {
         options: CellSqlOptions,
         permit: Arc<admission::Retention>,
     ) -> Result<CellQueryResponse, Error> {
-        let mut previous = None;
-        let mut next_member = 0;
+        let attempt = invocation
+            .attempt()
+            .ok_or(Error::Invalid("missing route"))?;
+        let route = attempt.route().clone();
+        let ordinal = usize::from(attempt.ordinal());
+        let members = self
+            .members(
+                &route,
+                invocation.maximum_attempts(),
+                invocation.deadline_ms(),
+            )
+            .await?;
+        if members.len() < 2 || ordinal >= invocation.maximum_attempts() {
+            return self
+                .automatic_from(invocation, options, permit, None, 0)
+                .await;
+        }
+        let now = self
+            .shared
+            .domain
+            .mono_ms()
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+        let tickets = (invocation.maximum_attempts() - ordinal + 1).min(members.len());
+        let delay = (invocation.deadline_ms().saturating_sub(now) / tickets as u64).max(1);
+        let timer = self
+            .shared
+            .domain
+            .sleep_until(now.saturating_add(delay))
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+        // Consume one original ticket. Its immutable request/admission are shared,
+        // never a copied retry bank. The first reader keeps the original deadline
+        // while a bounded serial fallback lane can rescue a stalled replica.
+        let execution = invocation.take_execution()?;
+        let first_attempt = execution.attempt().clone();
+        let mut primary =
+            Box::pin(self.execute_snapshot(execution, members[0], options.clone(), permit.clone()));
+        let first = crate::asyncrt::select! {
+            result = primary.as_mut() => Some(result),
+            _ = timer => None,
+        };
+        let outcome = {
+            let mut fallback = Box::pin(async {
+                invocation.retry().await?;
+                invocation.validate_minimum().await?;
+                self.automatic_from(invocation, options, permit, Some(route.history), 1)
+                    .await
+            });
+            match first {
+                Some(Err(error)) if retryable(&error) => QueryWinner::Fallback(fallback.await),
+                Some(result) => QueryWinner::Primary(result),
+                None => crate::asyncrt::select! {
+                    result = primary.as_mut() => {
+                        match result {
+                            Err(error) if retryable(&error) => QueryWinner::Fallback(fallback.await),
+                            result => QueryWinner::Primary(result),
+                        }
+                    }
+                    result = fallback.as_mut() => {
+                        if result.as_ref().err().is_some_and(wait_for_primary) {
+                            QueryWinner::Primary(primary.await)
+                        } else {
+                            QueryWinner::Fallback(result)
+                        }
+                    }
+                },
+            }
+        };
+        match outcome {
+            QueryWinner::Primary(result) => {
+                let response = result?;
+                // A fallback may have refreshed to a successor. An older read
+                // cannot escape a newly observed route/fence or expired session.
+                invocation.validate_query_result(&first_attempt)?;
+                Ok(response)
+            }
+            QueryWinner::Fallback(result) => result,
+        }
+    }
+
+    async fn members(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        maximum: usize,
+        deadline: u64,
+    ) -> Result<Vec<MemberId>, Error> {
+        // Retained obsolete logs are physical debt, not serving replicas.
+        let local = match self.runtime.log().cell_group(&route.history) {
+            Ok(group)
+                if self
+                    .shared
+                    .groups
+                    .contains(&route.history)
+                    .map_err(Error::Runtime)? =>
+            {
+                Some(group.identity().member)
+            }
+            Ok(_) | Err(LogError::NotFound) => None,
+            Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
+        };
+        if let Some(local) = local {
+            let mut members = vec![local];
+            match self.transport.cell_query_members(route, maximum) {
+                Ok(peers) => {
+                    for peer in peers {
+                        if !members.contains(&peer) {
+                            members.push(peer);
+                        }
+                    }
+                }
+                Err(TransportError::UnknownGroup) => (),
+                Err(error) => return Err(Error::Transport(error)),
+            }
+            Ok(members)
+        } else {
+            self.router_members(route, maximum, deadline).await
+        }
+    }
+
+    async fn execute_snapshot(
+        &self,
+        mut execution: crate::raft::cell_groups::dispatch::CellQueryExecution,
+        member: MemberId,
+        options: CellSqlOptions,
+        permit: Arc<admission::Retention>,
+    ) -> Result<CellQueryResponse, Error> {
+        if self.local_destination(execution.attempt(), member).await? {
+            if !self
+                .shared
+                .groups
+                .contains(&execution.attempt().route().history)
+                .map_err(Error::Runtime)?
+            {
+                return Err(Error::Runtime(RuntimeError::NotFound));
+            }
+            execution
+                .execute_retained(
+                    self.runtime,
+                    self.sql,
+                    options,
+                    Some(ReadRetention::new(permit)),
+                )
+                .await
+        } else {
+            execution
+                .execute_remote(self.transport, member)
+                .await
+                .map(CellQueryResponse::remote)
+        }
+    }
+
+    async fn automatic_from(
+        &self,
+        invocation: &mut CellQueryInvocation,
+        options: CellSqlOptions,
+        permit: Arc<admission::Retention>,
+        mut previous: Option<cellar_logic::cell_group::GroupHistory>,
+        mut next_member: usize,
+    ) -> Result<CellQueryResponse, Error> {
         loop {
             let attempt = invocation
                 .attempt()
@@ -149,50 +324,14 @@ impl Destination<'_> {
                 next_member = 0;
                 previous = Some(history);
             }
-            // A retained obsolete log is physical debt, not a serving replica.
-            // Only the controller's active roster selects local execution.
-            let local = match self.runtime.log().cell_group(&history) {
-                Ok(group)
-                    if self
-                        .shared
-                        .groups
-                        .contains(&history)
-                        .map_err(Error::Runtime)? =>
-                {
-                    Some(group.identity().member)
-                }
-                Ok(_) | Err(LogError::NotFound) => None,
-                Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
-            };
             let result = async {
-                let members = if let Some(local) = local {
-                    let mut members = vec![local];
-                    match self
-                        .transport
-                        .cell_query_members(&route, invocation.maximum_attempts())
-                    {
-                        Ok(peers) => {
-                            for peer in peers {
-                                if !members.contains(&peer) {
-                                    members.push(peer);
-                                }
-                            }
-                        }
-                        // A local replica remains usable without a discovery
-                        // view. It receives the whole budget when no trusted
-                        // fallback is available.
-                        Err(TransportError::UnknownGroup) => (),
-                        Err(error) => return Err(Error::Transport(error)),
-                    }
-                    members
-                } else {
-                    self.router_members(
+                let members = self
+                    .members(
                         &route,
                         invocation.maximum_attempts(),
                         invocation.deadline_ms(),
                     )
-                    .await?
-                };
+                    .await?;
                 if !members.is_empty() {
                     let index = next_member % members.len();
                     let member = members[index];
@@ -263,6 +402,22 @@ impl Destination<'_> {
         let attempt = invocation
             .attempt()
             .ok_or(Error::Invalid("missing route"))?;
+        let is_local = self.local_destination(attempt, member).await?;
+        if is_local {
+            self.local(invocation, options, permit).await
+        } else {
+            invocation
+                .execute_remote(self.transport, member)
+                .await
+                .map(CellQueryResponse::remote)
+        }
+    }
+
+    async fn local_destination(
+        &self,
+        attempt: &crate::raft::cell_groups::CellRouteAttempt,
+        member: MemberId,
+    ) -> Result<bool, Error> {
         let route = attempt.route();
         let history = route.history;
         let (is_local, router) = match self.runtime.log().cell_group(&history) {
@@ -297,14 +452,7 @@ impl Destination<'_> {
                 Err(error) => return Err(Error::Transport(error)),
             }
         }
-        if is_local {
-            self.local(invocation, options, permit).await
-        } else {
-            invocation
-                .execute_remote(self.transport, member)
-                .await
-                .map(CellQueryResponse::remote)
-        }
+        Ok(is_local)
     }
 
     async fn local(

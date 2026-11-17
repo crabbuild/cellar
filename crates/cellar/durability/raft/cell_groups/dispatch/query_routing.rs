@@ -14,8 +14,9 @@ pub enum CellQueryRouting {
     #[default]
     Local,
     /// Prefer the active local replica, then try trusted group destinations.
-    /// Every attempt shares the original deadline and attempt budget; a slow
-    /// local reader cannot consume the time reserved for healthy replicas.
+    /// The first reader keeps the original deadline while a serial fallback
+    /// lane can rescue a stalled replica. At most two waiters run concurrently;
+    /// both consume the original attempt budget and destination admission.
     Automatic,
     /// One to eight distinct members; attempt_timeout is positive and no larger
     /// than the original timeout. Missing leader advice never grants authority.
