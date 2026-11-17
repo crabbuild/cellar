@@ -355,7 +355,7 @@ async fn qualify_host(
         };
         let work = domain
             .run(async {
-                named_service::activate_namespace(&cluster, 0, "stream-archive").await.context("provision stream service group")?;
+                let stream_group = named_service::activate_namespace(&cluster, 0, "stream-archive").await.context("provision stream service group")?;
                 let catalog_group = named_service::activate_namespace(&cluster, 1, "catalog-archive").await.context("provision catalog service group")?;
                 for (index, node) in cluster.nodes.iter().enumerate() {
                     node.activate_event_resources().await.with_context(|| format!("initial event activation node={index} extents={rooted} Axum={external}"))?;
@@ -379,6 +379,19 @@ async fn qualify_host(
                     let mut untouched = 1u64.to_be_bytes().to_vec(); untouched.push(0);
                     ensure!(selected.result == untouched,
                         "fresh catalog activation allocated a foreground ingress command");
+                    let name = serde_json::to_string(&(&resource.tenant, &resource.application, &resource.id, 0u32))?;
+                    let id = cellar_native::cell_id::for_name("cells:v1:event-stream:__EventStream", &name);
+                    let scope = CellId::new(format!("{}:{}", cellar::deploy::EVENT_STREAM_CLASS, cellar_native::cell_id::encode_hex(&id)))?;
+                    let history = cluster.hosts[0].resolve_cell_history(
+                        stream_group.cluster, stream_group.namespace, scope, QueryOptions::default(),
+                    ).await?.context("activated broker history")?;
+                    let cell = cluster.hosts[0].cell(history)?;
+                    let selected = cell.query(
+                        ProposalId::new([241;16])?, &cell.contract("__sqlIngressSequence")?,
+                        0u64.to_be_bytes().to_vec(), QueryOptions::default(),
+                    ).await?;
+                    ensure!(selected.version.sequence.get() == 1 && selected.result == untouched,
+                        "fresh broker configuration appended a command after its initialized enrollment: {:?}", selected.version);
                     return Ok::<_, anyhow::Error>(());
                 }
                 let group = cluster.history;
