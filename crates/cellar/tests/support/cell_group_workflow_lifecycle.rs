@@ -122,6 +122,14 @@ async fn replace(
         }
     }
     ensure!(settled, "Workflow replacement did not settle");
+    ensure!(
+        cluster.fixtures[3]
+            .store
+            .group_payload_reads
+            .load(Ordering::Acquire)
+            > 0,
+        "replacement never fetched an S3 archive payload"
+    );
     let membership = cluster.hosts[source]
         .group(cluster.history)?
         .quorum_membership(TIMEOUT)
@@ -263,6 +271,16 @@ async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
     let work = domain
         .run(async {
             named_service::grant(&cluster).await?;
+            // Establish the movement fixture's initial serving quorum, as the
+            // other Workflow fixture does for its separately activated group.
+            // The instance is still absent: its enrollment and create must
+            // complete inside the unmodified public request deadline.
+            let readiness_started = cellar::asyncrt::mono_ms();
+            managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+            eprintln!(
+                "Workflow lifecycle initial quorum ready after {}ms",
+                cellar::asyncrt::mono_ms().saturating_sub(readiness_started)
+            );
             call(&cluster, "create", "lifecycle").await?;
             state(&cluster, "lifecycle", "waiting").await?;
             ensure!(
