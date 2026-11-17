@@ -66,10 +66,6 @@ impl RaftCells {
                 ))
             };
             let operation = async {
-                let trace_event = matches!(admission, QueryAdmission::Event(_));
-                if trace_event {
-                    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="resource-start", invocation=?invocation, cell=%route.cell.as_str(), hinted=route.history_hint.is_some(), after=after.is_some(), remaining=deadline.saturating_sub(owner.handle.domain.mono_ms()?));
-                }
                 let mut backoff_ms = 10;
                 loop {
                     remaining()?;
@@ -93,9 +89,6 @@ impl RaftCells {
                                 found?.ok_or(RuntimeError::NotFound)?
                             }
                         };
-                        if trace_event {
-                            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="resource-located", invocation=?invocation, history=?history, remaining=deadline.saturating_sub(owner.handle.domain.mono_ms()?));
-                        }
                         let response = owner
                             .handle
                             .core
@@ -119,11 +112,7 @@ impl RaftCells {
                                 admission,
                             )?
                             .response()
-                            .await;
-                        if trace_event {
-                            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="resource-query-result", invocation=?invocation, version=?response.as_ref().ok().map(|r|r.observation().version.sequence.get()), error=?response.as_ref().err(), remaining=deadline.saturating_sub(owner.handle.domain.mono_ms()?));
-                        }
-                        let response = response?;
+                            .await?;
                         remaining()?;
                         anyhow::ensure!(
                             response.result().len() <= route.max_result_bytes,

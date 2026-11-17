@@ -471,7 +471,11 @@ impl Request {
     fn minimum_index(&self) -> Option<cellar_logic::consensus::LogIndex> {
         match &self.output {
             Output::Command(receipt) => Some(receipt.receipt().position.index),
-            Output::Enrollment(_) | Output::Lookup(_) | Output::Query(_) => None,
+            Output::Query(selected) => {
+                let witness = &selected.observation().witness;
+                (witness.group == self.route.history).then_some(witness.position.index)
+            }
+            Output::Enrollment(_) | Output::Lookup(_) => None,
         }
     }
 
@@ -489,9 +493,11 @@ impl Request {
     }
 }
 
-/// Only a negative bound: a prefix below every waiting command cannot prove
-/// any of them. An enrollment or lookup lacks this group-position bound and
-/// keeps the ordinary full-verification path.
+/// Only a negative bound: a prefix below every waiting command or selected
+/// query image cannot prove any of them. This does not settle an output: the
+/// physical verifier must still check its exact version, witness and history.
+/// Enrollment and lookup keep the ordinary full-verification path; a lookup
+/// can deliberately replace its selected observation with an archived one.
 pub(super) fn required_prefix(requests: &[Request]) -> Option<cellar_logic::consensus::LogIndex> {
     let mut minimum = None;
     for request in requests {
