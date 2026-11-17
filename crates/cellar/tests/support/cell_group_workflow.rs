@@ -15,6 +15,14 @@ fn application(
     signals: Arc<contract::Signals>,
     scheduled: bool,
 ) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    application_with_sink(signals, scheduled, !scheduled)
+}
+
+fn application_with_sink(
+    signals: Arc<contract::Signals>,
+    scheduled: bool,
+    include_sink: bool,
+) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
     let worker_signals = signals.clone();
     let workflow_signals = signals.clone();
     let sink = RaftClass::new("Sink", 1, [90; 32])?
@@ -46,7 +54,7 @@ fn application(
     );
     let mut options = configuration::options(contract::SCRIPT);
     options.do_classes = vec![cellar::deploy::workflow_class(contract::SCRIPT)];
-    if !scheduled {
+    if include_sink {
         options.do_classes.insert(0, "Sink".into());
     }
     options.vars = vec![("SETTING".into(), "native".into())];
