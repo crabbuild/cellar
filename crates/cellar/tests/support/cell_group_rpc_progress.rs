@@ -116,6 +116,10 @@ pub async fn preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Resu
     run_mode(rooted, store, Mode::Preparation).await
 }
 
+pub async fn preparation_one_worker(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode_with_workers(rooted, store, Mode::Preparation, 1).await
+}
+
 enum Mode {
     Continuation,
     Checkpoint,
@@ -123,6 +127,15 @@ enum Mode {
 }
 
 async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) -> Result<()> {
+    run_mode_with_workers(rooted, store, mode, 2).await
+}
+
+async fn run_mode_with_workers(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    mode: Mode,
+    workers: usize,
+) -> Result<()> {
     let checkpoint = matches!(mode, Mode::Checkpoint);
     let calls = Arc::new(AtomicUsize::new(0));
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
@@ -163,9 +176,9 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) ->
     application.validate_deployment(&configuration::deployment(declared.clone()))?;
     let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
     fixture.configuration = Some(declared);
-    // Group apply and the source callback must use different workers: this
-    // test holds synchronous physical I/O, not the whole SQL executor.
-    fixture.sql_workers = 2;
+    // The one-worker variant requires physical group apply to leave SQL
+    // available. Existing variants retain their original two-worker profile.
+    fixture.sql_workers = workers;
     if checkpoint {
         // The physical worker gate is a third, fully admitted request beside
         // the two commands. Keep the original byte bank and all public profiles.
@@ -247,8 +260,8 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) ->
                     &source_history,
                 );
             ensure!(
-                u64::from_le_bytes(group_hash[..8].try_into()?) % 2
-                    != u64::from_le_bytes(source_hash[..8].try_into()?) % 2,
+                workers == 1 || u64::from_le_bytes(group_hash[..8].try_into()?) % workers as u64
+                    != u64::from_le_bytes(source_hash[..8].try_into()?) % workers as u64,
                 "physical gate must not occupy source worker"
             );
             let source = cluster.hosts[0].cell(source_history.clone())?;
@@ -260,8 +273,8 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) ->
                 })
                 .find(|history| {
                     let hash = cellar::sdk::consensus::verification::cell_groups::cell_image_history_digest(history);
-                    u64::from_le_bytes(hash[..8].try_into().unwrap()) % 2
-                        == u64::from_le_bytes(group_hash[..8].try_into().unwrap()) % 2
+                    u64::from_le_bytes(hash[..8].try_into().unwrap()) % workers as u64
+                        == u64::from_le_bytes(group_hash[..8].try_into().unwrap()) % workers as u64
                 })
                 .context("unrelated worker")?;
             let other = cluster.hosts[0].cell(other_history)?;

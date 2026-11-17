@@ -1945,6 +1945,37 @@ async fn new_rpc_preparation_overlaps_unrelated_group_apply() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_sql_worker_prepares_during_materialized_group_apply() -> Result<()> {
+    Box::pin(rpc_progress::preparation_one_worker(
+        false,
+        Arc::new(catalog_fault::Store::default()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_sql_worker_prepares_during_extent_group_apply() -> Result<()> {
+    Box::pin(rpc_progress::preparation_one_worker(
+        true,
+        Arc::new(catalog_fault::Store::default()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_one_sql_worker_prepares_during_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "one-worker-apply-progress",
+            rooted,
+        )?));
+        Box::pin(rpc_progress::preparation_one_worker(rooted, store)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_new_rpc_preparation_overlaps_unrelated_group_apply() -> Result<()> {
     for rooted in [false, true] {
