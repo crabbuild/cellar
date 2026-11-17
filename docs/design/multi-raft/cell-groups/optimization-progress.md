@@ -78,6 +78,41 @@ RustFS still has zero available bytes against its unchanged 6 GiB reserve.
 No constrained SQL/KV/Queue campaign, measured percentile/throughput gain or
 complete CG/OPT qualification follows from these focused checks.
 
+### Managed seal phase observations
+
+The seal-authorization follow-up records only fixed phase/error classes and
+optional monotonic elapsed time. A dropped future retains its unknown mutation
+outcome. The operator fixture captures the named event per HTTP request, bounds
+retention to sixteen allowlisted rows and snapshots after joined server close.
+Observation retention cannot replace the primary mutation error. Post-failure
+physical probes run sequentially with their original one-second bounds; they
+grant no admission, capacity or recovery proof. CI uploads only the two exact
+structured metadata filenames, excluding raw errors, objects, manifests,
+databases, configurations, credentials and logs.
+
+At compiler input `c3ca152c`, the expanded native target passes eleven cases with
+eight explicit RustFS ignores. After moving capture access through joined close,
+input `526ae55a` passes its privacy and actual three/six-voter CLI controls, but
+the full target reports ten passes, one failure and eight ignores. The original
+split-then-merge replay fails at `transition capture-source` with
+`unavailable / unknown`; all six post-failure physical probes succeed. This is
+an unresolved failure, not a cause established by those later samples. Final
+fixture cleanup also joins the server when plan creation fails. The
+[qualification record](seal-observations-qualification-2026-11-16.json) pins each
+source, executable, failed build/check, final focused checks and retained data.
+No original failed attempt is promoted by a later pass.
+
+Published parent `de7cc144` still fails Linux: the focused disaster target has
+seven passes, two failures and eight RustFS ignores. Both full native jobs fail;
+the free-threaded job also fails source capture. Two Typed RPC jobs pass and two
+fail with Python shutdown-incomplete evidence, including `host_failed`; those
+failures do not establish a lease-readback cause. The new seal phase capture is
+not present in those parent runs. Production admission, accounting, request
+identities, proof requirements and deadlines are unchanged by this follow-up.
+The original RustFS volume remains below its unchanged 6 GiB reserve, with about
+10 MiB available at the read-only recheck. No new constrained comparison or
+measured throughput/percentile gain follows. Full CG/OPT qualification remains open.
+
 ### Queued prepared submissions
 
 Compiler input `816bcded` collects adjacent prepared submissions already queued

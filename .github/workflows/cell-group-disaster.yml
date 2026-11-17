@@ -56,7 +56,9 @@ jobs:
           name: cell-group-disaster-observations
           # Only the fixed metadata report is public. Databases, synthetic
           # object bytes, memory manifests and operator audit files stay private.
-          path: ${{ runner.temp }}/native-failure-fixtures/**/transition-failure-observations.json
+          path: |
+            ${{ runner.temp }}/native-failure-fixtures/**/transition-failure-observations.json
+            ${{ runner.temp }}/native-failure-fixtures/**/seal-authorization-observations.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

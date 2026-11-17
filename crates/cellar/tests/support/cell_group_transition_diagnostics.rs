@@ -31,8 +31,11 @@ pub(crate) async fn observations(cluster: &ManagedCluster) -> Result<()> {
     ))
     .await;
     let physical = if let Ok(cut) = &catalog {
-        futures_util::future::join_all(cluster.fixtures.iter().enumerate().map(
-            |(ordinal, fixture)| async move {
+        let mut rows = Vec::with_capacity(cluster.fixtures.len());
+        // Diagnostics must not manufacture a burst of control-lane pressure
+        // while observing the failure. Each probe retains its original bound.
+        for (ordinal, fixture) in cluster.fixtures.iter().enumerate() {
+            rows.push({
                 match cluster.hosts[0]
                     .inspect_peer_physical_inventory(fixture.spec.node, cut.revision(), timeout)
                     .await
@@ -52,9 +55,9 @@ pub(crate) async fn observations(cluster: &ManagedCluster) -> Result<()> {
                         "error_class": format!("{error:?}"),
                     }),
                 }
-            },
-        ))
-        .await
+            });
+        }
+        rows
     } else {
         Vec::new()
     };

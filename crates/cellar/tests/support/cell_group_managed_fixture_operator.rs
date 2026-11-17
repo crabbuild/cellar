@@ -346,25 +346,100 @@ pub async fn authorize_transition_seal(
 ) -> Result<RaftFleetTransitionSealAuthorization> {
     let root = operator_root()?;
     let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
-    let plan = root.path().join("transition-seal-authorization.json");
-    std::fs::write(&plan, serde_json::to_vec(request)?)?;
-    let command = [
-        "transition",
-        "authorize-seal",
-        &request.namespace_id,
-        "--plan",
-        plan.to_str()
-            .context("UTF-8 transition authorization plan path")?,
-    ];
     let result = async {
+        let plan = root.path().join("transition-seal-authorization.json");
+        std::fs::write(&plan, serde_json::to_vec(request)?)?;
+        let command = [
+            "transition",
+            "authorize-seal",
+            &request.namespace_id,
+            "--plan",
+            plan.to_str()
+                .context("UTF-8 transition authorization plan path")?,
+        ];
         ensure!(cli.call(&command, READER).await?.code == 4);
         Ok::<_, anyhow::Error>(serde_json::from_value(
             cli.call(&command, OWNER).await?.success()?,
         )?)
     }
     .await;
-    cli.close().await?;
-    result
+    let (joined, observations) = cli.close_with_seal_observations().await;
+    if result.is_err() || joined.is_err() {
+        let report = serde_json::json!({
+            "format": 1,
+            "transactional": false,
+            "operation": "authorize-seal",
+            "call_failed": result.is_err(),
+            "close_failed": joined.is_err(),
+            "observations": observations,
+        });
+        let retained = serde_json::to_vec_pretty(&report)
+            .map_err(std::io::Error::other)
+            .and_then(|bytes| {
+                std::fs::write(
+                    root.path().join("seal-authorization-observations.json"),
+                    bytes,
+                )
+            });
+        if retained.is_err() {
+            eprintln!("managed seal observation could not be retained");
+        }
+    }
+    // A failed close must not replace the original uncertain mutation result.
+    let value = result?;
+    joined?;
+    Ok(value)
+}
+
+/// Verify that per-request capture survives the actual CLI/HTTP boundary.
+pub async fn qualify_seal_observation(fixture: &Fixture, directory: &RangeDirectory) -> Result<()> {
+    let root = operator_root()?;
+    let cli = open_cli(
+        fixture,
+        directory,
+        root.path(),
+        "seal-observation-control",
+        None,
+    )
+    .await?;
+    let checked = async {
+        let request = RaftFleetTransitionSealRequest {
+            catalog_id: cli.catalog.clone(),
+            namespace_id: hex::encode(directory.namespace_config().namespace.bytes()),
+            operation_id: hex::encode([251; 16]),
+            request_id: hex::encode([252; 16]),
+            plan_digest: hex::encode([253; 32]),
+            preparation_digest: hex::encode([254; 32]),
+        };
+        let plan = root.path().join("unknown-transition.json");
+        std::fs::write(&plan, serde_json::to_vec(&request)?)?;
+        let command = [
+            "transition",
+            "authorize-seal",
+            &request.namespace_id,
+            "--plan",
+            plan.to_str().context("UTF-8 control plan")?,
+        ];
+        let response = cli.call(&command, OWNER).await?;
+        ensure!(response.code == 5);
+        let failure: RaftFleetFailure = serde_json::from_value(response.value["error"].clone())?;
+        ensure!(
+            failure.code == RaftFleetFailureCode::NotFound
+                && failure.outcome == RaftFleetOutcome::Unknown
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let (joined, rows) = cli.close_with_seal_observations().await;
+    checked?;
+    joined?;
+    let rows = rows.as_array().context("seal observations")?;
+    ensure!(
+        rows.len() == 1
+            && rows[0]["phase"] == "operator_authorization"
+            && rows[0]["error_class"] == "operator_error"
+    );
+    Ok(())
 }
 
 pub async fn seal_transition_source(

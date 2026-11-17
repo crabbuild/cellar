@@ -186,10 +186,20 @@ async fn qualify_outbox(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
 /// remain in the private memory snapshot, while the CI report stays metadata-only.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn zz_failure_diagnostics_keep_private_bytes_and_canonical_state() -> Result<()> {
+    qualify_failure_observations(&[]).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn zz_six_node_failure_observations_preserve_canonical_state() -> Result<()> {
+    qualify_failure_observations(&[10, 11, 12]).await
+}
+
+async fn qualify_failure_observations(extra_nodes: &[u8]) -> Result<()> {
     use bootstrap::transition::diagnostics::{memory, observations};
     use managed_fixture::ManagedCluster;
     use object_store::ObjectStore as _;
-    let mut cluster = Box::pin(ManagedCluster::start(false, &[])).await?;
+    let mut cluster = Box::pin(ManagedCluster::start(false, extra_nodes)).await?;
+    let expected_nodes = 3 + extra_nodes.len();
     for root in &mut cluster.roots {
         root.disable_cleanup(true);
         eprintln!(
@@ -212,6 +222,7 @@ async fn zz_failure_diagnostics_keep_private_bytes_and_canonical_state() -> Resu
             .run(cluster.directory.observe())
             .await??
             .digest();
+        managed_fixture::operator::qualify_seal_observation(fixture, &cluster.directory).await?;
         observations(&cluster).await?;
         memory(&fixture.store, cluster.roots[0].path(), "control").await?;
         let report = std::fs::read(
@@ -241,9 +252,9 @@ async fn zz_failure_diagnostics_keep_private_bytes_and_canonical_state() -> Resu
         let physical = report["physical"]
             .as_array()
             .context("physical observations")?;
-        ensure!(nodes.len() == 3 && nodes.iter().all(|row| row["available"] == true));
+        ensure!(nodes.len() == expected_nodes && nodes.iter().all(|row| row["available"] == true));
         ensure!(
-            physical.len() == 3
+            physical.len() == expected_nodes
                 && physical.iter().all(|row| row["available"] == true
                     && row["histories"].as_u64().is_some()
                     && row["initializing"] == false)

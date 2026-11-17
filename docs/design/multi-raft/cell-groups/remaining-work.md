@@ -46,6 +46,17 @@ original 60-second enrollment limit at 22.138 and 53.210 seconds. The variation
 and unchanged work counts do not establish a causal latency repair. This native
 checkpoint does not replace the constrained matrix below.
 
+The latest published `de7cc144` feedback keeps the first priority open: the
+focused Linux disaster target passes seven cases and fails two; both full native
+jobs fail, and two Typed RPC jobs report Python shutdown-incomplete evidence.
+The seal phase-capture follow-up has passing exact privacy/CLI controls, an
+earlier eleven-pass native suite and a later ten-pass/one-failure suite at
+`transition capture-source`. See the
+[source-specific record](seal-observations-qualification-2026-11-16.json).
+These failures remain explicit; fixed metadata and passing controls are not a
+repair or full qualification. The original RustFS now has about 10 MiB available,
+still below the original 6 GiB reserve, without any resource or data changes.
+
 The next priorities are:
 
 1. **Close the SDK correctness/qualification failures.** The focused Linux
