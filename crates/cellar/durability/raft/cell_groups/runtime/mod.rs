@@ -735,7 +735,9 @@ impl CellGroupRuntime {
             .await?
         {
             Response::Execution(authority) => Ok(*authority),
-            _ => Err(RuntimeError::Protocol("independent cell authority reply".into())),
+            _ => Err(RuntimeError::Protocol(
+                "independent cell authority reply".into(),
+            )),
         }
     }
 

@@ -29,6 +29,64 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `ee69e0ce5`, qualified at
+`9f767cce`, lets an exact quorum-committed, S3-proven command response settle
+while later mutations for other cells await apply.** The current leader must
+certify every pending entry as its exact durably logged mutation for another
+cell within the existing event quantum. Same-cell, enrollment, administrative,
+unknown and inherited entries still refuse. The selected version must cover the
+receipt; current birth/route, live leadership and actual archive proof remain
+mandatory. Own receipt publication stays contiguous. Reads, request identities,
+deadlines and admission bounds retain their contracts.
+
+**21 owning/control selections and 191 units pass.** The physical regression
+passes eight configurations: native/real RustFS, both image forms and fresh/replay
+responses. It holds a later real manifest-directory sync, requires the earlier
+S3 response to finish before release and checks exact replay with one callback.
+Four same-cell configurations retain the blocking fence. Baseline `d6d89f3e`
+fails the positive oracle and passes the negative. The common regression body is
+unchanged. Initial qualification 808 has two `LostStableState` setup failures
+because fresh/replay variants reused catalog objects with different disks;
+`9f767cce` isolates their object prefixes and final 812 supersedes scoped acceptance.
+Original failed records and the joined baseline disk are retained. Controls cover
+minimum durability, exact results, missing dependencies, deadlines, enrollment,
+receipt failures, publication, membership, leadership and independent replay.
+Locked build, strict library/all-test Clippy, formatting, layout, dependency,
+docs and generated-index checks pass. A formatting-only follow-up wraps the
+renamed internal protocol error and adds its optional trailing comma.
+
+**Affected public controls 809 are FAILED, 4/6.** SDK source-proof dispatch and
+interrupted named-binding retained recovery pass native/real RustFS. Both
+independent target-S3 EventStream ingresses fail materialized initial activation
+at node 0. All six failed voter disks are retained. This is a selected affected-path
+run, not a replacement for prior source's complete cohort 787, FAILED **6/16**.
+EventStream/Consume and Queue load remain open; do not credit complete primitive
+support or cutover from these scoped passes.
+
+Selected-root diagnostic 800 restores full copies of 787's native activation
+failure with normal log resume and physical apply recovery. All three selected
+catalogs are active at accepted revision one, attempts one; no binding intent
+remains at shutdown. The original bytes are unchanged. This does not establish
+when readiness completed relative to the original deadline. Initial reader
+attempts with incorrect logical-name enumeration are excluded. No live quorum,
+network or serving rights are created by this inspection.
+
+Controls and affected public runs have empty compiler boundary snapshots. RF3
+voters remain in one process on separate workspace disks; real RustFS uses one
+CPU/two GiB. No exclusive failure cause, speedup, timing stability or independent
+Linux voter release acceptance is claimed. Owned RustFS/VM are stopped, objects
+retained. Aggregate 820 verifies source, frozen logs/binaries, eight progress
+markers, unchanged regression body and retained failures. Exact records are in
+ignored `.cellar/cg17-payload-01/output-progress-aggregate-820.json`.
+
+Acceptance stays **13/17 tasks, 147/195 cases**. Next close catalog/broker
+activation readiness, exact source Ack/final-parent settlement and Queue native
+work under original budgets; then finish autonomous interrupted binding/unused
+sequence recovery and the complete primitive/lifecycle/recovery matrix before
+CG-13/15/16 cutover. The index remains current; historical CG-01 evidence is missing.
+
+## Previous owned-image barrier checkpoint
+
 Latest `origin/main` `16c45b266` is included, rechecked after qualification.
 **Runtime `773cb123e` reuses completed materialized-image persistence barriers
 at the exact local prepared-apply handoff.** It rereads and verifies all bytes,

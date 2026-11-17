@@ -57,47 +57,50 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Runtime `773cb123e` removes repeated materialized-image
-file/directory syncs only during exact same-inventory prepared apply. Complete
-byte verification, failed-proof invalidation, cold and independent barriers,
-root publication and quorum/S3 output proofs remain. Baseline `360b169e` fails the
-physical counter; the final source passes the unchanged assertions and new
-foreign/corruption/sync/cold guards. **23 integration selections and 191 units
-pass**, with locked build, strict Cellar/LTX Clippy and repository/feature checks.
+latest main `16c45b266`. Runtime `ee69e0ce5`, qualified at `9f767cce`, removes the
+final S3 response's dependency on later independently certified other-cell apply.
+The complete bounded pending suffix, selected version covering the exact receipt,
+current birth/route, live leader and real archive proof all gate output. Same-cell,
+control and unknown work still block; own publication stays contiguous.
 
-**Original public cohort 787 is FAILED, 6/16.** All eight EventStream selectors
-fail activation or Consume. Queue producers **21/native** and **25/RustFS** expire
-ambiguously; neither completes its 528-message oracle or reaches extent load.
-SDK source-proof/history, registration and Fleet pass. Both Axum Consume selectors
-remain ambiguous at outer sequence **2**. Preserve all original identities.
-The local barrier optimization does not close this public gate.
+**21 owning/control selections and 191 units pass.** The held real manifest-sync
+regression passes all eight native/RustFS image/replay configurations, while four
+same-cell cases preserve refusal. Baseline `d6d89f3e` fails the progress oracle;
+the common test body remains unchanged. Final tests isolate replay object prefixes
+after two setup failures in 808. Locked build, strict Clippy and repository checks
+are recorded with exact scope in progress.
 
-Selected-root diagnostic 768 now confirms the prior native Consume target's exact
-completed Ack receipt on all three disks, child sequence **3**, while the source
-parent **2** remains prepared/sealing. This proves shutdown state, not deadline
-timing. A matching candidate at phase zero is not an unused-sequence proof.
-Implement timely source settlement and safe recovery from the existing receipt;
-do not repeat a new mutation or assume the child was never dispatched.
+**Affected public controls 809 are FAILED, 4/6.** SDK source proof and interrupted
+binding recovery pass native/RustFS. Both target-S3 EventStream ingresses fail
+initial activation; six voter disks are retained. This does not replace the
+previous complete public cohort 787, FAILED **6/16** at `773cb123e`: all eight
+EventStream cases and Queue producers **21/native**, **25/RustFS** failed there.
+Neither Queue load completed 528 messages. Keep those unknown mutation identities.
+
+Diagnostic 800 now verifies that all three selected catalogs from 787's native
+activation failure are active at revision one by shutdown, with no remaining
+binding intent. It does not date readiness against the original deadline. Prior
+768 confirms the exact child Ack receipt on all three Consume target roots, while
+source parent **2** remains prepared/sealing at shutdown. Preserve child **3**;
+phase zero with a matching candidate is not an unused-sequence proof.
 
 The next feature priorities are:
 
-1. Close EventStream declared-resource activation and source Ack/final-parent
-   settlement under original budgets, then Queue native-work producer settlement.
-   Prioritize these public paths over further isolated performance changes.
+1. Close public catalog/broker readiness and exact source Ack/final-parent
+   settlement within the original budgets, then Queue native-work production.
+   The new S3 progress guarantee is delivered; these public gates still decide MVP.
 2. Finish autonomous interrupted bindings and safe unused-sequence sealing,
-   then complete the remaining primitive adapters and combined lifecycle matrix.
+   remaining primitive adapters and their combined lifecycle/recovery matrix.
 3. Close CG-13/15 managed recovery and independent-voter release qualification,
-   then CG-16 cutover. Due-effect and final-S3 whole-group waits remain candidates
-   for investigation, not established failure causes.
+   then CG-16 cutover. Due-effect discovery remains a possible liveness constraint,
+   not an established cause of the activation failures.
 
-Aggregate 791 verifies frozen artifacts and all **30 failed public voter disks**.
-Owned RustFS/VM are stopped with objects retained. Public boundary compiler
-snapshots are empty, but another checkout's Clippy is observed during the cohort;
-controls also overlap its compiler. No exclusive cause, speedup or stability
-claim. Voters remain in one process/separate workspace disks; real RustFS is one
-CPU/two GiB. Counts stay **13/17 tasks, 147/195 cases**. The generated index is
-current; full validation still lacks historical CG-01 evidence. Preserve 787 and
-prior failures; do not seek acceptance by repeating unchanged broad cohorts.
+Aggregate 820 verifies frozen evidence and the unchanged regression body. Owned
+RustFS/VM are stopped with objects retained. Current controls/public boundary
+compiler snapshots are empty. Voters remain in one process/separate workspace
+disks; real RustFS is one CPU/two GiB. Counts stay **13/17 tasks, 147/195 cases**.
+The generated index is current; historical CG-01 evidence is still missing.
+No full primitive, speedup, stability or release claim follows from scoped passes.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
@@ -175,16 +178,15 @@ Earlier catalog enrollment joining, bounded suspended scanning, exact checkpoint
 receipt reuse, clean Quorum entry-image reuse and idle archive-proof reuse retain
 their scoped checkpoints. Full primitive support and release cutover remain open.
 
-1. **Close public activation, Ack and Queue settlement.** Same-owner image
-   barrier reuse is delivered, but cohort 787 remains FAILED 6/16. Finish declared
-   catalog/broker activation and source settlement after the exact child Ack proof;
-   selected roots from prior 762 establish committed Ack at shutdown only. Current
-   Consume sequence **2** and Queue producer **21/native**, **25/RustFS** remain
-   ambiguous; neither Queue load completes. Preserve those identities and the
-   earlier unknown outcomes. Implement bounded execution/settlement with existing
-   fences, then rerun public gates after the feature change. Finish lost-reply,
-   transfer, generation, pruning and slow-consumer/GC coverage. More isolated
-   performance passes cannot substitute for this public delivery.
+1. **Close public activation, Ack and Queue settlement.** Exact S3 responses
+   now progress during certified unrelated apply, but current target-S3 activation
+   still fails in both ingresses. Selected catalogs from prior 787 are active by
+   shutdown, not proven ready by the deadline. Finish readiness and exact source
+   settlement with the already committed child Ack; preserve outer sequence **2**
+   and prior Queue producer **21/native**, **25/RustFS** unknown outcomes. Complete
+   producer/drain oracles under the original limits. Then qualify lost reply,
+   transfer, generation, pruning and slow-consumer/GC behavior. Scoped output
+   progress does not replace the complete public family gate.
 2. **Finish S3 binding stability and interrupted recovery.** Current named bindings
    pass all eight backend/image/source-minimum configurations; preserve earlier
    source-S3 deadline failures and establish combined lifecycle progress. Preserve

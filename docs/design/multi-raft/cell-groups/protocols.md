@@ -978,6 +978,16 @@ unchanged. Deadline/caller cancellation does not release an entered physical rea
 its cancelled flag interrupts SQL, and the archive-specific owner joins the closure.
 Pending requests and unconsumed responses retain bounded S3 admission.
 
+An already committed and archived response may finish while later mutations for
+other cells await apply. The current ready leader must match every unapplied
+committed entry against its bounded admission records: exact position, term and
+payload digest, mutation kind and a different cell. Missing, inherited, control,
+enrollment or same-cell work refuses this independence. The selected cell version
+must cover the returned receipt. This does not permit a new write acknowledgement
+before its own contiguous durable root, replace the archive proof, or change read
+barriers. Capture and recheck the ordinary route, membership and leader fences;
+retain the original response and deadline rather than rerun resolved SQL.
+
 A successful response retains the complete physical coverage, its pool admission
 and the exclusive journal lock. Immutable route authority is shared per group,
 so membership records are not copied into every response. The journal owner tracks weak uses and refuses

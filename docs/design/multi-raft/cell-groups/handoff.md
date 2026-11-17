@@ -4,51 +4,52 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current owned-image barrier delivery
+## Current S3 output progress delivery
 
-Latest main `16c45b266` is included and rechecked after qualification. Reuse open
-PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `773cb123e` rechecks
-complete immutable materialized bytes at exact local prepared apply while reusing
-barriers completed by the same open inventory. Failures invalidate reuse; cold
-adoption and independent verification still sync. Root publication and all
-read/output/leader fences remain. No format, task, quota or deadline change.
+Latest main `16c45b266` is included; reuse PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `ee69e0ce5`, qualified
+at `9f767cce`, uses the bounded certified per-cell authority for already committed
+S3 outputs. Every pending entry must be this leader's exact durable mutation for
+another cell. Same-cell/control/inherited/unknown entries block. The selected
+version covers the exact receipt, own root publication remains contiguous, and
+current birth/route, live term and actual archive coverage still gate output.
 
-Baseline `360b169e` fails the physical repeated-barrier counter. Final source
-passes identical assertions apart from formatting, plus foreign-owner,
-corruption, file/directory failure and cold-adoption guards. **23 focused
-integration selections and 191 units pass**. Locked build, strict Cellar/LTX
-library/all-test Clippy, LTX minimal/all-feature, format, layout and native
-dependency checks pass.
+**21 owning/control selections and 191 units pass.** Eight progress configurations
+cover native/RustFS, both images and fresh/replay responses during a real held
+manifest-directory sync. Four same-cell configurations retain refusal. Baseline
+`d6d89f3e` fails the positive oracle. The common test body is unchanged. Initial
+808's two `LostStableState` setup failures came from catalog objects reused across
+fresh disks; `9f767cce` isolates replay prefixes. Final 812 replaces scoped
+acceptance; earlier failed records and the baseline disk remain. Locked build,
+strict library/all-test Clippy, formatting, layout, dependency and docs/index
+checks pass; final follow-up contains formatting and documentation only.
 
-**Original public cohort 787 is FAILED, 6/16.** SDK source-proof/history,
-registration and Fleet pass. All eight EventStream selectors fail activation or
-Consume; outer sequence **2** remains ambiguous. Native/RustFS Queue producers
-**21/25** expire ambiguously. Neither completes 528 messages or reaches extents.
-All **30 failed public voter disks** are retained. Public pre/post compiler
-snapshots are empty, but another checkout's Clippy is observed mid-campaign;
-controls overlap its compiler too. Do not claim exclusive cause, speedup,
-stability or release qualification. Do not repeat unchanged broad cohorts.
+**Affected public 809 is FAILED, 4/6.** SDK source proof and interrupted-binding
+retained recovery pass native/RustFS. Both target-S3 EventStream paths fail initial
+activation at node 0; all six voter disks remain. This selection does not replace
+prior full public 787, FAILED **6/16**, with all eight EventStream and both Queue
+loads failed. Preserve prior Queue producer **21/native**, **25/RustFS** and
+Consume outer **2** ambiguous identities. Full primitive/cutover remains open.
 
-Diagnostic 768 restores selected roots on full copies of prior 762's native
-Consume disks. All three target roots contain the exact completed Ack receipt,
-child **3**, with matching incarnation/digest; source parent **2** remains
-prepared/sealing. This is shutdown state, not proof of deadline timing. A matching
-candidate in phase zero does not prove the child was undispatched or unused.
-Original disks are unchanged; no live quorum or serving authority is created.
+Diagnostic 800 uses normal physical selected-root restoration on complete copies
+of 787's native activation disks: all three catalogs are active revision one with
+no intents at shutdown. It proves no deadline timing or live serving authority;
+original bytes are unchanged. Initial empty-name reader attempts are excluded.
+Prior 768 proves exact child Ack **3** exists at shutdown while parent **2** is
+prepared/sealing; do not retarget it or treat matching phase-zero work as unused.
 
-Next implement public catalog/broker activation and timely exact source Ack
-settlement, then Queue native-work settlement under original identities/budgets.
-Finish autonomous interrupted bindings/safe sequence sealing, remaining primitive
-adapters and the full lifecycle/recovery matrix before CG-13/15/16 cutover.
-Prioritize those feature gates over more isolated performance changes.
+Next finish catalog/broker readiness and exact source Ack/final-parent settlement,
+then Queue production/drain within original budgets. Finish autonomous interrupted
+bindings/safe sequence sealing and the remaining primitive/lifecycle/recovery
+matrix before CG-13/15/16 release cutover. Do not substitute isolated passes or
+unchanged repeated public campaigns for those feature gates.
 
-Aggregate `.cellar/cg17-payload-01/image-seal-aggregate-791.json` verifies source,
-logs, binaries, unchanged regression assertions and retained failures. RustFS/VM
-are stopped with objects retained. RF3 voters share one native process/separate
-workspace disks; public one SQL worker/voter and RustFS1CPU2GiB remain below
-independent-voter release scope. Counts stay **13/17 tasks, 147/195 cases**; index
-current, historical CG-01 evidence still missing. See
-[progress](progress.md#current-integration-checkpoint) and
+Use ignored `.cellar/cg17-payload-01/output-progress-aggregate-820.json` for exact
+pins and frozen records. RustFS/VM are stopped, objects and failed disks retained.
+Controls/public compiler boundary snapshots are empty. RF3 voters share one
+process/separate workspace disks; RustFS1CPU2GiB is below independent-voter release
+scope. Counts stay **13/17 tasks, 147/195 cases**; index current, historical CG-01
+evidence missing. See [progress](progress.md#current-integration-checkpoint) and
 [priorities](remaining-work.md#primitive-delivery-priority).
 
 ## Previous retained metadata delivery
