@@ -1013,6 +1013,119 @@ pub async fn qualify_long(real: bool) -> Result<()> {
     Ok(())
 }
 
+/// Cold operator inspection enrolls the resource, then reads that exact state;
+/// it must not consume a business/ingress command just to inspect an empty Queue.
+pub async fn qualify_cold_metadata(real: bool) -> Result<()> {
+    for rooted in [false, true] {
+        for minimum in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(if real {
+                catalog_fault::Store::around(rustfs::store(
+                    if minimum == Durability::S3 {
+                        "queue-cold-inspection-s3"
+                    } else {
+                        "queue-cold-inspection-quorum"
+                    },
+                    rooted,
+                )?)
+            } else {
+                catalog_fault::Store::default()
+            });
+            let s = Scenario::prepare(
+                rooted,
+                store,
+                false,
+                5000,
+                None,
+                8,
+                (
+                    Minimums {
+                        queue: minimum,
+                        dead: Durability::Quorum,
+                    },
+                    false,
+                ),
+            )
+            .await?;
+            let domain = s.cluster.fixtures[0].domain.clone();
+            let outcome = domain
+                .run(async {
+                    for (name, body) in [
+                        (QUEUE, json!({"op":"info"})),
+                        (FAST, json!({"op":"peek","limit":100})),
+                    ] {
+                        let id = CellId::new(cellar::engine_api::queue_cell_scope(name))?;
+                        ensure!(
+                            s.cluster.hosts[0]
+                                .resolve_cell_history(
+                                    s.queue.cluster,
+                                    s.queue.namespace,
+                                    id.clone(),
+                                    QueryOptions::default(),
+                                )
+                                .await?
+                                .is_none(),
+                            "cold Queue already existed"
+                        );
+                        let reply = admin(&s.cluster, name, body).await?;
+                        if name == QUEUE {
+                            ensure!(reply["stored"] == 0.0 && reply["paused"] == false);
+                        } else {
+                            ensure!(reply["messages"].as_array().is_some_and(Vec::is_empty));
+                        }
+                        let history = s.cluster.hosts[0]
+                            .resolve_cell_history(
+                                s.queue.cluster,
+                                s.queue.namespace,
+                                id,
+                                QueryOptions::default(),
+                            )
+                            .await?
+                            .context("cold inspection enrolled its Queue")?;
+                        let cell = s.cluster.hosts[0].cell(history)?;
+                        let inspect = cell.contract("__sqlIngressSequence")?;
+                        let observed = cell
+                            .query(
+                                ProposalId::new([238; 16])?,
+                                &inspect,
+                                0u64.to_be_bytes().to_vec(),
+                                QueryOptions::default(),
+                            )
+                            .await?;
+                        let mut empty = 1u64.to_be_bytes().to_vec();
+                        empty.push(0);
+                        ensure!(
+                            observed.result == empty && observed.version.sequence.get() == 1,
+                            "cold Queue inspection consumed an ingress command instead of reading enrollment"
+                        );
+                        let info = admin(&s.cluster, name, json!({"op":"info"})).await?;
+                        ensure!(info["stored"] == 0.0);
+                        let after = cell
+                            .query(
+                                ProposalId::new([239; 16])?,
+                                &inspect,
+                                0u64.to_be_bytes().to_vec(),
+                                QueryOptions::default(),
+                            )
+                            .await?;
+                        ensure!(
+                            observed.result == after.result && observed.version == after.version,
+                            "repeated cold Queue inspection changed the enrollment state"
+                        );
+                    }
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await;
+            let cleanup = s.close(!matches!(&outcome, Ok(Ok(())))).await;
+            outcome??;
+            cleanup?;
+            eprintln!(
+                "QUEUE_COLD_METADATA realRustFS={real} extents={rooted} minimum={minimum:?}: PASS"
+            );
+        }
+    }
+    Ok(())
+}
+
 pub async fn qualify_metadata_reads(real: bool) -> Result<()> {
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
