@@ -29,6 +29,66 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. Runtime `4b3247b34` adds an immutable exact
+broker configuration receipt; `aff4d31c4` lets its provisioning read join cold
+schema enrollment after the full source checkpoint. Parallel broker preparation
+and catalog bootstrap remain. The read allocates no child business sequence;
+current history, fresh quorum and the independent target minimum still authorize
+its result. Ordinary administration updates retain their command path.
+
+**Owning cohort 1122 is FAILED, 25/28.** All 21 unit controls pass, including
+receipt immutability, exact caller/body checks, malformed/untrusted genesis
+refusal and the existing parallel-bootstrap liveness contract. Native and
+real-RustFS SDK Queue metrics pass their 16 image/source/target-minimum
+configurations; both cold Queue inspection selectors pass both images. The
+RustFS/Axum metrics selector fails with HTTP 503 / `DeadlineExceeded`. Both full
+genesis selectors fail startup deadlines in S3 configurations. Completed Quorum
+configurations satisfy the unchanged version-1/unused-allocator oracle; this
+does not accept the full genesis gate.
+
+**Public cohort 1123 is FAILED, 3/16.** Ordinary RustFS/Axum EventStream lifecycle
+passes both images, and both startup-refusal controls pass. The other three
+ordinary selectors fail ambiguously on Consume command **2**. All four explicit
+selectors fail activation; native/Axum and RustFS/native reach outbox-recovery
+reactivation before failing. Both independent-target-S3 selectors and both
+retained-activation selectors fail deadlines. Repeated genesis checks also fail:
+native at S3 extent startup and RustFS at Quorum extent startup. Availability is
+not qualified even for every Quorum configuration. Fresh successful histories
+do not reconcile any earlier ambiguous command.
+
+Baseline 1117 at `c68875d8d` fails the broker version oracle at version **2** in
+RustFS/S3 materialized startup. The latest tests preserve that oracle and the
+already-linearizable query default. The genesis helper is byte-identical after
+normalizing only scenario-prefix selection; new RustFS genesis prefixes avoid
+colliding with lifecycle prefixes. Public explicit/retained EventStream and
+Queue fixtures are unchanged. No assertion, request deadline, quota or minimum
+was relaxed. The complete selectors still fail, so the new receipt/genesis path
+is implemented with partial qualification, not an end-to-end closure or speedup.
+
+Locked library/unit/integration build 1121, strict all-test Clippy 1120,
+formatting, layout, dependency and document checks pass. Test optimization 1,
+assertions, overflow checks and incremental=0 remain. All owned compilers joined
+before runtime; both campaigns recorded empty compiler preflight/postflight
+snapshots. Voters still share a process with separate workspace disks and one
+SQL worker each; RustFS uses one CPU/two GiB. This is not independent-voter release
+or isolated performance qualification. Temporary diagnostic probes are removed.
+
+The 48 failed voter directories and nine intentional refusal directories from
+1122/1123 remain, as do all 33 directories recorded by baseline 1117. Aggregate
+1126 under ignored `.cellar/cg17-payload-01/` verifies executable/log hashes,
+fixture fidelity and retained directories. Owned RustFS and its VM are stopped
+with objects retained. Full plan validation still stops on missing historical
+CG-01 evidence; the generated index remains current.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close Consume's source,
+child and final settlement, cold/retained/outbox-recovery activation and
+RustFS/Axum Queue metrics under their original budgets. Interrupted-binding
+recovery/sealing already have owners; their full qualification, native extent
+producer **15**, the remaining primitive/provider matrix and CG-13/15/16 gates
+remain open. The full implementation goal stays active.
+
+## Previous archive-prefix checkpoint
+
 Latest main `16c45b266` is included after a fresh fetch. **Runtime `8590a4435`
 rejects archive prefixes older than an immutable query's selected image witness.**
 The bound applies only in the same group history, before retained-proof reuse or
