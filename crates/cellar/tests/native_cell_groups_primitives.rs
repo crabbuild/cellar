@@ -233,6 +233,28 @@ async fn ordinary_workflows_use_shared_quorum() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn workflow_results_survive_s3_replacement_and_park_wake() -> Result<()> {
+    workflows::lifecycle(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_workflow_results_survive_s3_replacement_and_park_wake() -> Result<()> {
+    workflows::lifecycle(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_workflow_results_survive_s3_replacement_and_park_wake() -> Result<()> {
+    workflows::lifecycle(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_workflow_results_survive_s3_replacement_and_park_wake() -> Result<()> {
+    workflows::lifecycle(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scheduled_workflows_use_shared_quorum() -> Result<()> {
     workflows::schedules(false, false).await
 }
