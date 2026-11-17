@@ -37,7 +37,7 @@ async fn query_grants_are_scoped_revocable_and_never_voting_authority() -> anyho
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let fixture = Fixture::start(
+    let mut fixture = Fixture::start(
         TransportOptions {
             max_query_origins: 2,
             ..Default::default()
@@ -45,6 +45,7 @@ async fn query_grants_are_scoped_revocable_and_never_voting_authority() -> anyho
         groups,
     )
     .await?;
+    fixture.preserve();
     for scope in [&first, &second] {
         let peers = (1..=3)
             .map(|member| {
@@ -83,7 +84,7 @@ async fn query_grants_are_scoped_revocable_and_never_voting_authority() -> anyho
             peers,
         })?;
     }
-    fixture
+    let result = fixture
         .domain
         .run(async {
             let peer = RaftPeerNode {
@@ -123,6 +124,27 @@ async fn query_grants_are_scoped_revocable_and_never_voting_authority() -> anyho
                 state.authorize_query_route(&first_route),
                 Err(TransportError::Refused)
             ));
+            let tasks = state.registry.lock().unwrap().tasks;
+            let epoch = state.seed_peer_epoch(&peer)?;
+            let incoming_query = {
+                let registry = state.registry.lock().unwrap();
+                assert!(!registry.pools.contains_key(&peer.node));
+                assert_eq!(
+                    registry.tasks, tasks,
+                    "metadata discovery creates no query workers"
+                );
+                registry.seed_peers[&peer.node].incoming_query.clone()
+            };
+            assert!(!*epoch.borrow());
+            assert_eq!(
+                incoming_query.capacity(),
+                (
+                    state.options.peer_query_bytes,
+                    state.options.max_connections_per_lane
+                )
+            );
+            refused_read(&fixture, &first_route, &incoming_query, false).await?;
+            refused_read(&fixture, &first_route, &incoming_query, true).await?;
             let mut grant = NamespaceQueryOrigin {
                 cluster: first.cluster,
                 namespace: first.namespace,
@@ -131,6 +153,7 @@ async fn query_grants_are_scoped_revocable_and_never_voting_authority() -> anyho
             };
             fixture.transport.grant_query_origin(grant.clone())?;
             let (pool, permission) = state.authorize_query_route(&first_route)?;
+            assert!(Arc::ptr_eq(&incoming_query, &pool.incoming.query));
             let permission = permission.expect("nonmember requires an explicit grant");
             assert!(matches!(
                 state.authorize_query_route(&second_route),
@@ -186,6 +209,8 @@ async fn query_grants_are_scoped_revocable_and_never_voting_authority() -> anyho
                 "another namespace still owns this physical pool"
             );
             assert!(!*other_permission.unwrap().borrow());
+            refused_read(&fixture, &first_route, &pool.incoming.query, false).await?;
+            refused_read(&fixture, &first_route, &pool.incoming.query, true).await?;
             assert!(matches!(
                 fixture.transport.grant_query_origin(grant.clone()),
                 Err(TransportError::StalePeer)
@@ -243,6 +268,117 @@ async fn query_grants_are_scoped_revocable_and_never_voting_authority() -> anyho
             assert_eq!(fixture.log.cell_groups()?.len(), 2);
             Ok::<_, anyhow::Error>(())
         })
-        .await??;
-    fixture.close().await
+        .await;
+    let joined = fixture.close().await;
+    result??;
+    joined
+}
+
+async fn refused_read(
+    fixture: &Fixture,
+    route: &crate::raft::query_identity::QueryRoute,
+    peer_credit: &Budget,
+    truncated: bool,
+) -> anyhow::Result<()> {
+    use crate::raft::query_wire as wire;
+    let state = &fixture.transport.handle.0;
+    let observer = fixture.transport.resource_observer();
+    let phase = std::sync::atomic::AtomicUsize::new(0);
+    crate::asyncrt::timeout(std::time::Duration::from_secs(3), async {
+        let tcp = TcpStream::connect(fixture.transport.query_address()).await?;
+        let mut stream = tokio_rustls::TlsConnector::from(state.tls.client.clone())
+            .connect(rustls::pki_types::ServerName::try_from("localhost")?, tcp)
+            .await?;
+        phase.store(1, Ordering::Relaxed);
+        let exporter =
+            stream
+                .get_ref()
+                .1
+                .export_keying_material([0; 32], wire::EXPORT_LABEL, None)?;
+        let auth = PeerAuth::new([8; 32], route.source_label())?;
+        // Authorization must refuse before parsing a potentially large payload
+        // or entering a query gateway, while its actual I/O remains charged.
+        let body = vec![23; 1024 * 1024];
+        let request = wire::RequestHead::new(route.clone(), 1, &body);
+        let head = wire::request_head(&auth, &exporter, &request, &body, &state.options)?;
+        write_head(&mut stream, &head).await?;
+        phase.store(2, Ordering::Relaxed);
+        if truncated {
+            stream.write_all(&body[..body.len() / 2]).await?;
+            stream.flush().await?;
+            phase.store(3, Ordering::Relaxed);
+            let charge = super::super::queries::reservation(body.len(), &state.options)?;
+            loop {
+                let resources = observer.capture().expect("live observer");
+                if resources.incoming.query.items > 0 && peer_credit.usage().1 > 0 {
+                    assert_eq!(resources.incoming.query.items, 1);
+                    assert_eq!(resources.incoming.query.bytes, charge);
+                    assert_eq!(peer_credit.usage(), (charge, 1));
+                    phase.store(4, Ordering::Relaxed);
+                    break;
+                }
+                crate::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
+            }
+            // Signal cancellation at the TLS boundary while the body remains
+            // incomplete. A socket drop alone does not establish when the peer
+            // observes EOF and can release its physical I/O credits.
+            stream.shutdown().await?;
+        } else {
+            stream.write_all(&body).await?;
+            stream.flush().await?;
+            phase.store(5, Ordering::Relaxed);
+            let mut prefix = [0; frame::PREFIX];
+            stream.read_exact(&mut prefix).await?;
+            let (header_len, payload_len) = wire::parse_prefix(&prefix, &state.options, true)?;
+            let mut reply = FrameHead {
+                prefix,
+                header: vec![0; header_len],
+                tag: [0; frame::TAG],
+                payload_len,
+            };
+            stream.read_exact(&mut reply.header).await?;
+            stream.read_exact(&mut reply.tag).await?;
+            phase.store(6, Ordering::Relaxed);
+            let verified = wire::read_response(
+                &reply,
+                &auth,
+                &exporter,
+                &request,
+                &head.tag,
+                &state.options,
+            )?;
+            let mut body = vec![0; payload_len];
+            stream.read_exact(&mut body).await?;
+            assert_eq!(verified.verify(&body), Err(TransportError::Refused));
+            phase.store(7, Ordering::Relaxed);
+        }
+        drop(stream);
+        phase.store(8, Ordering::Relaxed);
+        loop {
+            let resources = observer.capture().expect("live observer");
+            if resources.incoming.query.items == 0 && resources.incoming_connections.query == 0 {
+                assert_eq!(resources.incoming.query.bytes, 0);
+                assert_eq!(peer_credit.usage(), (0, 0));
+                break;
+            }
+            crate::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .map_err(|error| {
+        let node = observer.capture().map(|resources| {
+            (
+                resources.incoming.query.bytes,
+                resources.incoming.query.items,
+                resources.incoming_connections.query,
+            )
+        });
+        anyhow::anyhow!(
+            "read refusal truncated={truncated}, phase={}, node={node:?}, peer={:?}: {error}",
+            phase.load(Ordering::Relaxed),
+            peer_credit.usage()
+        )
+    })??;
+    Ok(())
 }

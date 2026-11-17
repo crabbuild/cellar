@@ -69,6 +69,26 @@ reserve, without any resource or data changes.
 The next priorities are:
 
 1. **Close the current correctness/qualification failures.** At published
+   `bf1bbc68`, all four hosted Typed RPC jobs, all three JavaScript jobs and the
+   three filesystem release builds pass. Both completed push-native framework jobs retain the park
+   unauthorized-read failure: the server's permission refusal arrives as
+   `Query(Unavailable)`. The host-native reproduction and metadata-only ingress
+   regression isolate this transport boundary. The authenticated plain-read
+   refusal follow-up passes the unchanged native park case in both image formats
+   and both codec controls at compiler input `d81c2da3`. The original drop-only
+   partial-body control times out while physical receive credit remains held.
+   Explicit TLS shutdown passes the selected transport check and full 1,245-test
+   library at `d7846d50`; all six park/wake cases also pass. Its broader routing
+   run reports 22 passes, one failure and thirteen explicit RustFS ignores.
+   `removed_member_advice_cannot_grant_authority` fails with ambiguous
+   `Transport(StalePeer)` on original command ID 1 after real member replacement,
+   before bad advice injection. Both published/candidate isolated repeats pass;
+   they do not explain or repair the full-run failure. Preserve the original
+   possible mutation and diagnose route-generation/replay progress. Wider and hosted
+   validation remain required. The focused disaster job was
+   cancelled and supplies no pass. Keep the older source-specific failures below
+   until their own current-source oracles pass.
+   At published
    `b64ecd9b`, both Python ABI/SDK jobs and all three filesystem release builds
    pass. Both native framework jobs fail, including
    `partial_park_and_stale_certificate` on Python 3.14. The focused Linux
@@ -91,6 +111,15 @@ The next priorities are:
    Local passes do not establish a causal repair of these hosted failures.
    Keep original deadlines, fencing, exact receipt reconciliation and recovery
    refusal behavior while resolving each owning boundary.
+   At `d7846d50`, six of eight selected primitive controls pass, including
+   ordinary/Axum SQL and KV, Queue callbacks and interrupted SQL recovery.
+   Queue proof sharing fails during fast-queue warmup with an ambiguous runtime
+   deadline. The four-in-flight Queue control fails producer sequence 6 with
+   ambiguous `Runtime(DeadlineExceeded)` after entering its first Raft target
+   attempt with 2,034 ms remaining. Both failures retain their original
+   identities and disks. Strict all-target and recovery-consumer Clippy pass;
+   the full native disaster runtime target remains unrun on this source.
+   See the [scoped refusal and runtime record](read-refusal-qualification-2026-11-17.json).
 2. **Continue measured worker and physical-lifetime optimization.** Proposal
    collection is one stage. Profile ordered apply/image publication, producer
    cleanup and transport batching under unchanged banks; qualify actual prepared

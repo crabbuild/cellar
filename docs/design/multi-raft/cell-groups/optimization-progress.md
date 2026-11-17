@@ -31,6 +31,59 @@ Implementation starts from `d0c2873f` (the shared cell-group runtime merged into
 execution, archive/lifecycle ownership and persistence work. None of OPT-01
 through OPT-08 is accepted as complete by this record.
 
+### Authenticated read permission refusal
+
+Published `bf1bbc68` passes all four hosted Typed RPC jobs, all three JavaScript
+jobs and the three filesystem release builds. Both completed push-native
+framework jobs still fail the initial
+unauthorized read in `partial_park_and_stale_certificate`: the receiver refuses
+the request, but closing its transport becomes `Query(Unavailable)` at the caller.
+The frozen host-native reproduction reaches the same error. Its first signed
+refusal candidate still fails because the metadata-only ingress has no regular
+query pool. Startup inspection knows its physical process without granting data
+access or creating that pool.
+
+The follow-up signs a plain-read refusal under the original request tag, route,
+sequence and TLS exporter. It authenticates the bounded request body before
+replying, using the existing node and peer byte/item limits and I/O deadline.
+Metadata-only work and a later regular pool share one incoming query bank and
+retain the physical process fence. No namespace permission or sender worker is
+created. Only plain queries accept this response; commands and other purposes
+reject it as a protocol error, preserving uncertain mutation outcomes.
+
+The enhanced grant fixture reproduces the missing metadata-only path as a broken
+pipe before the final transport change. At compiler input `d81c2da3`, the unchanged
+native park case passes in both image formats, and both refusal codec tests pass.
+The original drop-only TLS grant/cancellation control still fails its three-second
+deadline while the partial receive retains its credits. Isolated TLS probes show
+variable peer-read exit after drop, orderly shutdown and reset; periodic polling
+does not remove that variation. Explicit TLS shutdown passes the selected actual
+transport control and full 1,245-test library at `d7846d50`, with two existing
+ignores. All six native park/wake cases pass. The broader routing run reports
+22 passes, one failure and thirteen explicit RustFS ignores. The failed
+`removed_member_advice_cannot_grant_authority` case returns ambiguous
+`Transport(StalePeer)` for original command ID 1 after actual member replacement,
+before bad advice is injected. Its snapshots record two successful local S3
+command calls and current leader 5; these counters do not resolve the failed
+call's receipt. Both the published and candidate binaries pass the unchanged
+isolated case, in 63.219 and 62.598 seconds respectively. Those passes do not
+establish a causal repair of the full-run failure. The original identity and
+failed data remain retained. A complete physical-process cancellation/fairness
+oracle and broader qualification remain open.
+
+Six of eight selected primitive controls pass: ordinary/Axum SQL and KV,
+ordinary Queue callbacks and interrupted SQL recovery. Queue proof sharing fails
+during fast-queue warmup with an ambiguous runtime deadline, before its main
+oracle. The four-in-flight Queue case fails a public producer with ambiguous
+`Runtime(DeadlineExceeded)`; command sequence 6 enters its first Raft target
+attempt with 2,034 ms remaining. Original identities and failed data remain
+retained. Strict all-feature/all-target Clippy, the default recovery consumer,
+format, layout, dependency, documentation and 44 plan checks pass. The current
+native disaster runtime target was not reached after the routing failure.
+See the [scoped record](read-refusal-qualification-2026-11-17.json).
+This repair establishes no constrained throughput
+or latency-percentile gain and closes no complete OPT or CG gate.
+
 ### Bounded peer-query progress
 
 The peer sender previously awaited one complete application response before

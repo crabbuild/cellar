@@ -48,6 +48,39 @@ fn read_durability(body: &mut Reader<'_>) -> Result<Durability, TransportError> 
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-advice-1";
 const REQUEST: &[u8] = b"cellar-raft-query-advice-request-1";
 const RESPONSE: &[u8] = b"cellar-raft-query-advice-response-1";
+const READ_REFUSED: &[u8] = b"CLQDEN01";
+
+/// The frame MAC authenticates this request's identity and body digest before
+/// body bytes can establish a typed read refusal. It grants no write disposition.
+pub(super) struct ResponseBody {
+    digest: [u8; 32],
+    read_refusal_allowed: bool,
+}
+
+impl ResponseBody {
+    pub(super) fn verify(&self, body: &[u8]) -> Result<(), TransportError> {
+        if self.digest != <[u8; 32]>::from(Sha256::digest(body)) {
+            return Err(TransportError::Authentication);
+        }
+        if body == READ_REFUSED {
+            return Err(if self.read_refusal_allowed {
+                TransportError::Refused
+            } else {
+                // A peer cannot turn an uncertain write into non-admission by
+                // returning a read-only refusal under a command request tag.
+                TransportError::Protocol
+            });
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn read_refusal_body(request: &RequestHead) -> Result<&'static [u8], TransportError> {
+    if !request.route.is_query() {
+        return Err(TransportError::Protocol);
+    }
+    Ok(READ_REFUSED)
+}
 
 fn failure_code(failure: &CommandFailure) -> u8 {
     match failure {
@@ -191,7 +224,7 @@ pub(super) fn read_response(
     request: &RequestHead,
     request_tag: &[u8; 32],
     options: &TransportOptions,
-) -> Result<[u8; 32], TransportError> {
+) -> Result<ResponseBody, TransportError> {
     verify_head(head, auth, exporter, Some(request_tag), options)?;
     let header: ResponseHead =
         serde_json::from_slice(&head.header).map_err(|_| TransportError::Protocol)?;
@@ -202,7 +235,10 @@ pub(super) fn read_response(
     {
         return Err(TransportError::Authentication);
     }
-    Ok(header.digest)
+    Ok(ResponseBody {
+        digest: header.digest,
+        read_refusal_allowed: request.route.is_query(),
+    })
 }
 
 fn make_head(

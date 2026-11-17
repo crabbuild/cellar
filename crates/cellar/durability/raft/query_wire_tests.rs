@@ -162,10 +162,10 @@ fn query_wire_binds_channel_request_route_and_payload() {
     }
     let reply = result_bytes();
     let response = response_head(&auth, &[3; 32], &request, &head.tag, &reply, &options).unwrap();
-    assert_eq!(
-        read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap(),
-        <[u8; 32]>::from(Sha256::digest(&reply))
-    );
+    let verified =
+        read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+    assert_eq!(verified.digest, <[u8; 32]>::from(Sha256::digest(&reply)));
+    verified.verify(&reply).unwrap();
     assert!(read_response(&response, &auth, &[4; 32], &request, &head.tag, &options).is_err());
     assert!(read_response(&response, &auth, &[3; 32], &request, &[5; 32], &options).is_err());
     assert!(read_response(
@@ -820,10 +820,84 @@ fn read_transport_unavailability_preserves_security_and_mutation_failures() {
         TransportError::Authentication,
         TransportError::Identity,
         TransportError::Protocol,
+        TransportError::Refused,
         TransportError::CommandRejected(CommandFailure::Unavailable),
         TransportError::Timeout,
     ] {
         assert_eq!(error.clone().for_read(), error);
+    }
+}
+
+#[test]
+fn authenticated_read_refusal_is_bound_to_body_request_and_channel() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = cell_call(CellQueryConsistency::Linearizable)
+        .encode(4096)
+        .unwrap();
+    let request = RequestHead::new(route(), 7, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    let denied = read_refusal_body(&request).unwrap();
+    let response = response_head(&auth, &[3; 32], &request, &head.tag, denied, &options).unwrap();
+    let verified =
+        read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+    assert_eq!(verified.verify(denied), Err(TransportError::Refused));
+    assert_eq!(TransportError::Refused.for_read(), TransportError::Refused);
+    for n in 0..denied.len() {
+        let mut altered = denied.to_vec();
+        altered[n] ^= 1;
+        assert_eq!(
+            verified.verify(&altered),
+            Err(TransportError::Authentication)
+        );
+    }
+    assert!(matches!(
+        read_response(&response, &auth, &[4; 32], &request, &head.tag, &options),
+        Err(TransportError::Authentication)
+    ));
+    let other = RequestHead::new(route(), 8, &body);
+    let other_head = request_head(&auth, &[3; 32], &other, &body, &options).unwrap();
+    assert!(matches!(
+        read_response(
+            &response,
+            &auth,
+            &[3; 32],
+            &other,
+            &other_head.tag,
+            &options
+        ),
+        Err(TransportError::Authentication)
+    ));
+}
+
+#[test]
+fn read_refusal_cannot_prove_command_or_event_non_admission() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = b"request";
+    for route in [
+        route().for_command().unwrap(),
+        route().for_event_command().unwrap(),
+        route().for_command_probe().unwrap(),
+        route().for_binding_retirement().unwrap(),
+        route().for_event_query().unwrap(),
+        route().for_enrollment().unwrap(),
+        route().for_receipt().unwrap(),
+        route().for_name().unwrap(),
+    ] {
+        let request = RequestHead::new(route, 7, body);
+        assert!(matches!(
+            read_refusal_body(&request),
+            Err(TransportError::Protocol)
+        ));
+        let head = request_head(&auth, &[3; 32], &request, body, &options).unwrap();
+        // Even a correctly authenticated peer cannot use the plain-read marker
+        // to establish that this different operation entered no producer.
+        let response =
+            response_head(&auth, &[3; 32], &request, &head.tag, READ_REFUSED, &options).unwrap();
+        let verified =
+            read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+        assert_eq!(verified.verify(READ_REFUSED), Err(TransportError::Protocol));
     }
 }
 

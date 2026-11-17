@@ -8,7 +8,6 @@ use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire as wire;
 use cellar_logic::consensus::NodeIdentity;
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use sha2::{Digest, Sha256};
 
 pub(super) enum SendQuery {
     Shared(Box<super::cell_queries::SendCellQuery>),
@@ -407,7 +406,15 @@ impl State {
             }
             source_host = Some(host);
             last_sequence = header.sequence()?;
-            let (pool, permission) = self.authorize_query_route(&header.route)?;
+            let (pool, permission) = match self.authorize_query_route(&header.route) {
+                Ok(authorization) => authorization,
+                Err(TransportError::Refused) if header.route.is_query() => {
+                    self.refuse_read(&mut stream, &exporter, &header, &head)
+                        .await?;
+                    return Err(TransportError::Refused);
+                }
+                Err(error) => return Err(error),
+            };
             let charge = reservation(head.payload_len, &self.options)?;
             let _node = self
                 .incoming
@@ -502,6 +509,76 @@ impl State {
             observation.finish(true);
             self.accepted.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    async fn refuse_read<S: AsyncRead + AsyncWrite + Unpin>(
+        &self,
+        stream: &mut S,
+        exporter: &[u8; 32],
+        header: &wire::RequestHead,
+        head: &FrameHead,
+    ) -> Result<(), TransportError> {
+        // A metadata-only physical process may lack both a query pool and this
+        // namespace's grant. Its existing process owner and the same peer bank
+        // bound the denial without creating workers or granting data admission.
+        let source = header.route.source()?;
+        let (incoming, epoch) = {
+            let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+            self.admit(&registry)?;
+            let matches = |peer: &RaftPeerNode| {
+                peer.disk == source.disk
+                    && peer.process == source.process
+                    && peer.label == header.route.source_label()
+            };
+            if let Some(pool) = registry
+                .pools
+                .get(&source.node)
+                .filter(|pool| matches(&pool.peer))
+            {
+                (pool.incoming.query.clone(), pool.stop.subscribe())
+            } else {
+                let seed = registry
+                    .seed_peers
+                    .get(&source.node)
+                    .filter(|seed| matches(&seed.peer))
+                    .ok_or(TransportError::Refused)?;
+                (seed.incoming_query.clone(), seed.stop.subscribe())
+            }
+        };
+        let charge = reservation(head.payload_len, &self.options)?;
+        let _node = self
+            .incoming
+            .query
+            .acquire(charge)
+            .ok_or(TransportError::Overloaded)?;
+        let _peer = incoming.acquire(charge).ok_or(TransportError::Overloaded)?;
+        let deadline = self
+            .domain
+            .mono_ms()
+            .map_err(|_| TransportError::Closed)?
+            .saturating_add(self.options.io_timeout_ms);
+        self.seed_process_io(&epoch, deadline, async {
+            // Consume and authenticate the bounded request before closing the
+            // stream, so unread request bytes cannot reset the signed refusal.
+            let mut body = vec![0; head.payload_len];
+            stream.read_exact(&mut body).await?;
+            header.verify_body(&body)?;
+            drop(body);
+            let refusal = wire::read_refusal_body(header)?;
+            let reply = wire::response_head(
+                &self.auth,
+                exporter,
+                header,
+                &head.tag,
+                refusal,
+                &self.options,
+            )?;
+            write_head(stream, &reply).await?;
+            stream.write_all(refusal).await?;
+            stream.flush().await?;
+            Ok(())
+        })
+        .await
     }
 
     pub(super) async fn send_queries(
@@ -674,7 +751,7 @@ impl State {
                 read_query_tail(stream, prefix, &self.options, true).await
             })
             .await?;
-        let digest = wire::read_response(
+        let verified = wire::read_response(
             &response,
             &self.auth,
             exporter,
@@ -688,9 +765,7 @@ impl State {
             Ok(())
         })
         .await?;
-        if digest != <[u8; 32]>::from(Sha256::digest(&body)) {
-            return Err(TransportError::Authentication);
-        }
+        verified.verify(&body)?;
         Ok(body)
     }
 }

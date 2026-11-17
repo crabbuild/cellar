@@ -285,10 +285,14 @@ struct Banks {
 
 impl Banks {
     fn new(control: usize, data: usize, query: usize, items: usize) -> Self {
+        Self::with_query(control, data, Budget::new(query, items), items)
+    }
+
+    fn with_query(control: usize, data: usize, query: Arc<Budget>, items: usize) -> Self {
         Self {
             control: Budget::new(control, items),
             data: Budget::new(data, items),
-            query: Budget::new(query, items),
+            query,
         }
     }
 
@@ -1068,6 +1072,24 @@ impl State {
             {
                 continue;
             }
+            // Metadata-only and routed work for one physical peer share the
+            // same incoming query bank, including work from a retiring boot.
+            let incoming_query = registry
+                .seed_peers
+                .get(&peer.node)
+                .map(|seed| seed.incoming_query.clone())
+                .or_else(|| {
+                    registry
+                        .pools
+                        .get(&peer.node)
+                        .map(|pool| pool.incoming.query.clone())
+                })
+                .unwrap_or_else(|| {
+                    Budget::new(
+                        self.options.peer_query_bytes,
+                        self.options.max_connections_per_lane,
+                    )
+                });
             if let Some(old) = registry.pools.remove(&peer.node) {
                 old.stop.send_replace(true);
             }
@@ -1086,10 +1108,10 @@ impl State {
                     self.options.peer_query_bytes,
                     self.options.queue_items,
                 ),
-                incoming: Banks::new(
+                incoming: Banks::with_query(
                     self.options.peer_control_bytes,
                     self.options.peer_data_bytes,
-                    self.options.peer_query_bytes,
+                    incoming_query,
                     self.options.max_connections_per_lane,
                 ),
             });
