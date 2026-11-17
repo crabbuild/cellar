@@ -177,6 +177,13 @@ retain the same barriers and complete-prefix checks. Preparation results are
 delivered after the physical task joins; failed preparation releases its apply
 reservation before returning the error.
 
+Materialized command directories contain disposable SQLite/WAL/capture scratch.
+Create them without persistence barriers and rebuild their contents on every
+open from the independently authoritative image. Directory locks still exclude
+concurrent owners. Immutable previews, committed images, log records and root
+publication retain their durability barriers. Extent workspaces retain the
+inventory's separate durable allocation and reclamation contract.
+
 One unresolved data proposal per cell is sufficient initially. Prepare different
 cells concurrently through fair queues; serialize publication by group log index.
 No slow callback or image preparation runs on the consensus tick loop. Group/node

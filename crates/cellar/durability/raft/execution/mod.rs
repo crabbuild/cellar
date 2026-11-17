@@ -316,6 +316,8 @@ impl CommandAuthority {
 
 #[derive(Clone)]
 pub struct PrivateOptions {
+    /// Disposable SQLite/WAL scratch rebuilt from the committed image on open.
+    /// Its directory and contents supply no recovery or acknowledgement proof.
     pub directory: PathBuf,
     pub host: LtxHost,
     /// Must select the same SQLite storage surface as the supplied host. None

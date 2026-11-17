@@ -150,9 +150,11 @@ preview, committed immutable image and Raft log keep their persistence barriers.
 open already completed the ancestor barriers. Creation still syncs the new child
 directory and its parent before returning its owner. Rooted private execution
 validates and retains that exact owner instead of repeating the ancestor walk;
-arbitrary materialized paths establish their own barriers. Child or parent sync
-failure quarantines the inventory and retains the complete reservation until
-recovery. Last-pin cleanup still syncs deletion before refunding capacity.
+materialized command scratch uses ordinary directory creation because each open
+discards and rebuilds it from an independently authoritative image. Child or parent
+sync failure during workspace creation quarantines the inventory and retains the
+complete reservation until recovery. Last-pin cleanup still syncs deletion before
+refunding capacity.
 Anonymous read-cache directories use ordinary creation because they are rebuilt
 after a crash. Neither those files nor the directory owner supplies an immutable
 image seal, a Raft acknowledgement or recovery authority.
