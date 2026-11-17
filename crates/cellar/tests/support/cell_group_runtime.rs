@@ -1033,6 +1033,7 @@ pub(super) use sql::{
 };
 
 pub(super) use sql::apply_images;
+pub(super) use sql::pipeline_unrelated_mutation;
 
 pub(super) use sql::{apply_cancellation, apply_failure};
 

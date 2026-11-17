@@ -1301,6 +1301,16 @@ async fn rooted_shared_workers_prepare_committed_cell_images() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn unrelated_cell_mutation_does_not_stall_sql_preparation() -> Result<()> {
+    runtime_fixture::pipeline_unrelated_mutation(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_unrelated_cell_mutation_does_not_stall_sql_preparation() -> Result<()> {
+    runtime_fixture::pipeline_unrelated_mutation(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn shared_apply_cancelled_close_joins_preparation() -> Result<()> {
     runtime_fixture::apply_cancellation(false).await
 }

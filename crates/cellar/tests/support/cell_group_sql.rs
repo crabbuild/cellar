@@ -524,6 +524,9 @@ pub(crate) use reads::{
 #[path = "cell_group_sql_apply.rs"]
 pub(super) mod apply;
 pub(crate) use apply::apply_images;
+#[path = "cell_group_sql_pipeline.rs"]
+mod pipeline;
+pub(crate) use pipeline::unrelated_mutation as pipeline_unrelated_mutation;
 
 #[path = "cell_group_sql_apply_faults.rs"]
 mod apply_faults;

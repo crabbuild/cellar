@@ -36,22 +36,39 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
-At compiler input `b08df720`, terminal command-origin denial is authenticated
-separately from transient I/O. It preserves the original command's ambiguity and
-does not invalidate current leader advice. The unchanged revocation and old-boot
-routing controls pass; the full library passes 1,250 tests with two existing
-ignores, and 18 native command/receipt/S3 controls pass. Full public routing
-passes 23 tests with 13 explicit RustFS ignores. Strict all-target and default
-recovery-consumer Clippy, formatting, layout, dependency and documentation checks
-pass. See the [origin-denial record](command-origin-refusal-qualification-2026-11-17.json).
-These are native RF3/TLS checks with in-memory object stores, not a constrained
-RustFS throughput or latency qualification.
+At final compiler input `54f68d4a`, overlapping admitted ingress calls can pass
+one validated successor sequence, and private SQL can prepare past a complete
+bounded prefix of ordinary mutations for other cells. Same-cell ordering,
+control barriers and exact acknowledgement proofs remain. The library passes
+1,253 tests and native execution passes 219, each with two existing ignores.
+Ordinary SQL/KV/Queue, Queue proof sharing and warm/fragmented KV controls pass.
+Strict all-target and default recovery-consumer Clippy, formatting, layout,
+dependency/documentation checks and all 44 design checks pass.
+
+The native workload qualification remains **failed**. Queue four-in-flight
+producers expire in the materialized iteration, before its extent iteration.
+SQL recovery initially passes seven configurations and fails materialized S3
+setup; frozen published/handoff controls and an unchanged candidate repeat each
+pass all eight, leaving the first failure unexplained. Seven of eight selected
+S3 controls pass. The remaining control reaches its expected ambiguous 800-ms
+deadline before observing retained S3-wait admission. Forward and reverse frozen
+controls also reproduce that failure on the published binary; they establish no
+causal repair. See the [SQL pipeline record](cell-sql-pipeline-qualification-2026-11-17.json).
+
+The parent `b08df720` origin-denial checkpoint separately passes 23 public routing
+cases with 13 explicit RustFS ignores. Its authenticated denial preserves command
+ambiguity and current leader advice; see the
+[origin-denial record](command-origin-refusal-qualification-2026-11-17.json).
+Those routing results are not a new current-source full routing run. Parent
+`504dd25b` also has terminal hosted SDK and Node failures. All these native
+RF3/TLS checks use in-memory object stores; they do not qualify constrained RustFS
+throughput or latency.
 
 | Priority | Remaining gap | Required result |
 | --- | --- | --- |
-| P0 | Original-deadline progress and command settlement | Diagnose the retained Queue proof-sharing warmup and four-in-flight producer deadlines, pending-RPC/busy receipt progress and unexplained full-run routing/recovery failures. Preserve every original ID, callback count, exact receipt/body, admission bank and five-second operation bound. |
+| P0 | Original-deadline progress and command settlement | Close Queue four-in-flight deadlines, unstable SQL recovery setup, S3-wait admission coverage, pending-RPC/busy receipt progress and hosted recovery/SDK failures. Preserve original IDs, callbacks, exact receipts/bodies and banks. Native nested ingress is three seconds; the five-second callback timeout, five-second constrained operation bound and 800-ms S3 phase control are separate unchanged limits. |
 | P1 | SQL, persistence and archive cost | Attribute request-critical-path time and physical amplification before tuning. Explicit read-only SQL, prepared-submission batching and shared persistence already exist; qualify their combined behavior and bounded sparse-traffic latency. |
-| P1 | Shared-worker fairness | Prove a busy group or slow callback/archive cannot starve cold-group SQL, lease/control traffic, elections or shutdown. Measure queue wait and p95/p99 under mixed load without increasing resource banks. |
+| P1 | Shared-worker fairness | Qualify competing ingress nodes and stale sequence hints, then prove a busy group or slow callback/archive cannot starve cold-group SQL, lease/control traffic, elections or shutdown. Measure queue wait and p95/p99 under mixed load without increasing resource banks. |
 | P1 | Sustainable capacity and placement | Prove physical shared-file/segment deletion and once-only credit after readers, snapshots and archive/transfer owners release. Then qualify repeated split/move/merge and reserve-aware placement under the original bounds. |
 | P2 | Combined fault and performance acceptance | Complete the public primitive, authority/partition, SDK/daemon/feature-mode, restart and fenced recovery matrices on one source. Run matched SQL/KV/Queue Quorum, Quorum+S3, Fleet and Bucket comparisons at C1/4/16 on the original three 1-vCPU/2-GiB RF3 nodes and three groups. |
 
@@ -59,9 +76,10 @@ Complete passing cases must report throughput, p50/p95/p99, errors, CPU, I/O and
 archive lag. Failed, unmeasured or differently constrained windows cannot
 establish an optimization gain.
 
-The original RustFS volume reports zero free bytes at the latest read-only check,
-below its unchanged 6 GiB reserve. No constrained campaign is admitted, and no
-pruning, restart, resource change or reserve relaxation has been performed. Native
+The original RustFS volume reports 13,623,296 free bytes (about 13 MiB) at the
+latest read-only check, below its unchanged 6 GiB reserve. No constrained campaign
+is admitted, and no pruning, restart, resource change or reserve relaxation has
+been performed. Native
 elapsed test times are not throughput or percentile measurements. All complete
 OPT-01–08 packages and remaining CG gates stay open; see
 [optimization progress](optimization-progress.md) for source-specific evidence.

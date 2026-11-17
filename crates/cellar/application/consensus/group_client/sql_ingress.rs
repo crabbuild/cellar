@@ -380,11 +380,11 @@ impl RaftCells {
                 ))
             };
             let operation = async {
-                let _turn = lane.lock().await;
+                let mut turn = lane.lock().await;
                 owner.check_open()?;
                 remaining()?;
-                // A local applied history is only a locator. The sequence query
-                // and command still require the exact target's fresh quorum.
+                // A local applied history is only a locator. Neither it nor a
+                // handed-off sequence grants execution or durability authority.
                 let (history, newly_enrolled) = if let Some(history) = history_hint {
                     (history, false)
                 } else {
@@ -483,15 +483,18 @@ impl RaftCells {
                 // The runtime-owned initializer creates an empty stream. This
                 // is a hint at the enrollment cut, never an exclusive sequence
                 // reservation: another caller can still consume it first.
+                let inherited = turn.take_successor(&history);
                 let next = if newly_enrolled {
                     1
+                } else if let Some(next) = inherited {
+                    next
                 } else {
                     observe(&cell, 0, remaining()?).await?.next
                 };
                 *command.lock().unwrap() =
                     Some(CommandId::new(sql_ingress_identity::client(), next)?);
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
-                    phase="sequence", next, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
+                    phase="sequence", next, inherited=inherited.is_some(), elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
                 let fingerprint = super::super::command_request_digest(&input);
                 let mut attempt = 0u64;
                 let receipt = loop {
@@ -572,6 +575,7 @@ impl RaftCells {
                     );
                 }
                 remaining()?;
+                turn.acknowledged(&history, receipt.id);
                 Ok(response)
             };
             let timed = async {

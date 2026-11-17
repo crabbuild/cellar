@@ -5791,3 +5791,96 @@ progress, retained unexplained failures, physical disconnect and recovery cuts,
 release-scale fairness/reclamation/movement, combined SDK/daemon/feature modes
 and the original complete constrained comparison remain open. No complete OPT
 package or remaining CG gate is accepted.
+
+## Cell-specific SQL preparation and active sequence handoff
+
+Final compiler input `54f68d4a` removes two bounded sources of repeated ingress work.
+Overlapping, already admitted stateless calls can hand off one successor sequence
+only after validating an exact positive receipt for the same cell history and
+reserved ingress client. The hint is consumed once, discarded on owner error or
+cancellation, and removed with the last active FIFO caller. Cold calls retain the
+original quorum sequence query. Conflicting sequences still require the unchanged
+fresh-quorum consumed-other fingerprint proof; a lost response never permits a
+new mutation identity.
+
+The group owner also permits private SQL preparation when the entire committed,
+unapplied prefix contains only validated ordinary mutations of other logical
+cells. A 32-entry/64-KiB scan bounds owner work. Gaps, larger prefixes, malformed
+entries, enrollment and all control entries keep the existing group barrier.
+Current-term leadership, route/membership, recovery, park, seal and activation
+fences remain. Exact target image/version checks and the private writer remain;
+ReadIndex and acknowledgement proofs do not change.
+
+The same native regression helper fails at the intended `NotReady` boundary
+before this owner change and passes afterward in both image formats. It prepares
+B through the existing verification helper, holds its actual committed apply,
+then stages A through the existing single-worker pool. A commits behind B, a
+second A and B remain refused, and untouched C can obtain authority. After
+release, all three voters agree on exact receipts and versions; replay does not
+rerun A's callback and retained SQL ownership reaches zero. Existing enrollment
+and original-deadline controls pass unchanged. The full native execution target
+passes 219 tests with two existing ignores.
+
+The native execution and primitive executables are byte-identical to runtime
+input `7d62cfdc` across a five-line caller comment correction. The production
+library archive hash changes; it is not claimed byte-identical. Final-source
+library and remaining native/strict checks are run directly.
+
+The original four-in-flight Queue workload still fails in the materialized
+iteration with four failed producers, peak four offered calls and zero active
+calls after producer join. Its original command sequence remains retained and
+the extent iteration is not reached. Queue proof sharing passes its four native
+configurations. These results do not close the Queue progress gap or establish
+an end-to-end gain. The nested native ingress policy is three seconds; the
+five-second callback timeout and constrained benchmark's five-second operation
+bound are separate and unchanged.
+
+The full final-source library passes 1,253 tests with two existing ignores.
+Seven of eight selected native S3 controls pass. The deadline/ambiguity control
+fails because its expected ambiguous 800-ms expiry arrives before retained
+S3-wait admission is observed; that assertion does not observe a successful
+acknowledgement. Forward frozen controls pass the published binary and fail the
+current command check. Reverse controls fail current enrollment and the same
+published command check. This failure is therefore also reproduced on published
+source, without a causal repair or complete phase coverage. All original limits
+and assertions remain. Strict all-feature/all-target and default recovery-consumer
+Clippy, formatting, layout, dependency/documentation checks and all 44 design
+tests pass.
+
+The first current-source SQL recovery matrix passes seven configurations and
+fails materialized S3 setup before the interruption oracle. The frozen published
+baseline and the frozen handoff-only candidate each pass all eight configurations.
+An unchanged full-candidate repeat also passes all eight. These controls do not
+establish a causal repair; the original setup failure and its data stay retained
+and full stable recovery qualification remains open.
+
+The first new regression fixture build used private receipt wrapper fields and
+failed compilation. Its next build passed but source guarding refused runtime
+qualification because formatting completed after capture. Both attempts remain
+retained. The corrected frozen before run reproduces both intended refusals,
+releases held work and joins shutdown. Temporary diagnostic correlation is
+removed from the final source. A selected legacy chained load control was
+already explicitly ignored and ran zero runtime tests, so its count guard stopped
+the attempt. That separate twenty-second control remains ignored. A subsequent
+archive byte-identity guard also stopped when only the two native executable
+hashes matched; the final checks make no production archive identity claim.
+All closed persistent originals are verified twice and copied files are verified;
+in-memory stores are not exported.
+
+Published parent `504dd25b` has additional hosted failures: the 3.14 native
+campaign fails transition disaster closure selection and panics while observing
+a drained source collection; the 3.14t campaign fails managed replacement and
+S3 seed-refusal cases. Python 3.14 fails held consumer admission/runtime shutdown,
+and Node package delivery exceeds its original 250-ms handler budget. Passing
+focused diagnostics do not settle these broader failures. These are parent
+results, not qualification of this candidate.
+
+See the [source-specific record](cell-sql-pipeline-qualification-2026-11-17.json)
+for exact artifacts, cohorts, failures and scope. Native elapsed times are not
+constrained throughput or latency percentiles. The unchanged original RustFS
+volume reports 13,623,296 free bytes (about 13 MiB), below its unchanged
+6-GiB reserve. No backend pruning, restart, resource or reserve change is made.
+Queue progress, combined hosted SDK/recovery, sustained fairness, physical
+reclamation/once-only credit, repeated reserve-aware movement, cross-ingress
+contention and the original complete constrained comparison remain open.
+No complete OPT package or remaining CG gate is accepted.

@@ -523,7 +523,7 @@ impl CellGroupOwner {
         if self.node.raft.state != StateRole::Leader {
             return Err(RuntimeError::NotLeader);
         }
-        if !status.ready || status.applied.index != status.committed {
+        if !status.ready || !self.cell_applied_through(cell, status.committed) {
             return Err(RuntimeError::NotReady);
         }
         super::CellExecutionAuthority::new(
@@ -533,6 +533,57 @@ impl CellGroupOwner {
             status.term,
             self.leader_term.clone(),
         )
+    }
+
+    /// A current-term leader may prepare against an unchanged cell while other
+    /// cells await physical apply. Inspect the complete committed prefix, not
+    /// only its first entry: a later mutation may belong to the requested cell.
+    /// Enrollment and every control, empty, unknown or malformed entry retain
+    /// the group-wide barrier. This grants no receipt or read-index proof.
+    fn cell_applied_through(&self, cell: &CellHistory, committed: LogIndex) -> bool {
+        let mut applied = self.current.marker().position().index.get();
+        if applied == committed.get() {
+            return true;
+        }
+
+        // Bound both owner work and repeated payload validation. Larger or
+        // incomplete backlogs keep waiting under the original admission limits.
+        const MAX_ENTRIES: usize = 32;
+        const MAX_BYTES: usize = 64 * 1024;
+        let mut bytes = 0_usize;
+        for pending in self.apply.iter().take(MAX_ENTRIES) {
+            let entry = &pending.entry;
+            if applied.checked_add(1) != Some(entry.index)
+                || entry.index > committed.get()
+                || entry.get_entry_type() != EntryType::EntryNormal
+                || entry.data.is_empty()
+            {
+                return false;
+            }
+            let Some(total) = bytes.checked_add(entry.data.len()) else {
+                return false;
+            };
+            if total > MAX_BYTES {
+                return false;
+            }
+            bytes = total;
+            let Ok(decoded) = CellGroupEntry::decode(
+                &entry.data,
+                self.current.marker().route(),
+                GroupEntryLimits::default(),
+            ) else {
+                return false;
+            };
+            if !matches!(decoded.command, GroupCommand::Mutation(update) if update.cell.cell != cell.cell)
+            {
+                return false;
+            }
+            applied = entry.index;
+            if applied == committed.get() {
+                return true;
+            }
+        }
+        false
     }
 
     pub(crate) fn next_effect(
