@@ -740,4 +740,7 @@ pub(crate) use namespace_host::{
 
 #[path = "cell_group_query_routing.rs"]
 mod query_routing;
-pub(crate) use query_routing::{automatic_queries_leave_blocked_local, controller_routed_queries};
+pub(crate) use query_routing::{
+    automatic_queries_keep_first_progress, automatic_queries_leave_blocked_local,
+    controller_routed_queries,
+};
