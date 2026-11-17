@@ -910,10 +910,23 @@ async fn admin(
     queue: &str,
     body: serde_json::Value,
 ) -> Result<serde_json::Value> {
+    admin_on(cluster, 1, queue, body).await
+}
+
+async fn admin_on(
+    cluster: &ManagedCluster,
+    node: usize,
+    queue: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
     let started = cellar::asyncrt::mono_ms();
     let operation = body["op"].as_str().unwrap_or("unknown");
     eprintln!("Queue operator start queue={queue} op={operation}");
-    let info = cluster.nodes[1].info();
+    let info = cluster
+        .nodes
+        .get(node)
+        .context("operator ingress node")?
+        .info();
     let path = format!(
         "/runtime/{}?name={}",
         cellar::engine_api::queue_cell_scope(queue),
@@ -1012,4 +1025,5 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
 mod qualification;
 pub use qualification::{
     qualify_batch_proof, qualify_faults, qualify_load, qualify_long, qualify_metadata_reads,
+    qualify_metadata_s3,
 };

@@ -2354,3 +2354,15 @@ async fn queue_operator_reads_preserve_versions_and_require_quorum() -> Result<(
 async fn rustfs_queue_operator_reads_preserve_versions_and_require_quorum() -> Result<()> {
     Box::pin(queues::qualify_metadata_reads(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_operator_reads_require_selected_s3_coverage_after_bare_enrollment() -> Result<()> {
+    Box::pin(queues::qualify_metadata_s3(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_operator_reads_require_selected_s3_coverage_after_bare_enrollment(
+) -> Result<()> {
+    Box::pin(queues::qualify_metadata_s3(true)).await
+}

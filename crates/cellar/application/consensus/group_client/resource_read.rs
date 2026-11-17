@@ -32,7 +32,7 @@ impl RaftCells {
                 {
                     QueryAdmission::Event(route.durability)
                 }
-                super::super::CommandAdmission::QueueOperator
+                super::super::CommandAdmission::Public
                     if class == crate::deploy::QUEUE_CLASS
                         && route.contract == super::super::native_queue_query::contract() =>
                 {

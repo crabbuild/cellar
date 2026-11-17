@@ -229,6 +229,21 @@ impl CellQueryExecution {
                 .await
                 .map_err(CellDispatchError::Runtime)?;
         }
+        // Operator inspection uses the leader's Queue retention policy, just
+        // like its mutating RPCs. A follower's node-local limits may differ.
+        // This role check does not replace the fresh quorum authority below.
+        let queue_term = if matches!(self.admission, QueryAdmission::QueueOperator(_)) {
+            let observation = runtime
+                .observe(attempt.route().history)
+                .await
+                .map_err(CellDispatchError::Runtime)?;
+            if observation.role != crate::application::consensus::RaftReplicaRole::Leader {
+                return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
+            }
+            Some(observation.status.term)
+        } else {
+            None
+        };
         let authority = runtime
             .read_authority(
                 attempt.route().history,
@@ -268,6 +283,17 @@ impl CellQueryExecution {
                     CellDispatchError::Execution(error)
                 }
             })?;
+        if let Some(term) = queue_term {
+            let observation = runtime
+                .observe(attempt.route().history)
+                .await
+                .map_err(CellDispatchError::Runtime)?;
+            if observation.role != crate::application::consensus::RaftReplicaRole::Leader
+                || observation.status.term != term
+            {
+                return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
+            }
+        }
         if self.admission.minimum() == Some(cellar_logic::consensus::Durability::S3) {
             let client = self
                 .dispatcher

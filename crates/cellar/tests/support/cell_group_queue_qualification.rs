@@ -287,6 +287,27 @@ impl Scenario {
         ordinary_slots: usize,
         minimums: Minimums,
     ) -> Result<Self> {
+        Self::prepare(
+            rooted,
+            store,
+            external,
+            callback_ms,
+            retention_ms,
+            ordinary_slots,
+            (minimums, true),
+        )
+        .await
+    }
+
+    async fn prepare(
+        rooted: bool,
+        store: Arc<catalog_fault::Store>,
+        external: bool,
+        callback_ms: u64,
+        retention_ms: Option<i64>,
+        ordinary_slots: usize,
+        (minimums, warm): (Minimums, bool),
+    ) -> Result<Self> {
         let signals = Arc::new(Signals::default());
         let Deployments {
             application,
@@ -335,6 +356,9 @@ impl Scenario {
                 let queue = install_group(&cluster, 0, 181).await?;
                 let dead = install_group(&cluster, 1, 185).await?;
                 ready(&cluster, &[cluster.history, queue, dead]).await?;
+                if !warm {
+                    return Ok((queue, dead));
+                }
                 admin(&cluster, QUEUE, json!({"op":"info"}))
                     .await
                     .context("warm consumer Queue")?;
@@ -1087,13 +1111,13 @@ pub async fn qualify_metadata_reads(real: bool) -> Result<()> {
                         node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
                     }
                     ensure!(
-                        admin(&s.cluster, QUEUE, json!({"op":"info"}))
+                        admin_on(&s.cluster, 0, QUEUE, json!({"op":"info"}))
                             .await
                             .is_err(),
                         "Queue info served without a fresh quorum"
                     );
                     ensure!(
-                        admin(&s.cluster, QUEUE, json!({"op":"peek","limit":1}))
+                        admin_on(&s.cluster, 0, QUEUE, json!({"op":"peek","limit":1}))
                             .await
                             .is_err(),
                         "Queue peek served without a fresh quorum"
@@ -1109,6 +1133,123 @@ pub async fn qualify_metadata_reads(real: bool) -> Result<()> {
                 "QUEUE_METADATA_READS realRustFS={real} extents={rooted} minimum={minimum:?}: PASS"
             );
         }
+    }
+    Ok(())
+}
+
+/// The enrollment image alone supports inspection; newer unarchived state
+/// cannot be returned by the authenticated S3 operator path.
+pub async fn qualify_metadata_s3(real: bool) -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(if real {
+            catalog_fault::Store::around(rustfs::store("queue-inspection-proof", rooted)?)
+        } else {
+            catalog_fault::Store::default()
+        });
+        let s = Scenario::prepare(
+            rooted,
+            store.clone(),
+            false,
+            5000,
+            None,
+            8,
+            (
+                Minimums {
+                    queue: Durability::S3,
+                    dead: Durability::Quorum,
+                },
+                false,
+            ),
+        )
+        .await?;
+        let domain = s.cluster.fixtures[0].domain.clone();
+        let outcome = domain
+            .run(async {
+                let fresh = QUEUE;
+                let cell = s.cluster.hosts[0].cell(CellHistory {
+                    cluster: s.queue.cluster,
+                    namespace: s.queue.namespace,
+                    cell: CellId::new(cellar::engine_api::queue_cell_scope(fresh))?,
+                    incarnation: IncarnationId::new([250; 16])?,
+                })?;
+                cell.enroll(
+                    CellEnrollmentRequest {
+                        creation: ProposalId::new([251; 16])?,
+                        durability: Durability::S3,
+                    },
+                    TIMEOUT,
+                )
+                .await?;
+                let inspect = cell.contract("__sqlIngressSequence")?;
+                let invocation = ProposalId::new([252; 16])?;
+                let query = || {
+                    cell.query(
+                        invocation,
+                        &inspect,
+                        0u64.to_be_bytes().to_vec(),
+                        QueryOptions::default(),
+                    )
+                };
+                let before = query().await?;
+                ensure!(admin(&s.cluster, fresh, json!({"op":"info"})).await?["stored"] == 0.0);
+                ensure!(
+                    admin(&s.cluster, fresh, json!({"op":"peek"})).await?["messages"]
+                        .as_array()
+                        .is_some_and(Vec::is_empty)
+                );
+                let after = query().await?;
+                ensure!(
+                    before.version == after.version && before.result == after.result,
+                    "inspection after bare enrollment must not create a command"
+                );
+
+                let denied = store.denied_group_archive_writes.load(Ordering::Acquire);
+                store
+                    .deny_group_archive_writes
+                    .store(true, Ordering::Release);
+                let blocked = BlockArchive(store.clone());
+                let (pause, refusal) =
+                    tokio::join!(admin(&s.cluster, fresh, json!({"op":"pause"})), async {
+                        // A newer committed cell version plus an actual denied
+                        // publication proves this selected state is not archived.
+                        // It does not prove whether the pause itself committed.
+                        cellar::asyncrt::timeout(TIMEOUT, async {
+                            loop {
+                                let selected = query().await?;
+                                if selected.version.sequence > after.version.sequence
+                                    && store.denied_group_archive_writes.load(Ordering::Acquire)
+                                        > denied
+                                {
+                                    break Ok::<_, anyhow::Error>(());
+                                }
+                                cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                            }
+                        })
+                        .await
+                        .context("unarchived Queue version was not observed")??;
+                        for body in [json!({"op":"info"}), json!({"op":"peek"})] {
+                            ensure!(
+                                admin(&s.cluster, fresh, body).await.is_err(),
+                                "S3 Queue inspection returned an unarchived version"
+                            );
+                        }
+                        Ok::<_, anyhow::Error>(())
+                    });
+                drop(blocked);
+                refusal?;
+                ensure!(
+                    pause.is_err(),
+                    "S3 pause acknowledged during archive denial"
+                );
+                admin(&s.cluster, fresh, json!({"op":"info"})).await?;
+                admin(&s.cluster, fresh, json!({"op":"peek"})).await?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await;
+        let cleanup = s.close(!matches!(&outcome, Ok(Ok(())))).await;
+        outcome??;
+        cleanup?;
+        eprintln!("QUEUE_METADATA_S3 realRustFS={real} extents={rooted}: PASS");
     }
     Ok(())
 }
