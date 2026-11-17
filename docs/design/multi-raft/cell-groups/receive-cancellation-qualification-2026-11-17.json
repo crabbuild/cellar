@@ -1,0 +1,992 @@
+{
+  "format": 1,
+  "license": "Apache-2.0",
+  "status": "SCOPED_NATIVE_CHECKS_PASS_WITH_OPEN_ACCEPTANCE_GATES",
+  "included_origin_main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "parent_revision": "0a46b573ed4fcefe6e34bc3d644a59d0d8900804",
+  "compiler_input_digest": "8adcad97bd06a9ccdea10b37d3392c840412070bc7ea54e6167a381c931f7b2f",
+  "changes": [
+    "crates/cellar/durability/raft/park_transport_tests.rs",
+    "crates/cellar/durability/raft/transport_query_tests.rs"
+  ],
+  "production_runtime_changed": false,
+  "profile": {
+    "rust": "1.98.1",
+    "locked": true,
+    "features": "all-features",
+    "test_opt_level": 1,
+    "debug_assertions": true,
+    "overflow_checks": true,
+    "incremental": false,
+    "build_jobs": 1
+  },
+  "fixture_contract": {
+    "truncated_read": "Retain the read half after TLS shutdown until actual peer termination; require zero original node and peer receive credits and zero physical query connections within the original overall three-second bound. Unexpected application bytes fail. No production cancellation, credit accounting or deadline changes.",
+    "park": "Keep original operations, assertions, timers, deadlines and selected certificate retention. Identify operation/voter errors, join all begun owners after a returned scenario error, preserve primary and cleanup errors, and retain private fixture disks. Assertion panics are not caught.",
+    "causality_limit": "Later passes do not establish a causal production repair of the earlier park NotReady or a specific macOS, Tokio or rustls defect."
+  },
+  "before": {
+    "status": "OBSERVED",
+    "source_digest": "7c39c193d921eef25f25db12caee0babad4c0f9d0a6b561d5154bb95e39c6658",
+    "source_revision": "0a46b573ed4fcefe6e34bc3d644a59d0d8900804",
+    "executable": {
+      "sha256": "04ab7f13341da62bcdc018d70acaf3e38b78de2b5c624d4dd053b2ec56e06e1c",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "files": 50,
+      "bytes": 76342,
+      "manifest_sha256": "3dc0855f7f369663425e155f5295f1cd626feeeb71acd291543b51c9d8e3326c"
+    },
+    "awake_joined": true,
+    "record_sha256": "fd7cb852cf8e6e42b5bea3281a34bb7951d6ebc882999454a05ebd4e26a8939a",
+    "stages": [
+      {
+        "name": "query-origin-01",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.2306436670187395,
+        "log_sha256": "e1cd4722ad76800722d0689f72c96cf1954d4ef05ff3e4cdcde8dee96987b0d8",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-02",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.24142395798116922,
+        "log_sha256": "a061605a22e130c156baa58f5c7fe9c66dce23ce4fe430dd6ba9f1d583f6915e",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-03",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.21498637498007156,
+        "log_sha256": "537be9412fe610d7e2075f0d2ddcb578ff36dd12acfe5de7705a5db7d9cfd8c1",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-04",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.18717833398841321,
+        "log_sha256": "4e52ed7f73736712deb2614167bdf99e03a12e706a5c25189dd1111fafc9f0d1",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-05",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 3.156384917005198,
+        "log_sha256": "cacfda81f472428648772ee9fc21a3fc286bf1a71089735d3b9c4129006f33bd",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-06",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.43961145798675716,
+        "log_sha256": "2eeb1eb394c4fceb595d6d3e5fa430e398cb54e3005b2535ba900d7d75ba67e5",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-07",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.43592941598035395,
+        "log_sha256": "52bd02546a75b2e5743feebbfbee93dd400a73c7da4aec7d7042aeb82a6b737b",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-08",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.826848583004903,
+        "log_sha256": "b2d0c6346f544bc66a7082baf280bda203296ee9abe9ec39567415b7f4173073",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-09",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9013230000273325,
+        "log_sha256": "85fe957e94b76c5f3060c80827edb48d39474403cffb833a906b99f29d77c4e2",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "query-origin-10",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8715917500085197,
+        "log_sha256": "8943d1a1bbd7b41051ca19e73534293b778060192f77b655e47f2c30825e7f32",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      }
+    ]
+  },
+  "initial_after": {
+    "status": "FAILED",
+    "source_digest": "28bdb2529791d04b872e176e0ce92aade343381096159132ab875f7a5ce32503",
+    "cellar_executable": {
+      "sha256": "a487fb7b49898b10a2ade93a3a0ad8b9b39fbf3c92ccb71f5f1a538360751041",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "native_cell_groups_disaster_executable": {
+      "sha256": "0a6a3f4eb3d673b0560ce89bb81f9c6fe69318958279b0a6e468ad566ec1f190",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "files": 1855,
+      "bytes": 16539884,
+      "manifest_sha256": "a9646eb9860fe9ed54ae71c0aa8c38332114f4b201e2a6a15ebaf4c420180181"
+    },
+    "awake_joined": true,
+    "record_sha256": "0d7824a5eb1964e035d74ea831cc9ba195b5c447ad8c39a4148a8f4f4bdf1662",
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 473.1622121249966,
+        "log_sha256": "2f6e2435c1417d8f5fbe340b70b84b2c630020f9a75b25079aa783b8b6dc95b2",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-01",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.17395300001953728,
+        "log_sha256": "dcc1d826335dbb6fcc03279b90ceb21596e67113c338e434995f27f7a3212c73",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-02",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.1589671669935342,
+        "log_sha256": "d4c2962abff0b584e81740e04b33f5d5c885aa6761951f89850797d84027e6cf",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-03",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.1557160840020515,
+        "log_sha256": "d4c2962abff0b584e81740e04b33f5d5c885aa6761951f89850797d84027e6cf",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-04",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.16047054098453373,
+        "log_sha256": "d4c2962abff0b584e81740e04b33f5d5c885aa6761951f89850797d84027e6cf",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-05",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.15888245799578726,
+        "log_sha256": "d4c2962abff0b584e81740e04b33f5d5c885aa6761951f89850797d84027e6cf",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-06",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.147401833004551,
+        "log_sha256": "398c2c8cb6a488793a37acc5e63e42c12abcc029e0bd7d20df45500957a8f550",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-07",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.15266816699295305,
+        "log_sha256": "398c2c8cb6a488793a37acc5e63e42c12abcc029e0bd7d20df45500957a8f550",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-08",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.1526990419952199,
+        "log_sha256": "398c2c8cb6a488793a37acc5e63e42c12abcc029e0bd7d20df45500957a8f550",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-09",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.21118087499053217,
+        "log_sha256": "537be9412fe610d7e2075f0d2ddcb578ff36dd12acfe5de7705a5db7d9cfd8c1",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-10",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.18615945801138878,
+        "log_sha256": "721fdae2eef8e36fe59eb69d55c000fb6f6a6ddc14ae635eceef635d3f3c57cc",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "full-library-01",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 222.29176983301295,
+        "log_sha256": "96bc375faf196c49d3cfa7d31c1835335700e127dcc09ae07328f492728da7af",
+        "footers": [
+          [
+            "FAILED",
+            "1247",
+            "1",
+            "2"
+          ]
+        ],
+        "failed_cases": [
+          "raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay"
+        ]
+      },
+      {
+        "name": "full-library-02",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 268.7100008749985,
+        "log_sha256": "7f81cc5dd1039c49e67aa4f7bd3fc5079b732fe107a0b6de23bc420fc191cd5b",
+        "footers": [
+          [
+            "ok",
+            "1248",
+            "0",
+            "2"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "full-library-03",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 272.8215611249907,
+        "log_sha256": "25fb359633333a5c1be067aa19d0ab9da27704f961c9819d25ce167daef1241b",
+        "footers": [
+          [
+            "FAILED",
+            "1247",
+            "1",
+            "2"
+          ]
+        ],
+        "failed_cases": [
+          "raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay"
+        ]
+      },
+      {
+        "name": "compile-native_cell_groups_disaster",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 82.06347999998252,
+        "log_sha256": "50390adc2c274edee94b1cf07af2b11e85b7d4763f82c0b504c4b62ef42af918",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "native-disaster",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1006.4111724589893,
+        "log_sha256": "d7b15cea0acffdfb4e8d9c2779f5ae4034a27f0ed05b703b9e567f43e70cdb77",
+        "footers": [
+          [
+            "ok",
+            "13",
+            "0",
+            "8"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "clippy",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 239.64192245801678,
+        "log_sha256": "6cfe0eadcfe1963d5fb2533646ac55b883a7a8c815a024e77351e1c92164dbe7",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "recovery-consumer-clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.6701922499923967,
+        "log_sha256": "2b921965c8a0e5601c4b08540ec3c856291b161c9fac9ca5d095629b88dc88d0",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 103.72778149999795,
+        "log_sha256": "c7174130c95b6815a9d8c979258b4ee7eb549c136460b1d68dbacd79d9df607b",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.13017420799587853,
+        "log_sha256": "2c3a94ef905d77c35793c9afb91639bd9fadebb004bcbf6dc9b897b1712ef9c7",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.28362083400133997,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8149844160070643,
+        "log_sha256": "2b2fbdf296bfdd3bb44efc3ac5cf0dc1ca64b09b23eaef3ad3e850d529902c56",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.3049621670215856,
+        "log_sha256": "f60beff2d5d10bb0b5510e75448ab97b367f31555af3e88ba190b43005ce9582",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.02071745801367797,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": [],
+        "failed_cases": []
+      }
+    ]
+  },
+  "final_after": {
+    "status": "PASSED",
+    "source_digest": "8adcad97bd06a9ccdea10b37d3392c840412070bc7ea54e6167a381c931f7b2f",
+    "executable": {
+      "sha256": "98e80642b5d1be07bfaa60d2864e1e4b1ddd97f3978405e0684c77c463980945",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "files": 570,
+      "bytes": 2924592,
+      "manifest_sha256": "ee0be9d831762beb2a63dab69f86502fd786c958e5db03948812675c3a23bba2"
+    },
+    "awake_joined": true,
+    "record_sha256": "33e16fb3c6f2946d390e7306459c27f277191c79277409a7c60a9f0ccf867f29",
+    "stages": [
+      {
+        "name": "compile-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 462.6395635830122,
+        "log_sha256": "2f2519c1e81cec929d90e08961851dad87d97e4143770c3eeb849ce0d3303879",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-01",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.6233990830078255,
+        "log_sha256": "64dacc6d3f2cb71fc1876043a70cd81f8c6c2a1010ab049a6e46c8925c82d72b",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-02",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.6050914579827804,
+        "log_sha256": "5b56a0043d12086eb01014ad8a8e0a5b5314ee1ddf4d487ba194b2ded3a11d2d",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-03",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.5860952500079293,
+        "log_sha256": "219797a0f5e60bcdce6a8c2463d2b4b8109f2fd52833cb68158b77359891241b",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-04",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.593537209002534,
+        "log_sha256": "8c9707f6ee60befe94f2a197821d702e2aad32dee244abbf1adfaea298adbf60",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-05",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.627239624998765,
+        "log_sha256": "af2f59fd85355eafb82ab360653d9944673a5e992111864558f13c6f938465af",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-06",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.6230513749760576,
+        "log_sha256": "af2f59fd85355eafb82ab360653d9944673a5e992111864558f13c6f938465af",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-07",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.5910202500235755,
+        "log_sha256": "4e3021ef3ca4c4a8417dd7b20b6032544cc6ad22d5c548101846af7c21c0414d",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-08",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.590399958018679,
+        "log_sha256": "4e3021ef3ca4c4a8417dd7b20b6032544cc6ad22d5c548101846af7c21c0414d",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-09",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.5146857499785256,
+        "log_sha256": "647f0449c461f5bd4eedb9855c973093e2b07ce6c6a31034a854d0c2d5f0d2d9",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "partial-10",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.4752275829960126,
+        "log_sha256": "1788662bda0453f863cac4c1bea6d62bd34b799c2390e9cd9fb38c7156e3c60f",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "full-delivery",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7328802499978337,
+        "log_sha256": "d6c41352e6ea63433bbbeccf594d9a80fd2f0e6dfa27d0e6ffdbf249b2c7867d",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "full-library-01",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 146.50804895799956,
+        "log_sha256": "ad8e9efa5e2de0e569533b37b29a1d053feb809410d62009e7a8a8549a54ee04",
+        "footers": [
+          [
+            "ok",
+            "1248",
+            "0",
+            "2"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "full-library-02",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 180.33714458398754,
+        "log_sha256": "e0cd20b60119e1c02866974b46470f49fa18e4dfcbc54cd7a11ed49066528bb6",
+        "footers": [
+          [
+            "ok",
+            "1248",
+            "0",
+            "2"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "full-library-03",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 170.74301924998872,
+        "log_sha256": "a71cbc49064a9a1b60f002c3a47ac57b527e6b8165f1dd93328f2983329fc005",
+        "footers": [
+          [
+            "ok",
+            "1248",
+            "0",
+            "2"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 250.87762829099665,
+        "log_sha256": "7a056361c9a97b2be56f170022f17bec7e83d30f47456fc6f5ac460ff2c845dd",
+        "footers": [],
+        "failed_cases": []
+      }
+    ]
+  },
+  "final_build_and_retention": {
+    "status": "PASSED",
+    "source_digest": "8adcad97bd06a9ccdea10b37d3392c840412070bc7ea54e6167a381c931f7b2f",
+    "stages": [
+      {
+        "name": "compile-native-disaster",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9446731660282239,
+        "log_sha256": "7a38a77b1d0c15cb0458fb66a0316952e982eafd99310e49a969a42cd047d588"
+      },
+      {
+        "name": "recovery-consumer-clippy",
+        "exit_code": 0,
+        "elapsed_seconds": 0.45460575001197867,
+        "log_sha256": "a9c9ca92a33d2d0194efcf460f860e54c46f14e26d595425ed6944cf99fe0302"
+      },
+      {
+        "name": "format-check",
+        "exit_code": 0,
+        "elapsed_seconds": 105.91748983299476,
+        "log_sha256": "c7174130c95b6815a9d8c979258b4ee7eb549c136460b1d68dbacd79d9df607b"
+      },
+      {
+        "name": "layout",
+        "exit_code": 0,
+        "elapsed_seconds": 0.13676175000728108,
+        "log_sha256": "2c3a94ef905d77c35793c9afb91639bd9fadebb004bcbf6dc9b897b1712ef9c7"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "elapsed_seconds": 0.29656975000398234,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      }
+    ],
+    "native_disaster_reuse": {
+      "sha256": "0a6a3f4eb3d673b0560ce89bb81f9c6fe69318958279b0a6e468ad566ec1f190",
+      "cargo_fresh": true,
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "byte_identical_to_passed_13_case_artifact": true
+    },
+    "production_library_reuse": {
+      "sha256": "78fb6c2c24600baeb7228f6787db96bbb6fc5ac0ca84b9215254b3df2a90486d",
+      "original_json_fresh": true,
+      "bytes_unchanged": true
+    },
+    "retention": {
+      "closed_before_copy": true,
+      "original_verified_twice": true,
+      "copy_verified": true,
+      "files": 570,
+      "bytes": 2924592,
+      "manifest_sha256": "ee0be9d831762beb2a63dab69f86502fd786c958e5db03948812675c3a23bba2"
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true
+  },
+  "earlier_retention": {
+    "status": "PASSED_FOR_RETAINED_ARTIFACTS",
+    "attempts": {
+      "read-half-close-before-01": {
+        "files": 50,
+        "bytes": 76342,
+        "manifest_sha256": "3dc0855f7f369663425e155f5295f1cd626feeeb71acd291543b51c9d8e3326c",
+        "original_verified_twice": true,
+        "closed_copy_verified": true
+      },
+      "read-half-close-after-01": {
+        "files": 1855,
+        "bytes": 16539884,
+        "manifest_sha256": "a9646eb9860fe9ed54ae71c0aa8c38332114f4b201e2a6a15ebaf4c420180181",
+        "original_verified_twice": true,
+        "closed_copy_verified": true
+      },
+      "scope_limit": "The unchanged park fixture used automatic TempDir cleanup and emitted no root path on its two NotReady failures. Complete retention of those failed disks is unproven. The new phase fixture preserves its roots; the original logs, executable, source and full retained-file manifests remain private."
+    }
+  },
+  "parent_linux_disaster": {
+    "head": "0a46b573ed4fcefe6e34bc3d644a59d0d8900804",
+    "run_id": 44102702071,
+    "job_id": 134106670794,
+    "log_sha256": "f9ca527192d3577a5593a44c390ef2e3c7e6b76c77cb48b919b4f89ce50fb6d8",
+    "log_bytes": 112784,
+    "result": {
+      "passed": 13,
+      "failed": 0,
+      "ignored": 8
+    },
+    "scope": "Published parent, Ubuntu 22.04 host-native RF3, original locked serial target, no continue-on-error or retry. Not constrained three-node or RustFS qualification."
+  },
+  "capacity": {
+    "observed_at_utc": "2026-11-17T16:12:12.483190+00:00",
+    "reserve_bytes": 6442450944,
+    "available_bytes": 0,
+    "same_original_backend_and_limits": true,
+    "restarts": 0,
+    "admissible": false,
+    "actions": [
+      "read-only engine identity",
+      "read-only selected container fields",
+      "read-only /data filesystem availability"
+    ]
+  },
+  "diagnostics": [
+    {
+      "status": "OBSERVED",
+      "source_sha256": "7b8426a013f1b413bc3d24cd9735ab291309774392fc7bdf4e5bf3bc967d7603",
+      "executable_sha256": "0386e780174472c518d316b1012c9adf04b107a5d101bebbb0b37b7dec4bda98",
+      "log_sha256": "ba94d62b3b78db93f81157652f79447bfab7effedbf2443038e5efe72a3c0718",
+      "compiler": "1.98.1",
+      "opt_level": 1,
+      "debug_assertions": true,
+      "overflow_checks": true,
+      "original_case_deadline_seconds": 3,
+      "fixed_repeats": 3,
+      "mode_names": [
+        "raw_tcp_shutdown",
+        "tls_drop",
+        "tls_shutdown",
+        "tls_raw_shutdown"
+      ]
+    },
+    {
+      "status": "OBSERVED",
+      "source_sha256": "4c6b284127434498d760e2bfb66547472489489890c632c3820118f4550748bf",
+      "executable_sha256": "8d15c3f2089fdcbec8909e411912be0c904d0012f384df98b224c7d25306f039",
+      "log_sha256": "2a7ca92f6308ab282d3b7661eff4cb4d5649b2d9da3d40e767ab8998c453d79a",
+      "compiler": "1.98.1",
+      "opt_level": 1,
+      "debug_assertions": true,
+      "overflow_checks": true,
+      "original_case_deadline_seconds": 3,
+      "fixed_repeats": 5,
+      "fixed_process_repeats": 3,
+      "mode_names": {
+        "2": "tls_shutdown_then_drop",
+        "4": "tls_shutdown_keep_read_half_until_peer_close"
+      }
+    }
+  ],
+  "remaining": [
+    "Authoritative original-ID receipt reconciliation after possibly transmitted remote writes; receipt absence remains unknown.",
+    "Queue proof-sharing warmup and four-in-flight producer deadline failures under original limits; isolate SQL preparation, publication and persistence critical paths.",
+    "Partial park NotReady remains unexplained; repeat liveness, cancellation and physical fairness qualification.",
+    "Earlier member-replacement full-run original-ID failure remains unresolved by selected passes.",
+    "Complete fairness, authority partitions, physical reclamation and once-only capacity credit, repeated movement, wake/recovery, SDK/daemon/feature and independent failure-domain qualification.",
+    "Original constrained SQL/KV/Queue Quorum, Quorum+S3, Fleet and Bucket comparison; original RustFS is below its unchanged reserve.",
+    "All full OPT and remaining CG acceptance gates."
+  ],
+  "performance_claim": "No new throughput, latency percentile, sustainable-capacity or full release acceptance claim. Native test elapsed times are not workload performance.",
+  "diagnostic_observation": "The first counted standalone TLS program retains partial queued bytes without observed peer EOF in several close modes; raw TCP completes. A separate reverse-order program observes all fifteen keep-read-half closures, but its fifteen immediate-drop controls also finish. These fixed observations do not isolate an underlying TLS/TCP root cause.",
+  "documentation_checks": {
+    "docs": {
+      "exit_code": 0,
+      "log_sha256": "9eb2f6e9d954ca6251d6638d2ea9026e41595700f476af587b46a662f95e5820"
+    },
+    "plan-tests": {
+      "exit_code": 0,
+      "log_sha256": "6ffb6010b467e2b2449fc848f6db57b66da6606d0479b79a2a825cdb273d95ec"
+    },
+    "whitespace": {
+      "exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

@@ -319,10 +319,25 @@ async fn refused_read(
                 }
                 crate::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
             }
-            // Signal cancellation at the TLS boundary while the body remains
-            // incomplete. A socket drop alone does not establish when the peer
-            // observes EOF and can release its physical I/O credits.
+            // Keep the read half until the peer observes this incomplete body
+            // and terminates its I/O. Local shutdown/flush does not establish
+            // delivery of queued body/close bytes. Awaiting peer termination
+            // makes cancellation observable before checking reclamation.
+            // The original three-second bound covers this join and all credit
+            // assertions below; no live I/O may be refunded early.
             stream.shutdown().await?;
+            phase.store(9, Ordering::Relaxed);
+            let mut extra = [0];
+            match stream.read(&mut extra).await {
+                Ok(0) => (),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset
+                    ) => {}
+                value => anyhow::bail!("truncated read peer did not close: {value:?}"),
+            }
+            phase.store(10, Ordering::Relaxed);
         } else {
             stream.write_all(&body).await?;
             stream.flush().await?;

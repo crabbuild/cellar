@@ -275,6 +275,47 @@ The same original RustFS now reports zero free bytes at the read-only recheck,
 below its unchanged free-space reserve, so the
 constrained SQL/KV/Queue comparison and all complete OPT/CG gates remain open.
 
+## Receive cancellation and current native checks
+
+At compiler input `8adcad97`, the truncated-read fixture retains its TLS read
+half after shutdown until actual peer termination, then requires zero original
+node/peer receive credit and zero physical query connections. Its original
+three-second bound covers the complete operation. Production runtime code,
+admission banks and credit ownership are unchanged. The frozen old fixture fails
+one of ten fixed repetitions while retaining its receive credit; the corrected
+fixture passes ten repetitions and its case in all three initial library sweeps.
+Standalone counted TCP/TLS probes support distinguishing local shutdown from
+observed peer closure, but their variable controls do not isolate an underlying
+OS, Tokio or rustls defect.
+
+Two of three initial library sweeps fail the unchanged partial park-certificate
+case with `NotReady`; the other sweep passes. The park fixture now retains its disks,
+labels operation/voter errors and joins begun owners after a returned scenario
+error, preserving the primary failure and any cleanup errors. Original park/wake
+assertions, timing, deadlines and selected certificate lifetimes remain. Ten fixed
+partial-delivery cases, the full-delivery control and three subsequent serial
+library sweeps pass: **1,248 passed, zero failed, two existing ignores** per sweep.
+These passes do not establish a causal repair of the earlier park failure.
+Complete retention of its two earlier automatically cleaned failed disks remains
+unproven; their logs, sources and executables remain retained.
+
+The ordinary native disaster target passes **13 cases**, with eight explicit
+RustFS ignores. Its executable is byte-identical at the final input. The
+published parent's original Linux serial disaster job also passes 13 cases;
+neither result qualifies constrained voters or the ignored RustFS scenarios.
+Strict all-feature/all-target and default recovery-consumer Clippy, formatting,
+layout and native dependency checks pass. Closed retained fixtures are verified
+twice and their copies verified. See the
+[source-specific record](receive-cancellation-qualification-2026-11-17.json).
+
+Next priorities remain original-ID positive receipt reconciliation after unknown
+remote writes, Queue preparation/publication deadlines and physical fairness,
+reclamation, movement, recovery and combined SDK qualification. The original
+RustFS recheck at 16:12 UTC reports zero available bytes against its unchanged
+6 GiB reserve, with the same backend, image, resource limits and no restart.
+The original constrained SQL/KV/Queue matrix remains held. No throughput,
+latency-percentile, full OPT or remaining CG acceptance gain is established.
+
 ### Queued prepared submissions
 
 Compiler input `816bcded` collects adjacent prepared submissions already queued
