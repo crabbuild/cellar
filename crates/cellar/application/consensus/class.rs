@@ -382,11 +382,21 @@ impl CommandAdmission {
 }
 
 /// Admission is minted by the host or authenticated private query transport;
-/// event bytes alone never grant access to the private resource reader.
+/// Resource bytes alone never grant access to the private resource reader.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum QueryAdmission {
     Public,
     Event(super::Durability),
+    QueueOperator(super::Durability),
+}
+
+impl QueryAdmission {
+    pub(crate) fn minimum(self) -> Option<super::Durability> {
+        match self {
+            Self::Public => None,
+            Self::Event(minimum) | Self::QueueOperator(minimum) => Some(minimum),
+        }
+    }
 }
 
 pub(crate) struct CommandTarget<'a> {
@@ -1511,6 +1521,11 @@ impl RaftClass {
             .map(|_| super::native_event_query::contract(&self.name))
     }
 
+    pub(crate) fn queue_query_contract(&self) -> Option<OperationContract> {
+        self.queue_operator_contract()
+            .map(|_| super::native_queue_query::contract())
+    }
+
     pub(crate) fn validate_query_admission(
         &self,
         contract: &OperationContract,
@@ -1522,6 +1537,12 @@ impl RaftClass {
                 Ok(())
             }
             QueryAdmission::Event(_) => Err(RegistrationError::ContractMismatch),
+            QueryAdmission::QueueOperator(_)
+                if self.queue_query_contract().as_ref() == Some(contract) =>
+            {
+                Ok(())
+            }
+            QueryAdmission::QueueOperator(_) => Err(RegistrationError::ContractMismatch),
         }
     }
 
@@ -1832,6 +1853,9 @@ impl RaftClass {
                         .ok_or(RegistrationError::KindMismatch)?
                         .callback)(&context, input),
                     QueryAdmission::Event(_) => super::native_event_query::invoke(&context, input),
+                    QueryAdmission::QueueOperator(_) => {
+                        super::native_queue_query::invoke(&context, input)
+                    }
                 }
             })
         }))

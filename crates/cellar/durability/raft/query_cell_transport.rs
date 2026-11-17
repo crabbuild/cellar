@@ -364,6 +364,9 @@ impl State {
                         crate::application::consensus::QueryAdmission::Event(_) => {
                             route.for_event_query()?
                         }
+                        crate::application::consensus::QueryAdmission::QueueOperator(_) => {
+                            route.for_queue_query()?
+                        }
                     };
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
@@ -472,6 +475,9 @@ impl IncomingCall {
         }
         if route.is_event_query() {
             return Ok(Self::Shared(CellQueryCall::decode_event(bytes, limit)?));
+        }
+        if route.is_queue_query() {
+            return Ok(Self::Shared(CellQueryCall::decode_queue(bytes, limit)?));
         }
         Ok(Self::Shared(CellQueryCall::decode(bytes, limit)?))
     }

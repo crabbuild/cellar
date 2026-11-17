@@ -986,6 +986,133 @@ pub async fn qualify_long(real: bool) -> Result<()> {
     Ok(())
 }
 
+pub async fn qualify_metadata_reads(real: bool) -> Result<()> {
+    for rooted in [false, true] {
+        for minimum in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(if real {
+                catalog_fault::Store::around(rustfs::store(
+                    if minimum == Durability::S3 {
+                        "queue-inspection-s3"
+                    } else {
+                        "queue-inspection-quorum"
+                    },
+                    rooted,
+                )?)
+            } else {
+                catalog_fault::Store::default()
+            });
+            let mut s = Scenario::start(
+                rooted,
+                store,
+                false,
+                5000,
+                None,
+                8,
+                Minimums {
+                    queue: minimum,
+                    dead: Durability::Quorum,
+                },
+            )
+            .await?;
+            let domain = s.cluster.fixtures[0].domain.clone();
+            let outcome = domain
+                .run(async {
+                    let history = s.cluster.hosts[0]
+                        .resolve_cell_history(
+                            s.queue.cluster,
+                            s.queue.namespace,
+                            CellId::new(cellar::engine_api::queue_cell_scope(QUEUE))?,
+                            QueryOptions::default(),
+                        )
+                        .await?
+                        .context("onboarded Queue history")?;
+                    let cell = s.cluster.hosts[0].cell(history)?;
+                    ensure!(
+                        cell.contract("__sys_raft_queue_query").is_err(),
+                        "Queue operator query became a public contract"
+                    );
+                    let inspect = cell.contract("__sqlIngressSequence")?;
+                    let before = cell
+                        .query(
+                            ProposalId::new([246; 16])?,
+                            &inspect,
+                            0u64.to_be_bytes().to_vec(),
+                            QueryOptions::default(),
+                        )
+                        .await?;
+                    let info = admin(&s.cluster, QUEUE, json!({"op":"info"})).await?;
+                    ensure!(info["backlogCount"] == 0.0 && info["paused"] == false);
+                    let peek = admin(&s.cluster, QUEUE, json!({"op":"peek","limit":100})).await?;
+                    ensure!(peek["messages"].as_array().is_some_and(Vec::is_empty));
+                    let after = cell
+                        .query(
+                            ProposalId::new([247; 16])?,
+                            &inspect,
+                            0u64.to_be_bytes().to_vec(),
+                            QueryOptions::default(),
+                        )
+                        .await?;
+                    ensure!(
+                        before.result == after.result && before.version == after.version,
+                        "Queue info/peek mutated its ingress allocator or committed cell version"
+                    );
+                    admin(&s.cluster, QUEUE, json!({"op":"pause"})).await?;
+                    let paused = cell
+                        .query(
+                            ProposalId::new([248; 16])?,
+                            &inspect,
+                            0u64.to_be_bytes().to_vec(),
+                            QueryOptions::default(),
+                        )
+                        .await?;
+                    ensure!(
+                        paused.version.sequence > after.version.sequence,
+                        "Queue pause lost its mutation receipt"
+                    );
+                    let info = admin(&s.cluster, QUEUE, json!({"op":"info"})).await?;
+                    ensure!(info["paused"] == true);
+                    let observed = cell
+                        .query(
+                            ProposalId::new([249; 16])?,
+                            &inspect,
+                            0u64.to_be_bytes().to_vec(),
+                            QueryOptions::default(),
+                        )
+                        .await?;
+                    ensure!(
+                        observed.result == paused.result && observed.version == paused.version,
+                        "paused Queue inspection committed another mutation"
+                    );
+                    for node in s.cluster.nodes.split_off(1) {
+                        node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+                    }
+                    ensure!(
+                        admin(&s.cluster, QUEUE, json!({"op":"info"}))
+                            .await
+                            .is_err(),
+                        "Queue info served without a fresh quorum"
+                    );
+                    ensure!(
+                        admin(&s.cluster, QUEUE, json!({"op":"peek","limit":1}))
+                            .await
+                            .is_err(),
+                        "Queue peek served without a fresh quorum"
+                    );
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await;
+            let retain = !matches!(&outcome, Ok(Ok(())));
+            let cleanup = s.close(retain).await;
+            outcome??;
+            cleanup?;
+            eprintln!(
+                "QUEUE_METADATA_READS realRustFS={real} extents={rooted} minimum={minimum:?}: PASS"
+            );
+        }
+    }
+    Ok(())
+}
+
 pub async fn qualify_load(real: bool) -> Result<()> {
     for rooted in [false, true] {
         let backend = real

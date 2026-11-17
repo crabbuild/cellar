@@ -148,7 +148,7 @@ impl RaftCells {
         self.submit_sql(admitted, call_scope, deadline, Origin::Operator)
     }
 
-    pub(crate) fn queue_operator(
+    pub(super) fn queue_operator_command(
         &self,
         admitted: crate::outbound_rpc::Admitted,
         call_scope: crate::host_rpc::CallScope,

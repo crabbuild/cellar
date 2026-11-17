@@ -8,7 +8,12 @@ pub(crate) const OPERATOR: &str = "__queueOperator";
 mod broker;
 mod configuration;
 pub(crate) mod message;
+pub(crate) mod metadata;
 mod wire;
+
+pub(crate) fn provision_storage(storage: &super::Storage) -> anyhow::Result<()> {
+    storage.system_sql_schema(include_str!("schema.sql"))
+}
 
 use super::{decode_rpc_result, encode_rpc, Context, HandlerFuture, Output};
 use crate::engine_api::{

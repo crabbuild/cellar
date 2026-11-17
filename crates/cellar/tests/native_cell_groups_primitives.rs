@@ -2343,3 +2343,14 @@ async fn queue_long_callbacks_preserve_progress() -> Result<()> {
 async fn queue_load_preserves_acknowledged_messages() -> Result<()> {
     Box::pin(queues::qualify_load(false)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_operator_reads_preserve_versions_and_require_quorum() -> Result<()> {
+    Box::pin(queues::qualify_metadata_reads(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_operator_reads_preserve_versions_and_require_quorum() -> Result<()> {
+    Box::pin(queues::qualify_metadata_reads(true)).await
+}

@@ -268,7 +268,7 @@ impl CellQueryExecution {
                     CellDispatchError::Execution(error)
                 }
             })?;
-        if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3) {
+        if self.admission.minimum() == Some(cellar_logic::consensus::Durability::S3) {
             let client = self
                 .dispatcher
                 .s3

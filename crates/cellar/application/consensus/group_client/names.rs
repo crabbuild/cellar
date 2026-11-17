@@ -52,11 +52,11 @@ impl RaftCells {
         self.resolve_cell_history_scoped(cluster, namespace, cell, options, true, false)
     }
 
-    /// Internal event metadata may use an applied local enrollment as a locator
+    /// Internal resource metadata may use an applied local enrollment as a locator
     /// behind a verified namespace route. The subsequent metadata query still
     /// requires fresh quorum and its independent target durability minimum.
     /// Public name discovery and all absence observations keep their full cut.
-    pub(super) fn locate_event_history(
+    pub(super) fn locate_resource_history(
         &self,
         cluster: ClusterId,
         namespace: NamespaceId,

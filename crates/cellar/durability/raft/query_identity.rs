@@ -61,6 +61,7 @@ enum Purpose {
     BindingRetirement,
     EventCommand,
     EventQuery,
+    QueueQuery,
     Enrollment,
     Receipt,
     Name,
@@ -191,6 +192,16 @@ impl QueryRoute {
         self.purpose == Purpose::EventQuery
     }
 
+    pub fn for_queue_query(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.purpose = Purpose::QueueQuery;
+        Ok(self)
+    }
+
+    pub fn is_queue_query(&self) -> bool {
+        self.purpose == Purpose::QueueQuery
+    }
+
     pub fn for_command_probe(mut self) -> Result<Self, TransportError> {
         self.decode_shared()?;
         self.purpose = Purpose::CommandProbe;
@@ -245,6 +256,7 @@ impl QueryRoute {
         self.is_command()
             || self.is_event_command()
             || self.is_event_query()
+            || self.is_queue_query()
             || self.is_command_probe()
             || self.is_binding_retirement()
             || self.is_enrollment()

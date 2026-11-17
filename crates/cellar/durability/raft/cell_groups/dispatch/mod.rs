@@ -391,12 +391,12 @@ impl CellGroupDispatcher {
                 RegistrationError::KindMismatch,
             ));
         }
-        if let QueryAdmission::Event(minimum) = admission {
+        if let Some(minimum) = admission.minimum() {
             if !request.consistency.is_linearizable()
                 || minimum < self.host_binding()?.0.minimum_durability
             {
                 return Err(CellDispatchError::Invalid(
-                    "event metadata consistency/durability",
+                    "resource metadata consistency/durability",
                 ));
             }
         }
@@ -692,6 +692,8 @@ fn fingerprint(
         QueryAdmission::Public => 0,
         QueryAdmission::Event(cellar_logic::consensus::Durability::Quorum) => 1,
         QueryAdmission::Event(cellar_logic::consensus::Durability::S3) => 2,
+        QueryAdmission::QueueOperator(cellar_logic::consensus::Durability::Quorum) => 3,
+        QueryAdmission::QueueOperator(cellar_logic::consensus::Durability::S3) => 4,
     }]);
     hash.update(cell_image_history_digest(cell));
     hash.update(limits.timeout.as_nanos().to_be_bytes());

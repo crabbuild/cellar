@@ -25,6 +25,7 @@ mod native_event_enrollment;
 pub(crate) mod native_event_query;
 pub(crate) mod native_event_rpc;
 pub(crate) mod native_ingress;
+pub(crate) mod native_queue_query;
 mod native_services;
 mod native_workflow;
 pub(in crate::application) use native_workflow::workflow_service;

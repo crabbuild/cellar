@@ -94,8 +94,8 @@ pub(in crate::application) fn queue_service(
 ) -> Result<RaftClass, RegistrationError> {
     let mut class = RaftClass::queue_service()?
         .initializer(
-            Sha256::digest(b"cellar-raft-queue-initializer-1").into(),
-            |_, _| Ok(()),
+            Sha256::digest(b"cellar-raft-queue-initializer-with-schema-1").into(),
+            |_, tx| crate::application::queue::provision_storage(&tx.storage()?),
         )?
         .durable_callbacks()?;
     for method in [

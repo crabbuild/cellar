@@ -3,13 +3,11 @@
 //! Event metadata uses immutable strong reads, without enrollment or a
 //! command sequence. All discovery, archive proof and output share one deadline.
 
-use super::super::{native_event_rpc, native_rpc, CommandFailure, QueryAdmission};
+use super::super::{native_event_rpc, CommandFailure};
 use super::*;
 use crate::application::{cell_bindings::Route, HandlerFuture};
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
-use cellar_logic::consensus::ProposalId;
-use rand::RngCore as _;
 
 impl RaftCells {
     /// Join an existing exact provisioning intent before considering a new
@@ -111,7 +109,7 @@ impl RaftCells {
         let owner = self.internal_observer();
         Box::pin(async move {
             let (route, input, reservation, memory) = prepared?;
-            let operation = owner.query_event_resource_after(route, input, deadline, false, after);
+            let operation = owner.query_resource_after(route, input, deadline, false, after);
             let (result, token) = crate::runtime::cancellation::receive(
                 call_scope.parent_cancellation.as_ref(),
                 call_scope.signal.as_ref(),
@@ -144,137 +142,8 @@ impl RaftCells {
         deadline: u64,
         source_proven: bool,
     ) -> HandlerFuture<RpcData> {
-        let read = self.query_event_resource_after(route, input, deadline, source_proven, None);
+        let read = self.query_resource_after(route, input, deadline, source_proven, None);
         Box::pin(async move { read.await.map(|(value, _)| value) })
-    }
-
-    pub(super) fn query_event_resource_after(
-        &self,
-        route: Route,
-        input: Vec<u8>,
-        deadline: u64,
-        source_proven: bool,
-        after: Option<crate::raft::version::CellVersionToken>,
-    ) -> HandlerFuture<(RpcData, crate::raft::version::CellVersionToken)> {
-        let prepared = (|| -> anyhow::Result<_> {
-            self.check_open()?;
-            let class = route
-                .cell
-                .as_str()
-                .split_once(':')
-                .ok_or(CommandFailure::UnsupportedCapability)?
-                .0;
-            anyhow::ensure!(
-                route.admission == super::super::CommandAdmission::Event
-                    && route.contract == super::super::native_event_query::contract(class),
-                CommandFailure::UnsupportedCapability
-            );
-            if source_proven {
-                super::super::require_framework_dispatch()?;
-            }
-            let mut id = [0; 16];
-            crate::asyncrt::rng("event-metadata-read").fill_bytes(&mut id);
-            Ok(ProposalId::new(id)?)
-        })();
-        let owner = self.internal_observer();
-        Box::pin(async move {
-            let invocation = prepared?;
-            let remaining = || -> anyhow::Result<Duration> {
-                owner.check_open()?;
-                Ok(Duration::from_millis(
-                    deadline
-                        .checked_sub(owner.handle.domain.mono_ms()?)
-                        .filter(|n| *n > 0)
-                        .ok_or(RuntimeError::DeadlineExceeded)?,
-                ))
-            };
-            let operation = async {
-                let mut backoff_ms = 10;
-                loop {
-                    remaining()?;
-                    let result = async {
-                        let history = match route.history_hint.clone() {
-                            Some(history) => history,
-                            None => {
-                                let options = QueryOptions {
-                                    timeout: remaining()?,
-                                    ..Default::default()
-                                };
-                                let found = owner
-                                    .locate_event_history(
-                                        route.cluster,
-                                        route.namespace,
-                                        route.cell.clone(),
-                                        options,
-                                        source_proven,
-                                    )
-                                    .await;
-                                found?.ok_or(RuntimeError::NotFound)?
-                            }
-                        };
-                        let response = owner
-                            .handle
-                            .core
-                            .host
-                            .cell(history)?
-                            .query_routed_admitted(
-                                CellQueryRequest {
-                                    invocation,
-                                    contract: route.contract.clone(),
-                                    input: input.clone(),
-                                    consistency: after.clone().map_or(
-                                        CellQueryConsistency::Linearizable,
-                                        CellQueryConsistency::LinearizableAfter,
-                                    ),
-                                },
-                                CellRoutingLimits {
-                                    timeout: remaining()?,
-                                    max_attempts: 4,
-                                },
-                                CellQueryRouting::Automatic,
-                                QueryAdmission::Event(route.durability),
-                            )?
-                            .response()
-                            .await?;
-                        remaining()?;
-                        anyhow::ensure!(
-                            response.result().len() <= route.max_result_bytes,
-                            CommandFailure::Overloaded
-                        );
-                        let result = native_rpc::decode_response(response.result())?;
-                        let RpcData::Structured(bytes) = result else {
-                            anyhow::bail!(CommandFailure::CorruptState);
-                        };
-                        let token = response.token().clone();
-                        let retained =
-                            crate::rpc_reservation::Reservation::shared(Arc::new(response));
-                        Ok((RpcData::Structured(retained.retain_bytes(bytes)), token))
-                    }
-                    .await;
-                    match result {
-                        Err(error) if super::read_admission::retryable(&error) => {
-                            // A cold selected image can temporarily refuse a
-                            // reader. Retry only immutable admission, retaining
-                            // the original deadline, authority and source proof.
-                            remaining()?;
-                            let now = owner.handle.domain.mono_ms()?;
-                            owner
-                                .handle
-                                .domain
-                                .sleep_until(now.saturating_add(backoff_ms).min(deadline))?
-                                .await;
-                            backoff_ms = (backoff_ms * 2).min(100);
-                        }
-                        result => return result,
-                    }
-                }
-            };
-            let timer = owner.handle.domain.sleep_until(deadline)?;
-            crate::asyncrt::select_biased! { "original EventStream metadata deadline";
-                _ = timer => Err(anyhow::Error::from(RuntimeError::DeadlineExceeded)),
-                result = operation => result,
-            }
-        })
     }
 }
 
