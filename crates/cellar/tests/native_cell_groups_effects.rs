@@ -85,6 +85,31 @@ async fn committed_s3_output_survives_later_group_apply() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn proven_s3_output_completes_before_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::output_progress(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_proven_s3_output_completes_before_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::output_progress(
+            rooted,
+            rustfs::store("output-progress", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_claim_receiver_and_completion_use_verified_coverage() -> Result<()> {
     for rooted in [false, true] {

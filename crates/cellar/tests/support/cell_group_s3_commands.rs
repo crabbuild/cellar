@@ -7,7 +7,7 @@ pub(crate) use dependencies::archive_dependencies;
 
 #[path = "cell_group_s3_output.rs"]
 mod output;
-pub(crate) use output::output_during_apply;
+pub(crate) use output::{output_during_apply, output_progress};
 
 #[path = "cell_group_s3_outage.rs"]
 mod outage;
