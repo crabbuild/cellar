@@ -1329,10 +1329,6 @@ async fn qualify_load_images(real: bool, images: &[bool]) -> Result<()> {
             Ok::<_,anyhow::Error>(())
         }).await;
         if !matches!(&outcome, Ok(Ok(()))) {
-            eprintln!("[DEBUG-cg17-queue-drain-973] failure capture window");
-            let _ = domain.run(async {
-                cellar::asyncrt::sleep(Duration::from_secs(5)).await;
-            }).await;
             if let Err(error) = domain.run(snapshot(&s.cluster, &[s.queue, s.dead])).await {
                 eprintln!("Queue failure snapshot unavailable: {error}");
             }

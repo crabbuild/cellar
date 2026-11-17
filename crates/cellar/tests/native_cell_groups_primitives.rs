@@ -90,6 +90,23 @@ mod queues;
 mod resume_progress;
 #[path = "support/cell_group_rpc_progress.rs"]
 mod rpc_progress;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
+    for rooted in [false, true] {
+        rpc_progress::private_preparation(rooted, Arc::new(catalog_fault::Store::default())).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
+    for rooted in [false, true] {
+        rpc_progress::private_preparation(rooted, Arc::new(catalog_fault::Store::around(rustfs::store("private-image-progress", rooted)?))).await?;
+    }
+    Ok(())
+}
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 #[path = "support/cell_group_sql_bindings.rs"]

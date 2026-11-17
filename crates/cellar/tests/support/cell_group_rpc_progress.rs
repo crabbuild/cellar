@@ -31,6 +31,11 @@ impl Cell for PausedCell {
                 let value = update(&self.storage, 2)?;
                 return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
             }
+            if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Sync") {
+                let value = update(&self.storage, 2)?;
+                self.storage.sync().await?;
+                return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
+            }
             self.calls.fetch_add(1, Ordering::AcqRel);
             *self.sql_thread.lock().unwrap() = Some(std::thread::current().id());
             update(&self.storage, 1)?;
@@ -120,10 +125,23 @@ pub async fn preparation_one_worker(rooted: bool, store: Arc<catalog_fault::Stor
     run_mode_with_workers(rooted, store, Mode::Preparation, 1).await
 }
 
+pub async fn private_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    for checkpoint in [false, true] {
+        run_mode_with_workers(rooted, store.clone(), if checkpoint {
+            Mode::CheckpointPreview
+        } else {
+            Mode::Preview
+        }, 1).await?;
+    }
+    Ok(())
+}
+
 enum Mode {
     Continuation,
     Checkpoint,
     Preparation,
+    Preview,
+    CheckpointPreview,
 }
 
 async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) -> Result<()> {
@@ -137,6 +155,7 @@ async fn run_mode_with_workers(
     workers: usize,
 ) -> Result<()> {
     let checkpoint = matches!(mode, Mode::Checkpoint);
+    let preview = matches!(mode, Mode::Preview | Mode::CheckpointPreview);
     let calls = Arc::new(AtomicUsize::new(0));
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
     let reader = Arc::new(ReadGate::default());
@@ -153,6 +172,7 @@ async fn run_mode_with_workers(
         .json_cell_rpc("Run", [183; 32])?
         .json_cell_rpc("Add", [184; 32])?
         .json_cell_rpc("Prepare", [186; 32])?
+        .json_cell_rpc("Sync", [187; 32])?
         .query("Hold", [185; 32], move |_, _| {
             query_reader.hold();
             Ok(vec![])
@@ -195,7 +215,13 @@ async fn run_mode_with_workers(
         .join(hex::encode([3; 16]))
         .join(hex::encode([7; 16]))
         .join("pages");
-    let faults = physical::Faults::new(pages, None);
+    let faults = physical::Faults::new(if preview {
+        roots[0].path().join(if rooted {
+            "raft-cells/extent-inventory"
+        } else {
+            "raft-cells/images"
+        })
+    } else { pages }, None);
     let images = roots[0].path().join("raft-cells/images");
     let forbidden = deny_reopen.clone();
     let observed_opens = reopened.clone();
@@ -290,8 +316,8 @@ async fn run_mode_with_workers(
             }
             let options = interleaving::command(188, 1, Durability::Quorum)?;
             let run = source.contract("Run")?;
-            let add = other.contract("Add")?;
-            if matches!(mode, Mode::Preparation) {
+            let add = other.contract(if matches!(mode, Mode::CheckpointPreview) { "Sync" } else { "Add" })?;
+            if preview || matches!(mode, Mode::Preparation) {
                 let (release, started) = hold_apply(&faults);
                 let (other_result, prepared) = tokio::join!(
                     other.command(
@@ -303,18 +329,26 @@ async fn run_mode_with_workers(
                         let observed = async {
                             cellar::asyncrt::timeout(TIMEOUT, started).await??;
                             let status = cluster.hosts[0].group(group)?.status().await?;
-                            ensure!(status.applied.index < status.committed, "held unrelated committed apply");
+                            if preview {
+                                ensure!(status.applied.index == status.committed, "private image reached Raft before its persistence barrier");
+                            } else {
+                                ensure!(status.applied.index < status.committed, "held unrelated committed apply");
+                            }
                             let contract = source.contract("Prepare")?;
                             let mut command = Box::pin(source.command(&contract, b"{}".to_vec(), options.clone()));
                             cellar::asyncrt::select! {
                                 result = &mut command => anyhow::bail!("command completed before preparation: {result:?}"),
                                 result = cellar::asyncrt::timeout(Duration::from_secs(1), gates[0].entered.notified()) => {
-                                    result.context("new cell preparation blocked by unrelated committed apply")?;
+                                    result.context(if preview { "SQL callback blocked by unrelated private image preparation" } else { "new cell preparation blocked by unrelated committed apply" })?;
                                 }
                             }
                             ensure!(calls.load(Ordering::Acquire) == 1);
                             let status = cluster.hosts[0].group(group)?.status().await?;
-                            ensure!(status.applied.index < status.committed, "preparation waited for group catch-up");
+                            if preview {
+                                ensure!(status.applied.index == status.committed, "private image acknowledged before its persistence barrier");
+                            } else {
+                                ensure!(status.applied.index < status.committed, "preparation waited for group catch-up");
+                            }
                             gates[0].release.notify_one();
                             ensure!(
                                 cellar::asyncrt::timeout(Duration::from_millis(30), &mut command).await.is_err(),
