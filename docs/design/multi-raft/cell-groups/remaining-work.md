@@ -46,16 +46,25 @@ original 60-second enrollment limit at 22.138 and 53.210 seconds. The variation
 and unchanged work counts do not establish a causal latency repair. This native
 checkpoint does not replace the constrained matrix below.
 
-The latest published `de7cc144` feedback keeps the first priority open: the
-focused Linux disaster target passes seven cases and fails two; both full native
-jobs fail, and two Typed RPC jobs report Python shutdown-incomplete evidence.
+Published `8ee50b18` feedback keeps the first priority open: the focused Linux
+disaster target passes eight cases and fails three at physical-inventory
+`peer_overloaded`, with eight explicit RustFS ignores. Four Typed RPC jobs and
+three JavaScript jobs pass. Both native SDK builds and both Python SDK jobs fail
+to compile the shared recovery fixture's missing `tracing` dependency. The local
+dependency correction passes that consumer's build and strict Clippy check.
 The seal phase-capture follow-up has passing exact privacy/CLI controls, an
 earlier eleven-pass native suite and a later ten-pass/one-failure suite at
 `transition capture-source`. See the
 [source-specific record](seal-observations-qualification-2026-11-16.json).
-These failures remain explicit; fixed metadata and passing controls are not a
-repair or full qualification. The original RustFS now has about 10 MiB available,
-still below the original 6 GiB reserve, without any resource or data changes.
+The source-acquire repair passes five owning controls; its earlier full native
+sweep retains a separate ambiguous command deadline. The combined seal-admission
+candidate now passes the 1,240-test all-features library and thirteen-test native
+disaster target, with two and eight explicit ignores respectively. Current-source
+Linux and SDK qualification remain required. See
+[transition progress](optimization-progress.md#transition-progress-under-bounded-admission).
+These failures remain explicit; passing controls are not full qualification.
+The original RustFS now reports zero available bytes, below the original 6 GiB
+reserve, without any resource or data changes.
 
 The next priorities are:
 

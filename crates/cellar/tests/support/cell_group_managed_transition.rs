@@ -15,6 +15,9 @@ use cellar::sdk::fleet_operations::{
 #[path = "cell_group_transition_diagnostics.rs"]
 pub(crate) mod diagnostics;
 
+#[path = "cell_group_transition_admission.rs"]
+mod admission;
+
 #[path = "cell_group_managed_transition_preparation.rs"]
 mod preparation;
 
@@ -72,6 +75,26 @@ pub(crate) async fn child_requires_install_and_publication(rooted: bool) -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_seal_catches_up_trust_with_live_response_admission() -> Result<()> {
+    Box::pin(run_plan(
+        false,
+        Arc::new(fault::Store::default()),
+        Decision::AuthorizeTrustCatchup,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_seal_catches_up_trust_with_live_response_admission_extents() -> Result<()> {
+    Box::pin(run_plan(
+        true,
+        Arc::new(fault::Store::default()),
+        Decision::AuthorizeTrustCatchup,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_managed_split_authorization() -> Result<()> {
     for rooted in [false, true] {
@@ -99,6 +122,7 @@ pub(crate) enum RecoveryPoint {
 
 enum Decision {
     Authorize,
+    AuthorizeTrustCatchup,
     Retirement,
     Publication,
     Cancel,
@@ -114,6 +138,16 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         .or(effects::class()?)
         .unwrap_or(counter_class()?);
     let mut first = Fixture::with_store(rooted, class, store).await?;
+    let inspection_catchup = matches!(decision, Decision::AuthorizeTrustCatchup);
+    if inspection_catchup {
+        let host_store = Arc::new(fault::Store::around(first.store.clone()));
+        first.catalog = Fixture::open_catalog(
+            &first.domain,
+            host_store.clone(),
+            first.declaration.namespace.cluster,
+        )?;
+        first.host_store = Some(host_store);
+    }
     if effects::enabled() || disaster_effects::state().is_some() {
         first.effects = Some(RaftEffectOptions::default());
         // The signed inbox protocol admits requests up to 60 KiB. Keep the
@@ -124,7 +158,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         first,
         &[7, 8, 9],
         ArchiveSetup::Initialized,
-        false,
+        inspection_catchup,
         None,
         FirstGroupSetup::Normal,
     ))
@@ -140,6 +174,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
     let publication_only = matches!(decision, Decision::Publication);
     let expected_children = match decision {
         Decision::Authorize
+        | Decision::AuthorizeTrustCatchup
         | Decision::Retirement
         | Decision::Publication
         | Decision::SplitMerge { .. } => 2,
@@ -470,8 +505,16 @@ async fn exercise_inner(
 
     closure::acknowledged(&archived);
     effects::before_seal(cluster, &seeded.cells).await?;
-    let cached_source = if matches!(decision, Decision::Authorize) {
+    let cached_source = if matches!(
+        decision,
+        Decision::Authorize | Decision::AuthorizeTrustCatchup
+    ) {
         Some(routing::prime(cluster, &seeded).await?)
+    } else {
+        None
+    };
+    let inspection = if matches!(decision, Decision::AuthorizeTrustCatchup) {
+        Some(admission::hold_observer_behind_cut(&cluster.fixtures, &cluster.hosts).await?)
     } else {
         None
     };
@@ -496,6 +539,7 @@ async fn exercise_inner(
     if matches!(
         decision,
         Decision::Authorize
+            | Decision::AuthorizeTrustCatchup
             | Decision::Retirement
             | Decision::Publication
             | Decision::SplitMerge { .. }
@@ -573,6 +617,7 @@ async fn exercise_inner(
             &seal_request,
         )
         .await?;
+        drop(inspection);
         ensure!(reply.request == seal_request && reply.phase == TransitionPhase::SealAuthorized);
         let replay = control
             .authorize_transition_seal(

@@ -705,6 +705,7 @@ dependencies = [
  "subtle",
  "tempfile",
  "tokio",
+ "tracing",
  "tracing-subscriber",
  "url",
 ]

@@ -113,6 +113,55 @@ The original RustFS volume remains below its unchanged 6 GiB reserve, with about
 10 MiB available at the read-only recheck. No new constrained comparison or
 measured throughput/percentile gain follows. Full CG/OPT qualification remains open.
 
+### Transition progress under bounded admission
+
+The current follow-up addresses two reproduced progress failures. A staged source
+acquire that is positively proved superseded can deliver one positively journaled
+successor within the original call. Unknown allocations retain their exact intent;
+held allocations reconcile it, and repeated supersession stops without a third
+intent. The frozen five-case control changes from four passes/one failure to five
+passes. Its first full default-library run passes 1,238 tests, but the subsequent
+native disaster run still fails one case with an ambiguous command deadline.
+That failed attempt remains unqualified; a later combined-source pass does not
+establish a causal repair of its separate ambiguous command deadline.
+
+Seal collection also reserves response bytes before responses exist, blocking a
+required fresh-trust read under the unchanged 16 MiB bank. The frozen admission
+control and actual six-voter CLI scenarios in both image modes reproduce the
+refusal. The candidate keeps the full-model fit check, retains only the live
+catalog page initially and transfers each delivered inventory's byte charge into
+the seal collection. Completed immutable outputs release their active work slots;
+their bytes stay charged through validation and selection. Shared placement data,
+epochs, inventory completeness, sample age, birth accounting and the final CAS
+remain unchanged. At compiler input `c05e1ec0`, both frozen native scenarios pass,
+the full all-features library passes 1,240 tests with two existing ignores, and
+the full native disaster target passes thirteen tests with eight explicit
+real-RustFS ignores. The shared recovery consumer also builds. These local
+results establish no constrained throughput/latency gain or hosted qualification.
+
+That run's strict Clippy check then refuses two direct filesystem writes in the
+unit fixture's retention helper. Final input `f476d493` changes only that helper
+to use the execution-domain filesystem. Setup, fault injection and all five test
+bodies remain byte-identical to the original controls. The full 1,240-test
+library and both exact native scenarios pass again, and the freshly resolved
+native executable is byte-identical to the thirteen-pass full-target artifact.
+Strict all-features/all-target Clippy passes for Cellar and the shared recovery
+consumer. The [qualification record](transition-progress-qualification-2026-11-16.json)
+retains the failed builds/lint check, every source and executable identity,
+before/after controls, private data verification and the inherited native-artifact
+proof. The earlier ambiguous-command failure remains a separate open observation.
+
+The published `8ee50b18` Linux target reports eight passes, three failures and
+eight explicit RustFS ignores. All three failures record physical-inventory
+`peer_overloaded`, with successful later sequential probes. Its four Typed RPC
+jobs and three JavaScript jobs pass. Both native SDK builds and both Python SDK
+jobs fail to compile the shared recovery fixture because its facade lacks the
+`tracing` dependency. The local dependency correction passes that consumer's
+build and strict Clippy check; combined-source hosted qualification remains open.
+The same original RustFS now reports zero free bytes at the read-only recheck,
+below its unchanged free-space reserve, so the
+constrained SQL/KV/Queue comparison and all complete OPT/CG gates remain open.
+
 ### Queued prepared submissions
 
 Compiler input `816bcded` collects adjacent prepared submissions already queued

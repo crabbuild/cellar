@@ -17,6 +17,26 @@ use std::collections::BTreeMap;
 // fleet size and business-cell count. Each owned response has its wire bound.
 const MAX_TARGETS: usize = 6;
 
+#[cfg(test)]
+#[path = "managed_transition_capacity_tests.rs"]
+mod tests;
+
+fn reserve_inventory_collection(
+    budget: &std::sync::Arc<crate::raft::budget::Budget>,
+) -> Result<crate::raft::budget::Permit> {
+    // Preserve the complete model's intrinsic-fit admission, but do not keep
+    // nonexistent responses charged while their readers need fresh trust.
+    let mut memory = budget
+        .acquire((MAX_TARGETS + 1) * crate::raft::physical_inventory::RESPONSE_BYTES)
+        .ok_or(FleetCatalogError::Overloaded)?;
+    if !memory.shrink_to(crate::raft::physical_inventory::RESPONSE_BYTES) {
+        return Err(FleetCatalogError::Corrupt(
+            "transition collection reservation",
+        ));
+    }
+    Ok(memory)
+}
+
 enum Start {
     Replayed(Box<TransitionJournal>),
     Prepared(Box<Preparation>),
@@ -89,6 +109,12 @@ pub(super) struct Node {
     pub(super) started: u64,
     pub(super) known: usize,
     pub(super) missing: u32,
+}
+
+struct SealInventories {
+    nodes: BTreeMap<NodeId, Node>,
+    // Fields drop in declaration order: release observations before their bytes.
+    _memory: Vec<crate::raft::budget::RetainedBytes>,
 }
 
 impl FleetCatalog {
@@ -238,22 +264,34 @@ impl FleetCatalog {
             Start::Replayed(journal) => return Ok(*journal),
             Start::Prepared(prepared) => *prepared,
         };
-        // The caller owns all retained inventories and one decoded catalog page
-        // until authorization exits, including after a dropped reply waiter.
+        // This operation retains one decoded catalog page. Each completed
+        // inventory transfers its own response bytes below, through selection.
         observation.phase = "retention";
-        let _memory = observer
-            .control_budget()
-            .acquire((MAX_TARGETS + 1) * crate::raft::physical_inventory::RESPONSE_BYTES)
-            .ok_or(FleetCatalogError::Overloaded)?;
+        let _memory = reserve_inventory_collection(observer.control_budget())?;
         // Peer RPCs run outside the catalog turn. Retain at most six complete
         // inventories; never hold a synchronous lock across their awaits.
-        let mut nodes = BTreeMap::new();
+        let mut inventories = SealInventories {
+            nodes: BTreeMap::new(),
+            _memory: Vec::with_capacity(MAX_TARGETS),
+        };
         for (node, (host, capacity)) in targets {
             observation.phase = "physical_inventory";
-            let physical = observer
-                .inspect_peer_physical_inventory(node, snapshot.revision(), deadline.remaining()?)
+            let (physical, memory) = observer
+                .inspect_peer_physical_inventory_owned(
+                    node,
+                    snapshot.revision(),
+                    deadline.remaining()?,
+                )
                 .await
                 .map_err(FleetCatalogError::Observation)?;
+            // Delivery has completed. Keep the immutable output charged while
+            // returning only its active work slot, not its retained bytes.
+            let memory = memory
+                .retain_bytes(crate::raft::physical_inventory::RESPONSE_BYTES)
+                .ok_or(FleetCatalogError::Corrupt(
+                    "transition inventory reservation",
+                ))?;
+            inventories._memory.push(memory);
             observation.phase = "physical_validation";
             capacity::check_observation(&host, &capacity, &physical)?;
             let inventory = physical
@@ -268,7 +306,7 @@ impl FleetCatalog {
                 .checked_sub(physical.sample_age_ms)
                 .ok_or(FleetCatalogError::Unconfirmed)?;
             self.require_resource_age(started)?;
-            nodes.insert(
+            inventories.nodes.insert(
                 node,
                 Node {
                     capacity,
@@ -283,12 +321,13 @@ impl FleetCatalog {
         self.run(
             deadline.remaining()?,
             Box::pin(async {
+                let nodes = &mut inventories.nodes;
                 if self.inner.current().await?.token != snapshot.token {
                     return Err(FleetCatalogError::Conflict);
                 }
                 self.require_transition_membership_idle(&snapshot).await?;
                 observation.phase = "birth_accounting";
-                Box::pin(self.charge_transition_births(&snapshot, &mut nodes)).await?;
+                Box::pin(self.charge_transition_births(&snapshot, nodes)).await?;
                 observation.phase = "capacity";
                 for input in nodes.values() {
                     let inventory = input
