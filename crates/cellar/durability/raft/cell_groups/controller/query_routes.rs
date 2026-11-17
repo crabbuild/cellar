@@ -11,11 +11,60 @@ use crate::raft::host_sql::cell_groups::ReadRetention;
 use crate::raft::storage::LogError;
 use crate::raft::transport::TransportError;
 use cellar_logic::consensus::{CommandFailure, MemberId};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use std::time::Duration;
 
 enum QueryWinner {
     Primary(Result<CellQueryResponse, Error>),
     Fallback(Result<CellQueryResponse, Error>),
+}
+
+/// A completed first read cannot cancel a catalog confirmation already entered
+/// by its fallback. Keep its existing response/admission until that same future
+/// confirms a route, then validate the original ticket before returning it.
+struct QueryHandoff {
+    routing: AtomicBool,
+    response: Mutex<Option<CellQueryResponse>>,
+    attempt: crate::raft::cell_groups::CellRouteAttempt,
+}
+
+impl QueryHandoff {
+    fn begin_routing(&self) {
+        self.routing.store(true, Ordering::Release);
+    }
+
+    fn offer(&self, response: CellQueryResponse) -> Result<(), Error> {
+        let mut slot = self
+            .response
+            .lock()
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+        if slot.is_some() {
+            return Err(Error::Invalid("duplicate primary query handoff"));
+        }
+        *slot = Some(response);
+        Ok(())
+    }
+
+    /// Only call after routing and minimum validation complete. A replacement,
+    /// fence or expired original session still refuses the retained response.
+    fn finish_routing(
+        &self,
+        invocation: &CellQueryInvocation,
+    ) -> Result<Option<CellQueryResponse>, Error> {
+        self.routing.store(false, Ordering::Release);
+        let response = self
+            .response
+            .lock()
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?
+            .take();
+        if response.is_some() {
+            invocation.validate_query_result(&self.attempt)?;
+        }
+        Ok(response)
+    }
 }
 
 // Exhausting fallback tickets or its deadline never invalidates an outstanding
@@ -168,7 +217,7 @@ impl Destination<'_> {
             .await?;
         if members.len() < 2 || ordinal >= invocation.maximum_attempts() {
             return self
-                .automatic_from(invocation, options, permit, None, 0)
+                .automatic_from(invocation, options, permit, None, 0, None)
                 .await;
         }
         let now = self
@@ -187,7 +236,11 @@ impl Destination<'_> {
         // never a copied retry bank. The first reader keeps the original deadline
         // while a bounded serial fallback lane can rescue a stalled replica.
         let execution = invocation.take_execution()?;
-        let first_attempt = execution.attempt().clone();
+        let handoff = QueryHandoff {
+            routing: AtomicBool::new(false),
+            response: Mutex::new(None),
+            attempt: execution.attempt().clone(),
+        };
         let mut primary =
             Box::pin(self.execute_snapshot(execution, members[0], options.clone(), permit.clone()));
         let first = crate::asyncrt::select! {
@@ -196,10 +249,21 @@ impl Destination<'_> {
         };
         let outcome = {
             let mut fallback = Box::pin(async {
+                handoff.begin_routing();
                 invocation.retry().await?;
                 invocation.validate_minimum().await?;
-                self.automatic_from(invocation, options, permit, Some(route.history), 1)
-                    .await
+                if let Some(response) = handoff.finish_routing(invocation)? {
+                    return Ok(response);
+                }
+                self.automatic_from(
+                    invocation,
+                    options,
+                    permit,
+                    Some(route.history),
+                    1,
+                    Some(&handoff),
+                )
+                .await
             });
             match first {
                 Some(Err(error)) if retryable(&error) => QueryWinner::Fallback(fallback.await),
@@ -208,6 +272,14 @@ impl Destination<'_> {
                     result = primary.as_mut() => {
                         match result {
                             Err(error) if retryable(&error) => QueryWinner::Fallback(fallback.await),
+                            Ok(response) if handoff.routing.load(Ordering::Acquire) => {
+                                // Dropping fallback here would cancel its
+                                // confirmation and leave the session inactive.
+                                // It must reach a verified routing boundary
+                                // before the completed first ticket can escape.
+                                handoff.offer(response)?;
+                                QueryWinner::Fallback(fallback.await)
+                            }
                             result => QueryWinner::Primary(result),
                         }
                     }
@@ -226,7 +298,7 @@ impl Destination<'_> {
                 let response = result?;
                 // A fallback may have refreshed to a successor. An older read
                 // cannot escape a newly observed route/fence or expired session.
-                invocation.validate_query_result(&first_attempt)?;
+                invocation.validate_query_result(&handoff.attempt)?;
                 Ok(response)
             }
             QueryWinner::Fallback(result) => result,
@@ -311,8 +383,14 @@ impl Destination<'_> {
         permit: Arc<admission::Retention>,
         mut previous: Option<cellar_logic::cell_group::GroupHistory>,
         mut next_member: usize,
+        handoff: Option<&QueryHandoff>,
     ) -> Result<CellQueryResponse, Error> {
         loop {
+            if let Some(handoff) = handoff {
+                if let Some(response) = handoff.finish_routing(invocation)? {
+                    return Ok(response);
+                }
+            }
             let attempt = invocation
                 .attempt()
                 .ok_or(Error::Invalid("missing route"))?;
@@ -363,6 +441,9 @@ impl Destination<'_> {
             match result {
                 Ok(response) => return Ok(response),
                 Err(error) if retryable(&error) && ordinal < invocation.maximum_attempts() => {
+                    if let Some(handoff) = handoff {
+                        handoff.begin_routing();
+                    }
                     if exhausted_router {
                         // Try cached destinations first, including during an
                         // archive outage. Only an exhausted stale view needs
