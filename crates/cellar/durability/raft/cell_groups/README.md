@@ -761,6 +761,13 @@ current birth, local prefix and exact archived receipt before settling output;
 later serving fences still apply. Uncovered requests continue through publication.
 This cache neither keeps an idle workspace alive nor grows with duplicate calls.
 
+An immutable query rejects a candidate prefix older than its selected image's
+commit witness in the same group history. This negative scheduling bound avoids
+known-stale retained or publication proofs; it cannot establish durability.
+Full physical coverage, exact observation checks and current-birth fences still
+decide success. Receipt lookup retains its ability to select an older archived
+observation and does not use this query bound.
+
 The local archive journal publishes immutable generations using file sync,
 atomic rename and directory sync. A concurrent proof reader bounds and reads
 one opened generation; a prior path observation can name a different complete

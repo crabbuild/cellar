@@ -29,6 +29,51 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included after a fresh fetch. **Runtime `8590a4435`
+rejects archive prefixes older than an immutable query's selected image witness.**
+The bound applies only in the same group history, before retained-proof reuse or
+publication verification. It cannot establish success: full physical coverage,
+exact history/version/witness checks and current-birth fences remain mandatory.
+Receipt lookup can still select an older archived observation and keeps its
+existing verification path. Temporary EventStream probes are removed.
+
+**Focused cohort 1093 is FAILED, 6/14.** All six native/real-RustFS S3 controls
+pass both image formats: selected-image metadata refusal/restoration, archived
+receipt observations and response progress during predecessor retirement. All
+**eight original EventStream selectors still fail**: four activation paths expire
+in configuration-status reads; four ordinary paths expire ambiguously on Consume
+command **2**. This change does not close those failures or demonstrate a speedup.
+Public fixtures, original deadlines, quotas, minima and assertions are unchanged
+from published `d3a821988`. The previous 24 SDK Queue configurations and Queue load
+results remain pinned to `5a82ffc5e`; they were not rerun here.
+
+Diagnostic trace 1087 at `51d2c1555` finds fast observed metadata SQL callbacks;
+S3 activation waits after SQL in archive settlement. Quorum Consume reaches its
+second acknowledgement's immutable receipt read with 138 ms remaining. Neither
+observation identifies an exclusive cause of the whole operation's delay. Its
+four cases and the uninstrumented 1081 cohort each fail all four cases. The VM-stopped native
+baseline 1079 passes 2/2 with the identical published executable; environment and
+time differences prevent an exclusive-cause comparison.
+
+Locked build, strict library Clippy, formatting, layout, dependency and document
+checks pass. Original test optimization 1, assertions, overflow checks and
+incremental=0 remain. Owned compilers joined before runtime; independent compiler
+activity was not captured at this cohort's preflight, so no isolated timing claim
+is made. Voters share a process with separate workspace engines; RustFS uses one
+CPU/two GiB. All 24 new failure disks, the 24 from 1081/1087 and earlier failures
+remain. Owned RustFS/VM are stopped with objects retained. Aggregate 1096 under
+ignored `.cellar/cg17-payload-01/` verifies source/artifact/log hashes and fixture
+fidelity.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Prioritize actual source
+checkpoint/child-call/final settlement in Consume and S3 activation publication,
+then native extent producer settlement and interrupted-binding recovery/sealing.
+Full primitive/provider, managed recovery and independent-voter release gates
+remain. The generated index is current; full plan validation still stops on
+missing historical CG-01 evidence.
+
+## Previous catalog-confirmation checkpoint
+
 Latest main `16c45b266` is included. **Runtime `0dcb6d9cc` retains a completed
 first query while its fallback finishes an entered catalog confirmation.** The
 existing future, deadline and attempt bank remain. At its verified boundary,

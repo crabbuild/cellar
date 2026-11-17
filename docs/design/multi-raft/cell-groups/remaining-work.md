@@ -36,87 +36,50 @@ full disaster profile remain open.
 
 ## Primitive delivery priority
 
-Full public primitive compatibility is the required Quorum product contract.
-The remaining work includes missing adapters and failing runtime gates; a scoped
-SQL/KV or filesystem pass is not the final supported scope.
+Latest main `16c45b266` is included. Runtime `8590a4435` uses an immutable query's
+same-group witness as a negative archive-prefix bound, avoiding known-stale proof
+attempts. Physical coverage, current birth and exact observation checks still
+establish success; receipt lookup retains its archived-observation semantics.
 
-At combined source `c13a4745`, the public filesystem/inbox adapter passes both
-native and real-RustFS image forms. Queue claim/lease coalescing passes all eight
-native/RustFS image/minimum configurations and preserves denied-publication
-refusal before consumer entry. Queue fault/retention, ordinary alarm failures,
-Fleet conformance and selected real-RustFS Workflows pass. Both load campaigns
-remain FAILED: native producer sequence 9 and RustFS producer sequence 7 exceed
-their original request budgets before final drain. An initial RustFS proof run
-also fails managed trust-refresh startup; the later pass does not explain it.
-See the [current qualification](progress.md#cg-17-combined-filesystem-and-queue-proof-qualification).
+**Focused cohort 1093 is FAILED, 6/14.** Native and real-RustFS selected-image S3
+metadata refusal/restoration, receipt observations and deferred-retirement controls
+all pass both images. All eight original EventStream paths still fail activation
+or ambiguous Consume command **2** under unchanged deadlines, quotas and minima.
+Fast observed SQL does not close S3 settlement or source/child execution. The
+prefix change establishes no end-to-end fix, speedup or complete-family acceptance.
 
-At source `6282bb46`, the EventStream source journal and shared work bridge pass
-40 owning units and six Fleet conformance tests. The `11c223a7` follow-up fixes Workflow test placement and passes strict
-library/all-test Clippy without changing production code.
-This does not qualify the authenticated destination or public EventStream path.
-See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
-
-The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Runtime `0dcb6d9cc` retains a completed first query while
-its fallback finishes an entered catalog confirmation. The same future, deadline,
-attempt bank and response admission remain. The original ticket must match the
-verified current route; replacement or failed confirmation refuses the result.
-Qualification source `5a82ffc5e` changes only stronger test refusal assertions.
-
-**All 12 query controls pass**, including six same-route/replacement/unavailable
-schedules across both images and existing physical ownership, grant, attempt and
-deadline controls. Baseline `f595823e2` reproduces the exact `StaleAttempt` in
-both images. **All 24 SDK Queue metrics configurations pass**: native, real-RustFS
-native/Axum, both images and independent source/target Quorum/S3 minima. Cold/warm
-versions and allocators, source writes/exact replay, archive restoration and quorum
-refusal pass. All three original Queue lifecycles pass both images. These fresh
-histories do not reconcile earlier ambiguous mutations or explain the previous
-RF3 setup failure.
-
-**Public cohort 1073 is FAILED, 13/22; its original 16-selector subset is 7/16.**
-All eight EventStream selections fail: four time out in configuration-status
-activation queries; four ordinary native/Axum/RustFS paths expire ambiguously on
-Consume command **2**. Observed Consume attempts start with roughly 2.8 seconds
-of their original 3-second budget remaining. Inspect execution inside that attempt
-and the actual activation read; the observation does not establish an exclusive
-cause. Source-proof, current-history, registration and Fleet controls pass.
-
-**RustFS Queue load passes both images with 528 unique messages each.** Native
-materialized mode delivers 528; extent producer **15** expires with an unknown
-outcome. Original public fixtures, assertions, budgets, quotas and minima remain.
-Earlier unknown calls, leased messages and the deadline-control queue-count
-failure remain open. Full primitive compatibility is still required.
+The previous checkpoint `5a82ffc5e` still owns all 24 SDK Queue metrics passes,
+three original Queue lifecycle passes in both images, and RustFS load with 528
+unique messages per image. Native materialized load delivers 528; extent producer
+**15** remains ambiguous. Those cases were not rerun here, and fresh histories
+cannot reconcile earlier unknown outcomes.
 
 The next feature priorities are:
 
-1. Close EventStream configuration-status activation and Consume/source settlement
-   under the original budgets and independent minima. Follow the actual selected
-   history, reader admission, proof and command execution through completion;
-   broader read-retry changes cannot substitute for that evidence.
+1. Complete EventStream Consume's source checkpoint, child calls and final
+   settlement within the original absolute deadline. Close configuration-status
+   activation through actual S3 publication and independent coverage. Trace 1087
+   places the Quorum repeated-ack read at 138 ms remaining and S3 activation after
+   SQL; those boundaries do not identify the exclusive cause of earlier waits.
 2. Close native extent producer **15**, exact claim/lease/callback settlement and
-   autonomous drain. Finish interrupted-binding recovery and safe unused-sequence
-   sealing against exact histories/receipts, including earlier unknown identities.
-   Fresh histories and callback replay cannot resolve an earlier mutation.
-3. Complete the remaining alarm/cron, Workflow, filesystem/payload and
-   WebSocket/provider combined compatibility and recovery matrix. Existing scoped
-   passes do not close their complete family-level cases.
+   autonomous drain. Complete interrupted-binding recovery and safe unused-sequence
+   sealing against original histories and receipts; never replay an uncertain
+   callback or treat a fresh successful request as reconciliation.
+3. Complete alarm/cron, Workflow, filesystem/payload and WebSocket/provider
+   compatibility and combined recovery. Keep every deployment/clock, receipt,
+   cancellation, movement/wake and disk-loss requirement.
 4. Close CG-13/15 current-source managed recovery and independent-voter release
-   qualification, then CG-16 cutover. Preserve the full deployment/clock,
-   movement/wake, disk-loss, payload and cancellation gates and the unresolved
-   deadline-control queue-count contract.
+   qualification, then CG-16 cutover. The deadline-control queue-count contract and
+   missing historical CG-01 evidence remain open.
 
-Locked build, strict library/affected-test Clippy and repository checks pass;
-incremental=0 and original assertions remain enabled. Control/public compiler
-pre/postflight snapshots are empty. Results remain diagnostic, without isolated
-timing, stability, exclusive-cause or release claims. Voters share one process
-with separate workspace engines; new SDK cases use one SQL worker/eight ordinary
-slots and RustFS uses one CPU/two GiB. Owned RustFS/VM are stopped, objects retained.
-All **27 qualification voter disks and two baseline fixture trees**, plus earlier
-failures, remain. Aggregate 1074 verifies source, executable/log hashes, the
-unchanged first/same-route oracle and stronger negative assertions. The original
-public SDK/Queue/Fleet and query-routing fixtures remain unchanged from `6044a1b83`.
-CG17-03/06 checkpoint notes and generated index are current; acceptance remains
-**13/17 tasks, 147/195 cases**, with historical CG-01 evidence still missing.
+Locked build, strict library Clippy and repository checks pass. The generated
+index remains current; full plan validation stops at missing CG-01 evidence.
+Qualification is diagnostic: RF3 shares a process/separate workspace engines;
+RustFS uses one CPU/two GiB. Independent compiler activity was not captured at
+this cohort's preflight. All 48 new failed voter directories from 1081/1087/1093
+and earlier failures remain. Owned RustFS/VM are stopped with objects retained.
+Aggregate 1096 verifies source, executable/log hashes and unchanged public fixture
+bodies. Acceptance remains **13/17 tasks, 147/195 cases**.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
