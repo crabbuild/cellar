@@ -38,6 +38,7 @@ pub(crate) fn contract(class: &str) -> OperationContract {
 pub(crate) fn invoke(context: &QueryContext<'_>, input: &[u8]) -> anyhow::Result<Vec<u8>> {
     let scope = context.identity().cell.as_str();
     let request = native_event_rpc::decode(scope, input)?;
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-sql-enter", cell=%scope, method=%request.method);
     anyhow::ensure!(
         is_metadata(&request.method),
         super::CommandFailure::UnsupportedCapability
@@ -55,5 +56,6 @@ pub(crate) fn invoke(context: &QueryContext<'_>, input: &[u8]) -> anyhow::Result
     let Output::Rpc(result) = event_stream::broker::reply(result)? else {
         anyhow::bail!("invalid event metadata response");
     };
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-sql-ready", cell=%scope, method=%request.method);
     native_rpc::encode_response(&result)
 }

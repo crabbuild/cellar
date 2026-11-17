@@ -326,6 +326,7 @@ impl RaftCells {
             let admitted = crate::asyncrt::services()
                 .admit_outbound_rpc(&scope, Some(&name), "__catalogStatus", &args)
                 .ok_or(super::super::CommandFailure::Overloaded)?;
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="activation-status-start", cell=%scope, after=after.is_some(), remaining=deadline.saturating_sub(self.handle.domain.mono_ms()?));
             Ok(self.event_read_observed(
                 admitted,
                 crate::host_rpc::CallScope::default().with_deadline(deadline),
@@ -339,6 +340,7 @@ impl RaftCells {
             // Consume and release the prior SQL/archive output before parking
             // another change read. The token cannot grant readiness or admission.
             let value = activation_value(&response)?;
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="activation-status-result", state=?value.get("state"), last_error=?value.get("last_error"));
             Ok(event_stream::activation::ConfigurationStatus {
                 value,
                 after: Some(token),

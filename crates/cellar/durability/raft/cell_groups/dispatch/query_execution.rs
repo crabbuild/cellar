@@ -247,6 +247,10 @@ impl CellQueryExecution {
         } else {
             None
         };
+        let trace_event = matches!(self.admission, QueryAdmission::Event(_));
+        if trace_event {
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-authority-start", invocation=?self.request.invocation, cell=%cell.cell, minimum=?self.admission.minimum());
+        }
         let authority = runtime
             .read_authority(
                 attempt.route().history,
@@ -258,6 +262,9 @@ impl CellQueryExecution {
             .map_err(CellDispatchError::Runtime)?;
         if authority.route() != attempt.route() || authority.cell().version.history != *cell {
             return Err(CellDispatchError::Invalid("destination route binding"));
+        }
+        if trace_event {
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-authority-ready", invocation=?self.request.invocation, cell=%cell.cell, version=authority.cell().version.sequence.get());
         }
         let mut selected = sql
             .query_registered_retained(
@@ -286,6 +293,9 @@ impl CellQueryExecution {
                     CellDispatchError::Execution(error)
                 }
             })?;
+        if trace_event {
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-image-ready", invocation=?self.request.invocation, cell=%cell.cell, version=selected.observation().version.sequence.get());
+        }
         if let Some(term) = queue_term {
             let observation = runtime
                 .observe(attempt.route().history)
@@ -298,6 +308,9 @@ impl CellQueryExecution {
             }
         }
         if self.admission.minimum() == Some(cellar_logic::consensus::Durability::S3) {
+            if trace_event {
+                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-s3-start", invocation=?self.request.invocation, cell=%cell.cell);
+            }
             let client = self
                 .dispatcher
                 .s3
@@ -317,6 +330,9 @@ impl CellQueryExecution {
                 .await?;
             selected = *settled.selected;
             selected.retain_archive(settled.proof);
+            if trace_event {
+                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-s3-ready", invocation=?self.request.invocation, cell=%cell.cell);
+            }
         }
         let token = self
             .dispatcher

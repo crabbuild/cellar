@@ -392,6 +392,7 @@ fn schedule(db: &Storage) -> Result<()> {
 }
 
 async fn reconcile(context: &Context, id: &str) -> Result<Value> {
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="catalog-reconcile-enter", resource=%id);
     let db = context.storage()?;
     let row = db
         .system_sql("SELECT * FROM __sys_event_catalog WHERE id=?", &[id.into()])?
@@ -418,6 +419,7 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
             &format!("catalog:{id}"),
             limits.max_dispatch_concurrency,
         ) else {
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="catalog-reconcile-busy", resource=%id, operation=%operation);
             // Configuration ingress and autonomous maintenance can overlap while
             // the same source writer is parked. Keep one live reconciler and
             // re-arm its durable obligation instead of allocating another child
@@ -474,6 +476,7 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
             json!([{"operation":operation,"definition":encoded}]),
         )
     };
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="catalog-child-start", resource=%id, operation=%operation, method);
     let result = super::call_authorized(
         context,
         authority,
@@ -483,6 +486,7 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
         args,
     )
     .await;
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="catalog-child-result", resource=%id, operation=%operation, error=?result.as_ref().err());
     context.check_binding_turn()?;
     match result {
         Ok(reply) => {
