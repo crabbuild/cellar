@@ -4,48 +4,50 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current independent preparation delivery
+## Current owned-image barrier delivery
 
-Latest main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `37ceab030` and final
-qualification source `2d9c2766e` allow new private commands to overlap only exact,
-durably logged mutations admitted for other cells by the same leader. Both
-initial dispatch and writer acquisition enforce the certificate and all existing
-term/route/membership/image fences. Read cuts, ordered publication and quorum/S3
-acknowledgements retain their separate proofs. No new task/cache/format/quota or
-deadline. Commit/root batching and retained metadata locators remain delivered.
+Latest main `16c45b266` is included and rechecked after qualification. Reuse open
+PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `773cb123e` rechecks
+complete immutable materialized bytes at exact local prepared apply while reusing
+barriers completed by the same open inventory. Failures invalidate reuse; cold
+adoption and independent verification still sync. Root publication and all
+read/output/leader fences remain. No format, task, quota or deadline change.
 
-**49 focused integration selections and 191 units pass.** Owning native/RustFS
-and both images require callback entry during held physical apply, no early
-acknowledgement and exact replay with one invocation. Baseline `a7c3b0f6a` fails;
-`37ceab030` passes with identical fixtures. Final `2d9c2766e` changes only the
-test select macro, retains its assertions and reruns all selected checks serially.
-Final locked build, strict library/all-test Clippy and repository checks pass.
-Earlier overlap/Clippy failures remain recorded and are superseded by final runs.
+Baseline `360b169e` fails the physical repeated-barrier counter. Final source
+passes identical assertions apart from formatting, plus foreign-owner,
+corruption, file/directory failure and cold-adoption guards. **23 focused
+integration selections and 191 units pass**. Locked build, strict Cellar/LTX
+library/all-test Clippy, LTX minimal/all-feature, format, layout and native
+dependency checks pass.
 
-**Original public cohort 762 is FAILED, 7/16.** SDK source-proof/history,
-registration, Fleet and ordinary RustFS/Axum EventStream pass. Seven EventStream
-selectors fail activation or Consume; sequence **2** stays ambiguous. Queue
-production fails at native **18** and RustFS **7**, also ambiguous. Neither reaches
-528 messages or extent load. Retain all 27 failed voter disks and earlier unknown
-identities. Public preflight is empty but postflight sees two compiler processes
-of unknown origin/interval; there is no latency, exclusive-cause or stability
-claim. Owning/control pre/post snapshots are empty.
+**Original public cohort 787 is FAILED, 6/16.** SDK source-proof/history,
+registration and Fleet pass. All eight EventStream selectors fail activation or
+Consume; outer sequence **2** remains ambiguous. Native/RustFS Queue producers
+**21/25** expire ambiguously. Neither completes 528 messages or reaches extents.
+All **30 failed public voter disks** are retained. Public pre/post compiler
+snapshots are empty, but another checkout's Clippy is observed mid-campaign;
+controls overlap its compiler too. Do not claim exclusive cause, speedup,
+stability or release qualification. Do not repeat unchanged broad cohorts.
 
-Diagnostic 763c inventories 92 retained materialized image copies. Native/Axum
-Consume images show `__streamAck` prepared/sealing and `__streamNextResolved`
-completed; activation images show `__streamConfigure`. They may be historical:
-selected roots are not decoded and these are not current-commit/absence proofs.
-Next confirm the selected receipt/root, then implement ack dispatch/sealing,
-configuration progress and Queue native-work settlement under original budgets.
-Investigate due-effect/final-S3 whole-group waits without weakening read or output
-proofs. Finish the primitive matrix and CG-13/15/16 after those public gates close.
+Diagnostic 768 restores selected roots on full copies of prior 762's native
+Consume disks. All three target roots contain the exact completed Ack receipt,
+child **3**, with matching incarnation/digest; source parent **2** remains
+prepared/sealing. This is shutdown state, not proof of deadline timing. A matching
+candidate in phase zero does not prove the child was undispatched or unused.
+Original disks are unchanged; no live quorum or serving authority is created.
 
-Aggregate 765 verifies source, logs, binaries and retained failures. RustFS/VM are
-stopped, objects retained. Voters remain in one process on separate workspace
-disks; real RustFS1CPU2GiB is below independent-voter release scope. Counts stay
-**13/17 tasks, 147/195 cases**; index current, historical CG-01 evidence still missing.
-Use ignored `.cellar/cg17-payload-01/preparation-state-767.json`,
+Next implement public catalog/broker activation and timely exact source Ack
+settlement, then Queue native-work settlement under original identities/budgets.
+Finish autonomous interrupted bindings/safe sequence sealing, remaining primitive
+adapters and the full lifecycle/recovery matrix before CG-13/15/16 cutover.
+Prioritize those feature gates over more isolated performance changes.
+
+Aggregate `.cellar/cg17-payload-01/image-seal-aggregate-791.json` verifies source,
+logs, binaries, unchanged regression assertions and retained failures. RustFS/VM
+are stopped with objects retained. RF3 voters share one native process/separate
+workspace disks; public one SQL worker/voter and RustFS1CPU2GiB remain below
+independent-voter release scope. Counts stay **13/17 tasks, 147/195 cases**; index
+current, historical CG-01 evidence still missing. See
 [progress](progress.md#current-integration-checkpoint) and
 [priorities](remaining-work.md#primitive-delivery-priority).
 

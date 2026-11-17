@@ -29,6 +29,63 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest `origin/main` `16c45b266` is included, rechecked after qualification.
+**Runtime `773cb123e` reuses completed materialized-image persistence barriers
+at the exact local prepared-apply handoff.** It rereads and verifies all bytes,
+requires the same open inventory and exact prepared input, and invalidates reuse
+after read or sync failure. Cold/reopened adoption and independent verification
+still sync file and directory. Root publication, ordered apply, query authority,
+quorum/S3 output proofs, original request deadlines and quotas remain unchanged.
+Barrier observations belong to the open inventory and are never serialized.
+
+**23 focused integration selections and 191 units pass.** Baseline `360b169e`
+fails the real committed-apply image/directory barrier counter. Final source
+passes with identical regression assertions, apart from Rust formatting. The new
+physical guards refuse foreign inventory, corrupt bytes, failed file/directory
+syncs and reuse after failed verification; cold adoption and independent checks
+must still attempt their barriers. Controls cover publication, leader change,
+receipts, reads, independent preparation/replay, archive safety and native/real
+RustFS interrupted bindings. Locked build, strict Cellar/LTX library/all-test
+Clippy, LTX minimal/all-feature checks, formatting, layout and dependencies pass.
+
+**Original public cohort 787 is FAILED, 6/16.** SDK source-proof and current-history
+dispatch pass native/RustFS, plus registration and Fleet. All eight EventStream
+selectors fail activation or Consume; both Axum Consume selectors retain
+ambiguous outer sequence **2**. Queue loads fail materialized production at native
+**21** and RustFS **25**, both ambiguous; neither emits a completed 528-message
+result or reaches extent load. Native Queue's target starts with **2,714 ms** of
+its original three-second budget remaining. This change closes repeated local
+barriers, not the public primitive gate. Preserve complete failed identities.
+
+Both public boundary compiler snapshots are empty, but a mid-campaign observation
+records Clippy from another checkout. Controls also overlap that checkout's
+compiler. Those processes are untouched. No exclusive failure cause, speedup,
+latency stability or release acceptance follows. Initial baseline preflight
+refusal and RustFS startup HTTP 503 are retained as setup failures before cases;
+the later signed readiness probe passes. No unchanged public replay replaces 787.
+
+Diagnostic 768 uses normal log resume and physical selected-root recovery on full
+disposable copies of the prior 762 native Consume disks. All three selected target
+roots contain the exact completed Ack receipt for child sequence **3**, matching
+request digest and incarnation. The selected source still has its parent sequence
+**2** intent, prepared on one voter and sealing on two. This establishes state at
+shutdown, not when the original deadline elapsed. Phase zero with a matching
+candidate does not prove an unused or undispatched child. No live quorum, network
+or serving authority is created; original disk hashes remain unchanged.
+
+Aggregate 791 verifies frozen artifacts, regression identity and **30 retained
+failed public voter disks**. Owned RustFS/VM are stopped; objects are retained.
+RF3 voters share one native process with separate workspace disks; public fixtures
+keep one SQL worker/voter and real RustFS uses one CPU/two GiB. Independent-Linux-voter
+release qualification remains open. Acceptance stays **13/17 tasks, 147/195 cases**;
+the generated index is current and historical CG-01 evidence is still missing.
+Next close public EventStream activation and exact source Ack settlement, then
+Queue producer settlement, autonomous interrupted bindings and full primitive
+lifecycle/recovery coverage before CG-13/15/16 release cutover. Exact records are in
+ignored `.cellar/cg17-payload-01/image-seal-aggregate-791.json`.
+
+## Previous independent preparation checkpoint
+
 Latest main `16c45b266` is included. **Runtime `37ceab030`, qualified at
 `2d9c2766e`, allows a private command to prepare while exact mutations for other
 cells await group apply.** Both dispatch and writer acquisition recheck the live
