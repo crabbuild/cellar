@@ -164,6 +164,7 @@ async fn run_mode_with_workers(
     let source_thread = sql_thread.clone();
     let deny_reopen = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let reopened = Arc::new(AtomicUsize::new(0));
+    let probes = calls.clone();
     let class = RaftClass::new("Counter", 1, [181; 32])?
         .initializer([182; 32], |_, tx| {
             tx.execute_batch("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(0)")?;
@@ -173,6 +174,10 @@ async fn run_mode_with_workers(
         .json_cell_rpc("Add", [184; 32])?
         .json_cell_rpc("Prepare", [186; 32])?
         .json_cell_rpc("Sync", [187; 32])?
+        .query("Probe", [188; 32], move |query, _| {
+            probes.fetch_add(1, Ordering::AcqRel);
+            Ok(query.storage().get_json("value")?.context("probe value")?.to_string().into_bytes())
+        })?
         .query("Hold", [185; 32], move |_, _| {
             query_reader.hold();
             Ok(vec![])
@@ -317,7 +322,38 @@ async fn run_mode_with_workers(
             let options = interleaving::command(188, 1, Durability::Quorum)?;
             let run = source.contract("Run")?;
             let add = other.contract(if matches!(mode, Mode::CheckpointPreview) { "Sync" } else { "Add" })?;
-            if preview || matches!(mode, Mode::Preparation) {
+            if preview {
+                let (release, started) = hold_apply(&faults);
+                let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let completed = finished.clone();
+                let write_options = interleaving::command(189, 1, Durability::Quorum)?;
+                let (written, read) = tokio::join!(
+                    async {
+                        let result = other.command(&add, b"{}".to_vec(), write_options.clone()).await;
+                        completed.store(true, Ordering::Release);
+                        result
+                    },
+                    async {
+                        cellar::asyncrt::timeout(TIMEOUT, started).await??;
+                        let status = cluster.hosts[0].group(group)?.status().await?;
+                        ensure!(status.applied.index == status.committed, "private image reached Raft before its persistence barrier");
+                        let response = cellar::asyncrt::timeout(Duration::from_secs(1), source.query(
+                            ProposalId::new([193; 16])?, &source.contract("Probe")?, vec![], QueryOptions::default(),
+                        )).await.context("SQL query blocked by unrelated private image preparation")??;
+                        ensure!(response.result == b"0" && calls.load(Ordering::Acquire) == 1);
+                        ensure!(!finished.load(Ordering::Acquire), "write completed before its private image persistence barrier");
+                        drop(release);
+                        Ok::<_, anyhow::Error>(())
+                    },
+                );
+                read?;
+                let written = written?;
+                ensure!(written.result == b"2" && written.durability == Durability::Quorum);
+                let replay = other.command(&add, b"{}".to_vec(), write_options).await?;
+                ensure!(replay.version == written.version && replay.result == written.result);
+                return Ok(());
+            }
+            if matches!(mode, Mode::Preparation) {
                 let (release, started) = hold_apply(&faults);
                 let (other_result, prepared) = tokio::join!(
                     other.command(
@@ -329,26 +365,18 @@ async fn run_mode_with_workers(
                         let observed = async {
                             cellar::asyncrt::timeout(TIMEOUT, started).await??;
                             let status = cluster.hosts[0].group(group)?.status().await?;
-                            if preview {
-                                ensure!(status.applied.index == status.committed, "private image reached Raft before its persistence barrier");
-                            } else {
-                                ensure!(status.applied.index < status.committed, "held unrelated committed apply");
-                            }
+                            ensure!(status.applied.index < status.committed, "held unrelated committed apply");
                             let contract = source.contract("Prepare")?;
                             let mut command = Box::pin(source.command(&contract, b"{}".to_vec(), options.clone()));
                             cellar::asyncrt::select! {
                                 result = &mut command => anyhow::bail!("command completed before preparation: {result:?}"),
                                 result = cellar::asyncrt::timeout(Duration::from_secs(1), gates[0].entered.notified()) => {
-                                    result.context(if preview { "SQL callback blocked by unrelated private image preparation" } else { "new cell preparation blocked by unrelated committed apply" })?;
+                                    result.context("new cell preparation blocked by unrelated committed apply")?;
                                 }
                             }
                             ensure!(calls.load(Ordering::Acquire) == 1);
                             let status = cluster.hosts[0].group(group)?.status().await?;
-                            if preview {
-                                ensure!(status.applied.index == status.committed, "private image acknowledged before its persistence barrier");
-                            } else {
-                                ensure!(status.applied.index < status.committed, "preparation waited for group catch-up");
-                            }
+                            ensure!(status.applied.index < status.committed, "preparation waited for group catch-up");
                             gates[0].release.notify_one();
                             ensure!(
                                 cellar::asyncrt::timeout(Duration::from_millis(30), &mut command).await.is_err(),
