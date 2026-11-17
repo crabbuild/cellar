@@ -74,7 +74,7 @@ pub(in crate::raft::host_sql) struct Request {
     pub(super) queued: crate::raft::performance::Timer,
     pub(super) action: Action,
     pub(super) reply: oneshot::Sender<Result<CellSqlOutcome, ExecutionError>>,
-    pub(super) _slot: tokio::sync::OwnedSemaphorePermit,
+    pub(super) _slot: WorkerReservation,
 }
 
 impl Request {

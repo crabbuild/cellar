@@ -233,9 +233,19 @@ impl Drop for Running {
     }
 }
 
+enum WorkerReservation {
+    Ordinary {
+        _permit: tokio::sync::OwnedSemaphorePermit,
+    },
+    Progress {
+        _lane: Arc<tokio::sync::OwnedSemaphorePermit>,
+        _queue: tokio::sync::OwnedSemaphorePermit,
+    },
+}
+
 /// One reserved progress lane per SQL owner. Its lease survives every queued
 /// or physical user, while a separate one-entry queue permit prevents apply
-/// envelopes from occupying ordinary SQL queue capacity. Physical operations
+/// and SQL completion envelopes from occupying ordinary queue capacity. Physical operations
 /// still own the independent apply byte/item bank and controller concurrency.
 struct CompletionLane {
     slots: Arc<Semaphore>,
@@ -265,7 +275,7 @@ impl CompletionLane {
             .queue
             .clone()
             .try_acquire_owned()
-            .map_err(|_| ExecutionError::Refused(CommandFailure::Overloaded))?;
+            .map_err(Self::refusal)?;
         let mut prior = self
             .lease
             .lock()
@@ -277,13 +287,24 @@ impl CompletionLane {
                     self.slots
                         .clone()
                         .try_acquire_owned()
-                        .map_err(|_| ExecutionError::Refused(CommandFailure::Overloaded))?,
+                        .map_err(Self::refusal)?,
                 );
                 *prior = Arc::downgrade(&held);
                 held
             }
         };
         Ok((held, queued))
+    }
+
+    fn refusal(error: tokio::sync::TryAcquireError) -> ExecutionError {
+        match error {
+            tokio::sync::TryAcquireError::Closed => {
+                ExecutionError::Refused(CommandFailure::Unavailable)
+            }
+            tokio::sync::TryAcquireError::NoPermits => {
+                ExecutionError::Refused(CommandFailure::Overloaded)
+            }
+        }
     }
 
     fn available_permits(&self) -> usize {

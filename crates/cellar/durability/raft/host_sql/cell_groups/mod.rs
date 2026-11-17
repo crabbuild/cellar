@@ -15,7 +15,7 @@ pub(crate) use query::{ReadRetention, RegisteredQuery};
 mod worker;
 pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 
-use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker};
+use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker, WorkerReservation};
 use crate::application::consensus::CommandAdmission;
 use crate::raft::cell_groups::{
     cell_image_history_digest, CellEnrollmentAuthority, CellEnrollmentState,
@@ -637,18 +637,23 @@ impl CellGroupSqlPool {
         ) % self.inner.workers.len() as u64;
         let worker = &self.inner.workers[index as usize];
         worker.domain.mono_ms().map_err(|_| unavailable())?;
-        let slots = if action.progress_priority() {
-            &worker.completion_slots
+        let slot = if action.progress_priority() {
+            let (lane, queue) = worker.completion_slots.acquire()?;
+            WorkerReservation::Progress {
+                _lane: lane,
+                _queue: queue,
+            }
         } else {
-            &worker.slots
+            let permit = worker
+                .slots
+                .clone()
+                .try_acquire_owned()
+                .map_err(|error| match error {
+                    tokio::sync::TryAcquireError::Closed => unavailable(),
+                    tokio::sync::TryAcquireError::NoPermits => overloaded(),
+                })?;
+            WorkerReservation::Ordinary { _permit: permit }
         };
-        let slot = slots
-            .clone()
-            .try_acquire_owned()
-            .map_err(|error| match error {
-                tokio::sync::TryAcquireError::Closed => unavailable(),
-                tokio::sync::TryAcquireError::NoPermits => overloaded(),
-            })?;
         self.admit()?;
         let (reply, wait) = oneshot::channel();
         worker

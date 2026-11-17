@@ -6,7 +6,7 @@ use super::*;
 use crate::raft::cell_groups::{
     CellGroupApplier, CellGroupApply, CellGroupRuntime, GroupManifest, PreparedGroupManifest,
 };
-use futures_util::{stream::FuturesUnordered, Stream};
+use futures_util::{future::BoxFuture, stream::FuturesUnordered, Stream};
 use sha2::{Digest, Sha256};
 use std::{
     pin::Pin,
@@ -28,7 +28,7 @@ pub(in crate::raft::host_sql) struct ApplyRequest {
 /// releases only its one-entry queue permit, so unrelated groups can enter the
 /// existing apply bank while earlier I/O is blocked. Task metadata is bounded too.
 pub(in crate::raft::host_sql) struct ApplyTasks {
-    tasks: FuturesUnordered<crate::asyncrt::TaskHandle<()>>,
+    tasks: FuturesUnordered<BoxFuture<'static, Result<(), crate::asyncrt::TaskPanic>>>,
     capacity: usize,
     waker: Waker,
 }
@@ -68,8 +68,8 @@ impl ApplyTasks {
         performance: Arc<crate::raft::performance::Registry>,
     ) -> Result<(), ExecutionError> {
         self.poll()?;
-        // Completed task epilogues can briefly outlive their physical budget.
-        // Keep that metadata bounded instead of accumulating escaped handles.
+        // The node bank bounds both physical work and join custody. Keep a
+        // fixed handle bound too, without accumulating escaped task metadata.
         while self.tasks.len() >= self.capacity {
             match self.poll_one() {
                 Poll::Ready(Some(result)) => result?,
@@ -77,13 +77,24 @@ impl ApplyTasks {
                 Poll::Pending => std::thread::park(),
             }
         }
+        let admission = request
+            .work
+            .ticket
+            .preparation
+            .clone()
+            .ok_or(ExecutionError::Invalid("unadmitted physical group apply"))?;
+        let lane = request._slot.clone();
         request._queued_slot.take();
         let owner = domain.clone();
-        self.tasks.push(
-            domain
-                .blocking(move || request.execute(&owner, &stopped, &performance))
-                .map_err(|_| unavailable())?,
-        );
+        let physical = domain
+            .blocking(move || request.execute(&owner, &stopped, &performance))
+            .map_err(|_| unavailable())?;
+        self.tasks.push(Box::pin(async move {
+            // Keep ownership through the actual task join, even if the caller
+            // already consumed or dropped its prepared result.
+            let _retention = (admission, lane);
+            physical.await
+        }));
         Ok(())
     }
 
