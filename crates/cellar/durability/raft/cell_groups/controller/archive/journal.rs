@@ -230,9 +230,13 @@ fn read(
         return Err(Error::Invalid("archive journal file bounds/type"));
     }
     let mut file = filesystem.open(&path)?;
+    // Publication replaces the path by rename; metadata and this descriptor
+    // can legitimately name different complete generations. State is never
+    // modified in place. Bound and read this one open generation, then let the
+    // caller validate its exact identity and canonical bytes.
     let length = file.file_len()?;
-    if length != metadata.len {
-        return Err(Error::Invalid("archive journal changed during read"));
+    if length == 0 || length > LIMIT as u64 {
+        return Err(Error::Invalid("archive journal file bounds/type"));
     }
     Ok(Some(file.read_exact_at(0, length as usize)?))
 }
