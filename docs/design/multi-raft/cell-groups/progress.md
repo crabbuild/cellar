@@ -29,6 +29,55 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `af127fc3f` removes ancestor
+fsync from disposable materialized command directories.** Every open discards
+SQLite/WAL/capture scratch and rebuilds it from an independently authoritative
+image. Directory locks and bounded absolute paths remain mandatory. Immutable
+previews, committed images, replicated logs and root publication retain their
+persistence barriers; extent workspace allocation/reclamation keeps its separate
+durable inventory contract. The public `PrivateOptions` and LTX guide document
+this boundary. Bounded physical apply and shared progress-lane ownership remain.
+
+**28 owning/control selections pass**, including real RustFS. The new physical
+regression denies scratch-directory sync, verifies pre-commit invisibility,
+commits through actual RF3, deletes scratch and reopens the exact receipt without
+callback replay. It fails baseline `f5bc74137` at the denied sync and passes final
+source with a byte-identical helper. Baseline runtime directory preparation is
+identical to published `0ef32d4b9`. Image/manifest sync failures still refuse
+publication; cancellation, joined close, selected-root recovery, checkpoint
+pressure, S3 output/read fencing and RustFS reclamation/restart pass. Locked build,
+strict library/all-test Clippy, formatting, layout and dependency checks pass.
+
+**The complete original public cohort 899 remains FAILED, 6/16.** Native/RustFS
+SDK source proof and retained binding histories pass, as do registration/Fleet.
+All eight EventStream selections and both Queue loads fail, but their phases differ
+from 878: ordinary native Consume **2** succeeds within its original deadline,
+then retained materialized activation fails. Native Axum completes the materialized
+lifecycle, including retained restart and minority refusal, before failing initial
+extent activation. RustFS ordinary/Axum Consume parent **2** remains ambiguous;
+explicit and target-S3 ingresses fail activation. Both Queue loads expire in an
+unlabelled empty/drain wait. Neither has a 528-message completion marker; the call
+site does not establish which drain phase completed. All 30 failed disks remain.
+Original public fixtures, selectors, deadlines, quotas and minima are unchanged.
+These observations add no full primitive-family or release acceptance.
+
+Control compiler boundaries are empty. Public preflight is empty, but postflight
+observes compilation in independent `tikv-cursor-refusal`. No exclusive failure
+cause, speedup or latency-stability claim follows. Cumulative telemetry 910 is
+per host startup, with new sources after restart; it cannot attribute an exact
+command's deadline cost. Voters share one process/separate workspace disks;
+RustFS uses one CPU/two GiB. Owned backend/VM are stopped with objects retained.
+Aggregate 907 records frozen source, log and executable hashes under ignored
+`.cellar/cg17-payload-01/`.
+
+Acceptance stays **13/17 tasks, 147/195 cases**; the implementation-plan index is
+current and historical CG-01 evidence remains missing. Next close retained/extent/
+target-S3 activation and exact RustFS Consume settlement, then Queue work discovery
+and drain. Complete autonomous interrupted bindings, safe sequence sealing and
+all remaining primitive/lifecycle/recovery coverage before CG-13/15/16 cutover.
+
+## Previous physical-apply progress checkpoint
+
 Latest main `16c45b266` is included. **Runtime `4322aaf6f` runs physical image
 and manifest preparation off the SQL callback worker.** Physical work keeps the
 existing independent byte/item admission, controller limits and bounded task

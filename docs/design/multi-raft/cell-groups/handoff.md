@@ -4,7 +4,51 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current physical-apply progress delivery
+## Current disposable-scratch delivery
+
+Latest main `16c45b266` is included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `af127fc3f` creates
+disposable materialized command directories without ancestor fsync. Each open
+rebuilds SQLite/WAL/capture state from an independently authoritative image.
+Absolute-path bounds and exclusive locks remain; immutable image/log/root barriers
+and extent workspace inventory durability retain their contracts. Bounded physical
+apply and shared progress-lane join custody remain delivered.
+
+**28 controls pass**, including real RustFS. The denied scratch-directory sync
+regression fails published-runtime baseline `f5bc74137` and passes final source
+with its exact helper. It checks pre-commit invisibility, actual quorum commit,
+scratch deletion and exact receipt replay with one callback. Image/manifest failure
+refusal, cancellation, recovery, checkpoint pressure, S3 fences and reclamation/
+restart pass. Strict Clippy and repository checks pass.
+
+**Complete original public 899 is FAILED, 6/16.** SDK source proof and retained
+binding histories pass native/RustFS, registration/Fleet pass. All eight EventStream
+and both Queue load selections fail. Ordinary native Consume **2** succeeds before
+retained materialized activation fails. Native Axum completes its materialized
+lifecycle before failing initial extent activation. RustFS ordinary/Axum Consume
+parent **2** remains ambiguous; other paths fail activation. Both Queue cases now
+expire in an unlabelled empty/drain wait; no 528-message marker establishes which
+drain phase completed. All 30 failed disks remain. Preserve earlier uncertain
+identities in historical records; current native Consume is not a new ambiguity.
+
+Next deliver retained/extent/target-S3 activation and exact RustFS Consume/source
+settlement, then Queue work discovery/drain and autonomous interrupted bindings/
+safe unused-sequence sealing. Attribute the unlabelled drain before selecting a
+scheduler/archive fix. Finish every remaining primitive adapter and the combined
+lifecycle/recovery matrix before CG-13/15/16 cutover. Do not infer unused sequences
+from missing selected receipts or convert a timeout into known non-commit.
+
+Use ignored `.cellar/cg17-payload-01/scratch-directory-aggregate-907.json` for frozen
+records. Cumulative telemetry 910 is per host startup with new sources after
+restart; it cannot attribute one command's cost. Controls have empty compiler
+boundaries; public postflight observes independent `tikv-cursor-refusal` compilation.
+No exclusive cause, speedup or timing-stability claim is added. RF3 voters share a
+process/separate workspace disks; RustFS1CPU2GiB/VM are stopped, objects retained.
+Counts stay **13/17 tasks, 147/195 cases**, with full primitive/release coverage and
+historical CG-01 evidence still open. See [progress](progress.md#current-integration-checkpoint)
+and [priorities](remaining-work.md#primitive-delivery-priority).
+
+## Previous physical-apply progress delivery
 
 Latest main `16c45b266` is included; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `4322aaf6f` separates
