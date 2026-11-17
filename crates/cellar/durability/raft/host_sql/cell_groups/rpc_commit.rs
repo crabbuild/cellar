@@ -73,7 +73,7 @@ impl RpcCommitContext {
                 let current = match phase {
                     AuthorityPhase::Entry => {
                         self.runtime
-                            .preparation_authority(self.route.history, cell.clone())
+                            .independent_cell_authority(self.route.history, cell.clone())
                             .await
                     }
                     AuthorityPhase::Continuation => self

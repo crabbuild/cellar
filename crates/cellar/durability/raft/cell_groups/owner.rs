@@ -562,12 +562,13 @@ impl CellGroupOwner {
         )
     }
 
-    /// A new private command can overlap unrelated committed SQL work. The
-    /// current-term applied barrier and every normal serving fence still hold;
-    /// the complete unapplied suffix must consist of exact, durably logged
-    /// mutations admitted by this leader for other cells. This is neither a
-    /// read barrier nor permission to acknowledge or skip contiguous apply.
-    pub(crate) fn preparation_authority(
+    /// Private preparation and an already committed S3 response can progress
+    /// while other cells await apply. Every pending entry must be this leader's
+    /// exact durably logged mutation for another cell, within the event quantum.
+    /// Same-cell, enrollment, control and inherited work still refuse. This is
+    /// not a read barrier or permission to skip contiguous root publication;
+    /// output must separately retain and check its receipt/archive proofs.
+    pub(crate) fn independent_cell_authority(
         &self,
         cell: &CellHistory,
     ) -> Result<super::CellExecutionAuthority, RuntimeError> {

@@ -171,7 +171,7 @@ enum Command {
     },
     RetireSource(Box<CellGroupSourceRetirementPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
-    Preparation(cellar_logic::cell_group::CellHistory),
+    IndependentCell(cellar_logic::cell_group::CellHistory),
     NextEffect {
         now: u64,
         after: Option<cellar_logic::cell_group::CellId>,
@@ -724,18 +724,18 @@ impl CellGroupRuntime {
         }
     }
 
-    pub(crate) async fn preparation_authority(
+    pub(crate) async fn independent_cell_authority(
         &self,
         history: GroupHistory,
         cell: cellar_logic::cell_group::CellHistory,
     ) -> Result<CellExecutionAuthority, RuntimeError> {
         let bytes = cell.cell.as_str().len() + 4096;
         match self
-            .call(Some(history), Command::Preparation(cell), bytes)
+            .call(Some(history), Command::IndependentCell(cell), bytes)
             .await?
         {
             Response::Execution(authority) => Ok(*authority),
-            _ => Err(RuntimeError::Protocol("preparation authority reply".into())),
+            _ => Err(RuntimeError::Protocol("independent cell authority reply".into())),
         }
     }
 

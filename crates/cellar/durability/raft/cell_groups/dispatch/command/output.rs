@@ -77,16 +77,28 @@ impl CellCommandInvocation {
             .output
             .as_ref()
             .ok_or(CellDispatchError::Invalid("missing committed output"))?;
-        // A later committed entry may temporarily put the group ahead of apply.
-        // Retain this exact result/proof until a fresh serving fence is available;
-        // never reconcile again or rerun SQL to reconstruct the response.
+        // The receipt already proves this command's contiguous durable apply.
+        // A later exact mutation for another cell need not delay its S3 output;
+        // every pending entry must carry the leader's independence certificate.
+        // Controls, inherited or same-cell work still require ordinary apply.
+        // Never reconstruct the result by reconciling its retired SQL producer.
         let authority = output
             .runtime
-            .execution_authority(output.route.history, self.cell.clone())
+            .independent_cell_authority(output.route.history, self.cell.clone())
             .await
             .map_err(CellDispatchError::Runtime)?;
         if authority.route() != &output.route {
             return Err(CellDispatchError::Invalid("S3 response current route"));
+        }
+        if !authority
+            .cell()
+            .version
+            .covers(&output.receipt.receipt().version)
+            .map_err(|_| CellDispatchError::Invalid("S3 response receipt history"))?
+        {
+            return Err(CellDispatchError::Invalid(
+                "S3 response current cell version",
+            ));
         }
         output
             .proof

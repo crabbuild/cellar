@@ -786,9 +786,9 @@ impl Worker {
                                     .owner
                                     .execution_authority(&cell)
                                     .map(|authority| Response::Execution(Box::new(authority))),
-                                Command::Preparation(cell) => group
+                                Command::IndependentCell(cell) => group
                                     .owner
-                                    .preparation_authority(&cell)
+                                    .independent_cell_authority(&cell)
                                     .map(|authority| Response::Execution(Box::new(authority))),
                                 Command::NextEffect { now, after } => group
                                     .owner
