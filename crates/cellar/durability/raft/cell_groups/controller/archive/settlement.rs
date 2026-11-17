@@ -120,10 +120,10 @@ impl Output {
 
     fn retain(self, permit: Arc<Mutex<Permit>>) -> Self {
         match self {
-            // Immutable queries retain their original SQL pin/admission until
-            // the response owner joins; the archive permit separately bounds
-            // this queued result and its complete coverage.
-            Self::Query(selected) => Self::Query(selected),
+            // SQL and its selected-image pin have joined. Keep the immutable
+            // result charged to the independently acquired archive reservation,
+            // so an S3 wait cannot consume discovery's SQL operation slot.
+            Self::Query(selected) => Self::Query(selected.retain_for_archive(permit)),
             Self::Command(receipt) => Self::Command(receipt.retain_for_archive(permit)),
             Self::Enrollment(enrollment) => Self::Enrollment(enrollment.retain_for_archive(permit)),
             Self::Lookup(lookup) => Self::Lookup(Box::new(Lookup {
