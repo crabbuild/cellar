@@ -437,7 +437,8 @@ impl Scenario {
                 cellar::asyncrt::sleep(Duration::from_millis(30)).await;
             }
         })
-        .await??;
+        .await
+        .with_context(|| format!("Queue {queue} empty wait"))??;
         Ok(())
     }
 }
@@ -1023,7 +1024,8 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             }.await;
             store.deny_group_archive_writes.store(false,Ordering::Release);
             outage?;
-            s.empty(QUEUE).await?;s.empty(FAST).await?;
+            s.empty(QUEUE).await.context("post-outage primary Queue drain")?;
+            s.empty(FAST).await.context("post-outage fast Queue drain")?;
             let start=cellar::asyncrt::mono_ms();
             let credits=[tokio::sync::Semaphore::new(1),tokio::sync::Semaphore::new(1)];
             let producers=(0..4).map(|client| { let cluster=&s.cluster; let credits=&credits; async move {
@@ -1037,7 +1039,8 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             let results=futures_util::future::join_all(producers).await;
             if results.iter().any(Result::is_err) { snapshot(&s.cluster,&[s.queue,s.dead]).await; }
             let mut latencies=Vec::new();for result in results {latencies.extend(result?);}
-            s.empty(QUEUE).await?;s.empty(FAST).await?;
+            s.empty(QUEUE).await.context("steady-load primary Queue drain")?;
+            s.empty(FAST).await.context("steady-load fast Queue drain")?;
 
             let completed=s.signals.completed.lock().unwrap();ensure!(completed.len()==528,"acknowledged load lost messages: {}",completed.len());
             let delivered=s.signals.deliveries.lock().unwrap();
