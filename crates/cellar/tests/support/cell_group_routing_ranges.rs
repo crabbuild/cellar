@@ -25,6 +25,7 @@ fn receipt(value: &CommandReceipt) -> serde_json::Value {
 struct SqlCallbacks {
     commands: AtomicUsize,
     queries: AtomicUsize,
+    command_gate: std::sync::Mutex<Option<Arc<fairness::CallbackGate>>>,
 }
 
 fn definition(callbacks: Arc<AtomicUsize>, sql: Arc<SqlCallbacks>) -> Result<RaftClass> {
@@ -33,6 +34,10 @@ fn definition(callbacks: Arc<AtomicUsize>, sql: Arc<SqlCallbacks>) -> Result<Raf
         move || {
             callbacks.fetch_add(1, Ordering::AcqRel);
             commands.commands.fetch_add(1, Ordering::AcqRel);
+            let gate = commands.command_gate.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate.enter();
+            }
         },
         move |_| {
             sql.queries.fetch_add(1, Ordering::AcqRel);
@@ -56,6 +61,9 @@ mod old_lookup;
 #[path = "cell_group_routing_membership.rs"]
 mod membership;
 
+#[path = "cell_group_routing_fairness.rs"]
+mod fairness;
+
 #[derive(Clone, Copy, Debug)]
 enum Caller {
     Sdk,
@@ -69,6 +77,7 @@ enum Case {
     OldLookup(Caller),
     Membership(Caller),
     RemovedAdvice(Caller),
+    SharedWorkers(Caller),
 }
 
 impl Case {
@@ -84,6 +93,9 @@ impl Case {
             Self::RemovedAdvice(Caller::Sdk) => "routing-removed-advice-sdk",
             Self::RemovedAdvice(Caller::Native) => "routing-removed-advice-native",
             Self::RemovedAdvice(Caller::Axum) => "routing-removed-advice-axum",
+            Self::SharedWorkers(Caller::Sdk) => "shared-workers-sdk",
+            Self::SharedWorkers(Caller::Native) => "shared-workers-native",
+            Self::SharedWorkers(Caller::Axum) => "shared-workers-axum",
         }
     }
 }
@@ -106,6 +118,13 @@ pub(super) async fn membership_refresh_keeps_range(
 ) -> Result<()> {
     for caller in [Caller::Sdk, Caller::Native, Caller::Axum] {
         run(Case::Membership(caller), make).await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn shared_workers_remain_fair() -> Result<()> {
+    for caller in [Caller::Sdk, Caller::Native, Caller::Axum] {
+        run(Case::SharedWorkers(caller), None).await?;
     }
     Ok(())
 }
@@ -137,12 +156,15 @@ async fn run(case: Case, make: Option<RoutingStoreFactory>) -> Result<()> {
             Some(make) => fault::Store::around(make(case.store_case(), rooted)?),
             None => fault::Store::default(),
         });
-        let first = Fixture::with_store(
+        let mut first = Fixture::with_store(
             rooted,
             definition(callbacks.clone(), sql[0].clone())?,
             store,
         )
         .await?;
+        if matches!(case, Case::SharedWorkers(_)) {
+            first.sql_workers = 1;
+        }
         let group = GroupHistory {
             cluster: first.declaration.namespace.cluster,
             namespace: first.declaration.namespace.namespace,
@@ -253,6 +275,18 @@ async fn run(case: Case, make: Option<RoutingStoreFactory>) -> Result<()> {
                     ))
                     .await
                 }
+                Case::SharedWorkers(caller) => {
+                    Box::pin(fairness::exercise(
+                        &cluster,
+                        web.as_ref().context("fairness HTTP owners")?,
+                        &callbacks,
+                        &sql,
+                        fairness::Mode { rooted, caller },
+                        &mut workers,
+                        &mut roots,
+                    ))
+                    .await
+                }
             }
         }
         .await;
@@ -278,7 +312,11 @@ async fn run(case: Case, make: Option<RoutingStoreFactory>) -> Result<()> {
         for api in apis {
             *api.cells.lock().unwrap() = None;
         }
-        if work.is_err() || joined.is_err() || http_joined.is_err() {
+        if work.is_err()
+            || joined.is_err()
+            || http_joined.is_err()
+            || matches!(case, Case::SharedWorkers(_))
+        {
             roots.append(&mut cluster.roots);
             for root in roots {
                 eprintln!("retained range-publication disk: {}", root.keep().display());

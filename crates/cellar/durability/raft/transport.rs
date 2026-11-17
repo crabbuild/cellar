@@ -436,6 +436,9 @@ struct State {
     control_connections: Arc<Semaphore>,
     data_connections: Arc<Semaphore>,
     query_connections: Arc<Semaphore>,
+    // The old single sender retained at most one query socket per peer.
+    // Concurrent exchanges share that same node-wide physical ceiling.
+    outgoing_query_slots: Arc<Semaphore>,
     consensus_connections: Arc<Semaphore>,
     outgoing_connections: resources::Connections,
 }
@@ -618,6 +621,7 @@ impl RaftTransport {
             control_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
             data_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
             query_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            outgoing_query_slots: Arc::new(Semaphore::new(options.max_peers)),
             consensus_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
             outgoing_connections: resources::Connections::default(),
             inspection_metadata: Budget::new(

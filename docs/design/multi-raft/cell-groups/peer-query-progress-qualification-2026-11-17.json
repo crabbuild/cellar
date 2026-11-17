@@ -1,0 +1,618 @@
+{
+  "format": 1,
+  "date": "2026-11-17",
+  "status": "SCOPED_PROGRESS_REPAIR",
+  "base_revision": "b64ecd9b5f6ccf9144fa8a3ffb727b49a3f1a465",
+  "main_revision": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "profile_overrides": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+    "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+    "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+    "CARGO_INCREMENTAL": "0"
+  },
+  "scope": "Host-native SQL/control/peer request isolation and resource ownership; full RL-07, OPT packages and combined release remain open",
+  "production_change": {
+    "before_source_digest": "37c58f4ee89add20018f46cb2066d02b2da12c5eec29ccef0d9d8a2da00155e8",
+    "source_digest": "439494eea7c4ec3aa26b2e77e126a3db5b45d171a28a01437cd4e38f6dd3cd2b",
+    "files": [
+      "crates/cellar/durability/raft/query_transport.rs",
+      "crates/cellar/durability/raft/transport.rs"
+    ],
+    "sender_workers_added": 0,
+    "public_limits_changed": false,
+    "outgoing_query_socket_limit": "configured max_peers across active and retiring pools; derived from the old steady-state one-socket-per-peer bound",
+    "per_stream_exchange_owners": 1,
+    "idle_query_streams_per_peer": 1,
+    "proofs_and_retry_rules_changed": false
+  },
+  "baseline": {
+    "status": "REPRODUCED",
+    "source_digest": "37c58f4ee89add20018f46cb2066d02b2da12c5eec29ccef0d9d8a2da00155e8",
+    "native_executable": {
+      "sha256": "66a17ff159bf2f4c8e15f16c6bb1751cea8eba9f66b20497e8fad8717513ddb5",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "native_reuse": {
+      "run": "query-concurrency-before-02",
+      "reason": "exact native executable SHA256 and all public fixture bytes unchanged",
+      "sha256": "66a17ff159bf2f4c8e15f16c6bb1751cea8eba9f66b20497e8fad8717513ddb5"
+    },
+    "native_reused_stages": [
+      {
+        "name": "public-sql-control",
+        "status": "FAILED",
+        "elapsed_seconds": 72.36219433299266,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "shared_workers_remain_fair"
+        ],
+        "log_sha256": "defd629e1761a8ab6d4014ac2d8afc61dec91d783679ddea62734437ed94aa72"
+      }
+    ],
+    "library_executable": {
+      "sha256": "dedc314cc75e434ba4251b6ad42382e94fabb313f94d518af09e879b9a3695f2",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "stages": [
+      {
+        "name": "format-changed",
+        "status": "PASSED",
+        "elapsed_seconds": 0.07036537499516271,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "compile-native",
+        "status": "PASSED",
+        "elapsed_seconds": 246.51859424999566,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "81e1e90630d11ccad8df48dec601ec1aa38b591e3f3457d0190e968047c75886"
+      },
+      {
+        "name": "compile-library",
+        "status": "PASSED",
+        "elapsed_seconds": 503.20154154099873,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "5666f6c403004566411799fa03fb85bcca4f88dcd0fcfaa3fbc2949d27b1409c"
+      },
+      {
+        "name": "socket-cap-reuse-cancellation",
+        "status": "FAILED",
+        "elapsed_seconds": 6.21095137501834,
+        "footers": [
+          [
+            "FAILED",
+            "1",
+            "2",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "raft::transport::tests::query_concurrency::cancelled_query_closes_socket_and_releases_original_credits",
+          "raft::transport::tests::query_concurrency::held_query_reuses_available_socket_at_node_ceiling"
+        ],
+        "log_sha256": "ce8b80f5c5e356cdf399526ec7db1590f6bbdc8efc6a85b1126fc25ebebbe483"
+      }
+    ],
+    "socket_phase_samples": [
+      {
+        "server": 2,
+        "client": 3,
+        "joined": false
+      },
+      {
+        "server": 2,
+        "client": 3,
+        "joined": false
+      }
+    ],
+    "public_failure": "original hot invocation deadline; cold transfer completed; no cold application RPC at the 31ms snapshot; later possible mutation outcomes retained",
+    "live_probe_ms": 31,
+    "rpc_attempts_before_and_during_probe": [
+      3,
+      3
+    ]
+  },
+  "candidate": {
+    "source_digest": "439494eea7c4ec3aa26b2e77e126a3db5b45d171a28a01437cd4e38f6dd3cd2b",
+    "source_inputs_unchanged": true,
+    "native_executable": {
+      "sha256": "c4c3529a6223ccd327cc4c05183e15b6a11b4bdb9eb415c553c6d0324b584bba",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "library_executable": {
+      "sha256": "7735e15fb95a08a6700fcae888e454ac628ed7b5441a279cd2efe45bc9d4e0dd",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "disaster_executable": {
+      "sha256": "2681f260c90314646ee466b1ab3bc086595188174e7f58e653ab7bd5d89ee157",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "verified_public_cases": [
+      {
+        "extents": true,
+        "caller": "Sdk",
+        "sql_workers": 1,
+        "phase": "verified_after_joined_callback"
+      },
+      {
+        "extents": true,
+        "caller": "Axum",
+        "sql_workers": 1,
+        "phase": "verified_after_joined_callback"
+      },
+      {
+        "extents": false,
+        "caller": "Native",
+        "sql_workers": 1,
+        "phase": "verified_after_joined_callback"
+      },
+      {
+        "extents": false,
+        "caller": "Axum",
+        "sql_workers": 1,
+        "phase": "verified_after_joined_callback"
+      },
+      {
+        "extents": true,
+        "caller": "Native",
+        "sql_workers": 1,
+        "phase": "verified_after_joined_callback"
+      },
+      {
+        "extents": false,
+        "caller": "Sdk",
+        "sql_workers": 1,
+        "phase": "verified_after_joined_callback"
+      }
+    ],
+    "stages": [
+      {
+        "name": "format-changed",
+        "status": "PASSED",
+        "elapsed_seconds": 0.08377791600651108,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "compile-library",
+        "status": "PASSED",
+        "elapsed_seconds": 505.47827633301495,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "9d1e8fed3d4f553df4d1c9f54c2b7b821f6c047e21c3d507d16234599b45b287"
+      },
+      {
+        "name": "socket-cap-reuse-cancellation",
+        "status": "PASSED",
+        "elapsed_seconds": 0.23896662500919774,
+        "footers": [
+          [
+            "ok",
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "1419a881c7b3884cd36444eee2a41192413c0cbee49422f7ecafd6ec662e65b0"
+      },
+      {
+        "name": "full-library",
+        "status": "PASSED",
+        "elapsed_seconds": 148.68119787500473,
+        "footers": [
+          [
+            "ok",
+            "1243",
+            "0",
+            "2"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "a75b1b11d16603c327695de545dd099a21fc599a200348924bd7a12f8a392035"
+      },
+      {
+        "name": "compile-routing",
+        "status": "PASSED",
+        "elapsed_seconds": 184.4764640420035,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "9da3841f9bc3529438664fdf1a7902158b0504d2bfded80802fdeacd792e31f2"
+      },
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 139.74562841601437,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "7cd0db2355baec176c5c0701473d64538d407c7dad3a0359819cf322338a6b92"
+      },
+      {
+        "name": "recovery-consumer-clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 2.1167549160018098,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "7d5cc3c20637060a73acfdeaa7f67472e7a841604f96624adbc26c4b7697f1f6"
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "elapsed_seconds": 112.48780224999064,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "ac80249a0f4afc4131f92108f41caea79298b1a4d917581323d52d10274e1349"
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "elapsed_seconds": 0.14819504102342762,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "f9a5e1cd78e9cfe8a4b204b8cb6c8ce445647e5e8a23c57cd85db5e7b1739f52"
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "elapsed_seconds": 0.3198983749898616,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      },
+      {
+        "name": "compile-disaster",
+        "status": "PASSED",
+        "elapsed_seconds": 66.97653545800131,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "a66d0c937096c21f4b21127d839a0df2f0b577c5f3a2b2fb846fdce3d8b61da0"
+      },
+      {
+        "name": "native-disaster",
+        "status": "PASSED",
+        "elapsed_seconds": 865.0920379999734,
+        "footers": [
+          [
+            "ok",
+            "13",
+            "0",
+            "8"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "4766e727dd9216979df1c0d4724db20d4e6e6221e46211125933b344b1a7c0e1"
+      }
+    ],
+    "native_results_reused": {
+      "run": "query-concurrency-after-02",
+      "source_digest": "7e2e3933f95b047632f0864fd3af35370a3ea2945c0625ff32f0dbb59dc5e9f8",
+      "reason": "actual compiled routing executable SHA256 unchanged; public fixture bytes and production source unchanged",
+      "sha256": "c4c3529a6223ccd327cc4c05183e15b6a11b4bdb9eb415c553c6d0324b584bba",
+      "stages": [
+        {
+          "name": "public-sql-control",
+          "status": "PASSED",
+          "elapsed_seconds": 203.24343333399156,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": [],
+          "log_sha256": "8af9f0215647334edc9c4c2f15fcd079331daf039c450ae5037835a09eb2beb0"
+        },
+        {
+          "name": "routing-controls",
+          "status": "PASSED",
+          "elapsed_seconds": 1283.563840124989,
+          "footers": [
+            [
+              "ok",
+              "22",
+              "0",
+              "13"
+            ]
+          ],
+          "failed_cases": [],
+          "log_sha256": "f672ee12b43aa876e54ccd3fb5ba2c412fb9abe905a637ad51020b4f6ce4b6ff"
+        }
+      ]
+    }
+  },
+  "prior_strict_all_targets_clippy": {
+    "source_digest": "7e2e3933f95b047632f0864fd3af35370a3ea2945c0625ff32f0dbb59dc5e9f8",
+    "production_files_identical": true,
+    "stages": [
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 705.347612750018,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "1fa02b369bd173b12eeee10f00cb523e72db704519b7484667d53256c4e87598"
+      }
+    ]
+  },
+  "diagnostics_guard": {
+    "source_digest": "439494eea7c4ec3aa26b2e77e126a3db5b45d171a28a01437cd4e38f6dd3cd2b",
+    "path": "crates/cellar/tests/support/cell_group_transition_diagnostics.rs",
+    "behavior": "missing retained source host returns an explicit best-effort diagnostic error; caller retains its original recovery failure",
+    "hosted_primary_recovery_failure_remains_open": true
+  },
+  "retained_private_attempts": [
+    {
+      "run": "shared-worker-sql-control-01",
+      "status": "FAILED",
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "shared-worker-sql-control-02",
+      "status": "FAILED",
+      "files": 323,
+      "bytes": 4209635,
+      "manifest_sha256": "dea196d30b495b3d5222118338c02ffd2dfa15138dead75a4191d4b96f4fc043",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "shared-worker-sql-control-03",
+      "status": "FAILED",
+      "files": 326,
+      "bytes": 4260928,
+      "manifest_sha256": "dce5cfdada1c55998b7b8810a674defdd15829503151875f13d5d88914c05c85",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "shared-worker-sql-control-04",
+      "status": "FAILED",
+      "files": 317,
+      "bytes": 4117135,
+      "manifest_sha256": "c320e5683aa3458d718c2a4f85e432ff2da4d4d9f36c9daac0c8515b710ff214",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "shared-worker-sql-control-05",
+      "status": "FAILED",
+      "files": 322,
+      "bytes": 4291224,
+      "manifest_sha256": "80513de919f90540b77228ecabad61480fcebe59d41b6c1e287949c87fbfc50d",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "query-concurrency-after-01",
+      "status": "FAILED",
+      "files": 333,
+      "bytes": 4345837,
+      "manifest_sha256": "6ed95140abf379209c27ce7ed6a19ec34a9d27655c12b645f5bdf4494fbbf657",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "query-concurrency-before-02",
+      "status": "FAILED",
+      "files": 322,
+      "bytes": 4177281,
+      "manifest_sha256": "00f599112c30993848c2777f4f239d46fa72c8d4f859173cf794abea02053d80",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "query-concurrency-before-03",
+      "status": "REPRODUCED",
+      "files": 10,
+      "bytes": 8752,
+      "manifest_sha256": "0bfa3014f8d52e55695f74fb130c428188e3c5aaeea9c2516ad21c1b7cec0dcd",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "query-concurrency-after-02",
+      "status": "FAILED",
+      "files": 2605,
+      "bytes": 28630668,
+      "manifest_sha256": "b82ec4276fcfeb98e2ed15de8db4f56a91361749c3d46f5da8cbfe9162700fc7",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "query-socket-phase-after-01",
+      "status": "PROBED",
+      "files": 10,
+      "bytes": 8717,
+      "manifest_sha256": "1e8814af4976626928f7987c2af0d4f96eecfe2cb2324429bba59c3f3c85ef12",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "query-concurrency-before-04",
+      "status": "REPRODUCED",
+      "files": 15,
+      "bytes": 13143,
+      "manifest_sha256": "32f9d0682f5a473b80a338b491954a997e129076d3b062e30db3da9ac06ce86a",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "query-concurrency-after-03",
+      "status": "PASSED",
+      "files": 1641,
+      "bytes": 16387743,
+      "manifest_sha256": "edea6d43d4a3ac7eca431e2e628fa9011b4ea2e8818a4a0bc23f23198ad790b2",
+      "original_and_copy_verified_twice": true
+    }
+  ],
+  "privacy_scan": {
+    "private_representations": 46,
+    "public_matches": 0,
+    "raw_logs_objects_databases_configurations_and_credentials": "retained locally; excluded from publication"
+  },
+  "accepted_complete_opt_packages": [],
+  "measured_constrained_throughput_latency_gain": null,
+  "remaining_gates": [
+    "published Linux disaster primary error and native park failure",
+    "Typed RPC 3.14 recovery and Node HTTP argument failure",
+    "complete RL-07 including archive outage, bulk transfer, sustained hot/cold and cross-peer socket-cap contention",
+    "physical reclamation and once-only capacity settlement under repeated movement",
+    "full primitive/SDK/feature/daemon and fenced recovery matrices",
+    "matching constrained SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket throughput and p50/p95/p99 comparison",
+    "all complete OPT-01 through OPT-08 packages and combined release"
+  ],
+  "final_strict_all_targets": {
+    "source_digest": "439494eea7c4ec3aa26b2e77e126a3db5b45d171a28a01437cd4e38f6dd3cd2b",
+    "source_inputs_unchanged": true,
+    "stages": [
+      {
+        "name": "strict-all-targets",
+        "status": "PASSED",
+        "elapsed_seconds": 467.48155904200394,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "5405f6bf5ea3c253caacfe0e56fb68ecf4ffa5ce2c72001149754adef0890f8f"
+      }
+    ]
+  },
+  "attempt_history": [
+    {
+      "run": "shared-worker-sql-control-01",
+      "source_digest": "49d1f4e02fc0250230cab098b9d51851d2a37b676d27111b8795235c018d123d",
+      "recorded_status": "FAILED",
+      "interpretation": "fixture compile type mismatch; no runtime acceptance"
+    },
+    {
+      "run": "shared-worker-sql-control-02",
+      "source_digest": "fc6d3e644e43013eeb8f2db34c13d9724034c8de9d9697d9b0583dbd85eb6b5b",
+      "recorded_status": "FAILED",
+      "interpretation": "old sender public hot deadline"
+    },
+    {
+      "run": "shared-worker-sql-control-03",
+      "source_digest": "627136f7233e9411dbec4324e9f506184b4638bf33badac2230a6ab12387c9ac",
+      "recorded_status": "FAILED",
+      "interpretation": "old sender public cold S3 phase queued"
+    },
+    {
+      "run": "shared-worker-sql-control-04",
+      "source_digest": "6b22c3e8f9d118a8b839f61e45e4e68f4d8f2fa8ecb6815ecc4032f90c095027",
+      "recorded_status": "FAILED",
+      "interpretation": "old sender public deadline; failure-time RPC sample races cleanup"
+    },
+    {
+      "run": "shared-worker-sql-control-05",
+      "source_digest": "ed41c88b07834be92e47ffa838bf26623d4b2d1650fcc6309cbb514259f73d0c",
+      "recorded_status": "FAILED",
+      "interpretation": "old sender public 31ms live snapshot confirms queued cold request"
+    },
+    {
+      "run": "query-concurrency-after-01",
+      "source_digest": "ff3f0e3a182ecd90608f81212e357bc74ac5f26064204a422380415f5fbffeeb",
+      "recorded_status": "FAILED",
+      "interpretation": "cold S3 progresses; fixture then incorrectly demands a child write witness for an untouched imported cell"
+    },
+    {
+      "run": "query-concurrency-before-02",
+      "source_digest": "e8b96b28c785877c2ecdb3362dddd3174ba954b20544cb87df0c64deda62230f",
+      "recorded_status": "FAILED",
+      "interpretation": "valid public failure; invalid TLS setup later identified; final driver bookkeeping compared tuples with lists; separate derived correction retained"
+    },
+    {
+      "run": "query-concurrency-before-03",
+      "source_digest": "75dee7d14cfba95f6246209d3927f184e82cca5174b98636843ad2eafd77485e",
+      "recorded_status": "REPRODUCED",
+      "interpretation": "native reuse valid; TLS fixture never enters I/O and is not accepted as a concurrency baseline"
+    },
+    {
+      "run": "query-concurrency-after-02",
+      "source_digest": "7e2e3933f95b047632f0864fd3af35370a3ea2945c0625ff32f0dbb59dc5e9f8",
+      "recorded_status": "FAILED",
+      "interpretation": "six public and 22 routing controls pass; both TLS cases are invalid setup; full library/disaster stages did not start"
+    },
+    {
+      "run": "query-socket-phase-after-01",
+      "source_digest": "dad215d4247bdc0462a39b68691029815319b2b461ad5e27170fc147d2cd5f16",
+      "recorded_status": "PROBED",
+      "interpretation": "both server/client phase0/1 with zero outgoing sockets; unclaimed physical-route fence correctly refuses; join masks early error"
+    },
+    {
+      "run": "query-concurrency-before-04",
+      "source_digest": "37c58f4ee89add20018f46cb2066d02b2da12c5eec29ccef0d9d8a2da00155e8",
+      "recorded_status": "REPRODUCED",
+      "interpretation": "final advisory-route fixture reaches held first exchange on old sender; two real concurrency deadlines plus passing physical-route refusal"
+    }
+  ],
+  "constrained_campaign": {
+    "available_bytes": 0,
+    "reserve_bytes": 6442450944,
+    "admissible": false,
+    "restarts": 0,
+    "status": "HELD",
+    "resource_or_data_changes": false,
+    "nodes": 3,
+    "vcpus_per_node": 1,
+    "memory_gib_per_node": 2,
+    "raft_voters": 3,
+    "cell_groups": 3,
+    "workloads": [
+      "SQL",
+      "KV",
+      "Queue"
+    ],
+    "durability_modes": [
+      "Quorum",
+      "Quorum+S3",
+      "Fleet",
+      "Bucket"
+    ],
+    "concurrency": [
+      1,
+      4,
+      16
+    ],
+    "repetitions": 2
+  }
+}

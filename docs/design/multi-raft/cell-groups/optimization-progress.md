@@ -31,6 +31,66 @@ Implementation starts from `d0c2873f` (the shared cell-group runtime merged into
 execution, archive/lifecycle ownership and persistence work. None of OPT-01
 through OPT-08 is accepted as complete by this record.
 
+### Bounded peer-query progress
+
+The peer sender previously awaited one complete application response before
+dequeueing another request for the same physical peer. A held SQL callback could
+therefore prevent an unrelated group's request from reaching a stale leader's
+ordinary redirect, even after that group's leadership transfer completed.
+The final old-sender fixture records no cold RPC at its 31 ms observation and
+ends at the hot command's original deadline. Its possible mutation outcomes and
+original identities remain retained; the observation does not establish their
+later admission or commitment.
+
+Compiler input `439494ee` changes only the two production transport files relative
+to final baseline `37c58f4e`; its production files are identical to the earlier
+public checkpoint `7e2e3933`. The existing sender polls independently admitted
+exchanges concurrently, retains at most one idle stream per peer, and caps all
+outgoing query sockets, including retiring pools, at the configured peer limit.
+Each stream still has one exclusive exchange and exporter-bound replay protection.
+Requests retain their original byte/item credits, identity, deadline, route checks
+and receipt proofs. No sender worker or admission bank is added.
+
+The public native fixture keeps one physical SQL worker on the held node. All six
+SDK/native HTTP/Axum cases pass across materialized and extent-backed images:
+cold leadership transfer and an S3 receipt complete while the hot callback remains
+held, then the original hot command completes, exact S3 receipts replay, all
+voter values and serving identities agree, and callbacks remain deduplicated.
+An imported cell retains its original write witness; current child membership is
+checked separately. The unchanged existing routing controls also pass 22 cases,
+with thirteen explicit RustFS ignores. Both initial socket-cap checks then hit
+their unchanged three-second fixture timeout. A later phase probe records no
+first socket: the fixture installed a physical route for an unclaimed parked
+replica, which correctly refuses before query I/O. Its join also masked that
+early refusal behind a waiting server. Those TLS attempts are invalid setup
+evidence and remain failed; the public native comparison remains valid.
+The corrected fixture uses the ingress query-route API, fails promptly on an
+endpoint error, and retains an actual negative test for the unclaimed physical
+route. Both old-sender concurrency cases now reach the first held TLS exchange
+before their original three-second timeout; the role-refusal case passes. The
+candidate passes all three cases in 0.239 seconds, including reuse of the second
+stream while the first remains held, the two-socket ceiling and cancellation
+credit release. This elapsed test time is not workload throughput or a latency
+percentile. The full all-features library passes 1,243 tests with two existing
+ignores. The current routing executable is byte-identical to the already tested
+six-public-case/22-control artifact, permitting exact reuse. Strict affected
+Clippy and the recovery facade also pass. The full native disaster target passes
+thirteen cases with eight explicit RustFS ignores on this same compiler input.
+Failure-path diagnostics now return an explicit error when source hosts have
+already been drained, allowing their best-effort caller to preserve its primary
+recovery error. This does not establish a repair of the older Linux failure.
+The final all-feature/all-target strict Clippy check also passes on `439494ee`.
+Source/executable hashes,
+invalid earlier fixtures, genuine matched controls and private-retention audits
+are recorded in the [qualification record](peer-query-progress-qualification-2026-11-17.json).
+
+This is host-native SQL/control/peer-lane evidence. Complete RL-07 still requires
+archive outages, bulk transfer, sustained hot/cold traffic and contention across
+peers at the physical socket ceiling. All OPT and combined release gates remain
+open. The original three-node RustFS campaign remains held at zero available
+bytes against its unchanged 6 GiB reserve; no new constrained throughput or
+latency percentile improvement is claimed.
+
 ### Lease readback continuity
 
 Compiler input `31cc0e00` retains bounded information about unresolved ordinary

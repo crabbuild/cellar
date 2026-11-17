@@ -80,6 +80,10 @@ pub(super) async fn cached_leader_direct_write() -> Result<()> {
     run(Scenario::Direct).await
 }
 
+pub(super) async fn shared_workers_remain_fair() -> Result<()> {
+    Box::pin(ranges::shared_workers_remain_fair()).await
+}
+
 pub(super) async fn superseded_boot_advice_cannot_change_route(
     make: Option<RoutingStoreFactory>,
 ) -> Result<()> {

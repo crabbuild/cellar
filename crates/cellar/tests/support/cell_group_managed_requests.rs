@@ -21,6 +21,10 @@ pub async fn cached_leader_direct_write() -> Result<()> {
     optimization::cached_leader_direct_write().await
 }
 
+pub async fn shared_workers_remain_fair() -> Result<()> {
+    Box::pin(optimization::shared_workers_remain_fair()).await
+}
+
 pub async fn busy_leader_keeps_placement() -> Result<()> {
     optimization::busy_leader_keeps_placement().await
 }

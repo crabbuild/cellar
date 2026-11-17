@@ -63,6 +63,11 @@ async fn cached_leader_direct_write() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_workers_remain_fair() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::shared_workers_remain_fair()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn busy_leader_keeps_placement() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::busy_leader_keeps_placement()).await
 }

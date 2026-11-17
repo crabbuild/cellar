@@ -68,31 +68,29 @@ reserve, without any resource or data changes.
 
 The next priorities are:
 
-1. **Close the SDK correctness/qualification failures.** The focused Linux
-   disaster workflow at `46bc043a` builds successfully, then passes six cases
-   and fails `disaster_outbox_ambiguity_refuses`,
-   `disaster_retry_and_old_token_refusal` and
-   `transition_disaster_selects_complete_closure`, with eight explicit RustFS
-   ignores. Its retained post-failure physical probes report `Overloaded` on
-   five of six nodes; the three-node diagnostic control passes. These samples
-   are not transactional and do not establish the failure's cause. Separately,
-   the full Typed RPC run at `f28d92b3` loses lease authority during native
-   COMMIT tails; one replica's commit completes after its legitimate fence.
-   All four Typed RPC jobs pass on `46bc043a`, which does not prove a causal
-   repair of that older tail. An owner's later mismatch still needs causal
-   qualification. Preserve those
-   failures and original identities while repairing lease reconciliation and
-   diagnosing control/inventory progress. All three JavaScript jobs also pass
-   at `46bc043a`; the same 100-case Node delivery loop also passes locally with a
-   different Node patch/platform and now retains its original data. Those passes
-   do not explain the earlier handler-budget failure or accept the full SDK
-   gate. Keep original deadlines, fencing and recovery refusal behavior.
-   The [lease readback follow-up](lease-readback-qualification-2026-11-16.json)
-   at `31cc0e00` recognizes retained ordinary candidates across changed stamps
-   while refusing expired authority. Its eleven core controls and two exact
-   native invocations pass with unchanged final fixtures. That causal local
-   repair does not establish the older RPC body's identity or close the
-   separate Linux disaster failures.
+1. **Close the current correctness/qualification failures.** At published
+   `b64ecd9b`, both Python ABI/SDK jobs and all three filesystem release builds
+   pass. Both native framework jobs fail, including
+   `partial_park_and_stale_certificate` on Python 3.14. The focused Linux
+   disaster target reports twelve passes, one failure and eight explicit RustFS
+   ignores. Its failed `disaster_retry_and_old_token_refusal` path also panics
+   while collecting observations after the source hosts have been drained.
+   The local guard now returns an explicit diagnostic error in that state,
+   preserving the primary failure. Its hosted recovery cause still needs a
+   fresh original-budget qualification.
+   The two Python 3.14 Typed RPC jobs fail while their 3.14t counterparts pass;
+   the full 3.14 run fails to reopen read admission after proof recovery and
+   reports host failure during shutdown. Node's
+   `rpc_requests_and_http_arguments_keep_body_signal_and_authority` also fails;
+   the JavaScript package and example jobs pass. The combined Rust SDK gates
+   also fail at their requirement that both qualification campaigns succeed.
+   Preserve the earlier failures and original mutation
+   identities in the [lease](lease-readback-qualification-2026-11-16.json),
+   [seal](seal-observations-qualification-2026-11-16.json) and
+   [transition](transition-progress-qualification-2026-11-16.json) records.
+   Local passes do not establish a causal repair of these hosted failures.
+   Keep original deadlines, fencing, exact receipt reconciliation and recovery
+   refusal behavior while resolving each owning boundary.
 2. **Continue measured worker and physical-lifetime optimization.** Proposal
    collection is one stage. Profile ordered apply/image publication, producer
    cleanup and transport batching under unchanged banks; qualify actual prepared
@@ -100,6 +98,25 @@ The next priorities are:
    Physical work must retain its charge through completion, and later entries
    cannot bypass the contiguous applied prefix. Retain the original-budget
    rooted-128 checks and their failed history alongside controlled load repeats.
+   The peer-query candidate removes a reproduced serial application-response
+   wait within the existing sender worker and query admission. Its six public
+   SDK/native/Axum SQL/control cases pass on host-native RF3 groups in both
+   image forms. The initial socket-ceiling fixture was refused before its first
+   socket because a parked replica had an unclaimed physical route; its join
+   masked the error behind a timeout. Those attempts supply no TLS concurrency
+   evidence. The final matched ingress-route fixture now passes all three
+   cases, including explicit physical-route refusal, socket reuse at the
+   two-connection ceiling and cancellation credit release. The full library
+   passes 1,243 tests with two existing ignores. The current routing executable
+   exactly matches the already tested public/control artifact; affected strict
+   Clippy also passes. The full native disaster target passes thirteen cases
+   with eight explicit RustFS ignores on this source. Final all-feature/all-target
+   strict Clippy passes. Complete hosted qualification and retain the separate
+   older Linux failures. See the
+   [peer-query checkpoint](peer-query-progress-qualification-2026-11-17.json).
+   Complete RL-07 with archive outage, bulk transfer, sustained hot/cold load
+   and contention across peers at the physical socket ceiling before accepting
+   the full fairness or OPT-06 package.
 3. **Run the requested complete constrained comparison.** Build matching Linux
    binaries from the qualified source and compare SQL/KV/Queue in all four
    durability modes on the original three 1 vCPU / 2 GiB nodes, RF3, three groups,

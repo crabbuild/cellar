@@ -7,7 +7,11 @@ use object_store::ObjectStore as _;
 
 pub(crate) async fn observations(cluster: &ManagedCluster) -> Result<()> {
     let timeout = Duration::from_secs(1);
-    let control = cluster.hosts[0].resource_usage().control;
+    let observer = cluster
+        .hosts
+        .first()
+        .context("transition diagnostics have no retained source host")?;
+    let control = observer.resource_usage().control;
     let catalog = cluster.fixtures[0].catalog.read(timeout).await;
     let nodes = futures_util::future::join_all(cluster.hosts.iter().enumerate().map(
         |(ordinal, host)| async move {
@@ -36,7 +40,7 @@ pub(crate) async fn observations(cluster: &ManagedCluster) -> Result<()> {
         // while observing the failure. Each probe retains its original bound.
         for (ordinal, fixture) in cluster.fixtures.iter().enumerate() {
             rows.push({
-                match cluster.hosts[0]
+                match observer
                     .inspect_peer_physical_inventory(fixture.spec.node, cut.revision(), timeout)
                     .await
                 {

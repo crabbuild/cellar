@@ -20,6 +20,10 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
+    pub(super) fn preserve(&mut self) {
+        self._directory.disable_cleanup(true);
+    }
+
     pub(super) async fn start(
         options: TransportOptions,
         groups: Vec<CellGroupBootstrap>,
