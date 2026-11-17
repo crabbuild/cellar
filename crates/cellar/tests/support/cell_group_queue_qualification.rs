@@ -447,22 +447,25 @@ impl Scenario {
     }
 
     async fn empty(&self, queue: &str) -> Result<()> {
-        cellar::asyncrt::timeout(Duration::from_secs(30), async {
+        let mut last = None;
+        let result = cellar::asyncrt::timeout(Duration::from_secs(30), async {
             loop {
                 let value = admin(&self.cluster, queue, json!({"op":"info"}))
                     .await
                     .with_context(|| format!("empty {queue}"))?;
                 let rows = admin(&self.cluster, queue, json!({"op":"peek","limit":100})).await?;
-                if value["backlogCount"] == 0.0
-                    && rows["messages"].as_array().is_some_and(Vec::is_empty)
-                {
+                let empty = value["backlogCount"] == 0.0
+                    && rows["messages"].as_array().is_some_and(Vec::is_empty);
+                last = Some((value, rows));
+                if empty {
                     return Ok::<_, anyhow::Error>(());
                 }
                 cellar::asyncrt::sleep(Duration::from_millis(30)).await;
             }
         })
-        .await
-        .with_context(|| format!("Queue {queue} empty wait"))??;
+        .await;
+        result
+            .with_context(|| format!("Queue {queue} empty wait; last strong reads: {last:?}"))??;
         Ok(())
     }
 }
@@ -1255,7 +1258,15 @@ pub async fn qualify_metadata_s3(real: bool) -> Result<()> {
 }
 
 pub async fn qualify_load(real: bool) -> Result<()> {
-    for rooted in [false, true] {
+    qualify_load_images(real, &[false, true]).await
+}
+
+pub async fn qualify_extent_load(real: bool) -> Result<()> {
+    qualify_load_images(real, &[true]).await
+}
+
+async fn qualify_load_images(real: bool, images: &[bool]) -> Result<()> {
+    for &rooted in images {
         let backend = real
             .then(|| rustfs::StoreConfig::load("queue-load", rooted))
             .transpose()?;
@@ -1317,6 +1328,11 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             eprintln!("QUEUE_LOAD {}",json!({"realRustFS":real,"extents":rooted,"producers":4,"inFlightRequests":2,"perQueueInFlight":1,"ordinarySlots":8,"ordinaryBytes":131072,"callbackSlots":2,"queues":2,"batchMessages":8,"steadyMessages":512,"archiveOutageMessages":16,"delivered":delivered.len(),"uniqueMessageIds":unique.len(),"elapsedMs":cellar::asyncrt::mono_ms()-start,"enqueueBatchP50Ms":latencies[latencies.len()/2],"enqueueBatchP99Ms":latencies[(latencies.len()*99/100).min(latencies.len()-1)]}));
             Ok::<_,anyhow::Error>(())
         }).await;
+        if !matches!(&outcome, Ok(Ok(()))) {
+            if let Err(error) = domain.run(snapshot(&s.cluster, &[s.queue, s.dead])).await {
+                eprintln!("Queue failure snapshot unavailable: {error}");
+            }
+        }
         let retain = !matches!(&outcome, Ok(Ok(())));
         let cleanup = s.close(retain).await;
         outcome??;

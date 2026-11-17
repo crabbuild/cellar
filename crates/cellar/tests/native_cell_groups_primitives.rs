@@ -2345,6 +2345,17 @@ async fn queue_load_preserves_acknowledged_messages() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_extent_load_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_extent_load(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_extent_load_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_extent_load(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn queue_operator_reads_preserve_versions_and_require_quorum() -> Result<()> {
     Box::pin(queues::qualify_metadata_reads(false)).await
 }
