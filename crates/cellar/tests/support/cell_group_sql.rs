@@ -533,6 +533,7 @@ pub(crate) use apply_recovery::recover as recover_apply;
 #[path = "cell_group_sql_registered.rs"]
 mod registered;
 pub(crate) use registered::commands as registered_commands;
+pub(crate) use registered::disposable_directory;
 
 #[path = "cell_group_sql_registered_queries.rs"]
 mod registered_queries;

@@ -1364,6 +1364,11 @@ async fn registered_commands_use_cell_identity_and_receipts() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn materialized_commands_discard_scratch_without_directory_durability() -> Result<()> {
+    runtime_fixture::disposable_directory().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_registered_commands_use_cell_identity_and_receipts() -> Result<()> {
     runtime_fixture::registered_commands(true).await
 }
