@@ -29,6 +29,68 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `ca4bffb71` reads one complete
+archive journal generation across concurrent atomic publication.** Publication
+already writes and syncs an immutable file, renames it and syncs its directory.
+A reader now bounds and reads its opened descriptor instead of requiring its
+length to equal an earlier path observation. A replacement between those two
+observations can legitimately select a newer complete generation. A replacement
+after open leaves the reader's complete generation usable.
+
+Path type/bounds, descriptor bounds, exact engine/purpose/history identity and
+canonical encoding checks remain mandatory. Publication barriers, exact archive
+receipt/coverage checks and current serving fences are unchanged. The snapshot
+adds no S3 or acknowledgement authority and adds no retries or request time.
+
+**All six journal tests pass.** Deterministic real-filesystem schedules cover
+ordinary and seed journals, growing/shrinking records, replacement before/after
+open, invalid descriptor lengths before any byte read, foreign identities and
+noncanonical/corrupt bytes. Baseline `b9a35f5b` passes five of six and reproduces
+the exact `archive journal changed during read` error. The final tests are
+byte-identical to that baseline; no timing assertion is involved.
+
+**Original proof/archive controls 1013 are FAILED, 11/12.** Native Queue's
+claim/lease proof control now passes, including both image formats and durability
+minima; campaign 993 failed it on the journal race. All ten native/real-RustFS
+archive controls pass, covering exact results, minimum-durability refusal,
+intent reconciliation/joined close, receipt observation and retiring holds.
+The RustFS Queue proof selection still fails while warming its cold DLQ at the
+declared minimum: binding command **1** expires ambiguously before the proof
+gate. Its outcome remains unknown; earlier ambiguous identities also remain.
+
+**The complete original public cohort 1015 is FAILED, 8/16.** SDK source proof,
+current-history resolution, registration and Fleet pass. **Real RustFS Queue
+load passes both image formats, delivering 528 unique messages each.** Native
+materialized mode also delivers 528; native extents fail producer command **6**
+with an unknown outcome. One native-ingress RustFS EventStream lifecycle passes;
+the other seven EventStream selections fail activation or ambiguous Consume
+**2**. These mixed results do not establish stable whole-family support or an
+exclusive timing cause. The original load body remains byte-identical to
+published `3445aa7fe`; assertions, deadlines, quotas and minima are unchanged.
+
+The final locked library/integration build, strict library/all-test Clippy,
+formatting, layout, native dependency, documentation and generated-index checks
+pass. An initial fixture serialization error and an incremental compiler panic
+are retained; final builds and runs use normal `CARGO_INCREMENTAL=0`, test
+optimization 1 with debug assertions and overflow checks enabled. Unit 1011 and
+public 1015 have empty compiler pre/postflight snapshots; baseline 1007 and proof
+1013 record independent compilation and remain diagnostic. Voters share one
+process with separate workspace disks; RustFS uses one CPU/two GiB. No isolated
+latency, full-family or independent-voter release acceptance is added.
+
+All **27 current qualification failure disks** and earlier failures remain.
+Ignored aggregate 1017 records source, executable/log hashes, regression fidelity
+and load metrics under `.cellar/cg17-payload-01/`. Owned RustFS and its VM are
+stopped, retaining objects and disks.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close cold S3 Queue
+onboarding and exact extent producer/claim/callback settlement, then EventStream
+activation/Consume and autonomous interrupted-binding recovery with safe
+unused-sequence sealing. Full primitive/recovery/release gates remain in scope.
+The generated plan is current; historical CG-01 evidence remains missing.
+
+## Previous private image preparation checkpoint
+
 Latest main `16c45b266` is included. **Runtime `000f92ef7` moves private command image verification and persistence
 off the fixed SQL worker.** Native RPC final results, Storage checkpoints,
 registered SQL and framework commands share a bounded execution-domain preparation

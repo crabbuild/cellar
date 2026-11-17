@@ -150,15 +150,18 @@ remain mandatory; authority waiting never authorizes callback replay.
 
 ## Qualification and remaining scope
 
-Runtime `24a43738e` defers private command image verification/persistence while
-retaining its original producer and durability fences. Final source `4c70d0641`
-passes real-RustFS Queue load in both image formats, delivering 528 unique
-messages each. Native materialized mode also passes; native extent drain leaves
-eight leased messages in its last strong inspection. Queue proof controls remain
-failed on a concurrent journal-read error or ambiguous binding command 4. These
-results do not close full Queue compatibility; see the
+Runtime `ca4bffb71` closes the archive journal's concurrent stat/open race while
+retaining bounds, identity, receipt/coverage and live serving checks. All six
+journal tests and the native Queue claim/lease proof case pass. The RustFS proof
+selection still fails before its gate while warming a cold S3-minimum DLQ:
+binding command **1** has an unknown deadline outcome. Real-RustFS Queue load
+passes both image formats, delivering **528 unique messages each**. Native
+materialized mode also delivers 528; native extent producer command **6** expires
+ambiguously. The earlier eight leased messages and other unknown producer/
+binding identities remain unresolved. These results do not close full Queue
+compatibility; see the
 [current checkpoint](progress.md#current-integration-checkpoint) for exact scope,
-failed controls and the next claim/callback settlement work.
+failed controls and the next onboarding/producer/claim/callback settlement work.
 
 
 The [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness)

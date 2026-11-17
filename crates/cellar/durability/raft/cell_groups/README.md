@@ -740,6 +740,14 @@ current birth, local prefix and exact archived receipt before settling output;
 later serving fences still apply. Uncovered requests continue through publication.
 This cache neither keeps an idle workspace alive nor grows with duplicate calls.
 
+The local archive journal publishes immutable generations using file sync,
+atomic rename and directory sync. A concurrent proof reader bounds and reads
+one opened generation; a prior path observation can name a different complete
+generation. Both file bounds and exact engine, purpose, history and canonical
+encoding checks remain mandatory. Journal selection alone supplies no archive
+coverage or serving authority; receipt verification and live output fences still
+apply independently.
+
 An outstanding S3 output can retain the previous archive hold while the next
 verified head is already committed. That retention delays another archive
 allocation; it does not prevent new outputs from proving their receipts against
