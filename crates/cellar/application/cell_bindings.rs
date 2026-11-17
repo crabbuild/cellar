@@ -623,6 +623,7 @@ fn rpc_admitted(
             CommandFailure::Overloaded
         );
         let ordinal = crate::storage::next_raft_binding_ordinal()?;
+        tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-prepare", source=%source.history.cell.as_str(), parent=?source.parent, ordinal, method, remaining=?dispatch.remaining_timeout());
         let selected = Arc::new(Mutex::new(None));
         let observed = selected.clone();
         let command = Arc::new(Mutex::new(None));
@@ -704,6 +705,7 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-proven", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal, method=%intent.route.contract.operation, remaining=?dispatch.remaining_timeout());
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -787,6 +789,7 @@ async fn run(
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
     options.durability = intent.route.durability;
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-target-start", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal, method=%intent.route.contract.operation, child=?intent.child, remaining=?dispatch.remaining_timeout());
     let result = loop {
         options.timeout = dispatch.remaining_timeout()?;
         let result = source
@@ -821,6 +824,7 @@ async fn run(
         // child identity and input and consume the original deadline.
         dispatch.wait_admission().await?;
     };
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-target-result", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal, method=%intent.route.contract.operation, error=?result.as_ref().err(), remaining=?dispatch.remaining_timeout());
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -829,7 +833,9 @@ async fn run(
                     && receipt.durability >= intent.route.durability,
                 CommandFailure::CorruptState
             );
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-resume-start", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal);
             io.resume_writer().await?;
+            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-resume-ready", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal, remaining=?dispatch.remaining_timeout());
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.

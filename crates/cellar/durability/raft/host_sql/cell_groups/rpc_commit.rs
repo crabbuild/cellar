@@ -122,6 +122,7 @@ pub(super) async fn wait_checkpoint(
     deadline: Option<u64>,
 ) -> Result<CheckpointProof, ExecutionError> {
     let term = prepared.term();
+    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-submit", cell=%expected.history.cell.as_str(), sequence=expected.sequence.get());
     loop {
         if deadline.is_some_and(|deadline| domain.mono_ms().unwrap_or(u64::MAX) >= deadline)
             && prepared
@@ -135,7 +136,10 @@ pub(super) async fn wait_checkpoint(
             .submit_retained(prepared.clone(), Some(retained.clone()))
             .await
         {
-            Ok(CellSubmissionOutcome::Accepted(_)) => break,
+            Ok(CellSubmissionOutcome::Accepted(_)) => {
+                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-accepted", cell=%expected.history.cell.as_str(), sequence=expected.sequence.get());
+                break;
+            }
             Ok(CellSubmissionOutcome::Rejected(_)) => return Ok(CheckpointProof::Rejected),
             Err(RuntimeError::Overloaded | RuntimeError::NotReady) => pause(&domain).await?,
             Err(RuntimeError::NotLeader | RuntimeError::StaleCompletion) => {
@@ -167,6 +171,7 @@ pub(super) async fn wait_checkpoint(
                 // changed leader/route/image must fail the original fence.
                 match fence.resume_authority(&proof) {
                     Ok(execution) => {
+                        tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-applied", cell=%expected.history.cell.as_str(), sequence=expected.sequence.get());
                         return Ok(CheckpointProof::Current(
                             Box::new(execution),
                             Box::new(proof),

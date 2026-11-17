@@ -113,7 +113,9 @@ impl Suspended {
             CommandFailure::UnsupportedCapability,
         ))?;
         let executor = self.executor.as_mut().ok_or_else(unavailable)?;
+        tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-capture-start", cell=%self.cell.cell.as_str(), deadline=commits.deadline);
         let captured = executor.stage_rpc_checkpoint(&mut self.turn)?;
+        tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-capture-ready", cell=%self.cell.cell.as_str(), deadline=commits.deadline);
         self.checkpoint = Some(Checkpoint::Preparing {
             reply,
             task: Preparation::new(
@@ -159,6 +161,7 @@ impl Suspended {
                     )));
                 };
                 let expected = executor.rpc_checkpoint_version()?;
+                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-prepared", cell=%self.cell.cell.as_str(), sequence=expected.sequence.get());
                 executor.mark_submitted(prepared.proposal())?;
                 let phase = self.applying(&prepared, &expected, domain)?;
                 SubmittedCheckpoint {
@@ -198,6 +201,7 @@ impl Suspended {
                         .finish_rpc_checkpoint(*execution, *proof)
                     {
                         Ok(receipt) => {
+                            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-finished", cell=%self.cell.cell.as_str(), sequence=receipt.version.sequence.get());
                             self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
                             if receipt.receipt.minimum_durability()
                                 == cellar_logic::consensus::Durability::S3
@@ -214,8 +218,9 @@ impl Suspended {
                                     },
                                 });
                                 let domain = domain.clone();
-                                checkpoint.phase =
-                                    CheckpointPhase::Archiving(Box::pin(async move {
+                                checkpoint.phase = CheckpointPhase::Archiving(Box::pin(
+                                    async move {
+                                        tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-s3-start", cell=%receipt.receipt().version.history.cell.as_str());
                                         let settled = archive
                                             .command(
                                                 &commits.runtime,
@@ -231,8 +236,10 @@ impl Suspended {
                                             .require_current(&domain, commits.deadline)
                                             .await
                                             .map_err(crate::raft::execution::storage)?;
+                                        tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-s3-ready", cell=%settled.receipt.receipt().version.history.cell.as_str());
                                         Ok(())
-                                    }));
+                                    },
+                                ));
                                 self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
                                 self.ready.0.store(true, Ordering::Release);
                                 return Poll::Pending;
@@ -274,6 +281,7 @@ impl Suspended {
             .ok_or_else(unavailable)?
             .continue_rpc_checkpoint(&mut self.turn)?;
         let _ = checkpoint.reply.send(Ok(()));
+        tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="checkpoint-continued", cell=%self.cell.cell.as_str());
         self.ready.0.store(true, Ordering::Release);
         Poll::Ready(Ok(()))
     }
@@ -527,7 +535,9 @@ impl Cells {
                 let failed_callback = result.as_ref().err().is_some_and(|error| {
                     error.is::<crate::application::consensus::native_work::Failure>()
                 });
+                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="final-capture-start", cell=%rpc.cell.cell.as_str(), success=result.is_ok());
                 let staged = executor.finish_rpc(*rpc.turn, result);
+                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="final-capture-ready", cell=%rpc.cell.cell.as_str(), success=staged.is_ok());
                 let staged = if failed_callback {
                     // The retry receipt is a successful framework mutation,
                     // but the failed application's memory is never reusable.
