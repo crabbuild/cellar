@@ -5741,3 +5741,53 @@ failure, Queue warmup/four-in-flight deadlines, fairness, reclamation, movement
 and combined SDK/recovery gates remain open. At 17:33 UTC, the unchanged RustFS
 backend has 20.8 MiB free, below its 6 GiB reserve. No throughput or percentile
 gain, complete OPT package or remaining CG acceptance is claimed.
+
+## Terminal command-origin denial
+
+The full routing attempt at input `40723c82` reports 20 passes, three failures
+and 13 explicit RustFS ignores. Frozen matched controls reproduce two regressions:
+origin revocation and superseded-boot routing pass before receipt reconciliation
+and fail afterward. Revocation adds nine probes and three membership refreshes
+instead of retaining the direct-path counters. Both frozen old-lookup controls
+pass; they do not explain that case's original full-run warmup refusal.
+
+Input `b08df720` returns a signed terminal command-origin denial for command,
+probe and receipt purposes from a known physical process. The existing frame
+binds the result to the complete request-body digest, request tag, sequence and
+TLS exporter. Denial drains the bounded body under the existing process owner,
+I/O bound and node/peer receive banks. It grants no SQL admission, callback entry,
+non-commit proof or mutation retry. Original command ambiguity remains sticky.
+Other purposes reject this marker. A wrong physical identity remains `StalePeer`
+before namespace permission is inspected; no physical fence is relaxed.
+
+The unchanged revocation and superseded-boot tests pass in both image forms.
+Revocation restores one application RPC with zero extra probes or membership
+refreshes across SDK, native HTTP and Axum, with no SQL or callback entry. The
+full routing target passes 23 tests with 13 explicit RustFS ignores, including
+the old-lookup case. That later pass does not establish a causal repair of its
+original warmup failure. All 32 wire tests, three sender-boundary tests, ten
+native command/receipt controls and eight S3 controls pass. The full library
+passes 1,250 tests with two existing ignores. Strict all-feature/all-target and
+default recovery-consumer Clippy, formatting, layout, native dependencies,
+documentation and 44 design checks pass.
+
+The first qualification attempt correctly stops when an incorrect exported
+module filter selects zero sender tests. The next fails a new guard's incorrect
+bootstrap-membership assumption. The corrected guard checks terminal missing
+permission and stale physical identity; all original sender assertions remain.
+Production and routing artifacts are byte-identical across that test-only
+correction. Both unsuccessful attempts and their exact sources remain recorded.
+Closed persistent fixture originals are verified twice and copied files are
+verified; in-memory store contents are not exported. See the
+[source-specific qualification record](command-origin-refusal-qualification-2026-11-17.json).
+
+These host-native RF3/TLS fixtures include six-data-node/ingress routing cases
+and a one-SQL-worker fairness case; they do not qualify the requested restricted
+three-node deployment or independent physical failure domains. The original
+RustFS volume remains below its unchanged 6 GiB reserve. No backend data,
+resources, restart policy or reserve is changed. No throughput or percentile gain
+is claimed. Queue warmup/four-in-flight deadlines, pending-RPC/local receipt
+progress, retained unexplained failures, physical disconnect and recovery cuts,
+release-scale fairness/reclamation/movement, combined SDK/daemon/feature modes
+and the original complete constrained comparison remain open. No complete OPT
+package or remaining CG gate is accepted.

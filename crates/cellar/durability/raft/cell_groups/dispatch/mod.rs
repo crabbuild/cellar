@@ -86,7 +86,8 @@ impl CellDispatchError {
     /// must inspect `CellCommandError::ambiguous` and preserve its command ID.
     pub fn refusal(&self) -> Option<&cellar_logic::consensus::CommandFailure> {
         match self {
-            Self::Runtime(RuntimeError::NotReady) => {
+            Self::Runtime(RuntimeError::NotReady)
+            | Self::Transport(crate::raft::transport::TransportError::CommandOriginRefused) => {
                 Some(&cellar_logic::consensus::CommandFailure::Unavailable)
             }
             Self::Execution(ExecutionError::Refused(failure))

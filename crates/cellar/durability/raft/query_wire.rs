@@ -49,12 +49,14 @@ pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-advice-1";
 const REQUEST: &[u8] = b"cellar-raft-query-advice-request-1";
 const RESPONSE: &[u8] = b"cellar-raft-query-advice-response-1";
 const READ_REFUSED: &[u8] = b"CLQDEN01";
+const COMMAND_ORIGIN_REFUSED: &[u8] = b"CLQODN01";
 
 /// The frame MAC authenticates this request's identity and body digest before
 /// body bytes can establish a typed read refusal. It grants no write disposition.
 pub(super) struct ResponseBody {
     digest: [u8; 32],
     read_refusal_allowed: bool,
+    command_origin_refusal_allowed: bool,
 }
 
 impl ResponseBody {
@@ -71,6 +73,13 @@ impl ResponseBody {
                 TransportError::Protocol
             });
         }
+        if body == COMMAND_ORIGIN_REFUSED {
+            return Err(if self.command_origin_refusal_allowed {
+                TransportError::CommandOriginRefused
+            } else {
+                TransportError::Protocol
+            });
+        }
         Ok(())
     }
 }
@@ -80,6 +89,21 @@ pub(super) fn read_refusal_body(request: &RequestHead) -> Result<&'static [u8], 
         return Err(TransportError::Protocol);
     }
     Ok(READ_REFUSED)
+}
+
+/// Only these public command-origin purposes consume the terminal observation.
+/// It is deliberately distinct from both read denial and mutation disposition.
+pub(super) fn command_origin_refusal_allowed(request: &RequestHead) -> bool {
+    request.route.is_command() || request.route.is_command_probe() || request.route.is_receipt()
+}
+
+pub(super) fn command_origin_refusal_body(
+    request: &RequestHead,
+) -> Result<&'static [u8], TransportError> {
+    if !command_origin_refusal_allowed(request) {
+        return Err(TransportError::Protocol);
+    }
+    Ok(COMMAND_ORIGIN_REFUSED)
 }
 
 fn failure_code(failure: &CommandFailure) -> u8 {
@@ -238,6 +262,7 @@ pub(super) fn read_response(
     Ok(ResponseBody {
         digest: header.digest,
         read_refusal_allowed: request.route.is_query(),
+        command_origin_refusal_allowed: command_origin_refusal_allowed(request),
     })
 }
 

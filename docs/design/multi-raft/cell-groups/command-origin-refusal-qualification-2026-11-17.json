@@ -1,0 +1,849 @@
+{
+  "format": 1,
+  "license": "Apache-2.0",
+  "status": "SCOPED_NATIVE_ORIGIN_DENIAL_WITH_OPEN_ACCEPTANCE_GATES",
+  "parent_revision": "2c40245c10fdbf2a0eb817c1f695671e9f0937ee",
+  "included_origin_main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "problem": "Receipt-only reconciliation classified a closed namespace-origin denial as temporary I/O, triggering unnecessary peer discovery and invalidating current leader advice.",
+  "contract": [
+    "Authenticate terminal origin denial using the existing response frame, full request-body digest, request tag, sequence and TLS exporter.",
+    "Only command, command-probe and receipt purposes consume this result. Other purposes retain their contracts.",
+    "A denied namespace grant cannot enter SQL staging or an application callback. Physical role and process fences remain separate.",
+    "Preserve command identity and ambiguity. Permission denial is not proof of non-commit and never grants mutation replay.",
+    "Keep original deadlines, finite route tickets, resource banks, shared workers, exact receipt and S3 requirements.",
+    "Use the existing bounded receive I/O owner and original node/peer receive banks."
+  ],
+  "baseline": {
+    "compiler_input_digest": "40723c82d1ee6e2d1317d4a3a24a3e6de59a3e7c414b702110d5f692e9154532",
+    "full_public_routing": {
+      "passed": 20,
+      "failed": 3,
+      "ignored": 13,
+      "failed_cases": [
+        "cached_advice_respects_origin_revocation",
+        "old_lookup_cannot_resurrect_parent",
+        "superseded_boot_advice_cannot_change_route"
+      ],
+      "elapsed_seconds": 1195.7673955829814
+    },
+    "matched_cases": [
+      {
+        "name": "before-revocation",
+        "case": "cached_advice_respects_origin_revocation",
+        "status": "PASSED",
+        "executable_sha256": "47bd80edca12f5a08af3a663b560234e8a061a57797e997f7dde67bdadc883bd",
+        "elapsed_seconds": 25.00720175000606,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "routing_counter_mismatches": []
+      },
+      {
+        "name": "candidate-revocation",
+        "case": "cached_advice_respects_origin_revocation",
+        "status": "FAILED",
+        "executable_sha256": "6759009aaf6d107612c73dab87f707a3988187272ca10f7abc8cd7ebc160c3d2",
+        "elapsed_seconds": 12.481339958001627,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "routing_counter_mismatches": [
+          "[1, 9, 0, 3, 1, 0]"
+        ]
+      },
+      {
+        "name": "candidate-old-lookup",
+        "case": "old_lookup_cannot_resurrect_parent",
+        "status": "PASSED",
+        "executable_sha256": "6759009aaf6d107612c73dab87f707a3988187272ca10f7abc8cd7ebc160c3d2",
+        "elapsed_seconds": 328.9883801249962,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "routing_counter_mismatches": []
+      },
+      {
+        "name": "before-old-lookup",
+        "case": "old_lookup_cannot_resurrect_parent",
+        "status": "PASSED",
+        "executable_sha256": "47bd80edca12f5a08af3a663b560234e8a061a57797e997f7dde67bdadc883bd",
+        "elapsed_seconds": 344.5731483330019,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "routing_counter_mismatches": []
+      },
+      {
+        "name": "before-old-boot",
+        "case": "superseded_boot_advice_cannot_change_route",
+        "status": "PASSED",
+        "executable_sha256": "47bd80edca12f5a08af3a663b560234e8a061a57797e997f7dde67bdadc883bd",
+        "elapsed_seconds": 73.16413695900701,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "routing_counter_mismatches": []
+      },
+      {
+        "name": "candidate-old-boot",
+        "case": "superseded_boot_advice_cannot_change_route",
+        "status": "FAILED",
+        "executable_sha256": "6759009aaf6d107612c73dab87f707a3988187272ca10f7abc8cd7ebc160c3d2",
+        "elapsed_seconds": 10.855355333012994,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "routing_counter_mismatches": []
+      }
+    ],
+    "identical_routing_fixture_inputs": 69,
+    "causal_scope": "Revocation and superseded-boot failures reproduce only with receipt reconciliation. The full old-lookup warmup failure remains unexplained: both frozen isolated controls pass.",
+    "revocation_counter_order": [
+      "application_rpc",
+      "probe",
+      "directory_refresh",
+      "membership_refresh",
+      "advice_hit",
+      "background_membership_refresh"
+    ],
+    "revocation_observed_delta": [
+      1,
+      9,
+      0,
+      3,
+      1,
+      0
+    ],
+    "required_direct_delta": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0
+    ]
+  },
+  "candidate": {
+    "source_inputs_unchanged": true,
+    "production_artifacts_unchanged_across_fixture_correction": true,
+    "production_artifacts": [
+      {
+        "filename": "libcellar-0bfd2584dfe5e738.rlib",
+        "sha256": "13177a2bb0ca5a86d0efc87942e90b650a74a62f33b53df17125f9f0f02df9ed",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": false
+        },
+        "features": []
+      }
+    ],
+    "executables": {
+      "cellar": {
+        "sha256": "c00a72e2d8980b4505bfcb3ba3f3d4296369aa16f3249efc9113e57a0e24ecbe",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_routing_optimization": {
+        "sha256": "74b77569e90f584ff4ef622a3cc2f10687d9751aa92c0969dafc0b867329aa73",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_execution": {
+        "sha256": "e9493a4a6bb4fd1533d171cc8689f942429fb49e3aff3bd48f5faaa1ed27f5f5",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_archive_controller": {
+        "sha256": "68810b44611a1fff0ed6b20fc2717159d6d47037c2d6c2f72364bd36f3865aed",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "reused_byte_identical_checks": [
+      "cached_advice_respects_origin_revocation",
+      "superseded_boot_advice_cannot_change_route"
+    ],
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "elapsed_seconds": 448.5858392920054,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "6826bf7c075703505609bfc7994a6eb24acbe8073debf9eaf71337fe27949b44"
+      },
+      {
+        "name": "compile-native_cell_groups_routing_optimization",
+        "status": "PASSED",
+        "elapsed_seconds": 0.6932006659917533,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "1e50aa1c2dfb6c3d2279773f0201f555eabdda035912fcfbc7ed325d29a5e1f7"
+      },
+      {
+        "name": "wire-codecs",
+        "status": "PASSED",
+        "elapsed_seconds": 0.05416045800666325,
+        "footers": [
+          [
+            "ok",
+            "32",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "71b95cb68651c95b082a679fbbe50926afc48012df729f9a3d4033df43457952"
+      },
+      {
+        "name": "command-sender-cuts",
+        "status": "PASSED",
+        "elapsed_seconds": 0.243606500007445,
+        "footers": [
+          [
+            "ok",
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "1d4b2abd32314e57c4191145c8903c1818b9a4dc2447b81bafbdc7b22d9d2ea0"
+      },
+      {
+        "name": "full-library",
+        "status": "PASSED",
+        "elapsed_seconds": 201.95343608301482,
+        "footers": [
+          [
+            "ok",
+            "1250",
+            "0",
+            "2"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "92eb99d0988be558611f9d0121e2b10132eaacc4b5a86a14aaa52d10a4a9aef3"
+      },
+      {
+        "name": "compile-native_cell_groups_execution",
+        "status": "PASSED",
+        "elapsed_seconds": 45.44727454101667,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "a695b2758ae853e6ab586a79bd5f541f01d83b3f004d6325a3e2321c7922aad9"
+      },
+      {
+        "name": "shared_remote_command_receipt_reconciles_unknown_reply",
+        "status": "PASSED",
+        "elapsed_seconds": 3.0438122499908786,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "afd737fc7c594c4fae6ef1820efe4b7ec85ea74affec1ba8f6e1ef110af87f0b"
+      },
+      {
+        "name": "shared_remote_command_receipt_absence_stays_unknown",
+        "status": "PASSED",
+        "elapsed_seconds": 7.057380666024983,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "dfbce1c0cda753f551a85d75d6090b458de4118ec78abc522f6aa653d87bd0bd"
+      },
+      {
+        "name": "shared_remote_command_receipt_keeps_attempt_bank",
+        "status": "PASSED",
+        "elapsed_seconds": 5.497626166994451,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "3ae51d5530eaa84a474e3a9fd26442569d59f35f8a92af838448b593b6db649e"
+      },
+      {
+        "name": "shared_remote_command_receipt_keeps_original_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 9.800287791993469,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "f67d143e344be140fbc3d6905355a920c008235db3d6ce4fd50c6604bd6a2dc6"
+      },
+      {
+        "name": "shared_remote_commands_require_write_grants_and_exact_receipts",
+        "status": "PASSED",
+        "elapsed_seconds": 14.676403208984993,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "bf72022383b594a7e75d04c3954bd8f7038a3baa459ae9f6f058336d00cb548c"
+      },
+      {
+        "name": "shared_remote_commands_survive_disconnected_sql_waiters",
+        "status": "PASSED",
+        "elapsed_seconds": 3.0416940409922972,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "3fcba77c4748cd8032ef23a440c45005ed385f1fb50941f5e15bebd079ca7525"
+      },
+      {
+        "name": "shared_remote_command_revocation_preserves_admitted_ownership",
+        "status": "PASSED",
+        "elapsed_seconds": 3.2698410419980064,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "0b677a8c3be5d2a7b00f48fb1e45a1d229a442d735b8a20b6c774039a0584f7a"
+      },
+      {
+        "name": "shared_receipt_lookup_requires_grants_and_never_executes_commands",
+        "status": "PASSED",
+        "elapsed_seconds": 2.957403666980099,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "7303357ac668613d4f1368f60db2c685a4633d71c29320973caae3a63b2ff997"
+      },
+      {
+        "name": "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+        "status": "PASSED",
+        "elapsed_seconds": 2.720153417001711,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "de7b8912ada7812ff19ad2b0f0c3b0d13026c84ee3be13e0d650d4a5b5e7e246"
+      },
+      {
+        "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
+        "status": "PASSED",
+        "elapsed_seconds": 2.9609871250286233,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "771a8e212f4f7a9d61e57fb41c266ace23175ecca704766b0d06eceff0166b2b"
+      },
+      {
+        "name": "compile-native_cell_groups_archive_controller",
+        "status": "PASSED",
+        "elapsed_seconds": 27.06289845801075,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "8819ea0ea4524536a3c68f984ec919b6803e93872e85c9562bb7dc9b92d4dc5f"
+      },
+      {
+        "name": "s3_remote_unknown_reply_requires_exact_s3_receipt",
+        "status": "PASSED",
+        "elapsed_seconds": 3.901156625011936,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "fac7a9b0e59681726420d741abe8160cd0bbf7df5d5c558e71f1c50c9756d775"
+      },
+      {
+        "name": "s3_remote_outputs_preserve_durability_and_creation",
+        "status": "PASSED",
+        "elapsed_seconds": 17.90826779199415,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "6e36ef864eb4c52c92276d82d972b8348a20e584bcafc36dbd048d777f0107b6"
+      },
+      {
+        "name": "s3_remote_deadlines_preserve_ambiguity_and_callbacks",
+        "status": "PASSED",
+        "elapsed_seconds": 32.46394608399714,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "3d1a1cce4acc343a8ecf048c2d8d54a40d693f78d72587511ac1e81f41f8dcde"
+      },
+      {
+        "name": "s3_remote_slow_delivery_retains_proofs_and_bounds",
+        "status": "PASSED",
+        "elapsed_seconds": 64.8775702919811,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "906587b1c0c13201ecc591e5e075d521afb9bc39a386f25aa9945920600b002e"
+      },
+      {
+        "name": "s3_receipt_lookup_tracks_archived_observations",
+        "status": "PASSED",
+        "elapsed_seconds": 4.424521917011589,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "d54007384d966386be1c4a8a47467b47976495644603ec994caef40cef71a5ad"
+      },
+      {
+        "name": "s3_receipt_lookup_honors_namespace_and_stored_minimums",
+        "status": "PASSED",
+        "elapsed_seconds": 6.9918224579887465,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "609ecd606a3c3f5f56318464189083e71d8a48313ce10cc03ccf47d6e0b817ae"
+      },
+      {
+        "name": "s3_receipt_lookup_preserves_typed_failures_and_result_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 17.395928000012645,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "43c5726b7f30cad753f7320cf5880f6cf00f90d4321de206271c024d3003b6af"
+      },
+      {
+        "name": "s3_receipt_lookup_deadlines_refund_read_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 8.888117124995915,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "4117fc265065e002e64e0d3d5e5400848c861ac2e746ebcfc89202d6cb8ce7d3"
+      },
+      {
+        "name": "full-routing",
+        "status": "PASSED",
+        "elapsed_seconds": 1419.9215563749894,
+        "footers": [
+          [
+            "ok",
+            "23",
+            "0",
+            "13"
+          ]
+        ],
+        "failed_cases": [],
+        "log_sha256": "d1be141f9de75ea36dbe5480929783d57038e2abdc47050b824e5fe128a1b36c"
+      },
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 619.6672836669895,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "4fc28a9c85e52630ee904a627e87726a881118278adeeea6fbc197815179605d"
+      },
+      {
+        "name": "recovery-consumer-clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 2.705861291004112,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "812f11a374979ac5dd75ca6edd284339778eec81eeebbecb05e9fddc1a7b72af"
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "elapsed_seconds": 121.68551558299805,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "cd2837853af58ee4db292baf7664590ce4940425eac9bd2f5aba46f6d1c69f9e"
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "elapsed_seconds": 0.2809316670172848,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "1f5fe55e5605643e4f3f59691fe19ded961b833c9d607bb3781f0adb9111e97d"
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "elapsed_seconds": 0.502390750014456,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "elapsed_seconds": 0.9092160830041394,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "927648fb05023d2a0d0e3795606b64dbba75b2a18cf5dc8c5a9f7e8aeee30726"
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "elapsed_seconds": 2.840521832986269,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "6dec0a05160198e3d7596cc721f1b32bd3985d61b1d3fd2f3d09b6fcb9f11803"
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "elapsed_seconds": 0.03255762500339188,
+        "footers": [],
+        "failed_cases": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "retention": {
+    "scope": "Persistent fixture files, source, logs and executable artifacts; in-memory catalog and object-store contents are not exported.",
+    "closed_before_copy": true,
+    "originals_double_hashed_and_copies_verified": true,
+    "cohorts": [
+      {
+        "name": "command-receipt-routing-01",
+        "record_sha256": "3d9b78f170f02889af550d0b772fef64131a1f7ac2a09b3ca731d662deb48d56",
+        "persistent_files": {
+          "files": 3188,
+          "bytes": 35037504,
+          "manifest_sha256": "07ded26f7e0b490921cf1c274fa3d64eecdc1de06a77f8d13c234362d81a9ae9"
+        }
+      },
+      {
+        "name": "command-receipt-routing-matched-01",
+        "record_sha256": "a72b5d704cef678856368b27cb706a500aa843d01ff498d59deb867d5f5533ca",
+        "persistent_files": {
+          "files": 259,
+          "bytes": 2241084,
+          "manifest_sha256": "019592f7fca2794bb9d36b623fb3a0cc00bd292c955aa4a489962f76bb208fab"
+        }
+      },
+      {
+        "name": "origin-refusal-after-01",
+        "record_sha256": "aed2890a13b2742760c1f95741883d33221df0e85d51b7ea54a94e10d1893b2a",
+        "persistent_files": {
+          "files": 32,
+          "bytes": 182656,
+          "manifest_sha256": "deb1ec7395903507ca242c97cdd60241c6d226a498351a97102db4368ddd80d3"
+        }
+      },
+      {
+        "name": "origin-refusal-after-02",
+        "record_sha256": "da0240e8a4e8fe36f50461ca31192e617423bb7ba32b7c8b9c499857e10f34c5",
+        "persistent_files": {
+          "files": 15,
+          "bytes": 12605,
+          "manifest_sha256": "165ddeda15a1ca3f9dcda917063f5940aac0fc912a362d05e81793a873ccc965"
+        }
+      },
+      {
+        "name": "origin-refusal-after-03",
+        "record_sha256": "af8ab82ef9c537811a339e79f9afb8181803ec5667e3b01f12128deee03ec51b",
+        "persistent_files": {
+          "files": 7228,
+          "bytes": 53199987,
+          "manifest_sha256": "4fdf25ac76cd01bd2b6514362f9ab07ef0f98bc894837f52088edb5a2969efa1"
+        }
+      }
+    ],
+    "audit_records_sha256": [
+      "a6f33b03978b087c1a4edd76268e69f87b4d7db12aee312d7beaa5d70d4cfe67",
+      "7310e877f546467be2bececd69377822a0257dc256f78c90568fb3bc1706c9a0"
+    ]
+  },
+  "capacity": {
+    "observed_at_utc": "2026-11-17T19:32:50.221918+00:00",
+    "reserve_bytes": 6442450944,
+    "available_bytes": 0,
+    "same_original_backend_and_limits": true,
+    "restarts": 0,
+    "actions": [
+      "read-only engine identity",
+      "read-only selected container fields",
+      "read-only /data filesystem availability"
+    ],
+    "admissible": false
+  },
+  "remaining": [
+    "Unexplained full-run old-lookup warmup refusal and earlier routing/recovery failures retain their original records.",
+    "Physical disconnect, election, member, split and pending-RPC receipt progress still require their full acceptance matrices.",
+    "Queue proof-sharing warmup and four-in-flight producer deadlines remain open.",
+    "Qualify scheduling fairness, persistence/archive amplification, physical reclamation and repeated movement under original bounds.",
+    "Complete combined public primitive, feature-mode, daemon, disaster and constrained RustFS performance qualification."
+  ],
+  "performance_claim": "No throughput or latency-percentile gain is measured or claimed. Full OPT-01 through OPT-08 and remaining CG gates remain open.",
+  "qualification_attempts": [
+    {
+      "name": "origin-refusal-after-01",
+      "status": "FAILED",
+      "compiler_input_digest": "93cbf144227f6e95c9741e402940bbbc50cac2632767aab6195283ca41431ff1",
+      "explanation": "Harness stopped on an incorrect exported sender-test filter: zero tests selected rather than the required three. The two targeted routing regressions and 32 wire tests pass.",
+      "stages": [
+        {
+          "name": "compile-native_cell_groups_routing_optimization",
+          "status": "PASSED",
+          "elapsed_seconds": 498.0094536249817,
+          "footers": [],
+          "failed_cases": [],
+          "log_sha256": "104c42300c96e3c4bed73a7e35c8587cabe8e69fd66d4d2a070e7e376b82f583"
+        },
+        {
+          "name": "cached_advice_respects_origin_revocation",
+          "status": "PASSED",
+          "elapsed_seconds": 26.022496290999698,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": [],
+          "log_sha256": "9f4ca4116bdd984fd23d185d67aca0c66224c3bf4cbd5b8664719cccb1a85791"
+        },
+        {
+          "name": "superseded_boot_advice_cannot_change_route",
+          "status": "PASSED",
+          "elapsed_seconds": 60.106589832983445,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": [],
+          "log_sha256": "611f98473ef2c6ec491c1d5acb114ee009e89462fdc7468ab719b1415e38fe33"
+        },
+        {
+          "name": "compile-cellar",
+          "status": "PASSED",
+          "elapsed_seconds": 440.46723745801137,
+          "footers": [],
+          "failed_cases": [],
+          "log_sha256": "bf3532ac35c02b5758ead55702dfaad08068d4bd0e0df8fdd64d4605c1b0ac59"
+        },
+        {
+          "name": "wire-codecs",
+          "status": "PASSED",
+          "elapsed_seconds": 0.05416312499437481,
+          "footers": [
+            [
+              "ok",
+              "32",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": [],
+          "log_sha256": "71b95cb68651c95b082a679fbbe50926afc48012df729f9a3d4033df43457952"
+        },
+        {
+          "name": "command-sender-cuts",
+          "status": "FAILED",
+          "elapsed_seconds": 0.007391791994450614,
+          "footers": [
+            [
+              "ok",
+              "0",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": [],
+          "log_sha256": "c01b84b30c7c9875e117d3d62292570c91651666b59c72883c52b2cc63018e91"
+        }
+      ]
+    },
+    {
+      "name": "origin-refusal-after-02",
+      "status": "FAILED",
+      "compiler_input_digest": "93cbf144227f6e95c9741e402940bbbc50cac2632767aab6195283ca41431ff1",
+      "explanation": "Two sender cuts pass; a newly added receiver guard fails because it incorrectly assumes bootstrap membership is unclaimed. The correction verifies missing origin grant versus wrong physical member; production code is unchanged.",
+      "stages": [
+        {
+          "name": "command-sender-cuts",
+          "status": "FAILED",
+          "elapsed_seconds": 0.23914933399646543,
+          "footers": [
+            [
+              "FAILED",
+              "2",
+              "1",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "raft::transport::cell_commands::tests::stale_command_before_queue_proves_no_transmission"
+          ],
+          "log_sha256": "5e36df17bd934f06c009a0cbf89de73c12b86995907efbaa8aa240fddfd77d71"
+        }
+      ]
+    }
+  ],
+  "native_topology_scope": "Host-native RF3 groups and real TLS within one process; routing fixtures may use six data nodes plus metadata-only ingress, and the fairness case uses one SQL worker. This does not qualify three constrained Colima nodes or independent physical failure domains.",
+  "compiler_input_digest": "b08df720393e48bc48bc25e3bb24c15edd5d331dcbc876b156b5035393a66931",
+  "profile": {
+    "toolchain": "1.98.1",
+    "dependencies": "locked",
+    "cargo_features": "--all-features (cellar declares no optional features)",
+    "build_jobs": 1,
+    "test_opt_level": 1,
+    "debug_assertions": true,
+    "overflow_checks": true,
+    "incremental": false,
+    "cellar_internal_tests": false
+  }
+}

@@ -408,10 +408,14 @@ impl State {
             last_sequence = header.sequence()?;
             let (pool, permission) = match self.authorize_query_route(&header.route) {
                 Ok(authorization) => authorization,
-                Err(TransportError::Refused) if header.route.is_query() => {
-                    self.refuse_read(&mut stream, &exporter, &header, &head)
+                Err(error)
+                    if (error == TransportError::Refused && header.route.is_query())
+                        || (error == TransportError::CommandOriginRefused
+                            && wire::command_origin_refusal_allowed(&header)) =>
+                {
+                    self.refuse_origin(&mut stream, &exporter, &header, &head)
                         .await?;
-                    return Err(TransportError::Refused);
+                    return Err(error);
                 }
                 Err(error) => return Err(error),
             };
@@ -511,7 +515,7 @@ impl State {
         }
     }
 
-    async fn refuse_read<S: AsyncRead + AsyncWrite + Unpin>(
+    async fn refuse_origin<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut S,
         exporter: &[u8; 32],
@@ -564,7 +568,11 @@ impl State {
             stream.read_exact(&mut body).await?;
             header.verify_body(&body)?;
             drop(body);
-            let refusal = wire::read_refusal_body(header)?;
+            let refusal = if header.route.is_query() {
+                wire::read_refusal_body(header)?
+            } else {
+                wire::command_origin_refusal_body(header)?
+            };
             let reply = wire::response_head(
                 &self.auth,
                 exporter,

@@ -121,6 +121,9 @@ pub enum TransportError {
     /// The local sender owns proof that this attempt never entered a request
     /// exchange. This settles only this attempt, never an earlier unknown one.
     CommandNotSent(cellar_logic::consensus::CommandFailure),
+    /// Authenticated terminal origin denial. This carries no non-commit proof
+    /// and cannot erase uncertainty from this or an earlier command attempt.
+    CommandOriginRefused,
     Protocol,
     Identity,
     Replay,

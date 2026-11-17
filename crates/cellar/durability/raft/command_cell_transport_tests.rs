@@ -135,6 +135,38 @@ async fn stale_command(cut: Cut) -> anyhow::Result<()> {
                 route_epoch: route.epoch.get(),
                 birth_digest: route.birth_digest,
             };
+            if matches!(cut, Cut::BeforeQueue) {
+                let target = fixture.log.cell_group(&history)?.identity().clone();
+                let stale = ReplicaIdentity {
+                    member: MemberId::new(4)?,
+                    ..target.clone()
+                };
+                // Bootstrap membership permits the local physical identity,
+                // independently of the missing namespace-origin grant. A wrong
+                // physical identity must fail before that grant is inspected.
+                for (selected, expected) in [
+                    (target, TransportError::CommandOriginRefused),
+                    (stale, TransportError::StalePeer),
+                ] {
+                    let incoming = QueryRoute::new_shared(
+                        NodeIdentity {
+                            node: peer.replica.node,
+                            disk: peer.replica.disk,
+                            process: peer.replica.process,
+                        },
+                        &peer.label,
+                        &selected,
+                        state.auth.source(),
+                        &cell,
+                        route.schema_digest,
+                    )?
+                    .for_command()?;
+                    assert_eq!(
+                        state.authorize_cell_command(&incoming).err(),
+                        Some(expected)
+                    );
+                }
+            }
             let observed = if matches!(cut, Cut::BeforeExchange) {
                 let (captured, pool, routing_lifetime) = {
                     let registry = state.registry.lock().unwrap();

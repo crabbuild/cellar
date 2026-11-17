@@ -1910,3 +1910,93 @@ fn shared_query_leader_hint_is_advice_inside_authenticated_payload() {
         .is_err());
     }
 }
+
+#[test]
+fn command_origin_refusal_is_bound_to_body_request_and_channel() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = b"request";
+    for route in [
+        route().for_command().unwrap(),
+        route().for_command_probe().unwrap(),
+        route().for_receipt().unwrap(),
+    ] {
+        let request = RequestHead::new(route.clone(), 7, body);
+        let head = request_head(&auth, &[3; 32], &request, body, &options).unwrap();
+        let denied = command_origin_refusal_body(&request).unwrap();
+        let response =
+            response_head(&auth, &[3; 32], &request, &head.tag, denied, &options).unwrap();
+        let verified =
+            read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+        assert_eq!(
+            verified.verify(denied),
+            Err(TransportError::CommandOriginRefused)
+        );
+        assert_eq!(
+            TransportError::CommandOriginRefused.for_read(),
+            TransportError::CommandOriginRefused
+        );
+        for n in 0..denied.len() {
+            let mut changed = denied.to_vec();
+            changed[n] ^= 1;
+            assert_eq!(
+                verified.verify(&changed),
+                Err(TransportError::Authentication)
+            );
+        }
+        assert!(matches!(
+            read_response(&response, &auth, &[4; 32], &request, &head.tag, &options),
+            Err(TransportError::Authentication)
+        ));
+        let other = RequestHead::new(route, 8, body);
+        let other_head = request_head(&auth, &[3; 32], &other, body, &options).unwrap();
+        assert!(matches!(
+            read_response(
+                &response,
+                &auth,
+                &[3; 32],
+                &other,
+                &other_head.tag,
+                &options
+            ),
+            Err(TransportError::Authentication)
+        ));
+    }
+}
+
+#[test]
+fn command_origin_refusal_cannot_change_other_purposes() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = b"request";
+    for route in [
+        route(),
+        route().for_event_command().unwrap(),
+        route().for_event_query().unwrap(),
+        route().for_binding_retirement().unwrap(),
+        route().for_enrollment().unwrap(),
+        route().for_name().unwrap(),
+    ] {
+        let request = RequestHead::new(route, 7, body);
+        assert_eq!(
+            command_origin_refusal_body(&request),
+            Err(TransportError::Protocol)
+        );
+        let head = request_head(&auth, &[3; 32], &request, body, &options).unwrap();
+        let response = response_head(
+            &auth,
+            &[3; 32],
+            &request,
+            &head.tag,
+            COMMAND_ORIGIN_REFUSED,
+            &options,
+        )
+        .unwrap();
+        let verified =
+            read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+        assert_eq!(
+            verified.verify(COMMAND_ORIGIN_REFUSED),
+            Err(TransportError::Protocol)
+        );
+    }
+}

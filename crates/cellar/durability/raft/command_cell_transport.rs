@@ -655,7 +655,7 @@ impl State {
                         && peer.label == wire.source_label()
                 })
             })
-            .ok_or(TransportError::Refused)?;
+            .ok_or(TransportError::CommandOriginRefused)?;
         let pool = registry
             .pools
             .get(&source.node)

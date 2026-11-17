@@ -115,6 +115,14 @@ impl CellCommandInvocation {
 /// Availability may trigger receipt-only repair; authentication, permission,
 /// schema, identity, protocol and application failures remain terminal.
 pub(super) fn retryable(error: &CellDispatchError) -> bool {
+    // Authorization denial is not an availability fault. It also cannot prove
+    // that an earlier admitted command did not commit, so keep ambiguity sticky.
+    if matches!(
+        error,
+        CellDispatchError::Transport(TransportError::CommandOriginRefused)
+    ) {
+        return false;
+    }
     matches!(
         error.refusal(),
         Some(
