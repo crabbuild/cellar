@@ -36,6 +36,19 @@ full disaster profile remain open.
 
 ## Current constrained performance priorities
 
+At compiler input `7c39c193`, the sender can prove a command was not sent when
+stale/missing routing or capacity refuses it before queue acceptance or its first
+exchange. Routing may retry only that exact attempt within its original admission,
+identity, deadline and ticket bank. Earlier uncertainty stays sticky; failures
+after exchange begins remain ambiguous. Three owning transport cases and seven
+selected native command/routing controls pass, as do strict all-target and
+recovery-consumer Clippy and repository checks. The byte-identical library
+executable reports 1,247 passes, one failure and two existing ignores: truncated
+read-refusal input retains node/peer receive credit past the original three-second
+observation bound. Published and candidate isolated controls both pass; neither
+explains or closes that full-run failure. See the
+[command-admission record](command-admission-qualification-2026-11-17.json).
+
 The latest [native batching checkpoint](prepared-submission-batching-qualification-2026-11-16.json)
 at compiler input `816bcded` passes core, execution, storage, archive/controller,
 eight selected public SQL/KV/Queue cases, strict affected-target Clippy and the
@@ -68,7 +81,12 @@ reserve, without any resource or data changes.
 
 The next priorities are:
 
-1. **Close the current correctness/qualification failures.** At published
+1. **Close the current correctness/qualification failures.** First diagnose the
+   retained truncated-read receive-credit failure above without extending its
+   bound or releasing physical ownership early. Preserve original-ID receipt
+   reconciliation and Queue deadline work below. The new local proof does not
+   settle any possibly transmitted write or establish a causal repair of the
+   earlier full-run member-replacement failure. At published
    `bf1bbc68`, all four hosted Typed RPC jobs, all three JavaScript jobs and the
    three filesystem release builds pass. Both completed push-native framework jobs retain the park
    unauthorized-read failure: the server's permission refusal arrives as
@@ -150,8 +168,9 @@ The next priorities are:
    binaries from the qualified source and compare SQL/KV/Queue in all four
    durability modes on the original three 1 vCPU / 2 GiB nodes, RF3, three groups,
    original entities/payloads and concurrency/repetition schedule. The exact
-   RustFS `/data` named volume still reports zero available bytes, below the
-   unchanged 6 GiB reserve. The existing capacity proposal remains unapproved;
+   RustFS `/data` named volume reports 12.3 MiB available in the latest read-only
+   recheck, below the unchanged 6 GiB reserve. Backend identity, image, CPU/memory
+   limits, start time and zero restart count remain unchanged. The existing capacity proposal remains unapproved;
    no VM/disk/resource changes, deletion or reserve relaxation were performed.
    Native persistence counts cannot substitute for error-free paired throughput
    and p50/p95/p99 measurements.

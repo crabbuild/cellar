@@ -118,6 +118,9 @@ pub enum TransportError {
     /// Authenticated proof that this remote attempt entered no producer. It
     /// establishes nothing about any preceding attempt of the same command.
     CommandRejected(cellar_logic::consensus::CommandFailure),
+    /// The local sender owns proof that this attempt never entered a request
+    /// exchange. This settles only this attempt, never an earlier unknown one.
+    CommandNotSent(cellar_logic::consensus::CommandFailure),
     Protocol,
     Identity,
     Replay,

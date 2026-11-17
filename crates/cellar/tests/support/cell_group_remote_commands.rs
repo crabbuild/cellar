@@ -66,6 +66,7 @@ pub(crate) async fn remote_commands() -> Result<()> {
             },
         )?);
         let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        fixture.cluster._root.disable_cleanup(true);
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
         let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
         let options = fixture.cell_options(&a).await?;
@@ -158,6 +159,37 @@ pub(crate) async fn remote_commands() -> Result<()> {
             )?,
         )?;
         let mut follower = invocation(&dispatch, &class, &a, retry_until, b"once").await?;
+        let follower_attempt = follower.attempt().unwrap().clone();
+        router.transport.remove_cell_query_group(&route.history)?;
+        let not_sent = follower
+            .execute_remote(&router.transport, MemberId::new(1)?)
+            .await
+            .err()
+            .context("missing route refuses before transmission")?;
+        assert!(!not_sent.ambiguous);
+        assert!(matches!(
+            not_sent.cause.as_ref(),
+            CellDispatchError::Transport(TransportError::CommandNotSent(
+                CommandFailure::Unavailable
+            ))
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        router
+            .transport
+            .install_cell_query_group(fixture.tcp_route(route.history)?)?;
+        follower.retry().await?;
+        assert_eq!(
+            follower.attempt().unwrap().request(),
+            follower_attempt.request()
+        );
+        assert_eq!(
+            follower.attempt().unwrap().deadline_ms(),
+            follower_attempt.deadline_ms()
+        );
+        assert_eq!(
+            follower.attempt().unwrap().ordinal(),
+            follower_attempt.ordinal() + 1
+        );
         let refusal = follower
             .execute_remote(&router.transport, MemberId::new(2)?)
             .await
@@ -177,6 +209,44 @@ pub(crate) async fn remote_commands() -> Result<()> {
             "fresh follower refusal proves no producer entered"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+        // Use the remaining tickets of this same follower invocation: an
+        // ungranted destination loses its reply, then a local proof must keep
+        // that uncertainty. No new identity, deadline or bank is introduced.
+        follower.retry().await?;
+        let uncertain = follower
+            .execute_remote(&router.transport, MemberId::new(3)?)
+            .await
+            .err()
+            .context("ungranted third member leaves an unknown reply")?;
+        assert!(uncertain.ambiguous);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        follower.retry().await?;
+        router.transport.remove_cell_query_group(&route.history)?;
+        let not_sent = follower
+            .execute_remote(&router.transport, MemberId::new(1)?)
+            .await
+            .err()
+            .context("local non-submission cannot clear earlier uncertainty")?;
+        assert!(not_sent.ambiguous);
+        assert!(matches!(
+            not_sent.cause.as_ref(),
+            CellDispatchError::Transport(TransportError::CommandNotSent(
+                CommandFailure::Unavailable
+            ))
+        ));
+        assert_eq!(
+            follower.attempt().unwrap().deadline_ms(),
+            follower_attempt.deadline_ms()
+        );
+        assert_eq!(
+            follower.attempt().unwrap().request(),
+            follower_attempt.request()
+        );
+        assert_eq!(follower.attempt().unwrap().ordinal(), 4);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        router
+            .transport
+            .install_cell_query_group(fixture.tcp_route(route.history)?)?;
         drop(follower);
         // This invocation already experienced unclassified transport failures.
         // The same authenticated follower rejection cannot settle that history.
@@ -296,6 +366,7 @@ pub(crate) async fn remote_commands() -> Result<()> {
         drop(follower_gateway);
         drop(gateway);
         command.retry().await?;
+        assert_eq!(command.attempt().unwrap().ordinal(), 8);
         assert!(command
             .execute_remote(&router.transport, MemberId::new(1)?)
             .await
@@ -334,6 +405,7 @@ pub(crate) async fn remote_command_lifecycle(revoke: bool) -> Result<()> {
             },
         )?);
         let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        fixture.cluster._root.disable_cleanup(true);
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
         let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
         let gateway = fixture.transports[0].install_cell_command_gateway(

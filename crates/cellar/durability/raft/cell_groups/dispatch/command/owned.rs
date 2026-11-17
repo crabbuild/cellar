@@ -178,19 +178,25 @@ impl CellCommandInvocation {
                         }
                         Err(error)
                             if !error.ambiguous
-                                && matches!(
+                                && (matches!(
                                     error.cause.refusal(),
                                     Some(
                                         CommandFailure::NotLeader { .. }
                                             | CommandFailure::Overloaded
                                     )
-                                )
+                                ) || matches!(
+                                    error.cause.as_ref(),
+                                    CellDispatchError::Transport(
+                                        crate::raft::transport::TransportError::CommandNotSent(_)
+                                    )
+                                ))
                                 && usize::from(self.current()?.ordinal())
                                     < self.session.maximum_attempts() =>
                         {
-                            // Only an authenticated pre-admission rejection permits
-                            // another destination. Inputs, ID and deadline stay owned
-                            // by this invocation. An earlier unknown result wins.
+                            // Only authenticated rejection or this sender's exact
+                            // non-submission proof permits another destination.
+                            // Inputs, ID, deadline and attempt bank stay owned by
+                            // this invocation. An earlier unknown result wins.
                             if matches!(error.cause.refusal(), Some(CommandFailure::Overloaded)) {
                                 routing
                                     .backoff(

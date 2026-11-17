@@ -5609,3 +5609,51 @@ are re-pinned to `cbde019b`, with their excerpts and the other 22 anchors unchan
 All 44 design tests then pass. Historical runtime evidence, task acceptance and
 the missing CG-01 record stay unchanged. No Linux image, new constrained primitive
 matrix, independent failure-domain or complete feature/release gate is qualified.
+
+## Local command rejection before transmission
+
+The unchanged sender behavior at input `281f4eb0` returns generic `StalePeer`
+both before queue acceptance and before the worker starts an exchange. Both
+controlled non-submission assertions fail; the post-authenticated-reply unknown
+control passes. Earlier malformed fixture attempts stop at compilation or endpoint
+validation and are retained separately, rather than counted as reproductions.
+
+The candidate separates synchronous queue admission from its response waiter and
+tracks whether the worker started an exchange. Only stale/missing routes and
+capacity refusal before those boundaries may produce local `CommandNotSent`.
+It is not a wire result. The invocation retains the original ID, fingerprint,
+captured inputs, admission, absolute deadline and finite attempt bank. A local
+proof settles that attempt only; earlier uncertainty remains. Once exchange
+starts, socket failure, partial transmission, lost reply and post-reply stale
+generation remain unknown. No durability, authority or process fence changes.
+
+All three controlled transport cases pass. The native extension initially spends
+the original command's eight tickets before its existing final gateway-revocation
+check. Its correction places the additional sticky-proof checks in the existing
+follower invocation's remaining tickets, preserving all original assertions and
+limits. At input `7c39c193`, all three native command lifecycle cases and all four
+selected public routing cases pass in both image forms. The original command
+still uses exactly eight tickets, and callbacks retain their exact counts.
+Strict all-feature/all-target and default recovery-consumer Clippy, formatting,
+layout, dependency, documentation and all 44 design checks pass.
+
+The full library attempt reports 1,247 passes, one failure and two existing
+ignores. The query-grant control retains original node/peer receive credit after
+truncated read-refusal input past its unchanged three-second observation bound.
+Both frozen published and candidate isolated repetitions pass with identical
+fixture bytes; they do not explain or close that failure. Only the native test
+file changes afterward, and Cargo verifies the library executable is byte-identical.
+All seven attempts retain their closed fixtures; originals are verified twice
+and copies are verified after closure.
+
+The [qualification record](command-admission-qualification-2026-11-17.json)
+keeps these failures, hashes, profiles and scopes explicit. The selected
+member-replacement pass does not establish a causal repair of its earlier
+full-run original-ID failure. Queue warmup/four-in-flight deadlines, read-credit
+release, broader native/SDK/daemon/disaster, reclamation, movement and fairness
+gates remain open. The failed Queue profile points to SQL preparation/publication
+and persistence for further measurement; its aggregates do not identify one
+request's critical path. No throughput or percentile improvement is claimed.
+The original RustFS backend has 12.3 MiB free, below its unchanged 6 GiB reserve,
+with no restart, resource change, pruning or reserve relaxation. The full original
+constrained SQL/KV/Queue comparison and all complete OPT/CG gates remain open.

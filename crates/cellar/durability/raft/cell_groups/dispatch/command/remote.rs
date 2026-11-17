@@ -21,7 +21,8 @@ impl CellCommandInvocation {
 
     /// Execute this catalog attempt on an explicitly selected remote member.
     /// Failure after possible transmission stays ambiguous unless an authenticated
-    /// response proves rejection before admission. That proof settles only this
+    /// response proves rejection before admission, or the local sender proves
+    /// that no exchange began. Either proof settles only this
     /// attempt; uncertainty from preceding attempts remains. Retry the same
     /// invocation and identity within their original deadline and attempt bank.
     pub async fn execute_remote(
@@ -100,8 +101,11 @@ impl CellCommandInvocation {
             .await
             .map_err(|_| self.error(closed()))?;
         let response = result.map_err(|error| {
-            if matches!(error, TransportError::CommandRejected(_)) {
-                // A rejection settles only this transmission. Never erase
+            if matches!(
+                error,
+                TransportError::CommandRejected(_) | TransportError::CommandNotSent(_)
+            ) {
+                // A rejection settles only this attempt. Never erase
                 // uncertainty retained from a preceding attempt.
                 if let Err(error) = self.session.reject_remote_submission(submission) {
                     return self.error(CellDispatchError::Routing(error));

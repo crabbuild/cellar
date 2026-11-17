@@ -1,6 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Commands and enrollment share bounded RPC admission and explicit write grants.
+#[cfg(test)]
+#[path = "command_cell_transport_tests.rs"]
+mod tests;
+
 use super::*;
 use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{
@@ -218,6 +222,25 @@ struct WriteResponse {
     served_by: MemberId,
     node: Permit,
     peer: Permit,
+}
+
+struct QueuedCellWrite {
+    _cancel: Cancel,
+    result: oneshot::Receiver<Result<WriteResponse, TransportError>>,
+}
+
+// Only the owner before queue admission or the first exchange can mint this
+// local proof. Never apply this translation to an exchange's failure/reply.
+fn command_not_sent(command: bool, error: TransportError) -> TransportError {
+    match (command, error) {
+        (true, TransportError::StalePeer | TransportError::UnknownGroup) => {
+            TransportError::CommandNotSent(CommandFailure::Unavailable)
+        }
+        (true, TransportError::Overloaded) => {
+            TransportError::CommandNotSent(CommandFailure::Overloaded)
+        }
+        (_, error) => error,
+    }
 }
 
 pub(super) struct SendCellWrite {
@@ -487,6 +510,24 @@ impl State {
         keys: Option<VersionKeys>,
         deadline: u64,
     ) -> Result<WriteResponse, TransportError> {
+        let command = matches!(&call, WriteCall::Command(_) | WriteCall::Event(_));
+        let QueuedCellWrite { _cancel, result } = self
+            .queue_cell_write(route, cell, member, call, keys, deadline)
+            .map_err(|error| command_not_sent(command, error))?;
+        // Queue acceptance is the end of this owner's non-submission proof.
+        // A lost waiter cannot establish whether the worker exchanged bytes.
+        result.await.map_err(|_| TransportError::Closed)?
+    }
+
+    fn queue_cell_write(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        call: WriteCall,
+        keys: Option<VersionKeys>,
+        deadline: u64,
+    ) -> Result<QueuedCellWrite, TransportError> {
         let state = self;
         // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
@@ -569,7 +610,7 @@ impl State {
                 mpsc::error::TrySendError::Full(_) => TransportError::Overloaded,
                 mpsc::error::TrySendError::Closed(_) => TransportError::Closed,
             })?;
-        result.await.map_err(|_| TransportError::Closed)?
+        Ok(QueuedCellWrite { _cancel, result })
     }
 
     pub(super) fn authorize_cell_command(
@@ -623,6 +664,8 @@ impl State {
         mut request: SendCellWrite,
         connection: &mut Option<QueryConnection>,
     ) -> bool {
+        let command = matches!(&request.call, WriteCall::Command(_) | WriteCall::Event(_));
+        let mut exchange_started = false;
         let result = self
             .query_until(
                 pool,
@@ -676,6 +719,9 @@ impl State {
                         }
                         _ => (),
                     }
+                    // From this point even a connect/partial-write failure is
+                    // conservatively unknown; no local rejection is minted.
+                    exchange_started = true;
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
@@ -834,6 +880,11 @@ impl State {
         // A fully authenticated application refusal consumed a complete reply;
         // retain the peer connection just as the legacy query lane does.
         let failed = matches!(&result, Err(error) if !matches!(error, TransportError::Command(_) | TransportError::CommandRejected(_)));
+        let result = if exchange_started {
+            result
+        } else {
+            result.map_err(|error| command_not_sent(command, error))
+        };
         let _ = request.reply.send(result.map(|value| WriteResponse {
             value,
             served_by: request.peer.replica.member,
