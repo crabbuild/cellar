@@ -46,7 +46,7 @@ enum Checkpoint {
         reply: oneshot::Sender<Result<(), String>>,
         task: Preparation,
     },
-    Submitted(SubmittedCheckpoint),
+    Submitted(Box<SubmittedCheckpoint>),
 }
 
 struct SubmittedCheckpoint {
@@ -133,7 +133,7 @@ impl Suspended {
         stopped: bool,
     ) -> Poll<Result<(), ExecutionError>> {
         let mut checkpoint = match self.checkpoint.take().expect("owned RPC checkpoint") {
-            Checkpoint::Submitted(checkpoint) => checkpoint,
+            Checkpoint::Submitted(checkpoint) => *checkpoint,
             Checkpoint::Preparing { reply, mut task } => {
                 let image = match task.poll(cx, stopped) {
                     Poll::Pending => {
@@ -172,7 +172,7 @@ impl Suspended {
         let result = match &mut checkpoint.phase {
             CheckpointPhase::Applying(future) => match future.as_mut().poll(cx) {
                 Poll::Pending => {
-                    self.checkpoint = Some(Checkpoint::Submitted(checkpoint));
+                    self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
                     return Poll::Pending;
                 }
                 Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
@@ -233,7 +233,7 @@ impl Suspended {
                                             .map_err(crate::raft::execution::storage)?;
                                         Ok(())
                                     }));
-                                self.checkpoint = Some(Checkpoint::Submitted(checkpoint));
+                                self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
                                 self.ready.0.store(true, Ordering::Release);
                                 return Poll::Pending;
                             }
@@ -245,7 +245,7 @@ impl Suspended {
             },
             CheckpointPhase::Archiving(future) => match future.as_mut().poll(cx) {
                 Poll::Pending => {
-                    self.checkpoint = Some(Checkpoint::Submitted(checkpoint));
+                    self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
                     return Poll::Pending;
                 }
                 Poll::Ready(result) => result,
@@ -262,7 +262,7 @@ impl Suspended {
             {
                 checkpoint.phase =
                     self.applying(&checkpoint.prepared, &checkpoint.expected, domain)?;
-                self.checkpoint = Some(Checkpoint::Submitted(checkpoint));
+                self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
                 self.ready.0.store(true, Ordering::Release);
                 return Poll::Pending;
             }
