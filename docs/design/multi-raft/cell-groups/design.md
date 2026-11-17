@@ -170,10 +170,12 @@ The node owns log engine, extent store, transport, SQL worker pool and global qu
 Physical image and manifest apply runs in execution-domain blocking work under
 the independent apply byte/item bank and controller concurrency. Each SQL owner
 keeps one reserved progress lane while queued or physical apply uses it, with
-one queued apply envelope and bounded live task handles. Its callbacks continue
+one queued progress envelope and bounded live task handles. Its callbacks continue
 while file I/O is pending. Shutdown joins all physical apply before releasing
 SQLite owners or the SQL-pool lease. Durable publication and acknowledgment
-retain the same barriers and complete-prefix checks.
+retain the same barriers and complete-prefix checks. Preparation results are
+delivered after the physical task joins; failed preparation releases its apply
+reservation before returning the error.
 
 One unresolved data proposal per cell is sufficient initially. Prepare different
 cells concurrently through fair queues; serialize publication by group log index.

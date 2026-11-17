@@ -13,11 +13,13 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
+type ApplyResult = Result<CellGroupPreparedApply, ExecutionError>;
+
 pub(in crate::raft::host_sql) struct ApplyRequest {
     pub group: GroupHistory,
     applier: CellGroupApplier,
     work: CellGroupApply,
-    reply: oneshot::Sender<Result<CellGroupPreparedApply, ExecutionError>>,
+    reply: oneshot::Sender<ApplyResult>,
     _slot: Arc<tokio::sync::OwnedSemaphorePermit>,
     _queued_slot: Option<tokio::sync::OwnedSemaphorePermit>,
     queued: crate::raft::performance::Timer,
@@ -90,10 +92,15 @@ impl ApplyTasks {
             .blocking(move || request.execute(&owner, &stopped, &performance))
             .map_err(|_| unavailable())?;
         self.tasks.push(Box::pin(async move {
-            // Keep ownership through the actual task join, even if the caller
-            // already consumed or dropped its prepared result.
-            let _retention = (admission, lane);
-            physical.await
+            // Keep ownership through the actual task join. Deliver only after
+            // releasing join custody, including a failed preparation's physical
+            // reservations, before sending its result.
+            let retention = (admission, lane);
+            let joined = physical.await;
+            drop(retention);
+            let (reply, result) = joined?;
+            let _ = reply.send(result);
+            Ok(())
         }));
         Ok(())
     }
@@ -213,7 +220,7 @@ impl ApplyRequest {
         domain: &crate::asyncrt::DomainToken,
         stopped: &AtomicBool,
         performance: &Arc<crate::raft::performance::Registry>,
-    ) {
+    ) -> (oneshot::Sender<ApplyResult>, ApplyResult) {
         let Self {
             applier,
             work,
@@ -241,6 +248,6 @@ impl ApplyRequest {
                 })
         };
         timer.finish(result.is_ok());
-        let _ = reply.send(result);
+        (reply, result)
     }
 }
