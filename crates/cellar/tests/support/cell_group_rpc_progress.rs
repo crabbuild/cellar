@@ -10,8 +10,11 @@ use std::sync::Condvar;
 #[allow(dead_code)]
 pub(super) mod physical;
 
+type ArmPreparation = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
 struct PausedCell {
     storage: Storage,
+    preparation: ArmPreparation,
     gates: Arc<[RpcGate; 2]>,
     calls: Arc<AtomicUsize>,
     sql_thread: Arc<Mutex<Option<std::thread::ThreadId>>>,
@@ -29,10 +32,12 @@ impl Cell for PausedCell {
             }
             if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Add") {
                 let value = update(&self.storage, 2)?;
+                arm_preparation(&self.preparation);
                 return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
             }
             if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Sync") {
                 let value = update(&self.storage, 2)?;
+                arm_preparation(&self.preparation);
                 self.storage.sync().await?;
                 return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
             }
@@ -59,6 +64,30 @@ impl Drop for Release {
             let _ = sender.send(());
         }
     }
+}
+
+fn arm_preparation(preparation: &ArmPreparation) {
+    let arm = preparation.lock().unwrap().take();
+    if let Some(arm) = arm {
+        arm();
+    }
+}
+
+fn hold_private_preparation(
+    faults: Arc<physical::Faults>,
+    preparation: &ArmPreparation,
+) -> (Release, tokio::sync::oneshot::Receiver<()>) {
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, held) = std::sync::mpsc::sync_channel(1);
+    // Opening an extent workspace uses the same inventory directory. Arm only
+    // after SQL has run so that this gate selects immutable image persistence.
+    *preparation.lock().unwrap() = Some(Box::new(move || {
+        *faults.before_directory_sync.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered.send(());
+            let _ = held.recv_timeout(Duration::from_secs(15));
+        }));
+    }));
+    (Release(Some(release)), started)
 }
 
 #[derive(Default)]
@@ -125,24 +154,46 @@ pub async fn preparation_one_worker(rooted: bool, store: Arc<catalog_fault::Stor
     run_mode_with_workers(rooted, store, Mode::Preparation, 1).await
 }
 
-pub async fn private_preparation(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bool) -> Result<()> {
-    run_mode_with_workers(rooted, store, if checkpoint {
-        Mode::CheckpointPreview
-    } else {
-        Mode::Preview
-    }, 1).await.with_context(|| format!("private image rooted={rooted} checkpoint={checkpoint}"))
+pub async fn private_preparation(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    checkpoint: bool,
+) -> Result<()> {
+    run_mode_with_workers(
+        rooted,
+        store,
+        if checkpoint {
+            Mode::CheckpointPreview
+        } else {
+            Mode::Preview
+        },
+        1,
+    )
+    .await
+    .with_context(|| format!("private image rooted={rooted} checkpoint={checkpoint}"))
 }
 
 pub async fn registered_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     run_mode_with_workers(rooted, store, Mode::RegisteredPreview, 1).await
 }
 
-pub async fn cancelled_preparation(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bool) -> Result<()> {
-    run_mode_with_workers(rooted, store, if checkpoint {
-        Mode::CancelledCheckpointPreview
-    } else {
-        Mode::CancelledPreview
-    }, 1).await.with_context(|| format!("cancelled private image rooted={rooted} checkpoint={checkpoint}"))
+pub async fn cancelled_preparation(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    checkpoint: bool,
+) -> Result<()> {
+    run_mode_with_workers(
+        rooted,
+        store,
+        if checkpoint {
+            Mode::CancelledCheckpointPreview
+        } else {
+            Mode::CancelledPreview
+        },
+        1,
+    )
+    .await
+    .with_context(|| format!("cancelled private image rooted={rooted} checkpoint={checkpoint}"))
 }
 
 enum Mode {
@@ -175,12 +226,14 @@ async fn run_mode_with_workers(
             | Mode::CancelledPreview
             | Mode::CancelledCheckpointPreview
     );
+    let preparation: ArmPreparation = Arc::new(Mutex::new(None));
     let calls = Arc::new(AtomicUsize::new(0));
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
     let reader = Arc::new(ReadGate::default());
     let query_reader = reader.clone();
     let sql_thread = Arc::new(Mutex::new(None));
     let source_thread = sql_thread.clone();
+    let cell_preparation = preparation.clone();
     let deny_reopen = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let reopened = Arc::new(AtomicUsize::new(0));
     let probes = calls.clone();
@@ -206,9 +259,12 @@ async fn run_mode_with_workers(
             query_reader.hold();
             Ok(vec![])
         })?;
+    let registered_preparation = preparation.clone();
     let class = if matches!(mode, Mode::RegisteredPreview) {
-        class.command("Registered", [189; 32], |context, _| {
-            Ok(update(&context.storage()?, 2)?.to_string().into_bytes())
+        class.command("Registered", [189; 32], move |context, _| {
+            let value = update(&context.storage()?, 2)?;
+            arm_preparation(&registered_preparation);
+            Ok(value.to_string().into_bytes())
         })?
     } else {
         class
@@ -221,6 +277,7 @@ async fn run_mode_with_workers(
             move |context, _| {
                 Ok(Arc::new(PausedCell {
                     storage: context.storage()?,
+                    preparation: cell_preparation.clone(),
                     gates: waiting.clone(),
                     calls: called.clone(),
                     sql_thread: source_thread.clone(),
@@ -363,7 +420,7 @@ async fn run_mode_with_workers(
                 _ => "Add",
             })?;
             if matches!(mode, Mode::CancelledPreview | Mode::CancelledCheckpointPreview) {
-                let (release, started) = hold_apply(&faults);
+                let (release, started) = hold_private_preparation(faults.clone(), &preparation);
                 let mut command = Box::pin(other.command(
                     &add, b"{}".to_vec(), interleaving::command(189, 1, Durability::Quorum)?,
                 ));
@@ -386,7 +443,7 @@ async fn run_mode_with_workers(
                 return Ok(());
             }
             if preview {
-                let (release, started) = hold_apply(&faults);
+                let (release, started) = hold_private_preparation(faults.clone(), &preparation);
                 let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let completed = finished.clone();
                 let write_options = interleaving::command(189, 1, Durability::Quorum)?;
@@ -398,7 +455,6 @@ async fn run_mode_with_workers(
                     },
                     async {
                         cellar::asyncrt::timeout(TIMEOUT, started).await??;
-                        eprintln!("PRIVATE_IMAGE_PREPARATION_GATE rooted={rooted}");
                         let status = cluster.hosts[0].group(group)?.status().await?;
                         ensure!(status.applied.index == status.committed, "private image reached Raft before its persistence barrier");
                         let response = cellar::asyncrt::timeout(Duration::from_secs(1), source.query(

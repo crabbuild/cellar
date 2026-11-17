@@ -95,7 +95,12 @@ mod rpc_progress;
 async fn private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
     for rooted in [false, true] {
         for checkpoint in [false, true] {
-            rpc_progress::private_preparation(rooted, Arc::new(catalog_fault::Store::default()), checkpoint).await?;
+            rpc_progress::private_preparation(
+                rooted,
+                Arc::new(catalog_fault::Store::default()),
+                checkpoint,
+            )
+            .await?;
         }
     }
     Ok(())
@@ -106,8 +111,20 @@ async fn private_image_preparation_releases_the_single_sql_worker() -> Result<()
 async fn rustfs_private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
     for rooted in [false, true] {
         for checkpoint in [false, true] {
-            let backend = rustfs::store(if checkpoint { "private-checkpoint-progress" } else { "private-final-progress" }, rooted)?;
-            rpc_progress::private_preparation(rooted, Arc::new(catalog_fault::Store::around(backend)), checkpoint).await?;
+            let backend = rustfs::store(
+                if checkpoint {
+                    "private-checkpoint-progress"
+                } else {
+                    "private-final-progress"
+                },
+                rooted,
+            )?;
+            rpc_progress::private_preparation(
+                rooted,
+                Arc::new(catalog_fault::Store::around(backend)),
+                checkpoint,
+            )
+            .await?;
         }
     }
     Ok(())
@@ -116,7 +133,8 @@ async fn rustfs_private_image_preparation_releases_the_single_sql_worker() -> Re
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn registered_image_preparation_releases_the_single_sql_worker() -> Result<()> {
     for rooted in [false, true] {
-        rpc_progress::registered_preparation(rooted, Arc::new(catalog_fault::Store::default())).await?;
+        rpc_progress::registered_preparation(rooted, Arc::new(catalog_fault::Store::default()))
+            .await?;
     }
     Ok(())
 }
@@ -125,7 +143,14 @@ async fn registered_image_preparation_releases_the_single_sql_worker() -> Result
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_registered_image_preparation_releases_the_single_sql_worker() -> Result<()> {
     for rooted in [false, true] {
-        rpc_progress::registered_preparation(rooted, Arc::new(catalog_fault::Store::around(rustfs::store("registered-image-progress", rooted)?))).await?;
+        rpc_progress::registered_preparation(
+            rooted,
+            Arc::new(catalog_fault::Store::around(rustfs::store(
+                "registered-image-progress",
+                rooted,
+            )?)),
+        )
+        .await?;
     }
     Ok(())
 }
@@ -134,7 +159,12 @@ async fn rustfs_registered_image_preparation_releases_the_single_sql_worker() ->
 async fn cancelled_private_preparation_keeps_physical_custody_until_close_joins() -> Result<()> {
     for rooted in [false, true] {
         for checkpoint in [false, true] {
-            rpc_progress::cancelled_preparation(rooted, Arc::new(catalog_fault::Store::default()), checkpoint).await?;
+            rpc_progress::cancelled_preparation(
+                rooted,
+                Arc::new(catalog_fault::Store::default()),
+                checkpoint,
+            )
+            .await?;
         }
     }
     Ok(())
@@ -142,11 +172,24 @@ async fn cancelled_private_preparation_keeps_physical_custody_until_close_joins(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
-async fn rustfs_cancelled_private_preparation_keeps_physical_custody_until_close_joins() -> Result<()> {
+async fn rustfs_cancelled_private_preparation_keeps_physical_custody_until_close_joins(
+) -> Result<()> {
     for rooted in [false, true] {
         for checkpoint in [false, true] {
-            let backend = rustfs::store(if checkpoint { "cancelled-checkpoint-progress" } else { "cancelled-final-progress" }, rooted)?;
-            rpc_progress::cancelled_preparation(rooted, Arc::new(catalog_fault::Store::around(backend)), checkpoint).await?;
+            let backend = rustfs::store(
+                if checkpoint {
+                    "cancelled-checkpoint-progress"
+                } else {
+                    "cancelled-final-progress"
+                },
+                rooted,
+            )?;
+            rpc_progress::cancelled_preparation(
+                rooted,
+                Arc::new(catalog_fault::Store::around(backend)),
+                checkpoint,
+            )
+            .await?;
         }
     }
     Ok(())
