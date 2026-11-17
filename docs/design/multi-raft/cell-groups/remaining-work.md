@@ -57,49 +57,51 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Runtime `234d12f55` makes authenticated Queue `info` and
-`peek` immutable strong reads, preserving the committed version and ingress
-allocator. Mutations retain their command/receipt path. Leader policy, fresh
-quorum, independent S3 coverage, current fences and bounded retention remain.
-Enrollment installs the Queue schema before any native RPC; the initializer
-digest change requires fresh compatible namespaces and matching voters.
+latest main `16c45b266`. Runtime `24a43738e` separates private SQL capture from
+bounded, joined image verification/persistence for native RPC results,
+checkpoints, registered SQL and framework commands. Final fixture source
+`4c70d0641` passes all six new boundary selections: **20 native/RustFS
+configurations**, including both image forms and physical cancellation/closure.
+Original authority, Quorum/S3 proofs, admission and request deadlines remain.
+Private writer opening and enrollment still use the SQL worker. Immutable Queue
+`info`/`peek` from `234d12f55` remains in place.
 
-**31 owning units and five public boundary selections pass**, covering 12
-native/RustFS image/minimum configurations plus Fleet Queue conformance. They
-include minority refusal and actual denied-publication gating of a newer Queue
-version, followed by restored S3 reads. Locked builds, strict Clippy and repository
-checks pass. Compatibility controls remain **FAILED, 4/7**: native extent Queue
-producer **2** expires ambiguously, and both retained EventStream controls fail.
-
-**Complete original public 959 remains FAILED, 8/16.** SDK source proof,
-current histories, registration/Fleet and both Axum EventStream lifecycle
-selections pass. Six EventStream selections fail activation or ambiguous Consume
-**2**. Native and RustFS Queue loads each deliver **528 unique messages in
-materialized mode**, then extent mode fails native steady-load primary drain or
-ambiguous RustFS producer **11**. The original load body is byte-identical to
-published `3445aa7fe`; budgets, quotas, minima and assertions are unchanged.
-All **33 current failed voter disks** remain.
+**Original public cohort 991 is FAILED, 7/16.** SDK source proof/history,
+registration and Fleet pass. **Real RustFS Queue load passes both image formats,
+528 unique messages per format.** Native materialized load also delivers 528;
+native extents fail primary drain with eight messages still leased in the last
+strong inspection. All eight EventStream selections fail activation or ambiguous
+Consume **2**. Earlier Axum passes do not establish stability. Compatibility 993
+is **FAILED, 11/14**: the native Queue proof control reports
+`archive journal changed during read`, RustFS binding command **4** expires
+ambiguously, and a queue-count deadline assertion fails on both the frozen
+baseline and current source. Assertions and budgets remain unchanged.
 
 The next feature priorities are:
 
-1. Close extent Queue producer/consumer settlement and autonomous steady-load
-   drain. Resolve the selected durable work/lease state and exact source/target
-   binding receipts; preserve the unknown outcomes of producer commands **2/11**.
-   Materialized load passes do not establish extent-mode progress.
-2. Close EventStream activation and Consume/source settlement under original
-   budgets, preserving ambiguous identities. Complete interrupted bindings, safe
-   unused-sequence sealing and the remaining primitive/lifecycle/recovery matrix.
-3. Close CG-13/15 managed recovery and independent-voter release qualification,
-   then CG-16 cutover. Cumulative host metrics and isolated earlier passes do not
-   identify an exclusive latency cause.
+1. Make S3 journal reads consistent with concurrent atomic publication while
+   retaining file bounds, exact history/receipt coverage and current fencing.
+   The stat/open length mismatch in `controller/archive/journal.rs` is a concrete
+   failing seam, not proof that it causes every primitive timeout.
+2. Close native extent Queue claim/lease/callback settlement and autonomous
+   drain. Reconcile the exact claimed identities and completion receipts for
+   the eight leased messages; preserve ambiguous binding command **4** and the
+   earlier producer identities. A full RustFS load pass is not full Queue support.
+3. Close EventStream activation and Consume/source settlement under the original
+   budgets, including independent S3 minima. Finish autonomous interrupted
+   binding recovery and safe unused-sequence sealing, then the remaining
+   alarm/cron, Workflow, filesystem/payload, WebSocket/provider combined matrix.
+4. Close CG-13/15 current-source managed recovery and independent-voter release
+   qualification, then CG-16 cutover. Resolve the deadline-control queue-count
+   contract without suppressing its failure or weakening callback/ownership checks.
 
-Aggregate 964 records frozen hashes. Functional campaigns are explicitly
-**DIAGNOSTIC**, without temporary runtime probes; independent compiler activity
-is recorded at owning/public boundaries. Assertions and strict isolated-run gates are unchanged;
-these runs add no isolated timing, exclusive-cause, full primitive or release
-acceptance. Voters share one process/separate workspace disks, RustFS1CPU2GiB.
-Owned backend/VM are stopped, objects/failures retained. Counts remain
-**13/17 tasks, 147/195 cases**; index current, historical CG-01 evidence missing.
+Campaign 990 records no compiler overlap. Public 991 observes independent-checkout
+compilation; compatibility 993 is explicitly diagnostic. No isolated load timing,
+exclusive cause, full-family or release acceptance is claimed. Voters share one
+process/separate workspace disks, RustFS1CPU2GiB. All **33 current qualification
+failure disks** and earlier diagnostic failures remain. Counts stay
+**13/17 tasks, 147/195 cases**; generated index current, historical CG-01 evidence
+missing. Aggregate 995 records source, artifact and log hashes.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for

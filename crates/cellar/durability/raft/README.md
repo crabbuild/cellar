@@ -1665,6 +1665,19 @@ publication and receipt-settlement path; it is not a committed response.
 Registered input bytes are retained within the producer budget while queued or
 executing. Cancelling the waiter does not release the physical producer.
 
+Private command SQL capture remains on that worker. Immutable image verification
+and persistence then run on a bounded execution-domain owner, shared by registered
+commands, native RPC final results and Storage checkpoints. The original cell
+lease, byte budget, captured input, image pins and log reservation remain held
+until entered I/O joins. Only typed physical inventory contention retries that
+same input within the original deadline; it never replays SQL or a callback.
+The SQL owner rechecks the exact producer, engine, route, term and execution
+authority before adopting the image and exposing a prepared proposal. A pending
+checkpoint cannot park its writer. Cancellation/closure joins physical preparation
+and retires an unsubmitted preview before releasing its custody. Private writer
+opening and enrollment still run on SQL workers; this is not a general guarantee
+that all filesystem work is off those workers.
+
 `CommandContext::identity()` and `RaftEffectTarget` now use `CellHistory` without a
 physical group ID. Alarm clients, outbox lane identities and signed requests use
 that logical history; normal group reassignment preserves them, while a new cell

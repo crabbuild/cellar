@@ -29,6 +29,67 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `24a43738e`, qualified with final
+fixture source `4c70d0641`, moves private command image verification and persistence
+off the fixed SQL worker.** Native RPC final results, Storage checkpoints,
+registered SQL and framework commands share a bounded execution-domain preparation
+owner. SQL capture and callbacks remain on their original worker. Prepared images
+supply no proposal or acknowledgement authority; the SQL owner rechecks its exact
+producer, route, engine, term and live execution authority before adoption.
+
+Entered I/O retains the original cell lease, bytes, image pins and log reservation
+through physical join, including cancellation and shutdown. Unsubmitted images
+are retired on refusal. Only typed physical inventory contention can retry the
+same captured input within the original deadline; SQL and callbacks never replay
+in that phase. A checkpoint cannot park its writer while preparation is pending.
+Private writer opening and enrollment still use the SQL worker.
+
+**All six new boundary selections pass: 20 native/real-RustFS configurations.**
+Both image formats cover RPC final results/checkpoints, registered commands and
+cancellation with joined host closure. A held image-directory sync precedes Raft
+submission; an unrelated public linearizable read must finish within the original
+one-second oracle. Final Quorum result/version and exact replay checks pass.
+Baseline `a2ec7de4` fails that read oracle. Fixture corrections isolate catalogs
+between runs and arm the extent fault after writer admission; the earlier
+miswired campaign remains failed, without a byte-identical whole-helper claim.
+
+**Original public cohort 991 is FAILED, 7/16.** Native/RustFS SDK source proof
+and current-history resolution, registration and Fleet conformance pass.
+**Real RustFS Queue load passes both image formats, each delivering 528 unique
+messages**, including the original archive-outage and load workload. Native
+materialized mode also delivers 528; native extent mode fails primary drain with
+**eight leased messages in its last successful strong inspection**. This is a
+selected live observation, not a conclusion about their eventual outcomes.
+All eight EventStream selections fail activation or ambiguous Consume **2**.
+Two Axum selections passed the preceding 959 campaign; this run does not establish
+stability, speedup or an exclusive cause for the changed outcomes.
+
+**Compatibility controls 993 are FAILED, 11/14.** Registered identity/receipts,
+leader-change reconciliation, retained producer admission, shutdown ownership and
+unrelated-apply RPC/checkpoint progress pass. The native Queue proof control fails
+`archive journal changed during read`; the RustFS control expires ambiguously at
+binding command **4**. The deadline-dequeue control observes queue count zero
+instead of one, with callback count zero. Frozen baseline/current comparison 994
+fails the same assertion using the byte-identical fixture; the control remains
+open rather than being relaxed or suppressed.
+
+Campaign 990 has empty compiler pre/postflight snapshots. An independent checkout
+compiled during public 991; compatibility 993 is explicitly diagnostic. Strict
+control preflight 992 stopped before any test and is recorded as failed. Voters
+share one process/separate workspace disks, RustFS uses one CPU/two GiB. These
+results add no isolated load timing, full-family or independent-voter release
+acceptance. All **33 current qualification failure disks** and earlier diagnostic
+failures are retained. Evidence, metrics and hashes are summarized by ignored
+aggregate 995 under `.cellar/cg17-payload-01/`.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close consistent S3 journal
+reads across publication, exact native Queue claim/callback settlement and
+EventStream activation/Consume within the original deadlines; then interrupted
+binding recovery and the remaining primitive/recovery matrix. The generated plan
+is current; historical CG-01 evidence remains missing.
+
+## Previous immutable Queue inspection checkpoint
+
 Latest main `16c45b266` is included. **Runtime `234d12f55` serves authenticated
 Queue `info` and `peek` through immutable linearizable queries.** Inspection of
 an existing Queue does not allocate an ingress sequence or append a Queue command.

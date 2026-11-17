@@ -150,6 +150,17 @@ remain mandatory; authority waiting never authorizes callback replay.
 
 ## Qualification and remaining scope
 
+Runtime `24a43738e` defers private command image verification/persistence while
+retaining its original producer and durability fences. Final source `4c70d0641`
+passes real-RustFS Queue load in both image formats, delivering 528 unique
+messages each. Native materialized mode also passes; native extent drain leaves
+eight leased messages in its last strong inspection. Queue proof controls remain
+failed on a concurrent journal-read error or ambiguous binding command 4. These
+results do not close full Queue compatibility; see the
+[current checkpoint](progress.md#current-integration-checkpoint) for exact scope,
+failed controls and the next claim/callback settlement work.
+
+
 The [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness)
 at `15b9bf46` passes deadline guards, four interleaving configurations and both
 ordinary JSON RPC images. Its load campaign fails during cold S3-minimum DLQ
