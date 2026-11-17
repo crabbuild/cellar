@@ -161,8 +161,10 @@ impl CellGroupApplyImages {
                     }
                     // The ticket binds the exact already replayed input. Read
                     // the complete destination again so a warm pin never hides
-                    // missing or corrupt bytes. Publication still follows sync.
-                    pin.verify_and_sync().map_err(storage)?;
+                    // missing or corrupt bytes. This exact inventory already
+                    // completed the immutable image's persistence barriers;
+                    // root publication retains its separate mandatory sync.
+                    images.recheck_owned(pin).map_err(storage)?;
                     CellImagePin::Materialized(pin.clone())
                 } else if verify_existing {
                     CellImagePin::Materialized(

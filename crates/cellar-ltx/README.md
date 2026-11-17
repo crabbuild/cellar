@@ -37,6 +37,13 @@ identities, files, cached images and persistent storage live together in
 [`src/extent/`](src/extent/mod.rs), with the node inventory in `store/`.
 Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
+`GenerationStore::recheck_owned` rereads a materialized image completely while
+reusing the file and directory barriers completed by that exact open inventory.
+Only the live local prepared-apply handoff uses this optimization. Read or sync
+failures invalidate the observation; subsequent reuse must sync again. Cold
+adoption and independent `GenerationPin::verify_and_sync` retain both barriers.
+Root publication, archive proof and consensus authority remain separate.
+
 `GenerationStore::pin_prepared` reopens an exactly identified materialized image
 for a preparation retry. It verifies cold image bytes and persistence barriers,
 preserves the existing host retention flag, and refuses missing or mismatched

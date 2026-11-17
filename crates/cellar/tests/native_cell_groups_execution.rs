@@ -581,6 +581,11 @@ async fn committed_apply_reuses_owned_image_persistence_barrier() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn owned_image_recheck_preserves_verification_and_cold_barriers() -> Result<()> {
+    runtime_fixture::owned_image_recheck_guards().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn verified_extent_preparation_passes_to_committed_apply() -> Result<()> {
     runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Live)
         .await

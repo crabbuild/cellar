@@ -9,7 +9,10 @@ use crate::host::{create_dir_all_durable, FileSystem, HostFile, HostFileLock};
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, MutexGuard,
+};
 
 #[path = "generation_receive.rs"]
 mod receive;
@@ -101,6 +104,10 @@ pub enum GenerationError {
 struct ImageRecord {
     id: ImageId,
     state: ImageState,
+    // Completed barriers on this exact open inventory, never serialized.
+    // Rechecking still reads all bytes; any verification failure invalidates
+    // this observation before another local reuse can succeed.
+    persisted: AtomicBool,
 }
 
 struct Entry {
@@ -207,14 +214,27 @@ impl GenerationPin {
     /// its seal is already cached. Run on its joined blocking owner. This
     /// verifies physical bytes; it supplies no publication or consensus right.
     pub fn verify_and_sync(&self) -> Result<(), GenerationError> {
-        let mut file = self
-            .inner
-            .filesystem
-            .open(&self.inner.directory.join(final_name(self.id())))?;
-        apply::inspect(&mut file, &self.state(), None)?;
-        file.sync_all()?;
-        self.inner.filesystem.sync_all(&self.inner.directory)?;
-        Ok(())
+        self.verify(true)
+    }
+
+    fn verify(&self, force_sync: bool) -> Result<(), GenerationError> {
+        let result = (|| {
+            let mut file = self
+                .inner
+                .filesystem
+                .open(&self.inner.directory.join(final_name(self.id())))?;
+            apply::inspect(&mut file, &self.state(), None)?;
+            if force_sync || !self.image.persisted.load(Ordering::Acquire) {
+                file.sync_all()?;
+                self.inner.filesystem.sync_all(&self.inner.directory)?;
+                self.image.persisted.store(true, Ordering::Release);
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.image.persisted.store(false, Ordering::Release);
+        }
+        result
     }
 
     pub fn id(&self) -> ImageId {
@@ -655,6 +675,20 @@ impl GenerationStore {
         Arc::ptr_eq(&self.inner, &pin.inner)
     }
 
+    /// Recheck the complete bytes of this inventory's already durable image.
+    /// Successful preparation/adoption completed both persistence barriers;
+    /// unchanged immutable bytes need no second barrier for local apply.
+    /// A failed verification invalidates that observation and requires fresh
+    /// file/directory syncs before reuse. Cold/reopened inventories still need
+    /// ordinary adoption. Independent verification uses `verify_and_sync`.
+    /// This grants no publication, consensus, archive or serving authority.
+    pub fn recheck_owned(&self, pin: &GenerationPin) -> Result<(), GenerationError> {
+        if !self.owns(pin) {
+            return Err(GenerationError::Identity);
+        }
+        pin.verify(false)
+    }
+
     /// Build a new image from an exact pinned base. The returned image is fully
     /// fsynced and immutable. The host must separately persist its Raft apply
     /// marker before publishing this pin to readers or settling a command.
@@ -953,7 +987,11 @@ impl GenerationStore {
         })();
         match result {
             Ok(image) => {
-                let record = Arc::new(ImageRecord { id, state: image });
+                let record = Arc::new(ImageRecord {
+                    id,
+                    state: image,
+                    persisted: AtomicBool::new(true),
+                });
                 let mut state = self.lock()?;
                 if let Some(selected) = &mut reclamation {
                     selected.finish(&mut state)?;
@@ -1057,10 +1095,15 @@ impl GenerationStore {
                     return Err(GenerationError::Identity);
                 }
                 entry.retained |= retain;
-                return Ok(GenerationPin {
+                let pin = GenerationPin {
                     inner: self.inner.clone(),
                     image: image.clone(),
-                });
+                };
+                drop(state);
+                if !pin.image.persisted.load(Ordering::Acquire) {
+                    pin.verify_and_sync()?;
+                }
+                return Ok(pin);
             }
             if !entry.files.iter().any(|(name, _)| name == &final_name(id)) {
                 return Err(GenerationError::Missing);
@@ -1085,6 +1128,7 @@ impl GenerationStore {
         let image = Arc::new(ImageRecord {
             id,
             state: expected,
+            persisted: AtomicBool::new(true),
         });
         let mut state = self.lock()?;
         let entry = state

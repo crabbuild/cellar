@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Exact local preparation custody at the real committed-apply boundary.
+use super::apply_faults::physical;
 use super::*;
 use std::collections::BTreeSet;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -154,8 +155,13 @@ pub(crate) async fn verified_preparation_handoff(
             faults.all_directory_files.store(true, Ordering::Release);
         }
         let image_barriers = faults.image_seals.lock().unwrap().len();
-        let directory_barriers = faults.events.lock().unwrap().iter()
-            .filter(|event| **event == "directory-sync").count();
+        let directory_barriers = faults
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| **event == "directory-sync")
+            .count();
         let deny = Arc::new(AtomicBool::new(true));
         let denials = Arc::new(AtomicUsize::new(0));
         let denied = denials.clone();
@@ -210,7 +216,14 @@ pub(crate) async fn verified_preparation_handoff(
         if matches!(case, PreparationCase::Sealed) {
             anyhow::ensure!(
                 faults.image_seals.lock().unwrap().len() == image_barriers
-                    && faults.events.lock().unwrap().iter().filter(|event| **event == "directory-sync").count() == directory_barriers,
+                    && faults
+                        .events
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|event| **event == "directory-sync")
+                        .count()
+                        == directory_barriers,
                 "committed apply repeated an already completed local image persistence barrier"
             );
             anyhow::ensure!(
@@ -284,6 +297,127 @@ pub(crate) async fn verified_preparation_handoff(
         let root = std::mem::replace(&mut fixture.cluster._root, tempfile::tempdir()?);
         eprintln!("retained prepared apply disk: {}", root.keep().display());
     }
+    let cleanup = fixture.close().await;
+    work?;
+    cleanup
+}
+
+pub(crate) async fn owned_image_recheck_guards() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let directory = root.path().join("node-1/images");
+    let faults = Faults::new(directory.clone(), None);
+    let filesystem: Arc<dyn cellar_ltx::FileSystem> = Arc::new(FaultFileSystem {
+        faults: faults.clone(),
+    });
+    let cluster =
+        Cluster::with_storage(RaftRuntimeOptions::default(), root, filesystem.clone()).await?;
+    let cluster = RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000).await?;
+    let (fixture, route, cell, _) = enroll_sql_cells(cluster, false, filesystem).await?;
+    let authority = fixture.runtimes[0]
+        .execution_authority(route.history, cell)
+        .await?;
+    let CellImagePin::Materialized(pin) = authority.image().clone() else {
+        anyhow::bail!("materialized image")
+    };
+    drop(authority);
+    let local = fixture.cluster.voters[0].images.clone();
+    let foreign = fixture.cluster.voters[1].images.clone();
+    let observed = faults.clone();
+    let work = fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<()> {
+            observed.all_directory_files.store(true, Ordering::Release);
+            let barriers = observed.image_seals.lock().unwrap().len();
+            observed
+                .mode
+                .store(physical::FAIL_IMAGE_SYNC, Ordering::Release);
+            local.recheck_owned(&pin)?;
+            anyhow::ensure!(observed.image_seals.lock().unwrap().len() == barriers);
+            anyhow::ensure!(
+                observed.mode.load(Ordering::Acquire) == physical::FAIL_IMAGE_SYNC,
+                "warm owned recheck repeated its image barrier"
+            );
+            anyhow::ensure!(
+                matches!(
+                    foreign.recheck_owned(&pin),
+                    Err(cellar_ltx::generation::GenerationError::Identity)
+                ),
+                "foreign inventory borrowed a local persistence proof"
+            );
+            anyhow::ensure!(
+                pin.verify_and_sync().is_err(),
+                "independent verification skipped its barrier"
+            );
+            anyhow::ensure!(observed.mode.load(Ordering::Acquire) == 0);
+
+            // Failed verification must revoke the reusable observation, including
+            // when the full file barrier succeeds but its directory barrier fails.
+            observed
+                .mode
+                .store(physical::FAIL_DIRECTORY_SYNC, Ordering::Release);
+            anyhow::ensure!(local.recheck_owned(&pin).is_err());
+            anyhow::ensure!(observed.mode.load(Ordering::Acquire) == 0);
+            observed
+                .mode
+                .store(physical::FAIL_IMAGE_SYNC, Ordering::Release);
+            anyhow::ensure!(
+                local.adopt(pin.id(), pin.state()).is_err(),
+                "warm adoption borrowed an invalidated persistence proof"
+            );
+            anyhow::ensure!(observed.mode.load(Ordering::Acquire) == 0);
+            local.recheck_owned(&pin)?;
+
+            let path = directory.join(format!("{}.sqlite", hex::encode(pin.id().bytes())));
+            let before = flip(&path)?;
+            anyhow::ensure!(
+                local.recheck_owned(&pin).is_err(),
+                "warm pin hid corrupt image bytes"
+            );
+            anyhow::ensure!(flip(&path)? == (before ^ 1));
+            observed
+                .mode
+                .store(physical::FAIL_IMAGE_SYNC, Ordering::Release);
+            anyhow::ensure!(
+                local.recheck_owned(&pin).is_err(),
+                "byte corruption did not invalidate the persistence proof"
+            );
+            anyhow::ensure!(observed.mode.load(Ordering::Acquire) == 0);
+            local.recheck_owned(&pin)?;
+
+            let cold = tempfile::tempdir()?;
+            let cold_directory = cold.path().join("images");
+            std::fs::create_dir_all(&cold_directory)?;
+            std::fs::copy(
+                &path,
+                cold_directory.join(path.file_name().context("image filename")?),
+            )?;
+            let cold_faults = Faults::new(cold_directory.clone(), None);
+            let cold_store = cellar_ltx::generation::GenerationStore::open(
+                cold_directory,
+                Arc::new(FaultFileSystem {
+                    faults: cold_faults.clone(),
+                }),
+                Default::default(),
+            )?;
+            cold_faults
+                .all_directory_files
+                .store(true, Ordering::Release);
+            cold_faults
+                .mode
+                .store(physical::FAIL_IMAGE_SYNC, Ordering::Release);
+            anyhow::ensure!(
+                cold_store.adopt(pin.id(), pin.state()).is_err(),
+                "cold image borrowed the previous inventory's barrier"
+            );
+            anyhow::ensure!(
+                cold_faults.mode.load(Ordering::Acquire) == 0,
+                "cold adoption did not attempt image sync"
+            );
+            Ok(())
+        })?
+        .await?;
+    faults.mode.store(0, Ordering::Release);
     let cleanup = fixture.close().await;
     work?;
     cleanup

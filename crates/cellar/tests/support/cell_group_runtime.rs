@@ -974,7 +974,7 @@ pub(super) use sql::{
 
 pub(super) use sql::apply_images;
 pub(super) use sql::committed_apply_reuses_verified_preview;
-pub(super) use sql::{verified_preparation_handoff, PreparationCase};
+pub(super) use sql::{owned_image_recheck_guards, verified_preparation_handoff, PreparationCase};
 
 pub(super) use sql::{apply_cancellation, apply_failure};
 

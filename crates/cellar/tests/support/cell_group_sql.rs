@@ -517,7 +517,9 @@ pub(crate) use commit_publication::run as commit_metadata_publication;
 
 #[path = "cell_group_prepared_apply.rs"]
 mod prepared_apply;
-pub(crate) use prepared_apply::{verified_preparation_handoff, PreparationCase};
+pub(crate) use prepared_apply::{
+    owned_image_recheck_guards, verified_preparation_handoff, PreparationCase,
+};
 
 #[path = "cell_group_sql_apply_faults.rs"]
 mod apply_faults;
