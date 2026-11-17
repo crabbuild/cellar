@@ -4,7 +4,41 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current S3 output progress delivery
+## Current immutable-read progress delivery
+
+Latest main `16c45b266` is included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `3c088080a` keeps the
+first immutable automatic read alive under the original deadline beside a serial
+fallback. At most two waiters share captured input and the existing attempt bank.
+Each destination independently proves consistency and S3 minimum; late first
+results must match the current route and live original deadline. Physical loser
+work retains admission until joined. Explicit routing and commands are unchanged.
+
+**18 read/routing controls pass**, including both new image-form regressions that
+fail baseline `1842ddcf5` with the exact same helper body. **Complete public cohort
+839 is FAILED, 6/16**: SDK source-proof and retained binding histories pass native/
+RustFS, registration/Fleet pass, while all eight EventStream and both Queue loads
+fail. Preserve ambiguous Consume parent **2** and native Queue producer **11**.
+RustFS Queue expires in an unlabelled 30-second empty/drain wait; no 528-message
+completion marker establishes full load completion. All 30 failed disks remain.
+
+Next finish activation and exact Consume/source-parent settlement, then Queue
+production/drain under original budgets. Continue autonomous interrupted bindings,
+safe sequence sealing and remaining primitive/recovery coverage before cutover.
+Prior diagnostic child Ack **3** is historical evidence, not a new 839 observation;
+do not retarget ambiguous identities or infer unused sequences from phase zero.
+
+Use ignored `.cellar/cg17-payload-01/query-progress-aggregate-847.json` for exact
+pins and frozen records. Read controls have empty compiler boundary snapshots;
+public postflight observes a compiler in independent `tikv-cursor-refusal`, so no
+isolation, exclusive-cause or latency-stability claim is added. RF3 voters share
+one process/separate workspace disks; RustFS1CPU2GiB and its VM are stopped with
+objects retained. Counts stay **13/17 tasks, 147/195 cases**; full primitive/release
+acceptance and historical CG-01 evidence remain open. See
+[progress](progress.md#current-integration-checkpoint) and
+[priorities](remaining-work.md#primitive-delivery-priority).
+
+## Previous S3 output progress delivery
 
 Latest main `16c45b266` is included; reuse PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `ee69e0ce5`, qualified

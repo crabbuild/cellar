@@ -29,6 +29,50 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `3c088080a` preserves the first
+immutable automatic read under its original deadline while a serial fallback
+tries trusted replicas.** At most two waiters run concurrently. They share the
+captured request and finite attempt bank; every destination independently proves
+consistency and required S3 coverage. A late first result must match the current
+selected route and live original deadline. A successor or unfinished refresh
+refuses it. Cancelled physical SQL/transport work retains its existing admission
+until joined. Explicit replica-routing timeouts and mutation semantics are unchanged.
+
+**All 18 read/routing controls pass.** The new physical regression holds the first
+callback until a fallback enters, then releases only the first callback. Its result
+must finish before releasing the blocked peer, whose physical reservation remains
+charged. Both image forms fail this oracle at baseline `1842ddcf5` and pass at
+`3c088080a` with the same test body. Existing blocked-local failover, one-ticket
+refusal, explicit replica budgets, quorum, token, grant, stale-route and physical
+cleanup controls pass. Locked builds, strict library/all-test Clippy, formatting,
+layout and native dependency checks pass.
+
+**The complete original public cohort 839 is FAILED, 6/16.** SDK source-proof
+and retained-history binding recovery pass native/real RustFS; registration and
+ordinary Fleet conformance pass. All eight EventStream selections and both Queue
+loads still fail. Ordinary native and RustFS EventStream reach ambiguous Consume
+parent **2**; other paths miss activation deadlines. Native Queue producer **11**
+is ambiguous. RustFS Queue expires in the 30-second `empty` wait; its unlabelled
+call site does not establish which drain phase completed. Neither load has a
+528-message completion marker. All 30 failed voter disks are retained. Do not
+replace these failures with the new read controls or claim full primitive support.
+
+Read-control compiler boundary snapshots are empty. Public preflight is empty,
+but postflight observes an independent `tikv-cursor-refusal` checkout compiling;
+that limits isolation of the public campaign. No exclusive failure cause, speedup
+or latency-stability claim follows. RF3 voters share one process and separate
+workspace disks; real RustFS uses one CPU/two GiB. Owned backend/VM are stopped,
+objects retained. Aggregate 847 records exact source/binary/log hashes, unchanged
+regression body and qualification limits under ignored `.cellar/cg17-payload-01/`.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close catalog/broker
+activation, exact Consume/source-parent settlement and Queue production/drain
+under original budgets. Then finish autonomous interrupted binding/unused-sequence
+recovery and the remaining primitive/lifecycle/recovery matrix before CG-13/15/16
+cutover. Historical CG-01 evidence is still missing; no release acceptance is added.
+
+## Previous S3 output checkpoint
+
 Latest main `16c45b266` is included. **Runtime `ee69e0ce5`, qualified at
 `9f767cce`, lets an exact quorum-committed, S3-proven command response settle
 while later mutations for other cells await apply.** The current leader must
