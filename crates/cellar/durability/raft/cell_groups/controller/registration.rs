@@ -683,7 +683,7 @@ impl Completed {
 }
 
 #[cfg(test)]
-mod partition_inventory_tests {
+mod tests {
     use super::*;
     use cellar_logic::consensus::{ClusterId, GroupId, IncarnationId, NamespaceId};
 
@@ -704,6 +704,31 @@ mod partition_inventory_tests {
         let page = roster.partition_page(scopes, None, None, capacity, capacity.min(16))?;
         assert!(page.next.is_none());
         Ok(page.groups)
+    }
+
+    #[test]
+    fn completed_member_removal_remains_retired_for_late_events() {
+        let removed = history(1, 2);
+        let split = history(2, 2);
+        let active = history(3, 2);
+        let unknown = history(4, 2);
+        let roster = GroupRoster::new([removed, split, active].into_iter(), 8);
+        assert!(!roster.retired(&removed));
+        assert!(!roster.begin_retirement(removed).unwrap());
+        assert!(!roster.begin_retirement(split).unwrap());
+        // Quiescing owners still have to drain their queued apply tickets.
+        assert!(!roster.retired(&removed));
+        roster.finish_retirement(removed, true).unwrap();
+        roster.finish_retirement(split, false).unwrap();
+        // The controller may discard late metadata for either fully joined
+        // owner, but neither owner becomes eligible for dispatch again.
+        assert!(roster.retired(&removed));
+        assert!(roster.retired(&split));
+        assert!(!roster.contains(&removed).unwrap());
+        assert!(!roster.contains(&split).unwrap());
+        assert!(!roster.retired(&active));
+        assert!(!roster.retired(&unknown));
+        assert!(roster.contains(&active).unwrap());
     }
 
     #[test]

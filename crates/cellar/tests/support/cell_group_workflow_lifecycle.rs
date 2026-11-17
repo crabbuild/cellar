@@ -346,6 +346,9 @@ async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
         1,
     )
     .await;
+    if let Err(error) = &closed {
+        eprintln!("Workflow lifecycle joined close failed: {error:#}");
+    }
     if work.is_err() || closed.is_err() {
         for root in std::mem::take(&mut cluster.roots) {
             eprintln!(
