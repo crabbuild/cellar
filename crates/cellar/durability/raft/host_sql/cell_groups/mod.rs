@@ -8,8 +8,8 @@ mod rpc_commit;
 pub(super) use rpc_cache::RpcCache;
 pub(crate) use rpc_commit::RpcCommitContext;
 mod apply;
-pub(in crate::raft::host_sql) use apply::ApplyRequest;
 pub use apply::CellGroupPreparedApply;
+pub(in crate::raft::host_sql) use apply::{ApplyRequest, ApplyTasks};
 mod query;
 pub(crate) use query::{ReadRetention, RegisteredQuery};
 mod worker;
@@ -43,6 +43,7 @@ pub(super) use worker::{Cells, Request};
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct CellSqlLimits {
+    /// Fixed SQL owners; physical apply shares the independent node admission bank.
     pub workers: usize,
     pub queue_per_worker: usize,
     pub max_pending_cells: usize,

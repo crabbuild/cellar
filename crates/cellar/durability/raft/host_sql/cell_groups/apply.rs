@@ -1,20 +1,115 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Apply uses the existing workers' reserved progress lane, independently of SQL producers.
+//! Bounded physical apply progresses independently of the owning SQL worker.
 
 use super::*;
 use crate::raft::cell_groups::{
     CellGroupApplier, CellGroupApply, CellGroupRuntime, GroupManifest, PreparedGroupManifest,
 };
+use futures_util::{stream::FuturesUnordered, Stream};
 use sha2::{Digest, Sha256};
+use std::{
+    pin::Pin,
+    task::{Context, Poll, Waker},
+};
 
 pub(in crate::raft::host_sql) struct ApplyRequest {
     pub group: GroupHistory,
     applier: CellGroupApplier,
     work: CellGroupApply,
     reply: oneshot::Sender<Result<CellGroupPreparedApply, ExecutionError>>,
-    _slot: tokio::sync::OwnedSemaphorePermit,
+    _slot: Option<tokio::sync::OwnedSemaphorePermit>,
     queued: crate::raft::performance::Timer,
+}
+
+/// Physical apply retains its independent byte/item admission until joined and
+/// delivered. The completion semaphore reserves only its SQL-owner queue entry;
+/// dequeuing releases that slot so unrelated groups can enter the existing apply
+/// budget while earlier file I/O is blocked. Task metadata is bounded too.
+pub(in crate::raft::host_sql) struct ApplyTasks {
+    tasks: FuturesUnordered<crate::asyncrt::TaskHandle<()>>,
+    capacity: usize,
+    waker: Waker,
+}
+
+impl ApplyTasks {
+    pub fn new(waker: Waker, capacity: usize) -> Self {
+        Self {
+            tasks: FuturesUnordered::new(),
+            capacity,
+            waker,
+        }
+    }
+
+    fn poll_one(&mut self) -> Poll<Option<Result<(), ExecutionError>>> {
+        let mut context = Context::from_waker(&self.waker);
+        Pin::new(&mut self.tasks)
+            .poll_next(&mut context)
+            .map(|value| {
+                value.map(|result| {
+                    result.map_err(|error| ExecutionError::Storage(anyhow::Error::new(error)))
+                })
+            })
+    }
+
+    pub fn poll(&mut self) -> Result<(), ExecutionError> {
+        while let Poll::Ready(Some(result)) = self.poll_one() {
+            result?;
+        }
+        Ok(())
+    }
+
+    pub fn start(
+        &mut self,
+        mut request: ApplyRequest,
+        domain: &crate::asyncrt::DomainToken,
+        stopped: Arc<AtomicBool>,
+        performance: Arc<crate::raft::performance::Registry>,
+    ) -> Result<(), ExecutionError> {
+        self.poll()?;
+        // Completed task epilogues can briefly outlive their physical budget.
+        // Keep that metadata bounded instead of accumulating escaped handles.
+        while self.tasks.len() >= self.capacity {
+            match self.poll_one() {
+                Poll::Ready(Some(result)) => result?,
+                Poll::Ready(None) => break,
+                Poll::Pending => std::thread::park(),
+            }
+        }
+        request._slot.take();
+        let owner = domain.clone();
+        self.tasks.push(
+            domain
+                .blocking(move || request.execute(&owner, &stopped, &performance))
+                .map_err(|_| unavailable())?,
+        );
+        Ok(())
+    }
+
+    pub fn join(&mut self) -> Result<(), ExecutionError> {
+        let mut failure = None;
+        loop {
+            match self.poll_one() {
+                Poll::Ready(Some(Err(error))) => {
+                    failure.get_or_insert(error);
+                }
+                Poll::Ready(Some(Ok(()))) => (),
+                Poll::Ready(None) => return failure.map_or(Ok(()), Err),
+                // A wake before parking leaves an unpark token. Neither close
+                // nor a failed sibling task can abandon entered physical work.
+                Poll::Pending => std::thread::park(),
+            }
+        }
+    }
+}
+
+impl Drop for ApplyTasks {
+    fn drop(&mut self) {
+        // SQL-owner unwinding must also join file I/O before releasing locks.
+        if let Err(error) = self.join() {
+            tracing::error!(%error, "failed to join physical group apply");
+        }
+    }
 }
 
 /// Retains physical preparation and its admission through delivery, retries and
@@ -42,7 +137,8 @@ impl CellGroupPreparedApply {
 }
 
 impl CellGroupSqlPool {
-    /// Runs image and manifest I/O on the existing fixed workers. A cancelled
+    /// Runs image and manifest I/O in bounded domain work owned by the fixed
+    /// SQL workers, without occupying their callback lane. A cancelled
     /// waiter does not cancel physical work or release its ticket reservations.
     pub async fn prepare_apply(
         &self,
@@ -92,7 +188,7 @@ impl CellGroupSqlPool {
                 applier: applier.clone(),
                 work,
                 reply,
-                _slot: slot,
+                _slot: Some(slot),
                 queued: worker
                     .performance
                     .timer(crate::raft::performance::Operation::SqlQueue),

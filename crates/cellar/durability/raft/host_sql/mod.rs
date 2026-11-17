@@ -39,6 +39,16 @@ impl WorkerWake {
     }
 }
 
+impl std::task::Wake for WorkerWake {
+    fn wake(self: Arc<Self>) {
+        WorkerWake::wake(self.as_ref());
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        WorkerWake::wake(self.as_ref());
+    }
+}
+
 #[derive(Clone)]
 struct Port {
     sender: mpsc::SyncSender<Envelope>,
@@ -275,34 +285,56 @@ impl Pool {
                     worker_wake.0.set(std::thread::current()).map_err(|_| {
                         ExecutionError::Invalid("SQL worker wake already installed")
                     })?;
+                    let apply_waker = std::task::Waker::from(worker_wake.clone());
                     let mut shared = cell_groups::Cells::new(activations, worker_wake);
+                    // Drop apply owners before cells/connections on unwinding.
+                    let mut applying = cell_groups::ApplyTasks::new(apply_waker, max_cells);
                     let mut requests = RequestQueue::new(receiver, capacity);
-                    loop {
-                        if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
-                            break;
-                        }
-                        let wait = if shared.poll_suspended(&owner, &stopped, &performance) {
-                            // Give queued work its turn before trying the next
-                            // ready continuation without the idle tick delay.
-                            Duration::ZERO
-                        } else {
-                            Duration::from_millis(10)
-                        };
-                        let request = match requests.next(wait) {
-                            Ok(request) => request,
-                            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                        };
-                        match request {
-                            Envelope::GroupApply(request) => {
-                                request.execute(&owner, &stopped, &performance);
+                    let result = (|| {
+                        loop {
+                            applying.poll()?;
+                            if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
+                                break;
                             }
-                            Envelope::Shared(request) => {
-                                shared.execute(request, max_cells, &owner, &stopped, &performance);
+                            let wait = if shared.poll_suspended(&owner, &stopped, &performance) {
+                                // Give queued work its turn before trying the next
+                                // ready continuation without the idle tick delay.
+                                Duration::ZERO
+                            } else {
+                                Duration::from_millis(10)
+                            };
+                            let request = match requests.next(wait) {
+                                Ok(request) => request,
+                                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                            };
+                            match request {
+                                Envelope::GroupApply(request) => {
+                                    applying.start(
+                                        *request,
+                                        &owner,
+                                        stopped.clone(),
+                                        performance.clone(),
+                                    )?;
+                                }
+                                Envelope::Shared(request) => {
+                                    shared.execute(
+                                        request,
+                                        max_cells,
+                                        &owner,
+                                        &stopped,
+                                        &performance,
+                                    );
+                                }
                             }
                         }
-                    }
-                    shared.close()
+                        Ok(())
+                    })();
+                    // Join physical apply before retiring callbacks, image
+                    // custody or the physical SQL-owner count, even on errors.
+                    let applied = applying.join();
+                    let closed = shared.close();
+                    result.and(applied).and(closed)
                 })
                 .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
             pool.senders.push(Port { sender, wake });
