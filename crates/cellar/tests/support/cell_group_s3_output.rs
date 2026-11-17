@@ -21,7 +21,12 @@ pub(crate) async fn output_progress(
     store: Arc<dyn object_store::ObjectStore>,
 ) -> Result<()> {
     for duplicate in [false, true] {
-        Box::pin(run(rooted, duplicate, true, store.clone())).await?;
+        let store = Arc::new(object_store::prefix::PrefixStore::new(
+            store.clone(),
+            format!("replay-{duplicate}"),
+        ));
+        Box::pin(run(rooted, duplicate, true, store)).await?;
+        eprintln!("S3 output progress extents={rooted} replay={duplicate}: PASS");
     }
     Ok(())
 }
