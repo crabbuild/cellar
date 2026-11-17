@@ -57,64 +57,63 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Runtime `bef322b4a` closes cold authenticated Queue
-inspection's unnecessary post-enrollment command. Fresh verified absence may
-enroll at the declared minimum, then an immutable query independently proves its
-selected image. Unknown creation retains one identity and may join only fresh
-name discovery. **All eight native/RustFS image/minimum configurations pass**:
-enrollment version 1 and ingress sequence 1 remain unchanged. Baseline `dacd78e11`
-fails the byte-identical regression. Three private wire/admission units pass.
-Journal snapshots and bounded joined private-image preparation remain in place;
-private writer opening and enrollment still use the SQL worker.
+latest main `16c45b266`. Runtime `6a97d8c17` moves normal stateful/stateless SDK
+Queue `metrics()` to private authenticated immutable queries. Declared bindings,
+current policy/term fences, fresh quorum and independent target S3 minima remain.
+Cold source calls use a full checkpoint before possible schema genesis; captured
+existing histories use read-only proof reuse. No target business command or
+ingress sequence is allocated. Unknown enrollment retains one creation/candidate.
 
-**Original Queue cohort 1032 is FAILED, 9/14.** Read version/allocator preservation,
-fresh-quorum and S3 refusal, both claim/lease proof selections and Fleet
-conformance pass. This includes the original RustFS cold S3 DLQ warm-up that
-failed in 1013. Three ordinary native/RustFS/Axum extent lifecycles fail on parent
-client **47**, command **2**: SDK `Queue.metrics()` against the DLQ. Its metadata-only
-handler still uses the command path. Native load producer **26** expires before
-a completion marker; RustFS materialized load delivers **528 unique messages**,
-then extent producer **22** expires. Those timed-out calls retain unknown outcomes.
+**All three original Queue lifecycle selectors pass both image formats**:
+native, real-RustFS native and real-RustFS Axum. Their former extent DLQ metrics
+47/2 failure does not reproduce. Both source-proof, cold operator, selected S3
+refusal and claim/lease proof controls and Fleet conformance pass. Seven owning
+protocol/admission units pass. The identical cold stateless oracle fails on
+baseline `d60140ee0`; its later fixture expansion is recorded explicitly.
 
-The last complete public cohort, 1015 at `ca4bffb71`, remains **FAILED, 8/16**,
-before this Queue-only feature. Seven EventStream paths failed activation or
-Consume **2** there; they were not rerun here. Earlier ambiguous identities,
-leased messages and the deadline-control queue-count failure remain open. A fresh
-pass does not resolve an earlier unknown command. Original assertions, budgets,
-quotas and durability minima remain unchanged.
+**SDK/Queue/source-proof/Fleet cohort 1050 is FAILED, 12/17.** The three new SDK
+selectors fail after eight of their planned 24 configurations complete. Native
+RF3 startup fails before the seventh configuration's request; RustFS native
+returns `StaleAttempt` after archive restoration; Axum cold source binding **47/2**
+expires ambiguously. Both materialized loads deliver **528 unique messages**,
+then extent producers **10/native** and **16/RustFS** expire with unknown outcomes.
+The RustFS attempt begins with 2,998 of its original 3,000 ms remaining. Inspect
+execution inside that attempt without assuming an exclusive cause. Original
+lifecycle/load bodies, budgets, quotas, assertions and minima are unchanged.
 
 The next feature priorities are:
 
-1. Implement the actual SDK Queue metrics read adapter. Preserve source
-   checkpointing, declared-binding authorization, independent target S3 minima,
-   private query admission, current policy/term fences and cold-resource
-   semantics. Lock down target-version preservation before rerunning the three
-   original lifecycle failures. The extra metadata command is established;
-   it is not yet proven to cause every observed deadline.
-2. Close exact Queue producer/claim/lease/callback settlement and autonomous
-   drain under the original budgets. Reconcile producer **26/native** and
-   **22/RustFS** and the earlier leased identities using exact histories and
-   receipts. Preserve all unknown commands. Opening/enrollment still occupy the
-   shared SQL worker; locate actual blocking work before further optimization.
+1. Finish SDK Queue query restoration and cold source binding recovery. Preserve
+   original attempt/deadline banks, current route/fencing checks, independent S3
+   coverage and source checkpointing. Resolve the RF3 setup failure as well; the
+   new SDK matrix remains FAILED until every configuration completes.
+2. Close exact extent producer/claim/lease/callback settlement and autonomous
+   drain. Reconcile producer **10/native**, **16/RustFS**, cold source **47/2** and
+   earlier unknown identities through their exact histories and receipts. Finish
+   interrupted-binding recovery and safe unused-sequence sealing. A fresh history
+   or callback replay cannot establish an earlier mutation's outcome.
 3. Close EventStream activation and Consume/source settlement under the original
-   budgets, including independent S3 minima. Finish autonomous interrupted
-   binding recovery and safe unused-sequence sealing, then the remaining
-   alarm/cron, Workflow, filesystem/payload, WebSocket/provider combined matrix.
+   budgets and independent minima, then the remaining alarm/cron, Workflow,
+   filesystem/payload and WebSocket/provider combined compatibility matrix.
 4. Close CG-13/15 current-source managed recovery and independent-voter release
    qualification, then CG-16 cutover. Resolve the deadline-control queue-count
    contract without suppressing its failure or weakening callback/ownership checks.
 
-Cohort 1032 records independent compilation at preflight and an empty postflight;
-it remains diagnostic. No isolated load timing, stability, exclusive cause,
-full-family or release acceptance is claimed. Voters share one process/separate
-workspace disks, RustFS1CPU2GiB. Locked build, strict library/all-test Clippy and
-repository checks pass, with normal incremental compilation disabled and original
-assertions enabled. The owned backend/VM are stopped, objects retained. All
-**18 failure disks** from this turn's baseline and qualification, plus earlier
-failures, remain. Counts stay **13/17 tasks, 147/195 cases**; generated index
-current, historical CG-01 evidence missing. Aggregate 1036 records source,
-artifact/log hashes and byte-identical regression/load boundaries. Previous
-journal/private-image checkpoints retain their scoped results and failed cohorts.
+The last complete public cohort, 1015 at `ca4bffb71`, remains **FAILED, 8/16**,
+before these Queue features. Its seven failing EventStream paths were not rerun
+here. Earlier ambiguous identities, leased messages and the deadline-control
+queue-count failure remain open. No complete primitive family is newly accepted.
+
+Independent compilation is recorded at cohort pre/postflight; results remain
+diagnostic, without isolated timing, stability, exclusive-cause or release claims.
+Voters share one process/separate workspace disks, RustFS1CPU2GiB; new SDK cases
+use one SQL worker and eight ordinary slots. Locked build, strict library/all-test
+Clippy and repository checks pass with incremental=0 and original assertions
+enabled. Owned RustFS/VM are stopped, objects retained. All **18 failure disks**
+from this turn's baseline and qualification, plus earlier failures, remain.
+Aggregate 1053 verifies source, executable/log hashes, the identical baseline
+oracle and unchanged original lifecycle/load bodies. Counts remain **13/17 tasks,
+147/195 cases**; generated index current, historical CG-01 evidence missing.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for

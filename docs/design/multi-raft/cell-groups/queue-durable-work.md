@@ -138,6 +138,22 @@ Format markers stay at 1, with no
 legacy reader or migration. See the [current qualification](progress.md#current-integration-checkpoint)
 for passing read/proof cases and the remaining extent Queue and EventStream gaps.
 
+### SDK metrics and cold schema genesis
+
+Normal stateful and stateless SDK `Queue.metrics()` uses its own private immutable
+query contract and authenticated wire purpose. Compiled Queue bindings authorize
+the read; public query, operator and EventStream grants cannot substitute for it.
+Current Queue policy/term checks, fresh quorum and independent target S3 coverage
+still apply. Neither metrics nor operator inspection consumes a target business
+command or ingress sequence.
+
+Verified absence may enroll the runtime-owned schema at the declared minimum.
+Unknown enrollment keeps one creation/candidate and can join only fresh name
+discovery. Stateful calls with no captured target history use the full source I/O
+checkpoint because genesis may write schema. Captured existing histories use
+read-only proof reuse and never fall through to genesis on query refusal. Source
+writes are proven before target work; exact parent replay does not repeat callbacks.
+
 ## Shared writer admission
 
 Ordinary requests and parked callbacks share a bounded per-cell FIFO writer.
@@ -154,19 +170,23 @@ remain mandatory; authority waiting never authorizes callback replay.
 
 ## Qualification and remaining scope
 
-Runtime `bef322b4a` serves cold operator inspection directly from the enrolled
-image: all **eight native/RustFS image/minimum configurations** pass the unused
-ingress-sequence and enrollment-version oracle. Both original claim/lease proof
-selections now pass, including cold S3 DLQ onboarding. Original Queue cohort 1032
-is still **FAILED, 9/14**. All three ordinary native/RustFS/Axum extent lifecycles
-fail on parent client 47, command **2**, which calls SDK `Queue.metrics()` on the
-DLQ. This distinct SDK path still uses a command for a metadata-only handler and
-needs the source-proven read adapter. Native load producer **26** and RustFS
-extent producer **22** expire ambiguously; RustFS materialized mode delivers
-**528 unique messages**. Earlier leased messages and unknown identities remain.
-These results do not close full Queue compatibility; see the
+Runtime `6a97d8c17` serves SDK metrics through the source-proven read adapter.
+**All three original native/RustFS/Axum lifecycle selectors pass both image
+formats**, including DLQ metrics that failed in cohort 1032. Both original
+claim/lease proof, source-proof, cold operator and selected-S3 refusal controls
+pass. Seven protocol/admission units pass; the unchanged cold stateless oracle
+fails on test-only baseline `d60140ee0`.
+
+Cohort 1050 is still **FAILED, 12/17**. All three new SDK selectors fail after
+eight of their planned 24 configurations complete: native RF3 setup, RustFS
+post-archive-restoration `StaleAttempt`, and Axum cold source binding 47/2 remain
+open. Both materialized load modes deliver **528 unique messages**; extent
+producer **10/native** and **16/RustFS** expire ambiguously. Original lifecycle
+and load request bodies, budgets, quotas and assertions remain. Earlier leased
+messages and unknown identities remain; fresh passes do not reconcile them.
+These diagnostic results do not close full Queue compatibility; see the
 [current checkpoint](progress.md#current-integration-checkpoint) for exact scope,
-failed controls and the next SDK-read/producer/claim/callback settlement work.
+failed controls and the next SDK-restoration/cold-binding/producer settlement work.
 
 
 The [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness)

@@ -29,6 +29,65 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `6a97d8c17` moves normal SDK
+Queue `metrics()` to authenticated immutable queries.** Stateful and stateless
+callers retain declared-binding authority, current Queue policy/term fences,
+fresh quorum and the target's independent S3 minimum. Reads consume no target
+business command or ingress sequence. Cold names use the shared, idempotent
+enrollment owner; unknown creation retains its original candidate. Source calls
+use the full checkpoint path when schema genesis may be needed; captured existing
+histories use read-only proof reuse. Neither path replays the application callback.
+
+**All three original Queue lifecycle selectors now pass**, covering native,
+real-RustFS native and real-RustFS Axum ingress in both image formats. Cohort 1032
+failed all three on extent DLQ metrics, parent client 47, command 2. These fresh
+passes close those selected controls, not their earlier unknown mutations.
+
+**The 17-selector SDK/Queue/source-proof/Fleet cohort 1050 is FAILED, 12/17.**
+Both source-proof controls, cold operator inspection, selected S3 refusal,
+claim/lease proof and Fleet conformance pass. The three new SDK selectors remain
+FAILED: eight of their planned 24 image/ingress/source/target configurations
+complete. Native stops during RF3 setup before the seventh configuration's
+request. RustFS native fails with `StaleAttempt` after archive restoration;
+RustFS Axum expires ambiguously on cold source binding command 47/2. Cold/warm
+target-version and allocator preservation, source writes/exact replay and
+independent minimum/refusal checks pass in the eight completed configurations.
+
+Both materialized load modes deliver **528 unique messages**. Extent producer
+**10/native** and **16/RustFS** expire with unknown outcomes, leaving both load
+selectors FAILED. The RustFS target attempt starts with 2,998 ms remaining from
+its original 3,000 ms budget; this identifies work inside that attempt, without
+establishing an exclusive cause. Existing leased messages and unknown identities
+remain. The latest complete public cohort is still 1015 at `ca4bffb71`, FAILED
+8/16, before these Queue features; EventStream was not rerun here.
+
+**All seven private-query protocol/admission units pass.** Test-only baseline
+`d60140ee0` fails the identical cold stateless oracle: SDK metrics appended a
+command instead of reading enrollment. After that red result, the fixture gained
+a later source-proven cold-enrollment phase and separate RustFS prefixes for each
+source/target/ingress profile; no whole-helper identity is claimed. Original
+lifecycle and load bodies, deadlines, quotas, assertions and minima are unchanged.
+
+Locked build, strict library/all-test Clippy, formatting, layout, native dependency,
+documentation and generated-plan checks pass. Builds use normal incremental=0,
+test optimization 1, debug assertions and overflow checks. Independent compilation
+is recorded at cohort pre/postflight. Voters share one process/separate workspace
+disks; new cases use one SQL worker/eight ordinary slots, RustFS one CPU/two GiB.
+These are diagnostic results, without isolated timing, stability, exclusive-cause,
+full-family or independent-voter release acceptance. Aggregate 1053 under ignored
+`.cellar/cg17-payload-01/` verifies sources, executable/log hashes, fixture fidelity
+and load metrics. All **18 failure disks** and earlier failures remain. Owned
+RustFS/VM are stopped, retaining objects.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next finish SDK query restoration
+and cold source binding recovery, then exact extent producer/claim/callback
+settlement and autonomous drain. EventStream activation/Consume, safe interrupted
+binding recovery/sealing and the remaining primitive/recovery/release matrix
+remain required. The generated plan is current; historical CG-01 evidence is
+still missing.
+
+## Previous cold Queue inspection checkpoint
+
 Latest main `16c45b266` is included. **Runtime `bef322b4a` serves cold authenticated
 Queue `info`/`peek` by enrollment followed by an immutable query.** Fresh verified
 absence may enter the existing enrollment protocol at the declared minimum.

@@ -49,9 +49,13 @@ enrollment output before independently proving the query's selected image.
 Cold inspection leaves the ingress command sequence unused. Unknown creation keeps
 its original candidate and can only join a freshly discovered history; discovery
 failure cannot create another candidate. Wire bounds, current Queue policy/term,
-Quorum/S3 minima and the original absolute deadline still apply. SDK Queue
-`metrics()` currently retains its separate command adapter; its read cutover is
-tracked in the cell-group remaining work.
+Quorum/S3 minima and the original absolute deadline still apply. Normal stateful
+and stateless SDK Queue `metrics()` uses a distinct authenticated immutable query
+under its declared binding. Cold source calls use a full source checkpoint before
+possible schema genesis; captured existing histories use read-only proof reuse.
+Metrics consume no target business command or ingress sequence. Remaining SDK
+restoration, cold binding and load failures are tracked in the cell-group
+remaining work; the read adapter does not establish complete Queue qualification.
 
 The joined managed directory worker discovers one selected group per namespace
 turn. Its advisory cache shares the transport route limit. Discovery grants no
