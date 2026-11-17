@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::rpc_cache::RpcActivation;
+use super::preparation::Preparation;
 use super::*;
 use std::collections::{BTreeMap, VecDeque};
 
@@ -97,6 +98,18 @@ struct StageRetention {
     max_result: usize,
 }
 
+struct Preparing {
+    // Joined before the executor, writer lease and bytes also on unwinding.
+    task: Preparation,
+    executor: CellPrivateExecutor,
+    cell: CellHistory,
+    mode: CellSqlStageMode,
+    reply: oneshot::Sender<SqlReply>,
+    retention: StageRetention,
+    activation: Option<RpcActivation>,
+    waker: std::task::Waker,
+}
+
 enum Producer {
     Command(Box<CellPrivateExecutor>),
     Enrollment(Box<CellPrivateEnrollment>),
@@ -128,6 +141,7 @@ impl Producer {
 pub(in crate::raft::host_sql) struct Cells {
     pending: BTreeMap<CellHistory, Pending>,
     suspended: VecDeque<rpc::Suspended>,
+    preparing: VecDeque<Preparing>,
     activations: Arc<RpcCache>,
     wake: Arc<crate::raft::host_sql::WorkerWake>,
 }
@@ -140,6 +154,7 @@ impl Cells {
         Self {
             pending: BTreeMap::new(),
             suspended: VecDeque::new(),
+            preparing: VecDeque::new(),
             activations,
             wake,
         }
@@ -189,7 +204,8 @@ impl Cells {
                     Action::Query(query) => {
                         // Retirement requires every same-cell private frame to
                         // join. Its discovery must not mask runnable callbacks.
-                        let binding_ready = !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell));
+                        let binding_ready = !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
+                            && !self.preparing.iter().any(|preparation| preparation.cell == cell);
                         super::query::run(*query, domain, binding_ready)
                     }
                     action => self.run(cell, action, max, now),
@@ -490,10 +506,10 @@ impl Cells {
     }
 
     fn check_capacity(&self, cell: &CellHistory, max: usize) -> Result<(), ExecutionError> {
-        if self.pending.contains_key(cell) {
+        if self.pending.contains_key(cell) || self.preparing.iter().any(|p| &p.cell == cell) {
             return Err(ExecutionError::Busy);
         }
-        if self.pending.len() + self.suspended.len() >= max {
+        if self.pending.len() + self.suspended.len() + self.preparing.len() >= max {
             return Err(overloaded());
         }
         Ok(())
@@ -574,6 +590,11 @@ impl Cells {
 
     pub fn close(&mut self) -> Result<(), ExecutionError> {
         let mut result = Ok(());
+        for preparing in std::mem::take(&mut self.preparing) {
+            if let Err(error) = preparing.close() {
+                result = Err(error);
+            }
+        }
         for suspended in std::mem::take(&mut self.suspended) {
             if let Err(error) = suspended.close() {
                 result = Err(error);

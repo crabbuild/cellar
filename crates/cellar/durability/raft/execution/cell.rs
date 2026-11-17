@@ -13,6 +13,10 @@ use crate::raft::cell_groups::{
 use crate::raft::completion::RuntimeError;
 use cellar_logic::cell_group::{CellVersion, MutationSequence};
 
+#[path = "cell_preparation.rs"]
+mod preparation;
+pub(crate) use preparation::{CellPrivatePreparation, CellPrivatePrepared};
+
 #[path = "cell_rpc.rs"]
 mod rpc;
 pub(crate) use rpc::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
@@ -79,6 +83,7 @@ pub struct CellPrivateExecutor {
     authority: CellExecutionAuthority,
     working: Option<WorkingImage>,
     pending: Option<PendingCell>,
+    preparing: Option<std::sync::Arc<()>>,
     poisoned: bool,
     receipt_cursor: Option<ClientId>,
     _lock: PrivateLock,
@@ -170,6 +175,7 @@ impl CellPrivateExecutor {
             authority,
             working: Some(working),
             pending: None,
+            preparing: None,
             poisoned: false,
             receipt_cursor: None,
             _lock: lock,
@@ -361,116 +367,8 @@ impl CellPrivateExecutor {
         attempt: CommandAttempt,
         preparation: StagePreparation,
     ) -> Result<CellStageOutcome, ExecutionError> {
-        let StagePreparation {
-            sequence,
-            log_reservation,
-            ..
-        } = preparation;
-        let working = self
-            .working
-            .as_mut()
-            .ok_or(ExecutionError::RebuildRequired)?;
-        let update = working
-            .capture_cell(&self.options, self.authority.image())
-            .map_err(private_failure)?;
-        if cellar_logic::cell_group::CellImage::from(update.base)
-            != self.authority.cell().version.image
-        {
-            return Err(ExecutionError::Invalid("captured cell base"));
-        }
-        let route = self.authority.route();
-        let entry = CellGroupEntry {
-            binding: GroupEntryBinding {
-                group: route.history,
-                route_epoch: route.epoch,
-                birth_digest: route.birth_digest,
-                schema_digest: route.schema_digest,
-                proposal: attempt.proposal,
-            },
-            command: GroupCommand::Mutation(GroupMutation {
-                cell: self.authority.cell().version.history.clone(),
-                sequence,
-                base: update.base,
-                result: update.result,
-                files: update
-                    .files
-                    .iter()
-                    .map(|file| GroupLtx {
-                        min_txid: file.min_txid,
-                        max_txid: file.max_txid,
-                        page_count: file.page_count,
-                        decoded_bytes: file.decoded_bytes,
-                        bytes: &file.bytes,
-                    })
-                    .collect(),
-            }),
-        };
-        let bytes = entry
-            .encode(
-                route,
-                GroupEntryLimits {
-                    envelope: self.options.limits.envelope,
-                    ..Default::default()
-                },
-            )
-            .map_err(ExecutionError::Protocol)?;
-        // Prepare the same physical result that committed apply will select.
-        // Neither this deterministic name nor its live pin grants publication.
-        // Only the exact input proof can avoid replay; apply still verifies the
-        // destination and persists its committed marker.
-        let preview = super::images::cell_preview_id(
-            &self.authority.cell().version.history,
-            sequence.get(),
-            &update,
-            attempt.preview,
-        )?;
-        let preview = self
-            .options
-            .images
-            .preview_cell(
-                &self.options,
-                self.authority.image(),
-                preview,
-                &update,
-                cell_image_history_digest(&self.authority.cell().version.history),
-            )
-            .map_err(storage)?;
-        self.authority.check().map_err(authority_failure)?;
-        log_reservation
-            .encoded(bytes.len())
-            .map_err(|error| authority_failure(error.into()))?;
-        let preparation = super::CellPreparedImage::new(
-            self.authority.engine_owner().clone(),
-            route.history,
-            self.authority.term(),
-            &bytes,
-            &preview,
-        );
-        let prepared = CellPreparedCommand::new(
-            bytes,
-            attempt.proposal,
-            self.authority.term(),
-            route.history,
-            self.authority.engine_owner().clone(),
-        )
-        .with_log_reservation(log_reservation)
-        .with_prepared_image(&preparation);
-        self.pending = Some(PendingCell {
-            prepared: prepared.clone(),
-            request: attempt.request,
-            result: CellVersion {
-                history: self.authority.cell().version.history.clone(),
-                sequence,
-                image: update.result.into(),
-            },
-            _preview: preview,
-            _prepared_image: preparation,
-            submitted: false,
-            rpc_step: None,
-            rpc_prior_steps: 0,
-        });
-        self.poisoned = false;
-        Ok(CellStageOutcome::Prepared(prepared))
+        let input = std::sync::Arc::new(self.capture_stage_input(attempt, preparation)?);
+        self.complete_preparation(input.prepare()?)
     }
 
     /// Set before awaiting proposal submission. A dropped response never frees

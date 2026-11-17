@@ -241,7 +241,7 @@ impl CellPrivateExecutor {
         &mut self,
         turn: CellRpcTurn,
         result: anyhow::Result<Vec<u8>>,
-    ) -> Result<CellStageOutcome, ExecutionError> {
+    ) -> Result<CellPrivatePreparation, ExecutionError> {
         let CellRpcTurn {
             future,
             output: _,
@@ -328,21 +328,16 @@ impl CellPrivateExecutor {
                 .settle(transaction, result)
                 .map_err(private_failure)?;
         }
-        let outcome = self.capture_stage(
+        Ok(self.capture_stage_input(
             attempt,
             preparation.ok_or(ExecutionError::Invalid("RPC preparation missing"))?,
-        )?;
-        self.pending
-            .as_mut()
-            .ok_or(ExecutionError::Uncertain)?
-            .rpc_prior_steps = step;
-        Ok(outcome)
+        )?.completed_rpc(step))
     }
 
     pub(crate) fn stage_rpc_checkpoint(
         &mut self,
         turn: &mut CellRpcTurn,
-    ) -> Result<CellPreparedCommand, ExecutionError> {
+    ) -> Result<CellPrivatePreparation, ExecutionError> {
         self.check_rpc()?;
         let step = turn
             .step
@@ -384,17 +379,9 @@ impl CellPrivateExecutor {
             .preparation
             .take()
             .ok_or(ExecutionError::Invalid("RPC checkpoint preparation"))?;
-        let CellStageOutcome::Prepared(prepared) = self.capture_stage(attempt, preparation)? else {
-            return Err(ExecutionError::Invalid(
-                "RPC checkpoint unexpectedly duplicate",
-            ));
-        };
-        self.pending
-            .as_mut()
-            .ok_or(ExecutionError::Invalid("RPC checkpoint pending"))?
-            .rpc_step = Some(step);
+        let captured = self.capture_stage_input(attempt, preparation)?.checkpoint(step);
         turn.step = step;
-        Ok(prepared)
+        Ok(captured)
     }
 
     pub(crate) fn rpc_checkpoint_version(
