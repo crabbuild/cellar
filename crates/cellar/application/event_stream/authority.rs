@@ -194,7 +194,7 @@ impl Authority {
                         "__catalogConfigure" | "__catalogStatus" | "__catalogConfigureReceipt"
                     ))
                     || (scope == super::cell_scope(&self.resource)?
-                        && method == "__streamConfigure"),
+                        && matches!(method, "__streamConfigure" | "__streamConfigureReceipt")),
                 "provisioning authority does not grant this RPC method"
             );
         }

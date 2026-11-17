@@ -16,11 +16,52 @@ pub(crate) fn is_metadata(method: &str) -> bool {
             | "__catalogConfigureReceipt"
             | "__catalogResolveName"
             | "__catalogResolve"
+            | "__streamConfigureReceipt"
             | "__streamResolve"
             | "__streamRead"
             | "__streamSubscriptionStatus"
             | "__streamAckReceipt"
     )
+}
+
+/// Only a coherent selected receipt's typed absence permits a configuration
+/// mutation. Malformed responses and proof/authorization failures remain errors.
+pub(crate) fn configuration_operation_absent(
+    response: &crate::engine_api::RpcData,
+) -> anyhow::Result<bool> {
+    let value = crate::application::decode_rpc_result(response)?.to_json()?;
+    let Some(error) = value.get("error") else {
+        return Ok(false);
+    };
+    anyhow::ensure!(
+        value.as_object().is_some_and(|object| object.len() == 1),
+        "malformed configuration probe response"
+    );
+    let error: event_stream::DeliveryError = serde_json::from_value(error.clone())?;
+    Ok(matches!(
+        error.code,
+        event_stream::ErrorCode::OperationUnknown | event_stream::ErrorCode::NotInitialized
+    ))
+}
+
+/// A read can discover a missing name before an image exists. The ordinary
+/// enrollment path must independently confirm absence and prove creation.
+pub(crate) fn configuration_target_missing(error: &anyhow::Error) -> bool {
+    use crate::raft::{cell_groups::CellDispatchError, completion::RuntimeError};
+    matches!(
+        error.downcast_ref::<RuntimeError>(),
+        Some(RuntimeError::NotFound)
+    ) || matches!(
+        error.downcast_ref::<CellDispatchError>(),
+        Some(CellDispatchError::Runtime(RuntimeError::NotFound))
+    ) || error
+        .downcast_ref::<std::sync::Arc<CellDispatchError>>()
+        .is_some_and(|error| {
+            matches!(
+                error.as_ref(),
+                CellDispatchError::Runtime(RuntimeError::NotFound)
+            )
+        })
 }
 
 pub(crate) fn contract(class: &str) -> OperationContract {

@@ -445,6 +445,7 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
         "__catalogConfigureReceipt",
         "__catalogResolveName",
         "__catalogResolve",
+        "__streamConfigureReceipt",
         "__streamResolve",
         "__streamRead",
         "__streamSubscriptionStatus",
@@ -467,6 +468,29 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
     ] {
         assert!(!is_metadata(method), "{method}");
     }
+}
+
+#[test]
+fn configuration_missing_target_excludes_proof_and_authorization_failures() {
+    use super::super::native_event_query::configuration_target_missing;
+    use crate::raft::{cell_groups::CellDispatchError, completion::RuntimeError};
+    assert!(configuration_target_missing(&RuntimeError::NotFound.into()));
+    assert!(configuration_target_missing(
+        &CellDispatchError::Runtime(RuntimeError::NotFound).into()
+    ));
+    for error in [
+        RuntimeError::NotReady,
+        RuntimeError::Overloaded,
+        RuntimeError::DeadlineExceeded,
+        RuntimeError::Closed,
+    ] {
+        assert!(!configuration_target_missing(
+            &CellDispatchError::Runtime(error).into()
+        ));
+    }
+    assert!(!configuration_target_missing(&anyhow::anyhow!(
+        "missing name"
+    )));
 }
 
 #[test]

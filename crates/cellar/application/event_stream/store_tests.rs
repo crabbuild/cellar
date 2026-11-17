@@ -296,6 +296,53 @@ async fn catalog_configuration_join_reads_exact_intent_without_rearming_or_deliv
 }
 
 #[tokio::test]
+async fn broker_configuration_receipt_preserves_state_and_requires_exact_authority() -> Result<()> {
+    use base64::Engine;
+    run_case(|db, mut definition| {
+        let caller = Authority::deployment("shop", &definition)?;
+        let scope = super::super::cell_scope(&definition.resource)?;
+        let operation = "1".repeat(32);
+        let encoded = serde_json::to_vec(&definition)?;
+        let digest = hex::encode(Sha256::digest(&encoded));
+        db.system_sql("UPDATE __sys_stream SET config_operation=?,config_digest=?", &[operation.clone().into(),digest.clone().into()])?;
+        let body = json!({"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(encoded)});
+        let read = |caller: &Authority, body: &Value| super::super::metadata::read(
+            &db, &scope, "__streamConfigureReceipt",
+            &crate::application::consensus::native_event_rpc::Authority::Event(caller.clone()), body, usize::MAX,
+        );
+        let before = db.system_sql_read("SELECT * FROM __sys_stream", &[])?;
+        let subscriptions = db.system_sql_read("SELECT * FROM __sys_stream_subscriptions", &[])?;
+        let work = db.work_installation(cellar_logic::work::Reason::StreamMaintenance)?;
+        for _ in 0..2 {
+            let receipt = read(&caller, &body)?;
+            assert_eq!(receipt, json!({"revision":"1","resource":definition.resource.id,"operation":operation,"digest":digest}));
+        }
+        let mut changed = body.clone();
+        definition.max_records += 1;
+        definition.revision = 2;
+        changed["definition"] = json!(base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&definition)?));
+        assert_eq!(read(&caller, &changed).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::ConfigConflict);
+        let mut absent = changed.clone(); absent["operation"] = json!("2".repeat(32));
+        assert_eq!(read(&caller, &absent).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::OperationUnknown);
+        let mut foreign = caller.clone(); foreign.principal = "other".into();
+        assert_eq!(read(&foreign, &body).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::Forbidden);
+        let mut ordinary = serde_json::to_value(&caller)?;
+        ordinary["provision"] = json!(false);
+        let ordinary: Authority = serde_json::from_value(ordinary)?;
+        assert_eq!(read(&ordinary, &body).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::Forbidden);
+        assert_eq!(db.system_sql_read("SELECT * FROM __sys_stream", &[])?, before);
+        assert_eq!(db.system_sql_read("SELECT * FROM __sys_stream_subscriptions", &[])?, subscriptions);
+        assert_eq!(db.work_installation(cellar_logic::work::Reason::StreamMaintenance)?, work);
+        // A known-missing revision still takes the ordinary update path.
+        initialize_storage(&db, &scope, &caller, &absent, || panic!("existing stream sampled initial time"))?;
+        assert_eq!(read(&caller, &absent)?["revision"], "2");
+        db.system_sql("UPDATE __sys_stream SET lifecycle='deleted'", &[])?;
+        assert_eq!(read(&caller, &absent).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::DestinationDeleted);
+        Ok(())
+    }).await
+}
+
+#[tokio::test]
 async fn catalog_configuration_join_refuses_changed_body_caller_grant_and_operation() -> Result<()>
 {
     use base64::Engine;

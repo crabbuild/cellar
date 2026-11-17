@@ -277,6 +277,72 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
 
 /// Configure an owned image; exact receipt replay never samples fresh time.
 /// Creation supplies its captured clock without constructing an activation.
+/// Inspect an exact compiled configuration without opening schema, sampling
+/// time, rearming maintenance or acquiring a command/lease sequence. Genesis
+/// already records this receipt; later configuration still needs a mutation.
+pub(super) fn configuration_receipt_read(
+    db: &Storage,
+    scope: &str,
+    caller: &Authority,
+    body: &Value,
+) -> Result<Value> {
+    validate_authority(scope, caller, Action::Configure)?;
+    caller.require_provisioning()?;
+    let operation = body["operation"].as_str().ok_or_else(|| {
+        error(
+            ErrorCode::InvalidRequest,
+            "configuration operation is missing",
+        )
+    })?;
+    validate_id(operation)?;
+    let encoded = body["definition"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "stream definition is missing"))?;
+    let (desired, digest) = decode_definition(encoded)?;
+    if !desired.resource.same_identity(&caller.resource)
+        || super::cell_scope(&desired.resource)? != scope
+    {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "configuration names a different resource",
+        ));
+    }
+    let (current, row) = load(db)?;
+    if !current.resource.same_identity(&caller.resource) {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "stored configuration names a different resource",
+        ));
+    }
+    if text(&row, "config_operation")? != operation {
+        authorize(&current, caller, Action::Configure, None)?;
+        return Err(error(
+            ErrorCode::OperationUnknown,
+            "stream configuration operation is missing",
+        ));
+    }
+    // Preserve exact receipt replay for its original caller even if that
+    // accepted configuration removed the caller's grant. This is history, not
+    // deployment readiness; the catalog and partition resolve proofs still gate it.
+    if text(&row, "config_principal")? != caller.principal
+        || text(&row, "config_grant")? != caller.grant
+    {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "configuration receipt belongs to another caller",
+        ));
+    }
+    if text(&row, "config_digest")? != digest {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "configuration operation arguments differ",
+        ));
+    }
+    Ok(
+        json!({"revision":number(&row,"revision")?.to_string(),"resource":desired.resource.id,"operation":operation,"digest":digest}),
+    )
+}
+
 pub(super) fn initialize_storage(
     db: &Storage,
     scope: &str,

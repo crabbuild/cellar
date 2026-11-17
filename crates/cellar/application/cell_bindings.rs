@@ -508,6 +508,58 @@ pub(crate) fn event_rpc(
     authority: super::consensus::native_event_rpc::Authority,
 ) -> HandlerFuture<RpcData> {
     let call_scope = crate::host_rpc::CallScope::in_context(context, None, None);
+    if method == "__streamConfigure"
+        && matches!(&authority, super::consensus::native_event_rpc::Authority::Event(caller)
+            if caller.require_provisioning().is_ok())
+    {
+        // Broker genesis already installs the compiled definition. Join its
+        // exact independently proven receipt before allocating a mutation.
+        // Only known absence can enter ordinary durable-intent/enrollment work;
+        // neither a lost response nor a proof/authorization failure can replay it.
+        // Ordinary administrator updates retain their existing command path.
+        let probe = rpc_read(
+            context,
+            scope.clone(),
+            name.clone(),
+            "__streamConfigureReceipt".into(),
+            args.clone(),
+            crate::host_rpc::CallScope::in_context(context, None, None),
+            ReadAccess::Event(Box::new(authority.clone())),
+        );
+        let context = context.clone();
+        return Box::pin(async move {
+            match probe.await {
+                Ok(value) => {
+                    if !super::consensus::native_event_query::configuration_operation_absent(
+                        &value,
+                    )? {
+                        return Ok(value);
+                    }
+                    // Release the selected SQL/archive response before a new
+                    // mutation needs the same bounded operation and proof banks.
+                    drop(value);
+                }
+                Err(error)
+                    if super::consensus::native_event_query::configuration_target_missing(
+                        &error,
+                    ) =>
+                {
+                    ()
+                }
+                Err(error) => return Err(error),
+            }
+            rpc_admitted(
+                &context,
+                scope,
+                name,
+                method,
+                args,
+                call_scope,
+                Some(authority),
+            )
+            .await
+        });
+    }
     if super::consensus::native_event_query::is_metadata(&method) {
         return rpc_read(
             context,
@@ -623,7 +675,6 @@ fn rpc_admitted(
             CommandFailure::Overloaded
         );
         let ordinal = crate::storage::next_raft_binding_ordinal()?;
-        tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-prepare", source=%source.history.cell.as_str(), parent=?source.parent, ordinal, method, remaining=?dispatch.remaining_timeout());
         let selected = Arc::new(Mutex::new(None));
         let observed = selected.clone();
         let command = Arc::new(Mutex::new(None));
@@ -705,7 +756,6 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<RpcData> {
-    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-proven", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal, method=%intent.route.contract.operation, remaining=?dispatch.remaining_timeout());
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -789,7 +839,6 @@ async fn run(
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
     options.durability = intent.route.durability;
-    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-target-start", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal, method=%intent.route.contract.operation, child=?intent.child, remaining=?dispatch.remaining_timeout());
     let result = loop {
         options.timeout = dispatch.remaining_timeout()?;
         let result = source
@@ -824,7 +873,6 @@ async fn run(
         // child identity and input and consume the original deadline.
         dispatch.wait_admission().await?;
     };
-    tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-target-result", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal, method=%intent.route.contract.operation, error=?result.as_ref().err(), remaining=?dispatch.remaining_timeout());
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -833,9 +881,7 @@ async fn run(
                     && receipt.durability >= intent.route.durability,
                 CommandFailure::CorruptState
             );
-            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-resume-start", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal);
             io.resume_writer().await?;
-            tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-consume-1098", phase="binding-resume-ready", source=%source.history.cell.as_str(), parent=?source.parent, ordinal=intent.ordinal, remaining=?dispatch.remaining_timeout());
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.

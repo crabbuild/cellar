@@ -33,6 +33,9 @@ pub(crate) fn read(
             store::validate_authority(scope, caller, Action::Resolve)?;
             store::resolve_read(db, caller, body)
         }
+        ("__streamConfigureReceipt", Authority::Event(caller)) => {
+            store::configuration_receipt_read(db, scope, caller, body)
+        }
         ("__streamRead", Authority::Event(caller)) => {
             store::validate_authority(scope, caller, Action::Read)?;
             store::read_selected(db, caller, body, result_limit)

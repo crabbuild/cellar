@@ -148,21 +148,7 @@ impl RaftCells {
 }
 
 fn configuration_operation_absent(response: &RpcData) -> anyhow::Result<bool> {
-    let value = crate::application::decode_rpc_result(response)?.to_json()?;
-    let Some(error) = value.get("error") else {
-        return Ok(false);
-    };
-    anyhow::ensure!(
-        value.as_object().is_some_and(|object| object.len() == 1),
-        "malformed catalog probe response"
-    );
-    let error: crate::application::event_stream::DeliveryError =
-        serde_json::from_value(error.clone())?;
-    Ok(matches!(
-        error.code,
-        crate::application::event_stream::ErrorCode::OperationUnknown
-            | crate::application::event_stream::ErrorCode::NotInitialized
-    ))
+    super::super::native_event_query::configuration_operation_absent(response)
 }
 
 #[cfg(test)]
