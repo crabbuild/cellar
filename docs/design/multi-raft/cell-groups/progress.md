@@ -29,8 +29,7 @@ for the next delivery.
 
 ## Current integration checkpoint
 
-Latest main `16c45b266` is included. **Runtime `24a43738e`, qualified with final
-fixture source `4c70d0641`, moves private command image verification and persistence
+Latest main `16c45b266` is included. **Runtime `000f92ef7` moves private command image verification and persistence
 off the fixed SQL worker.** Native RPC final results, Storage checkpoints,
 registered SQL and framework commands share a bounded execution-domain preparation
 owner. SQL capture and callbacks remain on their original worker. Prepared images
@@ -81,6 +80,16 @@ results add no isolated load timing, full-family or independent-voter release
 acceptance. All **33 current qualification failure disks** and earlier diagnostic
 failures are retained. Evidence, metrics and hashes are summarized by ignored
 aggregate 995 under `.cellar/cg17-payload-01/`.
+
+Final runtime `000f92ef7` adds only submitted-checkpoint storage indirection to
+functional source `4c70d0641`. **All eight final selections pass: 24 native/RustFS
+configurations** (the six new selections/20 configurations plus two original
+unrelated-apply checkpoint selections/four configurations). Locked build, strict
+library/all-test Clippy, formatting, layout, native dependency, documentation and
+generated-plan checks pass. Public 991 and compatibility 993 remain pinned to
+`4c70d0641`, before that representation-only follow-up; they were not rerun on
+the final enum layout. Final evidence is summarized by state 1003. Owned RustFS
+and its VM are stopped, with objects and failed disks retained.
 
 Acceptance remains **13/17 tasks, 147/195 cases**. Next close consistent S3 journal
 reads across publication, exact native Queue claim/callback settlement and

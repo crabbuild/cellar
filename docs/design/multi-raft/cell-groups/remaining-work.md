@@ -62,6 +62,10 @@ bounded, joined image verification/persistence for native RPC results,
 checkpoints, registered SQL and framework commands. Final fixture source
 `4c70d0641` passes all six new boundary selections: **20 native/RustFS
 configurations**, including both image forms and physical cancellation/closure.
+Final runtime `000f92ef7` boxes submitted checkpoint state and passes all eight
+final selections/24 configurations, including two original checkpoint controls.
+Strict Clippy and repository checks pass. The public and compatibility cohorts
+below remain pinned to `4c70d0641`, before that representation-only change.
 Original authority, Quorum/S3 proofs, admission and request deadlines remain.
 Private writer opening and enrollment still use the SQL worker. Immutable Queue
 `info`/`peek` from `234d12f55` remains in place.
@@ -98,7 +102,8 @@ The next feature priorities are:
 Campaign 990 records no compiler overlap. Public 991 observes independent-checkout
 compilation; compatibility 993 is explicitly diagnostic. No isolated load timing,
 exclusive cause, full-family or release acceptance is claimed. Voters share one
-process/separate workspace disks, RustFS1CPU2GiB. All **33 current qualification
+process/separate workspace disks, RustFS1CPU2GiB. The owned backend/VM are stopped,
+objects retained. All **33 current qualification
 failure disks** and earlier diagnostic failures remain. Counts stay
 **13/17 tasks, 147/195 cases**; generated index current, historical CG-01 evidence
 missing. Aggregate 995 records source, artifact and log hashes.
