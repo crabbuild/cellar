@@ -29,6 +29,50 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `4322aaf6f` runs physical image
+and manifest preparation off the SQL callback worker.** Physical work keeps the
+existing independent byte/item admission, controller limits and bounded task
+handles. One shared progress-lane lease and one queued progress entry let submit,
+finish and callbacks proceed during apply I/O. Shutdown joins entered physical work
+before retiring SQL owners. Results are delivered after that join; failed physical
+preparation releases its reservations before sending its result. Publication and
+acknowledgment still require the original durable barriers and contiguous prefix.
+
+**27 owning/control selections pass**, including real RustFS. The one-worker
+regression holds real manifest-directory sync, requires another cell's callback
+entry within the original one-second gate, refuses its response before release,
+and verifies exact replay with one callback. Both image forms fail baseline
+`58d0dc062` and pass current source; the helper is byte-identical. Baseline physical
+apply is identical to published `7c366ef53`; unrelated temporary Consume probes
+make that baseline diagnostic, not timing qualification. Existing cancellation,
+error cleanup, recovery, checkpoint pressure, S3 output/read fencing and RustFS
+reclamation/restart controls pass. Initial safety 871 exposed reply-before-join
+retirement; current source fixes it without changing the assertions. Locked builds,
+strict library/all-test Clippy, formatting, layout and dependency checks pass.
+
+**The complete original public cohort 878 is FAILED, 6/16.** Native and RustFS
+SDK source proof and retained binding histories pass; registration/Fleet pass.
+All eight EventStream selections and both Queue loads still fail. Preserve
+ambiguous Consume parent **2**, native Queue producer **11**, and RustFS Queue
+producer **18**. Neither load produces a 528-message completion marker. All
+30 failed voter disks remain. Original public fixture bodies, selectors, deadlines,
+quotas and durability minima are unchanged; scoped progress passes add no full
+primitive-family or cutover acceptance.
+
+Control and public compiler boundary snapshots are empty. RF3 voters share one
+process and separate workspace disks; real RustFS uses one CPU/two GiB. This adds
+no speedup, latency-stability or independent-voter release claim. Owned backend/VM
+are stopped with objects retained. Aggregate 884 records exact frozen hashes and
+the failed initial qualification under ignored `.cellar/cg17-payload-01/`.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close activation and exact
+Consume/source-parent settlement, then Queue production/drain within original
+budgets. Continue autonomous interrupted bindings, safe sequence sealing and the
+remaining primitive/lifecycle/recovery matrix before CG-13/15/16 cutover. The
+implementation-plan index is current; historical CG-01 evidence remains missing.
+
+## Previous immutable-read progress checkpoint
+
 Latest main `16c45b266` is included. **Runtime `3c088080a` preserves the first
 immutable automatic read under its original deadline while a serial fallback
 tries trusted replicas.** At most two waiters run concurrently. They share the

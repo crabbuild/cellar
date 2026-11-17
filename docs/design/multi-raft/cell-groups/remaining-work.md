@@ -57,42 +57,43 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Runtime `3c088080a` preserves the first immutable read
-while a bounded serial fallback tries trusted replicas. At most two waiters share
-the original deadline, captured input and finite attempt bank. Required consistency,
-S3 proof, current route and physical ownership remain mandatory. Explicit replica
-slices and mutation contracts retain their behavior.
+latest main `16c45b266`. Runtime `4322aaf6f` moves physical image/manifest apply
+off the SQL callback worker under the existing independent apply bank. One queued
+progress entry shares a retained lane with physical work. Results follow task join;
+shutdown and durable complete-prefix acknowledgment retain their fences.
 
-**18 read/routing controls pass.** Both new image-form regressions fail the
-unchanged baseline `1842ddcf5` and pass current source. Blocked-local failover,
-one-ticket refusal, explicit routing, quorum/token/grant and cleanup controls pass.
-The earlier independent-cell preparation and S3 output guarantees remain delivered.
+**27 owning/control selections pass**, including native/real RustFS one-worker
+progress in both image forms. The exact helper fails the diagnostic baseline and
+passes final source. Cancellation, failed I/O retirement, selected-root recovery,
+checkpoint pressure, S3 output/read fencing and RustFS reclamation/restart pass.
+Strict Clippy and repository checks pass. Initial safety 871's reply-before-join
+race is fixed without weakening assertions.
 
-**Complete original public cohort 839 remains FAILED, 6/16.** SDK source proof,
-retained-history binding recovery, registration and Fleet controls pass. All eight
-EventStream selections and both Queue loads fail. Ordinary native/RustFS Consume
-retain ambiguous parent **2**; other ingresses miss activation deadlines. Native
-Queue producer **11** is ambiguous. RustFS Queue expires in an unlabelled 30-second
-`empty` wait; no 528-message completion marker is produced. All 30 failed disks
-remain. An independent checkout compiler appears at public postflight; do not infer
-exclusive cause or timing stability. Read-control compiler snapshots are empty.
+**Complete original public cohort 878 remains FAILED, 6/16.** SDK source proof,
+retained-history binding recovery and registration/Fleet controls pass. All eight
+EventStream selections and both Queue loads fail. Preserve ambiguous Consume
+parent **2**, native Queue producer **11** and RustFS Queue producer **18**.
+No 528-message load completion marker is produced; all 30 failed disks remain.
+Original public fixture bodies, deadlines, quotas and minimum durability are
+unchanged. Scoped passes do not qualify complete primitive families.
 
 The next feature priorities are:
 
 1. Close catalog/broker activation and exact Consume/source-parent settlement,
-   then Queue production and drain within the existing budgets. Preserve ambiguous
-   command identities; the immutable-read fix does not resolve their outcomes.
+   then Queue production/drain within the original budgets. Do not retarget
+   ambiguous commands or infer unused sequences from absent selected receipts.
 2. Finish autonomous interrupted bindings and safe unused-sequence sealing,
    remaining primitive adapters and the combined lifecycle/recovery matrix.
 3. Close CG-13/15 managed recovery and independent-voter release qualification,
    then CG-16 cutover. Due-effect discovery remains a possible liveness constraint,
-   not an established cause of the activation failures.
+   not an established cause of the public failures.
 
-Aggregate 847 records the current source and frozen evidence. Owned RustFS/VM are
-stopped with objects retained. Voters remain in one process/separate workspace
-disks; real RustFS is one CPU/two GiB. Counts stay **13/17 tasks, 147/195 cases**.
-The index is current; historical CG-01 evidence is still missing. Scoped controls
-add no full primitive, speedup, stability or release acceptance.
+Aggregate 884 records frozen source/binary/log hashes and the initial failed
+safety qualification. Control/public compiler boundaries are empty. Owned RustFS/VM
+are stopped with objects retained. Voters share one process/separate workspace
+disks; RustFS is one CPU/two GiB. Counts stay **13/17 tasks, 147/195 cases**.
+The index is current; historical CG-01 evidence remains missing. No full primitive,
+speedup, stability or release acceptance is added.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for

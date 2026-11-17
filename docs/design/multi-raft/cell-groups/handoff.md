@@ -4,38 +4,50 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current immutable-read progress delivery
+## Current physical-apply progress delivery
 
 Latest main `16c45b266` is included; reuse open PR
-[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `3c088080a` keeps the
-first immutable automatic read alive under the original deadline beside a serial
-fallback. At most two waiters share captured input and the existing attempt bank.
-Each destination independently proves consistency and S3 minimum; late first
-results must match the current route and live original deadline. Physical loser
-work retains admission until joined. Explicit routing and commands are unchanged.
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `4322aaf6f` separates
+bounded physical image/manifest preparation from the SQL callback worker. The
+original independent apply byte/item bank and controller concurrency remain.
+One shared lane lease survives physical work; one queued progress entry admits
+submit/finish while file I/O is pending. Result delivery follows actual join;
+shutdown joins before retiring SQL owners. Durable publication and complete-prefix
+acknowledgment remain mandatory.
 
-**18 read/routing controls pass**, including both new image-form regressions that
-fail baseline `1842ddcf5` with the exact same helper body. **Complete public cohort
-839 is FAILED, 6/16**: SDK source-proof and retained binding histories pass native/
-RustFS, registration/Fleet pass, while all eight EventStream and both Queue loads
-fail. Preserve ambiguous Consume parent **2** and native Queue producer **11**.
-RustFS Queue expires in an unlabelled 30-second empty/drain wait; no 528-message
-completion marker establishes full load completion. All 30 failed disks remain.
+**27 controls pass**, including real RustFS and the one-worker gate in both image
+forms. The exact helper fails baseline `58d0dc062` and passes final source. Baseline
+physical apply matches published `7c366ef53`; unrelated temporary probes make it
+diagnostic only. Initial safety 871 exposed error delivery before join retirement;
+current source fixes it without changing assertions. Cancellation/error cleanup,
+recovery, checkpoint pressure, S3 output/read fences and reclamation/restart pass.
+Strict Clippy and repository checks pass.
 
-Next finish activation and exact Consume/source-parent settlement, then Queue
-production/drain under original budgets. Continue autonomous interrupted bindings,
-safe sequence sealing and remaining primitive/recovery coverage before cutover.
-Prior diagnostic child Ack **3** is historical evidence, not a new 839 observation;
-do not retarget ambiguous identities or infer unused sequences from phase zero.
+**Full original public 878 is FAILED, 6/16.** SDK source proof and retained binding
+histories pass native/RustFS, registration/Fleet pass. All eight EventStream and
+both Queue load selections fail. Preserve Consume parent **2**, native Queue
+producer **11** and RustFS Queue producer **18**. Neither load has a 528-message
+completion marker; all 30 failed voter disks remain.
 
-Use ignored `.cellar/cg17-payload-01/query-progress-aggregate-847.json` for exact
-pins and frozen records. Read controls have empty compiler boundary snapshots;
-public postflight observes a compiler in independent `tikv-cursor-refusal`, so no
-isolation, exclusive-cause or latency-stability claim is added. RF3 voters share
-one process/separate workspace disks; RustFS1CPU2GiB and its VM are stopped with
-objects retained. Counts stay **13/17 tasks, 147/195 cases**; full primitive/release
-acceptance and historical CG-01 evidence remain open. See
-[progress](progress.md#current-integration-checkpoint) and
+Disposable-copy inspection 887 uses normal log resume and selected-root physical
+recovery with a frozen same-format reader. Voter 4's selected source has completed
+Fetch child **2** (phase 3), with matching target receipt; the other two selected
+sources have no binding intents. No Ack intent appears in these selected roots.
+This is shutdown state, not deadline, live-quorum or complete-log outcome proof.
+Original disk hashes remain unchanged. Do not infer an unused sequence from absence.
+
+Next close catalog/broker readiness and exact Consume/source-parent settlement,
+then Queue production/drain under original budgets. Continue autonomous interrupted
+bindings/safe sequence sealing and the remaining primitive/lifecycle/recovery matrix
+before CG-13/15/16 cutover. Prior Ack **3** observations are historical, not current
+878 observations. Do not retarget ambiguous identities.
+
+Use ignored `.cellar/cg17-payload-01/apply-worker-aggregate-884.json` for frozen
+records and hashes. Both control/public compiler boundaries are empty. Voters share
+one process/separate workspace disks; RustFS1CPU2GiB and its VM are stopped, objects
+retained. Counts stay **13/17 tasks, 147/195 cases**; full primitive and independent
+voter release acceptance remain open, with historical CG-01 evidence still missing.
+See [progress](progress.md#current-integration-checkpoint) and
 [priorities](remaining-work.md#primitive-delivery-priority).
 
 ## Previous S3 output progress delivery
