@@ -26,6 +26,7 @@ pub(crate) use enrollment::{
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
+    s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
     s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
@@ -44,11 +45,16 @@ struct Harness {
     remote: Arc<archive_controller::archive_store::Store>,
     calls: Arc<AtomicUsize>,
     initializations: Arc<AtomicUsize>,
+    background_archives: Vec<(
+        CellGroupArchiveRegistration,
+        Arc<archive_controller::archive_store::Store>,
+    )>,
     retry_until: u64,
 }
 
 enum Resources {
     SlowMaintenance,
+    QueuedBackgroundArchives,
     Retention(CellGroupLogRetentionLimits),
     Storage {
         root: tempfile::TempDir,
@@ -162,6 +168,10 @@ impl Harness {
         );
         let mut limits = controller::limits();
         limits.max_commands = max_commands;
+        let queued_background = matches!(&resources, Some(Resources::QueuedBackgroundArchives));
+        if queued_background {
+            limits.max_groups = 3;
+        }
         if matches!(resources, Some(Resources::SlowMaintenance)) {
             limits.retry_interval_ms = 60_000;
         }
@@ -221,7 +231,45 @@ impl Harness {
         if send_buffer.is_some() {
             fixture.connect_tcp_with_query_buffer(send_buffer).await?;
         }
+        let mut background_archives = Vec::new();
+        if queued_background {
+            for number in [31, 41] {
+                let (directory, birth) = fixture
+                    .add_group_in_store(number, fixture.cluster.store.clone(), |_| {
+                        Arc::new(DirectFileSystem)
+                    })
+                    .await?;
+                controller::attach_group_appliers(
+                    &mut fixture,
+                    route.history,
+                    birth.route().history,
+                )
+                .await?;
+                let (mut config, remote) =
+                    archive_controller::registration_for(&fixture, &directory, &birth, false)
+                        .await?;
+                config.io = archive.io.clone();
+                config.owners = archive.owners.clone();
+                config.tails = archive.tails.clone();
+                config.checkpoints = archive.checkpoints.clone();
+                config.scratch = archive.scratch.clone();
+                background_archives.push((config, remote));
+            }
+        }
         let controllers = controller::start_with_limits(&mut fixture, limits).await?;
+        for (config, _) in &background_archives {
+            let group = config.birth.route().history;
+            fixture.runtimes[0].campaign(group).await?;
+            controller::wait_for(async || Ok(fixture.runtimes[0].status(group).await?.ready))
+                .await?;
+            controllers[0].archive(config.clone())?.response().await?;
+            archive_controller::published(
+                &controllers[0],
+                group,
+                fixture.runtimes[0].status(group).await?.applied.index,
+            )
+            .await?;
+        }
         controllers[0].archive(archive.clone())?.response().await?;
         archive_controller::published(
             &controllers[0],
@@ -267,6 +315,7 @@ impl Harness {
             remote,
             calls,
             initializations,
+            background_archives,
             retry_until,
         })
     }
@@ -335,6 +384,7 @@ impl Harness {
         }
         drop(self.dispatcher);
         drop(self.archive);
+        drop(self.background_archives);
         self.fixture.close().await
     }
 }

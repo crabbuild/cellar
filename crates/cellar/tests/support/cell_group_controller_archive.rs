@@ -114,7 +114,7 @@ pub(super) async fn registration_minimum(
     .await
 }
 
-async fn registration_for(
+pub(super) async fn registration_for(
     fixture: &RuntimeCluster,
     selected: &RangeDirectory,
     birth: &CellGroupBirth,
@@ -210,7 +210,7 @@ pub(super) async fn published(
     .await
 }
 
-async fn add(
+pub(super) async fn add(
     fixture: &RuntimeCluster,
     route: &GroupRoute,
     rooted: bool,

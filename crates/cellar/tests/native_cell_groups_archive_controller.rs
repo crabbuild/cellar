@@ -737,3 +737,32 @@ async fn rustfs_s3_receipt_lookup_deadlines_refund_read_admission() -> Result<()
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn foreground_s3_receipt_precedes_queued_background_archive() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_receipt_precedes_queued_background_archive(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_foreground_s3_receipt_precedes_queued_background_archive() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_receipt_precedes_queued_background_archive(
+                rooted,
+                rustfs::store("foreground-publication-priority", rooted)?,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
