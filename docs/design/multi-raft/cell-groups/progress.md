@@ -29,6 +29,66 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `0dcb6d9cc` retains a completed
+first query while its fallback finishes an entered catalog confirmation.** The
+existing future, deadline and attempt bank remain. At its verified boundary,
+the original request/ticket and current route are checked before returning the
+retained response. Replacements and failed confirmation refuse it. The existing
+two-waiter bound and physical SQL/response admission remain; callbacks do not
+replay and no extra lookup or ticket is allocated.
+
+Qualification source `5a82ffc5e` strengthens only test refusal-kind assertions.
+**All 12 query controls pass**, including six same-route/replacement/unavailable
+schedules across both images, first-progress retention, blocked-local failover,
+one-invocation bounds, nonmember grants and physical deadlines. Test-only baseline
+`f595823e2` fails both images with the exact `StaleAttempt` while catalog
+confirmation is held. The first/same-route oracle, setup, gates and original
+two-second/four-ticket limits are unchanged. Negative assertions were strengthened
+after red to exclude incidental deadline failures; no whole-helper identity is
+claimed. Production code is identical at the two final source pins.
+
+**All 24 SDK Queue metrics configurations now pass**, covering native, real-RustFS
+native and real-RustFS Axum, both images and independent source/target Quorum/S3
+minima. Cold/warm version and allocator preservation, source writes/exact replay,
+archive restoration and fresh-quorum refusal pass. All three original Queue
+lifecycle selectors also pass both images. These fresh histories do not reconcile
+earlier ambiguous mutations or explain the earlier RF3 setup failure.
+
+**Public cohort 1073 is FAILED, 13/22.** Its unchanged original 16-selector subset
+is FAILED **7/16**. All eight EventStream selections fail: configuration-status
+activation queries time out in four; four ordinary native/Axum/RustFS paths expire
+ambiguously on Consume command **2**. Observed Consume target attempts begin with
+roughly 2.8 seconds of their original 3-second budget remaining. This locates work
+inside the actual attempt without identifying its exclusive cause. Source-proof,
+current-history, registration and Fleet controls pass.
+
+**Real RustFS Queue load passes both images: 528 unique messages each.** Native
+materialized mode delivers 528; extent producer **15** expires with an unknown
+outcome. Earlier unknown calls and leased identities remain. Original public
+request bodies, deadlines, assertions, quotas and minima are unchanged. No full
+primitive family is accepted from these scoped passes.
+
+Locked build, strict library/affected-test Clippy, formatting, layout, native
+dependency, documentation and generated-plan checks pass. Normal incremental=0,
+test optimization 1, debug assertions and overflow checks remain. Final control
+and public compiler pre/postflight snapshots are empty; these diagnostic runs
+still establish no isolated timing, speedup or independent-voter release claim.
+Voters share one process/separate workspace engines; new SDK cases use one SQL
+worker/eight ordinary slots. RustFS is constrained to one CPU/two GiB. Aggregate
+1074 under ignored `.cellar/cg17-payload-01/` verifies sources, artifacts/logs,
+regression fidelity and load metrics. All **27 qualification voter disks and two
+baseline fixture trees**, plus earlier failures, remain. Owned RustFS/VM are
+stopped, retaining objects.
+
+Acceptance stays **13/17 tasks, 147/195 cases**. Next close EventStream
+configuration-status activation and Consume execution, native extent producer
+settlement and autonomous interrupted-binding recovery/sealing. Remaining
+primitive/provider, managed recovery and release gates retain their full scope.
+CG17-03/06 checkpoint notes and the generated plan are current; historical CG-01
+evidence remains missing.
+
+## Previous SDK Queue metrics checkpoint
+
 Latest main `16c45b266` is included. **Runtime `6a97d8c17` moves normal SDK
 Queue `metrics()` to authenticated immutable queries.** Stateful and stateless
 callers retain declared-binding authority, current Queue policy/term fences,

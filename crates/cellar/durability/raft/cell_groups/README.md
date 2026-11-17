@@ -43,6 +43,13 @@ catalog revision floor, deadline and attempt bank. Incoming RPCs execute locally
 and cannot forward again. Receipt absence remains ambiguous and releases no
 original producer.
 
+Automatic queries retain a completed first response while their fallback finishes
+an entered catalog confirmation. The same future and original deadline/attempt
+bank remain. Only a verified matching route can release that response;
+replacement or failed confirmation refuses it. Other physical replica reads
+retain their existing admission through joined cleanup. The two-waiter bound
+and destination authority checks remain.
+
 Authenticated Queue `info`/`peek` use immutable linearizable inspection. Fresh
 verified name absence may enroll the Queue at its declared minimum, then release
 enrollment output before independently proving the query's selected image.

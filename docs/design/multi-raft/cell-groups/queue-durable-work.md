@@ -170,23 +170,24 @@ remain mandatory; authority waiting never authorizes callback replay.
 
 ## Qualification and remaining scope
 
-Runtime `6a97d8c17` serves SDK metrics through the source-proven read adapter.
-**All three original native/RustFS/Axum lifecycle selectors pass both image
-formats**, including DLQ metrics that failed in cohort 1032. Both original
-claim/lease proof, source-proof, cold operator and selected-S3 refusal controls
-pass. Seven protocol/admission units pass; the unchanged cold stateless oracle
-fails on test-only baseline `d60140ee0`.
+At qualification source `5a82ffc5e`, **all 24 SDK metrics configurations pass**:
+native/RustFS native/Axum, both images and independent source/target Quorum/S3
+minima. Runtime `0dcb6d9cc` joins entered fallback catalog confirmation before
+returning a completed first read; all 12 owning query controls pass, including
+typed replacement/unavailable refusals. Both images reproduce `StaleAttempt` on
+baseline `f595823e2`. All three original Queue lifecycles pass both images.
+Earlier claim/lease, cold operator, selected-S3 and private-protocol passes remain
+pinned to the previous SDK checkpoint; no new proof-family acceptance is inferred.
 
-Cohort 1050 is still **FAILED, 12/17**. All three new SDK selectors fail after
-eight of their planned 24 configurations complete: native RF3 setup, RustFS
-post-archive-restoration `StaleAttempt`, and Axum cold source binding 47/2 remain
-open. Both materialized load modes deliver **528 unique messages**; extent
-producer **10/native** and **16/RustFS** expire ambiguously. Original lifecycle
-and load request bodies, budgets, quotas and assertions remain. Earlier leased
-messages and unknown identities remain; fresh passes do not reconcile them.
-These diagnostic results do not close full Queue compatibility; see the
+Real RustFS load passes both images with **528 unique messages each**. Native
+materialized mode delivers 528; extent producer **15** expires ambiguously.
+The full public cohort is FAILED **13/22**, including eight EventStream failures.
+Original public lifecycle/load fixtures, budgets, quotas and assertions remain.
+Earlier leased messages and unknown identities remain; fresh passes do not
+reconcile them. These diagnostic results do not close full Queue compatibility;
+see the
 [current checkpoint](progress.md#current-integration-checkpoint) for exact scope,
-failed controls and the next SDK-restoration/cold-binding/producer settlement work.
+failed controls and the next producer/binding settlement work.
 
 
 The [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness)
