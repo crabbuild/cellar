@@ -29,6 +29,50 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `1e9654506` releases completed
+S3 metadata queries from SQL admission into their already acquired archive
+reservation.** The callback and selected-image pin have finished before this
+handoff. Queued and buffered results keep their archive byte/item charge;
+remaining physical owners keep their SQL charge until they join. Ordinary query
+retention, archive coverage, current fences and original deadlines remain.
+
+The new admission regression fails baseline `7aa09947b` with `Overloaded` on
+the next read and passes final source with the byte-identical helper. It exercises
+the actual one-slot SQL and archive banks, retained physical ownership and output
+bytes/version. **20 additional functional controls pass**, including real RustFS
+and both image forms: registered-query cancellation/ownership, revoked readers,
+completed verification reuse, S3 output progress, namespace/stored minima, typed
+failure/result admission and deadline cleanup. Locked build, strict library/all-test
+Clippy, formatting, layout and dependency checks pass.
+
+**The complete original public cohort 937 is FAILED, 6/16.** Native/RustFS SDK
+source proof and current-history resolution pass, as do registration/Fleet.
+All eight EventStream selections fail initial activation or ambiguous Consume
+command **2**. Native Queue reaches the **steady-load primary drain** and expires
+in `quorum-jobs` empty wait; the preceding post-outage drains and producer join
+completed. RustFS Queue fails producer command **36**, whose outcome remains
+ambiguous. Neither Queue run emits a 528-message completion marker. All 30 failed
+voter disks remain. Queue fixture changes add error context only; original
+selectors, assertions, deadlines, quotas and durability minima remain.
+
+Both functional campaigns are explicitly **DIAGNOSTIC**, with no temporary
+runtime probes, because independent-checkout compiler activity is recorded at
+their boundaries. Existing strict isolated-run preflights remain available;
+these runs add no isolated timing, exclusive-cause, full-family or release
+acceptance. Voters share one process/separate workspace disks; real RustFS uses
+one CPU/two GiB. Owned backend/VM are stopped with objects retained. Aggregate
+940 records source, regression, log and executable hashes under ignored
+`.cellar/cg17-payload-01/`.
+
+Acceptance stays **13/17 tasks, 147/195 cases**. Next close native Queue's
+autonomous steady-load drain and RustFS producer settlement, alongside current
+EventStream activation/Consume deadlines. Interrupted bindings, safe sequence
+sealing and the remaining primitive/lifecycle/recovery matrix still precede
+CG-13/15/16 cutover. The generated plan index remains current; historical CG-01
+evidence remains missing.
+
+## Previous scratch-directory durability checkpoint
+
 Latest main `16c45b266` is included. **Runtime `af127fc3f` removes ancestor
 fsync from disposable materialized command directories.** Every open discards
 SQLite/WAL/capture scratch and rebuilds it from an independently authoritative

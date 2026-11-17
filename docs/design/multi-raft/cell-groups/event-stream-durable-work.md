@@ -35,7 +35,16 @@ preceding source writes before dispatch; metadata reads do not allocate child
 mutation identities or initialize target cells. Typed temporary reader admission
 (`NotReady`/`Overloaded`) retries within the same absolute deadline, with fresh
 target authorization and coverage checks. Fencing, malformed input, quota and
-mutation failures remain refusals. Retained shared-group activation
+mutation failures remain refusals.
+
+After immutable SQL capture joins and releases its selected-image pin, an S3
+metadata result transfers its SQL reservation to an independently acquired
+archive reservation. Queued and buffered results retain that archive byte/item
+charge. Physical readers retain their own SQL admission until they join. This
+allows discovery to use SQL capacity while remote archive proof waits, under the
+existing admission ceilings. Coverage and current fencing still gate the result.
+
+Retained shared-group activation
 skips configuration only after a fresh authorized catalog read proves the exact
 active definition. Fresh owners with no local history hint use ordinary creation
 without an extra strong absence lookup. Resumed owners try the strong read even

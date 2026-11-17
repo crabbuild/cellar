@@ -57,48 +57,43 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-latest main `16c45b266`. Runtime `af127fc3f` removes ancestor fsync from disposable
-materialized command directories. Scratch is rebuilt on open; bounded paths and
-exclusive locks remain. Immutable preview/image/log/root barriers and extent
-workspace inventory durability retain their contracts. Bounded physical apply and
-shared progress-lane ownership remain delivered.
+latest main `16c45b266`. Runtime `1e9654506` transfers completed S3 metadata
+queries from SQL admission to their already acquired bounded archive reservation.
+Physical owners keep their SQL charge until they join; queued/buffered results
+keep their archive charge. Original coverage, fencing and deadlines remain.
+The one-slot regression fails baseline `7aa09947b` and passes final source with
+the same helper. Twenty further native/RustFS functional controls pass, covering
+cancellation, retained results, proof/minimum enforcement and deadline cleanup.
+Locked build, strict Clippy and repository checks pass.
 
-**28 owning/control selections pass**, including real RustFS. The scratch-directory
-sync denial regression fails baseline `f5bc74137` and passes final source with the
-same helper: actual quorum commit, pre-commit invisibility, scratch deletion and exact
-receipt replay without callback duplication. Image/manifest failure refusal,
-cancellation, recovery, checkpoint pressure, S3 output/read fences and RustFS
-reclamation/restart pass. Strict Clippy and repository checks pass.
-
-**Complete original public 899 remains FAILED, 6/16.** SDK source proof, retained
-binding histories and registration/Fleet pass. All eight EventStream and both
-Queue selections fail. Native ordinary Consume **2** succeeds, then retained
-materialized activation fails; native Axum completes the materialized lifecycle
-before initial extent activation fails. RustFS ordinary/Axum Consume parent **2**
-remains ambiguous. Other ingresses fail activation. Both Queue loads expire in an
-unlabelled empty/drain wait; no 528-message completion marker identifies full load
-completion or which drain phase was reached. All 30 failed disks remain. Public
-fixture bodies, deadlines, quotas and durability minima are unchanged.
+**Complete original public 937 remains FAILED, 6/16.** SDK source proof,
+current histories and registration/Fleet pass. All eight EventStream selections
+fail activation or ambiguous Consume command **2**. Native Queue reaches the
+**steady-load primary drain**, after post-outage drains and the producer join,
+then expires in `quorum-jobs` empty wait. RustFS Queue fails producer command
+**36**, whose outcome remains ambiguous. Neither Queue run has a 528-message
+completion marker. All 30 failed voter disks remain. Queue fixture changes only
+add drain error context; original assertions, deadlines, quotas and minima remain.
 
 The next feature priorities are:
 
-1. Close retained, extent and target-S3 activation and exact RustFS Consume/source
-   settlement under original budgets. Preserve ambiguous identities and distinguish
-   the current failures from historical native Consume failures.
-2. Close autonomous Queue work discovery/drain, interrupted bindings and safe
-   unused-sequence sealing, then the remaining primitive adapters and combined
-   lifecycle/recovery matrix. The unlabelled drain needs phase attribution before
-   choosing a scheduler or archive fix.
+1. Close autonomous Queue steady-load drain and RustFS producer settlement. The
+   native failure now identifies the post-production primary drain; investigate
+   that durable work/lease state instead of assuming the earlier outage drain.
+2. Close EventStream activation and Consume/source settlement under original
+   budgets, preserving ambiguous identities. Complete interrupted bindings, safe
+   unused-sequence sealing and the remaining primitive/lifecycle/recovery matrix.
 3. Close CG-13/15 managed recovery and independent-voter release qualification,
    then CG-16 cutover. Cumulative host metrics and isolated earlier passes do not
    identify an exclusive latency cause.
 
-Aggregate 907 records frozen hashes. Control compiler boundaries are empty;
-public postflight observes an independent checkout compiler. Voters share one
-process/separate workspace disks, RustFS1CPU2GiB. Owned backend/VM are stopped,
-objects/failures retained. Counts remain **13/17 tasks, 147/195 cases**; index
-current, historical CG-01 evidence missing. No full primitive, speedup, timing
-stability or independent-voter release acceptance is added.
+Aggregate 940 records frozen hashes. Functional campaigns are explicitly
+**DIAGNOSTIC**, without temporary runtime probes, under recorded independent
+compiler activity. Assertions and strict isolated-run gates are unchanged;
+these runs add no isolated timing, exclusive-cause, full primitive or release
+acceptance. Voters share one process/separate workspace disks, RustFS1CPU2GiB.
+Owned backend/VM are stopped, objects/failures retained. Counts remain
+**13/17 tasks, 147/195 cases**; index current, historical CG-01 evidence missing.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
