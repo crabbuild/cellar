@@ -110,6 +110,30 @@ the same broker. Its operator contract is absent from producer binding discovery
 The existing authorization binds method, path, body and addressed node. Operator
 timeouts preserve an unknown mutation outcome rather than replaying the command.
 
+### Immutable operator inspection
+
+On shared-group durability, authenticated `info` and `peek` inspect an existing
+Queue through a private linearizable query. They preserve its committed version
+and ingress allocator and never install work, expire leases or invoke a native
+factory. Pause, resume, purge and redrive retain their command/receipt path.
+Only a verified fresh name absence may enter the ordinary creation protocol;
+a read or discovery failure cannot select that path.
+
+Inspection uses the leader's node-local Queue limits and rejects a leadership
+or term change across SQL selection. It still obtains fresh quorum authority.
+An S3 namespace minimum additionally gates the selected version on independent
+archive verification; archive failure cannot downgrade the read. The private
+Queue wire purpose requires command authority and cannot grant public queries
+or EventStream queries access to the operator. Existing byte/item reservations,
+response retention, cancellation, deadlines and birth/route fences remain.
+
+Queue enrollment installs the existing schema, so a committed enrollment image
+supports inspection before the first native RPC. The changed initializer digest
+requires fresh compatible namespaces and matching voters for this hard cutover.
+Format markers stay at 1, with no
+legacy reader or migration. See the [current qualification](progress.md#current-integration-checkpoint)
+for passing read/proof cases and the remaining extent Queue and EventStream gaps.
+
 ## Shared writer admission
 
 Ordinary requests and parked callbacks share a bounded per-cell FIFO writer.

@@ -29,6 +29,64 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. **Runtime `234d12f55` serves authenticated
+Queue `info` and `peek` through immutable linearizable queries.** Inspection of
+an existing Queue does not allocate an ingress sequence or append a Queue command.
+Mutating operator calls retain their command/receipt path. The private Queue
+transport purpose requires command authority and cannot be substituted for
+public or EventStream query admission. Original resource bounds, cancellation,
+birth/route fences and namespace Quorum/S3 minima remain.
+
+Queue inspection captures the leader's node policy and refuses a leadership/term
+change across SQL selection. Fresh quorum authority remains mandatory; an S3
+minimum also requires independently verified coverage of the selected version.
+Enrollment now installs the Queue schema, allowing inspection before any native
+RPC. The changed initializer digest requires fresh compatible namespaces and
+matching voters; format markers remain 1, without a legacy reader or migration.
+Only proven fresh name absence may enter the existing creation protocol.
+
+**31 Queue/query-wire units and all five owning public selections pass.** The
+public selections cover 12 native/real-RustFS image/minimum configurations plus
+the Fleet Queue reference: version/allocator preservation, mutating pause,
+private admission, minority refusal, bare enrollment and denied S3 publication.
+The S3 negative case first observes a newer committed cell version and an actual
+denied publication, refuses inspection, then restores successful reads. It does
+not infer whether the timed-out pause committed. Baseline `fc39365a` fails the
+same version/allocator preservation assertion. The minority endpoint was corrected
+after that baseline; no byte-identical whole-helper claim is made.
+
+**Compatibility controls are FAILED, 4/7.** Claim/lease proof gates pass on both
+backends, as do ordinary RustFS native/Axum Queue lifecycles. Native Queue passes
+materialized mode, then extent producer command **2** expires ambiguously. Both
+retained EventStream activation controls fail their deadlines.
+
+**The complete original public cohort 959 is FAILED, 8/16.** SDK source-proof
+and current-history resolution, registration/Fleet and native/RustFS Axum
+EventStream lifecycles pass. Six other EventStream selections fail activation
+or ambiguous Consume **2**. Both Queue loads deliver **528 unique messages in
+materialized mode**; extent mode fails native steady-load primary drain and
+RustFS producer **11**, whose outcome remains unknown. The original Queue load
+body is byte-identical to published `3445aa7fe`; budgets, quotas, minima and
+assertions remain unchanged. All **33 current failed voter disks** are retained.
+
+Locked integration/library builds, strict library/all-test Clippy, formatting,
+layout, native dependency, documentation and generated-plan checks pass.
+Aggregate 964 records frozen source, log and executable hashes under ignored
+`.cellar/cg17-payload-01/`. Runtime campaigns are explicitly **DIAGNOSTIC**;
+independent compiler activity is recorded at owning/public boundaries. Voters
+share one process with separate workspace disks; RustFS uses one CPU/two GiB.
+These results add no isolated timing, exclusive-cause, full-family or release
+acceptance. Owned RustFS/VM are stopped with objects retained.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close extent Queue
+producer/consumer settlement and autonomous drain, then EventStream activation
+and Consume/source settlement under their original deadlines. Interrupted
+bindings, safe unused-sequence sealing and the remaining primitive/recovery
+matrix still precede CG-13/15/16 cutover. The generated plan is current;
+historical CG-01 evidence remains missing.
+
+## Previous SQL query admission checkpoint
+
 Latest main `16c45b266` is included. **Runtime `1e9654506` releases completed
 S3 metadata queries from SQL admission into their already acquired archive
 reservation.** The callback and selected-image pin have finished before this
