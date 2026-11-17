@@ -477,3 +477,259 @@ pub(crate) async fn remote_command_lifecycle(revoke: bool) -> Result<()> {
     }
     Ok(())
 }
+
+pub(crate) async fn remote_command_receipt_reconciliation(commit: bool) -> Result<()> {
+    receipt_reconciliation(if commit {
+        ReceiptCase::Commit
+    } else {
+        ReceiptCase::Rollback
+    })
+    .await
+}
+
+pub(crate) async fn remote_command_receipt_limits(one_ticket: bool) -> Result<()> {
+    receipt_reconciliation(if one_ticket {
+        ReceiptCase::OneTicket
+    } else {
+        ReceiptCase::OneAdmission
+    })
+    .await
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReceiptCase {
+    Commit,
+    Rollback,
+    OneTicket,
+    OneAdmission,
+}
+
+async fn receipt_reconciliation(case: ReceiptCase) -> Result<()> {
+    let commit = case != ReceiptCase::Rollback;
+    let mut failures = Vec::new();
+    for rooted in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let (entered, entered_rx) = tokio::sync::oneshot::channel();
+        let entered = Arc::new(Mutex::new(Some(entered)));
+        let (release, held) = std::sync::mpsc::sync_channel(1);
+        let held = Arc::new(Mutex::new(held));
+        let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.command(
+            "Add",
+            [82; 32],
+            move |ctx, input| {
+                count.fetch_add(1, Ordering::SeqCst);
+                let _ = entered
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .context("one callback")?
+                    .send(());
+                held.lock().unwrap().recv_timeout(Duration::from_secs(15))?;
+                ctx.sql().execute("UPDATE value SET n=n+1", [])?;
+                if !commit {
+                    anyhow::bail!("callback rolls back before submission");
+                }
+                let mut output = ctx.inputs().random.to_vec();
+                output.extend_from_slice(&ctx.inputs().now_unix_millis.to_be_bytes());
+                output.extend_from_slice(input);
+                Ok(output)
+            },
+        )?);
+        let (mut fixture, route, cell, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        fixture.cluster._root.disable_cleanup(true);
+        let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+        let inbound = dispatcher(&fixture, class.clone(), keys(190)?)?;
+        let dispatch = if case == ReceiptCase::OneAdmission {
+            CellGroupDispatcher::new(
+                &fixture.cluster.domain,
+                fixture.cluster.directory.clone(),
+                class.clone(),
+                keys(190)?,
+                CellDispatchLimits {
+                    max_cached_routes: 32,
+                    route_cache_bytes: 256 * 1024,
+                    max_invocations: 1,
+                    retained_bytes: 1024 * 1024,
+                    max_input_bytes: 1024,
+                },
+            )?
+        } else {
+            inbound.clone()
+        };
+        let mut options = fixture.cell_options(&cell).await?;
+        let base = fixture.cluster._root.path().join("receipt-gateway");
+        match &mut options {
+            CellSqlOptions::Materialized(options) => options.directory = base,
+            CellSqlOptions::Extents(options) => options.cache_directory = base,
+        }
+        let gateway = fixture.transports[0].install_cell_command_gateway(
+            inbound.clone(),
+            controllers[0].clone(),
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                options.clone(),
+            )?,
+        )?;
+        let Router {
+            log,
+            runtime,
+            events,
+            transport,
+            peer,
+        } = Router::start(&fixture).await?;
+        let view = fixture.tcp_route(route.history)?;
+        transport.install_cell_query_group(view.clone())?;
+        fixture.transports[0].grant_command_origin(NamespaceCommandOrigin {
+            cluster: cell.cluster,
+            namespace: cell.namespace,
+            revision: 1,
+            peer,
+        })?;
+        let sql = CellGroupSqlPool::start(
+            &log,
+            fixture.appliers[&(0, route.history)].0.usage()?.limits,
+        )?;
+        let ingress = CellGroupController::start(
+            runtime,
+            events,
+            transport.clone(),
+            sql,
+            vec![],
+            controller::limits(),
+        )
+        .await?;
+        let request = CellCommandRequest {
+            id: CommandId::new(ClientId::new([221; 16])?, 1)?,
+            contract: class.contract("Add").context("Add")?,
+            input: b"original-input".to_vec(),
+            durability: Durability::Quorum,
+            retry_until_ms: fixture
+                .cluster
+                .domain
+                .run(async { cellar::asyncrt::wall_ms() as u64 + 60_000 })
+                .await?,
+        };
+        let limits = CellRoutingLimits {
+            timeout: Duration::from_secs(5),
+            max_attempts: if case == ReceiptCase::OneTicket { 1 } else { 3 },
+        };
+        let result = async {
+            let call = ingress.dispatch_command(
+                &dispatch,
+                cell.clone(),
+                request.clone(),
+                limits,
+                options,
+            )?;
+            tokio::time::timeout(Duration::from_secs(5), entered_rx).await??;
+            anyhow::ensure!(
+                calls.load(Ordering::SeqCst) == 1,
+                "original callback entered once"
+            );
+            // An actual request has entered SQL. Only the sender's route view
+            // changes; the peer, process, permission and committed state remain.
+            let mut changed = view;
+            changed.revision += 1;
+            transport.install_cell_query_group(changed)?;
+            release.send(())?;
+            let response = call.response().await;
+            wait_for(async || Ok(controllers[0].usage().retained_commands == 0)).await?;
+
+            // An independent read proves the fixture's physical commit/absence.
+            // It does not retry or settle the originating command invocation.
+            let mut observer = inbound.lookup_receipt(
+                cell.clone(),
+                CellReceiptRequest {
+                    id: request.id,
+                    contract: request.contract.clone(),
+                    input: request.input.clone(),
+                    durability: request.durability,
+                },
+                limits,
+                None,
+            )?;
+            observer.begin().await?;
+            let found = observer
+                .execute_remote(&transport, MemberId::new(1)?)
+                .await?;
+            anyhow::ensure!(found.command() == request.id, "original receipt ID");
+            if commit && case != ReceiptCase::OneTicket {
+                let actual = found
+                    .result()
+                    .context("committed receipt exists independently")?;
+                let response =
+                    response.context("original owner must reconcile its exact receipt")?;
+                anyhow::ensure!(response.result() == actual, "exact original result");
+                anyhow::ensure!(
+                    response.result().ends_with(&request.input),
+                    "original inputs"
+                );
+                anyhow::ensure!(
+                    response.observation() == *found.observation(),
+                    "exact observation"
+                );
+                anyhow::ensure!(
+                    response.durability() == request.durability,
+                    "required durability"
+                );
+                anyhow::ensure!(
+                    response.local_receipt().is_none(),
+                    "remote read grants no local producer proof"
+                );
+            } else {
+                anyhow::ensure!(
+                    found.result().is_some() == commit,
+                    "physical commit/rollback outcome"
+                );
+                let error = response
+                    .err()
+                    .context("absence cannot acknowledge a command")?;
+                anyhow::ensure!(
+                    error.command == request.id && error.ambiguous,
+                    "original identity stays unknown"
+                );
+            }
+            anyhow::ensure!(
+                calls.load(Ordering::SeqCst) == 1,
+                "receipt repair never executes a callback"
+            );
+            drop(found);
+            drop(observer);
+            wait_for(async || Ok(dispatch.usage() == (0, 0) && transport.usage().query_items == 0))
+                .await?;
+            anyhow::ensure!(
+                log.cell_groups()?.is_empty(),
+                "ingress has no local replicas"
+            );
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        // Always release a callback and join owners before returning a failed
+        // assertion. Preserve all fixture disks, including the failing control.
+        let _ = release.try_send(());
+        let mut cleanup = Vec::new();
+        drop(gateway);
+        if let Err(error) = ingress.close().await {
+            cleanup.push(format!("ingress: {error}"));
+        }
+        if let Err(error) = log.close().await {
+            cleanup.push(format!("router log: {error}"));
+        }
+        for controller in controllers {
+            if let Err(error) = controller.close().await {
+                cleanup.push(format!("voter: {error}"));
+            }
+        }
+        if let Err(error) = fixture.close().await {
+            cleanup.push(format!("fixture: {error}"));
+        }
+        if let Err(error) = result {
+            failures.push(format!("rooted={rooted}, commit={commit}: {error:#}"));
+        }
+        if !cleanup.is_empty() {
+            failures.push(format!("rooted={rooted}, cleanup={cleanup:?}"));
+        }
+    }
+    anyhow::ensure!(failures.is_empty(), "{}", failures.join("; "));
+    Ok(())
+}

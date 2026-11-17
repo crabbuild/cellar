@@ -214,13 +214,16 @@ impl Cluster {
 
     async fn with_store_birth_in_domain(
         options: RaftRuntimeOptions,
-        root: tempfile::TempDir,
+        mut root: tempfile::TempDir,
         filesystem: Arc<dyn cellar_ltx::FileSystem>,
         schema: [u8; 32],
         store: Arc<dyn object_store::ObjectStore>,
         birth_options: ClusterBirthOptions,
         domain: ExecutionDomain,
     ) -> Result<Self> {
+        // Keep failed setup and runtime disks for diagnosis. Explicit fenced
+        // loss scenarios still erase their own disks without a prior backup.
+        root.disable_cleanup(true);
         let minimum = birth_options.minimum;
         let log_limits = birth_options.log;
         let history = GroupHistory {

@@ -341,6 +341,18 @@ async fn rustfs_archive_coverage_gates_local_compaction() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_remote_unknown_reply_requires_exact_s3_receipt() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_remote_receipt_reconciliation(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn s3_remote_outputs_preserve_durability_and_creation() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::s3_remote_outputs(

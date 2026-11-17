@@ -51,7 +51,7 @@ impl CellCommandInvocation {
         self.origin.is_some()
     }
 
-    fn expired(&self) -> Result<bool, CellDispatchError> {
+    pub(super) fn expired(&self) -> Result<bool, CellDispatchError> {
         Ok(self.dispatcher.domain.mono_ms().map_err(|_| closed())? >= self.session.deadline_ms())
     }
 
@@ -210,6 +210,15 @@ impl CellCommandInvocation {
                             }
                             self.retry().await?;
                             continue;
+                        }
+                        Err(error)
+                            if self.admission_kind == CommandAdmission::Public
+                                && error.ambiguous
+                                && super::reconcile::retryable(&error.cause) =>
+                        {
+                            return self
+                                .reconcile_remote(runtime, sql, options, &routing, error)
+                                .await;
                         }
                         Err(error) => return Err(error),
                     }

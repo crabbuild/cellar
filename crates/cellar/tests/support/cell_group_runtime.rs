@@ -963,7 +963,8 @@ pub(super) use sql::{
     s3_late_receipt_uses_completed_verification, s3_missing_sibling, s3_namespace_minimum,
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
     s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
-    s3_remote_slow_delivery, s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
+    s3_remote_receipt_reconciliation, s3_remote_slow_delivery, s3_replays_from_peer_archive,
+    s3_response_precedes_hold_retirement,
 };
 pub(super) use sql::{
     background_admission, capacity_terminal_refusals, capacity_wait_shutdown,
@@ -1062,7 +1063,10 @@ pub(super) use sql::{nonmember_controller_queries, nonmember_queries, nonmember_
 
 pub(super) use sql::cached_dispatch_execution;
 
-pub(super) use sql::{remote_command_lifecycle, remote_commands};
+pub(super) use sql::{
+    remote_command_lifecycle, remote_command_receipt_limits, remote_command_receipt_reconciliation,
+    remote_commands,
+};
 
 pub(super) use sql::{
     remote_enrollment, remote_enrollment_lifecycle, remote_enrollment_writer_contention,

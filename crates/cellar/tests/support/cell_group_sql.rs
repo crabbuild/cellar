@@ -570,8 +570,9 @@ pub(crate) use s3_commands::{
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_missing_sibling, s3_namespace_minimum, s3_newer_receipt_bypasses_inflight_maintenance,
     s3_payload_capacity_release, s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums,
-    s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery,
-    s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
+    s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
+    s3_remote_receipt_reconciliation, s3_remote_slow_delivery, s3_replays_from_peer_archive,
+    s3_response_precedes_hold_retirement,
 };
 #[allow(unused_imports)]
 pub(crate) use s3_response::unproved_s3_responses;
@@ -641,7 +642,10 @@ pub(crate) use dispatch_cache_execution::cached_dispatch_execution;
 
 #[path = "cell_group_remote_commands.rs"]
 mod remote_commands;
-pub(crate) use remote_commands::{remote_command_lifecycle, remote_commands};
+pub(crate) use remote_commands::{
+    remote_command_lifecycle, remote_command_receipt_limits, remote_command_receipt_reconciliation,
+    remote_commands,
+};
 
 #[path = "cell_group_remote_enrollment.rs"]
 mod remote_enrollment;

@@ -150,6 +150,13 @@ impl CellRemoteReceiptResponse {
         self.stored.as_ref()
     }
 
+    /// Keep physical reply credits while transferring the exact stored result.
+    pub(in crate::raft) fn take_stored_receipt(
+        &mut self,
+    ) -> Option<crate::raft::execution::StoredReceipt> {
+        self.stored.take()
+    }
+
     pub fn observation(&self) -> &CellVersionObservation {
         &self.value.value.value.observation
     }

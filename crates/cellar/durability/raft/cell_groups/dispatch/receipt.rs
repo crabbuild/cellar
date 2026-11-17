@@ -43,10 +43,73 @@ enum ReceiptOutput {
 /// No result escapes before `response` satisfies the required durability. S3
 /// admission takes SQL retention here; dropping this phase releases admission.
 pub struct CellReceiptSelection<'a> {
-    invocation: &'a mut CellReceiptInvocation,
+    execution: ReceiptExecution<'a>,
     runtime: CellGroupRuntime,
-    attempt: CellRouteAttempt,
     selected: Selected,
+}
+
+/// Borrow the original invocation's request and route bank. Command resolution
+/// must not create another session, copy input ownership or acquire admission.
+pub(super) struct ReceiptRequest<'a> {
+    id: CommandId,
+    contract: &'a OperationContract,
+    input: &'a [u8],
+    durability: Durability,
+}
+
+impl<'a> From<&'a CellReceiptRequest> for ReceiptRequest<'a> {
+    fn from(request: &'a CellReceiptRequest) -> Self {
+        Self {
+            id: request.id,
+            contract: &request.contract,
+            input: &request.input,
+            durability: request.durability,
+        }
+    }
+}
+
+impl<'a> From<&'a CellCommandRequest> for ReceiptRequest<'a> {
+    fn from(request: &'a CellCommandRequest) -> Self {
+        Self {
+            id: request.id,
+            contract: &request.contract,
+            input: &request.input,
+            durability: request.durability,
+        }
+    }
+}
+
+pub(super) struct ReceiptExecution<'a> {
+    dispatcher: &'a CellGroupDispatcher,
+    cell: &'a CellHistory,
+    request: ReceiptRequest<'a>,
+    session: &'a CellRoutingSession,
+    attempt: CellRouteAttempt,
+}
+
+/// A positive receipt and its original SQL/archive or physical reply custody.
+/// Absence cannot construct this value; the result moves without another copy.
+pub(super) struct ResolvedCommandReceipt {
+    receipt: StoredReceipt,
+    proof: CellReceiptResponse,
+}
+
+impl ResolvedCommandReceipt {
+    pub(super) fn result(&self) -> &[u8] {
+        self.receipt.result()
+    }
+
+    pub(super) fn observation(&self) -> &CellVersionObservation {
+        self.proof.observation()
+    }
+
+    pub(super) fn token(&self) -> &CellVersionToken {
+        self.proof.token()
+    }
+
+    pub(super) fn durability(&self) -> Durability {
+        self.proof.durability()
+    }
 }
 
 enum Selected {
@@ -56,13 +119,22 @@ enum Selected {
 
 impl CellReceiptSelection<'_> {
     pub async fn response(self) -> Result<CellReceiptResponse, CellDispatchError> {
-        self.invocation
-            .response(&self.runtime, self.attempt, self.selected)
-            .await
+        self.execution.response(&self.runtime, self.selected).await
     }
 }
 
 impl CellReceiptResponse {
+    pub(super) fn into_command_receipt(mut self) -> Option<ResolvedCommandReceipt> {
+        let receipt = match &mut self.output {
+            ReceiptOutput::Local { selected, .. } => selected.take_receipt(),
+            ReceiptOutput::Remote(response) => response.take_stored_receipt(),
+        }?;
+        Some(ResolvedCommandReceipt {
+            receipt,
+            proof: self,
+        })
+    }
+
     /// Achieved durability of this observation, including an ambiguous absence.
     pub fn durability(&self) -> Durability {
         match &self.output {
@@ -319,8 +391,7 @@ impl CellReceiptInvocation {
     }
 
     /// Select one immutable quorum image under the original attempt/deadline.
-    /// S3 selection transfers result retention before returning this opaque phase;
-    /// only its response can expose the required-durability result.
+    /// The selected phase retains this invocation until response settlement.
     pub async fn select(
         &mut self,
         runtime: &CellGroupRuntime,
@@ -335,6 +406,74 @@ impl CellReceiptInvocation {
             return Err(CellDispatchError::Invalid("consumed receipt attempt"));
         }
         self.dispatched = true;
+        self.execution(attempt).select(runtime, sql, options).await
+    }
+
+    pub async fn execute_remote(
+        &mut self,
+        transport: &crate::raft::transport::RaftTransport,
+        member: cellar_logic::consensus::MemberId,
+    ) -> Result<crate::raft::transport::CellRemoteReceiptResponse, CellDispatchError> {
+        let attempt = self.current()?.clone();
+        self.session
+            .validate_attempt(&attempt)
+            .map_err(CellDispatchError::Routing)?;
+        if self.dispatched || self.remote_route.is_some() {
+            return Err(CellDispatchError::Invalid("consumed receipt attempt"));
+        }
+        self.dispatched = true;
+        self.execution(attempt)
+            .execute_remote(transport, member)
+            .await
+    }
+
+    fn execution(&self, attempt: CellRouteAttempt) -> ReceiptExecution<'_> {
+        ReceiptExecution::new(
+            &self.dispatcher,
+            &self.cell,
+            (&self.request).into(),
+            &self.session,
+            attempt,
+        )
+    }
+}
+
+impl<'a> ReceiptExecution<'a> {
+    pub(super) fn new(
+        dispatcher: &'a CellGroupDispatcher,
+        cell: &'a CellHistory,
+        request: ReceiptRequest<'a>,
+        session: &'a CellRoutingSession,
+        attempt: CellRouteAttempt,
+    ) -> Self {
+        Self {
+            dispatcher,
+            cell,
+            request,
+            session,
+            attempt,
+        }
+    }
+
+    pub(super) async fn execute(
+        self,
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        options: CellSqlOptions,
+    ) -> Result<CellReceiptResponse, CellDispatchError> {
+        self.select(runtime, sql, options).await?.response().await
+    }
+
+    pub(super) async fn select(
+        self,
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        options: CellSqlOptions,
+    ) -> Result<CellReceiptSelection<'a>, CellDispatchError> {
+        let attempt = &self.attempt;
+        self.session
+            .validate_attempt(attempt)
+            .map_err(CellDispatchError::Routing)?;
         if !runtime.uses_domain(&self.dispatcher.domain)
             || !sql.uses_domain(&self.dispatcher.domain)
         {
@@ -357,20 +496,20 @@ impl CellReceiptInvocation {
             id: self.request.id,
             operation: self.request.contract.operation.clone(),
             contract_digest: self.request.contract.digest,
-            request_digest: command_request_digest(&self.request.input),
+            request_digest: command_request_digest(self.request.input),
             durability: self.request.durability,
             retry_until_ms: 0,
         };
         let authority = runtime
             .read_authority(
                 attempt.route().history,
-                self.cell.clone(),
+                (*self.cell).clone(),
                 CellReadConsistency::Linearizable,
                 attempt.deadline_ms(),
             )
             .await
             .map_err(CellDispatchError::Runtime)?;
-        if authority.route() != attempt.route() || authority.cell().version.history != self.cell {
+        if authority.route() != attempt.route() || authority.cell().version.history != *self.cell {
             return Err(CellDispatchError::Invalid("receipt destination route"));
         }
         let selected = sql
@@ -379,12 +518,12 @@ impl CellReceiptInvocation {
                 authority,
                 self.dispatcher.class.clone(),
                 request.clone(),
-                self.request.input.clone(),
+                self.request.input.to_vec(),
             )
             .await
             .map_err(CellDispatchError::Execution)?;
         self.session
-            .validate_attempt(&attempt)
+            .validate_attempt(attempt)
             .map_err(CellDispatchError::Routing)?;
         let required = self.request.durability.max(
             selected
@@ -411,21 +550,20 @@ impl CellReceiptInvocation {
             Selected::Quorum(Box::new(selected))
         };
         Ok(CellReceiptSelection {
-            invocation: self,
+            execution: self,
             runtime: runtime.clone(),
-            attempt,
             selected,
         })
     }
 
     async fn response(
-        &mut self,
+        self,
         runtime: &CellGroupRuntime,
-        attempt: CellRouteAttempt,
         selected: Selected,
     ) -> Result<CellReceiptResponse, CellDispatchError> {
+        let attempt = &self.attempt;
         self.session
-            .validate_attempt(&attempt)
+            .validate_attempt(attempt)
             .map_err(CellDispatchError::Routing)?;
         let (selected, s3, authority) = match selected {
             Selected::Quorum(selected) => (selected, None, None),
@@ -440,14 +578,14 @@ impl CellReceiptInvocation {
                 let authority = runtime
                     .read_authority(
                         attempt.route().history,
-                        self.cell.clone(),
+                        (*self.cell).clone(),
                         CellReadConsistency::Linearizable,
                         attempt.deadline_ms(),
                     )
                     .await
                     .map_err(CellDispatchError::Runtime)?;
                 if authority.route() != attempt.route()
-                    || authority.cell().version.history != self.cell
+                    || authority.cell().version.history != *self.cell
                 {
                     return Err(CellDispatchError::Invalid(
                         "S3 receipt current route/history",
@@ -478,7 +616,7 @@ impl CellReceiptInvocation {
             .issue_cell(selected.observation(), attempt.route().schema_digest, now)
             .map_err(CellDispatchError::Version)?;
         self.session
-            .validate_attempt(&attempt)
+            .validate_attempt(attempt)
             .map_err(CellDispatchError::Routing)?;
         if let Some(authority) = authority {
             authority
@@ -495,19 +633,15 @@ impl CellReceiptInvocation {
         })
     }
 
-    pub async fn execute_remote(
-        &mut self,
+    pub(super) async fn execute_remote(
+        self,
         transport: &crate::raft::transport::RaftTransport,
         member: cellar_logic::consensus::MemberId,
     ) -> Result<crate::raft::transport::CellRemoteReceiptResponse, CellDispatchError> {
-        let attempt = self.current()?.clone();
+        let attempt = &self.attempt;
         self.session
-            .validate_attempt(&attempt)
+            .validate_attempt(attempt)
             .map_err(CellDispatchError::Routing)?;
-        if self.dispatched || self.remote_route.is_some() {
-            return Err(CellDispatchError::Invalid("consumed receipt attempt"));
-        }
-        self.dispatched = true;
         if !transport.uses_command_domain(&self.dispatcher.domain) {
             return Err(CellDispatchError::Invalid("receipt transport domain"));
         }
@@ -517,7 +651,12 @@ impl CellReceiptInvocation {
             .filter(|n| *n > 0)
             .ok_or(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded))?;
         let call = crate::raft::query_wire::receipt::CellReceiptCall {
-            request: self.request.clone(),
+            request: CellReceiptRequest {
+                id: self.request.id,
+                contract: self.request.contract.clone(),
+                input: self.request.input.to_vec(),
+                durability: self.request.durability,
+            },
             timeout_ms,
             route_epoch: attempt.route().epoch.get(),
             birth_digest: attempt.route().birth_digest,
@@ -527,7 +666,7 @@ impl CellReceiptInvocation {
             .domain
             .run(transport.lookup_cell_receipt(
                 attempt.route(),
-                &self.cell,
+                self.cell,
                 member,
                 call,
                 self.dispatcher.keys.clone(),
@@ -542,7 +681,7 @@ impl CellReceiptInvocation {
                 other => CellDispatchError::Transport(other),
             })?;
         self.session
-            .validate_attempt(&attempt)
+            .validate_attempt(attempt)
             .map_err(CellDispatchError::Routing)?;
         Ok(response)
     }

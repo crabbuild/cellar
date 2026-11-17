@@ -32,7 +32,10 @@ pub(crate) use receipts::{
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
     s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
 };
-pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
+pub(crate) use remote::{
+    s3_remote_deadlines, s3_remote_outputs, s3_remote_receipt_reconciliation,
+    s3_remote_slow_delivery,
+};
 pub(crate) use retirement::retirement_coalesces_next_archive_intent;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

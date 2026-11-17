@@ -119,6 +119,13 @@ pub struct CellSqlReceiptLookup {
 }
 
 impl CellSqlReceiptLookup {
+    /// Move a positive result without releasing its selected-image retention.
+    pub(in crate::raft) fn take_receipt(
+        &mut self,
+    ) -> Option<crate::raft::execution::StoredReceipt> {
+        self.receipt.take()
+    }
+
     pub(crate) fn retain_for_archive(
         mut self: Box<Self>,
         permit: Arc<Mutex<crate::raft::budget::Permit>>,

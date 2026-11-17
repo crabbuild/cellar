@@ -4,6 +4,7 @@
 //! The node controller drives publication; acceptance is only provisional.
 mod output;
 mod owned;
+mod reconcile;
 mod remote;
 use output::PendingOutput;
 
@@ -77,15 +78,22 @@ enum CommandOutput {
         s3: Option<Box<super::super::controller::S3OutputProof>>,
     },
     Remote(Box<crate::raft::transport::CellRemoteCommandResponse>),
+    Reconciled(Box<super::receipt::ResolvedCommandReceipt>),
 }
 
 impl CellCommandResponse {
+    fn from_receipt(response: CellReceiptResponse) -> Option<Self> {
+        response.into_command_receipt().map(|receipt| Self {
+            output: CommandOutput::Reconciled(Box::new(receipt)),
+        })
+    }
+
     /// A remote acknowledgement carries authenticated output metadata, never a
     /// locally inspected SQL image or a local archive-settlement proof.
     pub fn local_receipt(&self) -> Option<&crate::raft::execution::CellCommittedReceipt> {
         match &self.output {
             CommandOutput::Local { receipt, .. } => Some(receipt.receipt()),
-            CommandOutput::Remote(_) => None,
+            CommandOutput::Remote(_) | CommandOutput::Reconciled(_) => None,
         }
     }
 
@@ -93,6 +101,7 @@ impl CellCommandResponse {
         match &self.output {
             CommandOutput::Local { receipt, .. } => receipt.receipt().receipt.result(),
             CommandOutput::Remote(response) => response.result(),
+            CommandOutput::Reconciled(response) => response.result(),
         }
     }
 
@@ -100,6 +109,7 @@ impl CellCommandResponse {
         match &self.output {
             CommandOutput::Local { receipt, .. } => receipt.receipt().observation(),
             CommandOutput::Remote(response) => response.observation().clone(),
+            CommandOutput::Reconciled(response) => response.observation().clone(),
         }
     }
 
@@ -107,6 +117,7 @@ impl CellCommandResponse {
         match &self.output {
             CommandOutput::Local { token, .. } => token,
             CommandOutput::Remote(response) => response.token(),
+            CommandOutput::Reconciled(response) => response.token(),
         }
     }
 
@@ -115,6 +126,7 @@ impl CellCommandResponse {
             CommandOutput::Local { s3: Some(_), .. } => Durability::S3,
             CommandOutput::Local { s3: None, .. } => Durability::Quorum,
             CommandOutput::Remote(response) => response.durability(),
+            CommandOutput::Reconciled(response) => response.durability(),
         }
     }
 }

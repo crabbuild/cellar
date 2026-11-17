@@ -1486,6 +1486,29 @@ async fn shared_remote_command_revocation_preserves_admitted_ownership() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_command_receipt_reconciles_unknown_reply() -> Result<()> {
+    Box::pin(runtime_fixture::remote_command_receipt_reconciliation(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_command_receipt_absence_stays_unknown() -> Result<()> {
+    Box::pin(runtime_fixture::remote_command_receipt_reconciliation(
+        false,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_command_receipt_keeps_attempt_bank() -> Result<()> {
+    Box::pin(runtime_fixture::remote_command_receipt_limits(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_command_receipt_keeps_original_admission() -> Result<()> {
+    Box::pin(runtime_fixture::remote_command_receipt_limits(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn shared_remote_enrollment_requires_write_grants_and_exact_creation() -> Result<()> {
     Box::pin(runtime_fixture::remote_enrollment()).await
 }

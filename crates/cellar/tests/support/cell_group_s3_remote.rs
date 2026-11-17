@@ -507,3 +507,100 @@ pub(crate) async fn s3_remote_deadlines(rooted: bool, store: Arc<dyn ObjectStore
     }
     Ok(())
 }
+
+pub(crate) async fn s3_remote_receipt_reconciliation(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let h = Harness::new(rooted, store, 1).await?;
+    let Remote { gateway, router } = Remote::start(&h, h.dispatcher.clone()).await?;
+    let log = router.log;
+    let transport = router.transport;
+    let sql = CellGroupSqlPool::start(
+        &log,
+        h.fixture.appliers[&(0, h.route.history)].0.usage()?.limits,
+    )?;
+    let ingress = CellGroupController::start(
+        router.runtime,
+        router.events,
+        transport.clone(),
+        sql,
+        vec![],
+        controller::limits(),
+    )
+    .await?;
+    let before = h.fixture.runtimes[0]
+        .status(h.route.history)
+        .await?
+        .applied
+        .index
+        .get();
+    let gate = h.remote.hold_publication_after(before);
+    let limits = CellRoutingLimits {
+        timeout: Duration::from_secs(5),
+        max_attempts: 3,
+    };
+    let result = async {
+        let call = ingress.dispatch_command(
+            &h.dispatcher,
+            h.cell.clone(),
+            command_request(&h, 1, b"s3-original", Durability::S3)?,
+            limits,
+            h.fixture.cell_options(&h.cell).await?,
+        )?;
+        let mut response = Box::pin(call.response());
+        cellar::asyncrt::select! {
+            completed = &mut response => match completed {
+                Ok(_) => anyhow::bail!("S3 command escaped its held publication"),
+                Err(error) => anyhow::bail!("S3 command failed before its publication gate: {error}"),
+            },
+            () = gate.entered.notified() => (),
+        }
+        anyhow::ensure!(h.calls.load(Ordering::SeqCst) == 1, "one original S3 callback");
+        anyhow::ensure!(h.controllers[0].usage().retained_s3 == 1, "original S3 proof owns admission");
+        let mut view = h.fixture.tcp_route(h.route.history)?;
+        view.revision += 1;
+        transport.install_cell_query_group(view)?;
+        // The original reply will fail its captured sender generation after
+        // physical S3 publication. Repair must read the same ID and require S3.
+        gate.release.notify_one();
+        let response = response.await.context("reconcile original S3 receipt")?;
+        anyhow::ensure!(response.result() == b"s3-original", "original S3 result");
+        anyhow::ensure!(response.durability() == Durability::S3, "S3 proof cannot downgrade");
+        anyhow::ensure!(response.local_receipt().is_none(), "no local SQL producer authority");
+        anyhow::ensure!(transport.usage().query_items == 1, "resolved result keeps physical reply credits");
+        let mut lookup = h.dispatcher.lookup_receipt(
+            h.cell.clone(), h.receipt_request(1, b"s3-original", Durability::S3)?, limits, None,
+        )?;
+        lookup.begin().await?;
+        let found = lookup.execute_remote(&transport, MemberId::new(1)?).await?;
+        anyhow::ensure!(found.result() == Some(response.result()), "exact stored S3 receipt");
+        anyhow::ensure!(found.durability() == Durability::S3, "independent S3 observation");
+        anyhow::ensure!(*found.observation() == response.observation(), "same S3 cell decision");
+        anyhow::ensure!(h.calls.load(Ordering::SeqCst) == 1, "S3 repair never repeats a callback");
+        drop(found);
+        drop(lookup);
+        drop(response);
+        refunded(&h).await?;
+        controller::wait_for(async || Ok(transport.usage().query_items == 0)).await?;
+        anyhow::ensure!(log.cell_groups()?.is_empty(), "S3 ingress has no replicas");
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    gate.release.notify_one();
+    drop(gateway);
+    let mut cleanup = Vec::new();
+    if let Err(error) = ingress.close().await {
+        cleanup.push(format!("ingress: {error}"));
+    }
+    if let Err(error) = log.close().await {
+        cleanup.push(format!("router log: {error}"));
+    }
+    if let Err(error) = h.close().await {
+        cleanup.push(format!("S3 fixture: {error}"));
+    }
+    result.with_context(|| {
+        format!("S3 receipt reconciliation rooted={rooted}; cleanup={cleanup:?}")
+    })?;
+    anyhow::ensure!(cleanup.is_empty(), "{cleanup:?}");
+    Ok(())
+}

@@ -5698,3 +5698,46 @@ request's critical path. No throughput or percentile improvement is claimed.
 The original RustFS backend has 12.3 MiB free, below its unchanged 6 GiB reserve,
 with no restart, resource change, pruning or reserve relaxation. The full original
 constrained SQL/KV/Queue comparison and all complete OPT/CG gates remain open.
+
+## Original-ID receipt resolution after unknown remote writes
+
+At compiler input `40723c82`, an originating public command may resolve an
+ambiguous remote availability outcome through receipt-only reads. These borrow
+the original request and routing session: ID, fingerprint, captured clock/random
+inputs, admission, absolute deadline and finite route tickets remain unchanged.
+No callback or mutation is resubmitted. Receipt absence stays unknown. Positive
+results require the existing exact Quorum receipt or required S3 proof; moving
+the result retains its SQL/archive or physical reply custody and grants no local
+producer authority. Incoming commands and System/Event admissions retain their
+prior contracts.
+
+The frozen old runtime fails the new positive control in both image forms: an
+independent read finds the committed receipt, but the original invocation returns
+ambiguous `StalePeer`. The rollback/absence control passes. Four new Quorum
+controls pass afterward, including the original one-ticket bank and a single
+caller admission slot. A new S3 control holds physical publication, invalidates
+the original reply and requires the exact S3 result with one callback. It passes
+both image forms. Six existing command/receipt ownership controls and seven
+existing S3 proof, minimum, deadline and slow-delivery controls also pass.
+
+The full library passes **1,248 tests**, with zero failures and two existing
+ignores. Strict all-feature/all-target and default recovery-consumer Clippy,
+formatting, layout, native dependencies, documentation and all 44 design checks
+pass. The first build's private-helper visibility error and a later S3 fixture's
+forbidden `tokio::select!` remain recorded. The fixture now uses the execution
+domain's fair select macro. Cargo verifies the final library and execution
+artifacts byte-identical to the passed sweep and ten native controls; the changed
+S3 case passes again. Production artifact bytes remain unchanged across the S3
+fixture revisions. See the
+[source-specific record](receipt-reconciliation-qualification-2026-11-17.json).
+
+These are host-native RF3/TLS cases with in-memory object-store adapters, rather
+than the constrained RustFS profile. Persistent fixture disks, logs, source and
+executables remain private; closed originals are verified twice and copies are
+verified. In-memory store contents are not exported. Physical disconnect cuts,
+election/member/split repair, automatic local receipt resolution and pending RPC
+checkpoint progress still need qualification. The original full public routing
+failure, Queue warmup/four-in-flight deadlines, fairness, reclamation, movement
+and combined SDK/recovery gates remain open. At 17:33 UTC, the unchanged RustFS
+backend has 20.8 MiB free, below its 6 GiB reserve. No throughput or percentile
+gain, complete OPT package or remaining CG acceptance is claimed.
