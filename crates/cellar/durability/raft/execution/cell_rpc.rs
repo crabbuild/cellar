@@ -328,10 +328,12 @@ impl CellPrivateExecutor {
                 .settle(transaction, result)
                 .map_err(private_failure)?;
         }
-        Ok(self.capture_stage_input(
-            attempt,
-            preparation.ok_or(ExecutionError::Invalid("RPC preparation missing"))?,
-        )?.completed_rpc(step))
+        Ok(self
+            .capture_stage_input(
+                attempt,
+                preparation.ok_or(ExecutionError::Invalid("RPC preparation missing"))?,
+            )?
+            .completed_rpc(step))
     }
 
     pub(crate) fn stage_rpc_checkpoint(
@@ -379,7 +381,9 @@ impl CellPrivateExecutor {
             .preparation
             .take()
             .ok_or(ExecutionError::Invalid("RPC checkpoint preparation"))?;
-        let captured = self.capture_stage_input(attempt, preparation)?.checkpoint(step);
+        let captured = self
+            .capture_stage_input(attempt, preparation)?
+            .checkpoint(step);
         turn.step = step;
         Ok(captured)
     }

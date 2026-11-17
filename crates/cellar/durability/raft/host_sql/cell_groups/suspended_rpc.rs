@@ -42,7 +42,10 @@ pub(super) struct Suspended {
 }
 
 enum Checkpoint {
-    Preparing { reply: oneshot::Sender<Result<(), String>>, task: Preparation },
+    Preparing {
+        reply: oneshot::Sender<Result<(), String>>,
+        task: Preparation,
+    },
     Submitted(SubmittedCheckpoint),
 }
 
@@ -113,7 +116,11 @@ impl Suspended {
         let captured = executor.stage_rpc_checkpoint(&mut self.turn)?;
         self.checkpoint = Some(Checkpoint::Preparing {
             reply,
-            task: Preparation::new(captured, domain.clone(), CellSqlStageMode::InvokeBefore(commits.deadline)),
+            task: Preparation::new(
+                captured,
+                domain.clone(),
+                CellSqlStageMode::InvokeBefore(commits.deadline),
+            ),
         });
         self.ready.0.store(true, Ordering::Release);
         Ok(())
@@ -135,16 +142,31 @@ impl Suspended {
                     }
                     Poll::Ready(result) => result?,
                 };
-                if stopped { return Poll::Ready(Err(unavailable())); }
-                self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
+                let checked = if stopped {
+                    Err(unavailable())
+                } else {
+                    domain
+                        .mono_ms()
+                        .map_err(|_| unavailable())
+                        .and_then(|now| self.check(now))
+                };
+                let image = image.checked(checked)?;
                 let executor = self.executor.as_mut().ok_or_else(unavailable)?;
-                let CellStageOutcome::Prepared(prepared) = executor.complete_preparation(image)? else {
-                    return Poll::Ready(Err(ExecutionError::Invalid("checkpoint preparation outcome")));
+                let CellStageOutcome::Prepared(prepared) = executor.complete_preparation(image)?
+                else {
+                    return Poll::Ready(Err(ExecutionError::Invalid(
+                        "checkpoint preparation outcome",
+                    )));
                 };
                 let expected = executor.rpc_checkpoint_version()?;
                 executor.mark_submitted(prepared.proposal())?;
                 let phase = self.applying(&prepared, &expected, domain)?;
-                SubmittedCheckpoint { reply, prepared, expected, phase }
+                SubmittedCheckpoint {
+                    reply,
+                    prepared,
+                    expected,
+                    phase,
+                }
             }
         };
         let result = match &mut checkpoint.phase {
@@ -238,7 +260,8 @@ impl Suspended {
                 .as_ref()
                 .is_some_and(|executor| executor.rpc_checkpoint_version().is_ok())
             {
-                checkpoint.phase = self.applying(&checkpoint.prepared, &checkpoint.expected, domain)?;
+                checkpoint.phase =
+                    self.applying(&checkpoint.prepared, &checkpoint.expected, domain)?;
                 self.checkpoint = Some(Checkpoint::Submitted(checkpoint));
                 self.ready.0.store(true, Ordering::Release);
                 return Poll::Pending;
@@ -305,9 +328,14 @@ impl Preparing {
 impl Cells {
     fn poll_preparing(&mut self, stopped: &AtomicBool, now: u64) -> bool {
         for _ in 0..self.preparing.len() {
-            let Some(mut preparation) = self.preparing.pop_front() else { break; };
+            let Some(mut preparation) = self.preparing.pop_front() else {
+                break;
+            };
             let mut cx = Context::from_waker(&preparation.waker);
-            let image = match preparation.task.poll(&mut cx, stopped.load(Ordering::Acquire)) {
+            let image = match preparation
+                .task
+                .poll(&mut cx, stopped.load(Ordering::Acquire))
+            {
                 Poll::Pending => {
                     self.preparing.push_back(preparation);
                     continue;
@@ -315,17 +343,30 @@ impl Cells {
                 Poll::Ready(result) => result,
             };
             let staged = image.and_then(|image| {
-                check_waiter(preparation.mode, &preparation.reply, now)?;
-                if stopped.load(Ordering::Acquire)
-                    || preparation.activation.as_ref().and_then(|a| a.activation.as_ref())
-                        .is_some_and(|activation| !activation.live()) {
-                    return Err(unavailable());
-                }
+                let check =
+                    check_waiter(preparation.mode, &preparation.reply, now).and_then(|()| {
+                        if stopped.load(Ordering::Acquire)
+                            || preparation
+                                .activation
+                                .as_ref()
+                                .and_then(|a| a.activation.as_ref())
+                                .is_some_and(|activation| !activation.live())
+                        {
+                            Err(unavailable())
+                        } else {
+                            Ok(())
+                        }
+                    });
+                let image = image.checked(check)?;
                 preparation.executor.complete_preparation(image)
             });
             let result = self.publish_stage(
-                preparation.cell, preparation.executor, staged, preparation.retention,
-                preparation.activation, now,
+                preparation.cell,
+                preparation.executor,
+                staged,
+                preparation.retention,
+                preparation.activation,
+                now,
             );
             let _ = preparation.reply.send(result);
             return true;
@@ -502,14 +543,23 @@ impl Cells {
                     Ok(captured) => {
                         self.preparing.push_back(Preparing {
                             task: Preparation::new(captured, domain.clone(), rpc.mode),
-                            executor, cell: rpc.cell, mode: rpc.mode, reply: rpc.reply,
-                            retention: rpc.retention, activation: rpc.activation,
+                            executor,
+                            cell: rpc.cell,
+                            mode: rpc.mode,
+                            reply: rpc.reply,
+                            retention: rpc.retention,
+                            activation: rpc.activation,
                             waker: Waker::from(rpc.ready),
                         });
                         return true;
                     }
                     Err(error) => self.publish_stage(
-                        rpc.cell, executor, Err(error), rpc.retention, rpc.activation, now,
+                        rpc.cell,
+                        executor,
+                        Err(error),
+                        rpc.retention,
+                        rpc.activation,
+                        now,
                     ),
                 }
             }
@@ -544,7 +594,9 @@ impl Cells {
         let Ok(now) = domain.mono_ms() else {
             return false;
         };
-        if self.poll_preparing(stopped, now) { return true; }
+        if self.poll_preparing(stopped, now) {
+            return true;
+        }
         let _ = self.activations.prune(now);
         for _ in 0..self.suspended.len() {
             let Some(mut rpc) = self.suspended.pop_front() else {
@@ -560,6 +612,7 @@ impl Cells {
             let mut yield_io = false;
             if admitted.is_ok()
                 && rpc.executor.is_some()
+                && rpc.checkpoint.is_none()
                 && rpc.retention.lease.contended()
                 && rpc.turn.waiting_on_owned_io()
             {

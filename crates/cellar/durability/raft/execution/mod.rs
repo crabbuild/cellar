@@ -11,7 +11,8 @@ mod cell;
 mod prepared_image;
 mod submission;
 pub(crate) use cell::{
-    authority_failure, CellPrivatePreparation, CellPrivatePrepared, CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn,
+    authority_failure, CellPrivatePreparation, CellPrivatePrepared, CellRpcDispatch,
+    CellRpcEnvironment, CellRpcStart, CellRpcTurn, CellStageCapture,
 };
 pub(crate) use prepared_image::CellPreparedImage;
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};

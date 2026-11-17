@@ -127,11 +127,38 @@ pub async fn preparation_one_worker(rooted: bool, store: Arc<catalog_fault::Stor
 
 pub async fn private_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     for checkpoint in [false, true] {
-        run_mode_with_workers(rooted, store.clone(), if checkpoint {
-            Mode::CheckpointPreview
-        } else {
-            Mode::Preview
-        }, 1).await?;
+        run_mode_with_workers(
+            rooted,
+            store.clone(),
+            if checkpoint {
+                Mode::CheckpointPreview
+            } else {
+                Mode::Preview
+            },
+            1,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+pub async fn registered_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode_with_workers(rooted, store, Mode::RegisteredPreview, 1).await
+}
+
+pub async fn cancelled_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    for checkpoint in [false, true] {
+        run_mode_with_workers(
+            rooted,
+            store.clone(),
+            if checkpoint {
+                Mode::CancelledCheckpointPreview
+            } else {
+                Mode::CancelledPreview
+            },
+            1,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -142,6 +169,9 @@ enum Mode {
     Preparation,
     Preview,
     CheckpointPreview,
+    RegisteredPreview,
+    CancelledPreview,
+    CancelledCheckpointPreview,
 }
 
 async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) -> Result<()> {
@@ -155,7 +185,14 @@ async fn run_mode_with_workers(
     workers: usize,
 ) -> Result<()> {
     let checkpoint = matches!(mode, Mode::Checkpoint);
-    let preview = matches!(mode, Mode::Preview | Mode::CheckpointPreview);
+    let preview = matches!(
+        mode,
+        Mode::Preview
+            | Mode::CheckpointPreview
+            | Mode::RegisteredPreview
+            | Mode::CancelledPreview
+            | Mode::CancelledCheckpointPreview
+    );
     let calls = Arc::new(AtomicUsize::new(0));
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
     let reader = Arc::new(ReadGate::default());
@@ -176,12 +213,24 @@ async fn run_mode_with_workers(
         .json_cell_rpc("Sync", [187; 32])?
         .query("Probe", [188; 32], move |query, _| {
             probes.fetch_add(1, Ordering::AcqRel);
-            Ok(query.storage().get_json("value")?.context("probe value")?.to_string().into_bytes())
+            Ok(query
+                .storage()
+                .get_json("value")?
+                .context("probe value")?
+                .to_string()
+                .into_bytes())
         })?
         .query("Hold", [185; 32], move |_, _| {
             query_reader.hold();
             Ok(vec![])
         })?;
+    let class = if matches!(mode, Mode::RegisteredPreview) {
+        class.command("Registered", [189; 32], |context, _| {
+            Ok(update(&context.storage()?, 2)?.to_string().into_bytes())
+        })?
+    } else {
+        class
+    };
     let called = calls.clone();
     let waiting = gates.clone();
     let application = Arc::new(
@@ -220,13 +269,18 @@ async fn run_mode_with_workers(
         .join(hex::encode([3; 16]))
         .join(hex::encode([7; 16]))
         .join("pages");
-    let faults = physical::Faults::new(if preview {
-        roots[0].path().join(if rooted {
-            "raft-cells/extent-inventory"
+    let faults = physical::Faults::new(
+        if preview {
+            roots[0].path().join(if rooted {
+                "raft-cells/extent-inventory"
+            } else {
+                "raft-cells/images"
+            })
         } else {
-            "raft-cells/images"
-        })
-    } else { pages }, None);
+            pages
+        },
+        None,
+    );
     let images = roots[0].path().join("raft-cells/images");
     let forbidden = deny_reopen.clone();
     let observed_opens = reopened.clone();
@@ -321,7 +375,34 @@ async fn run_mode_with_workers(
             }
             let options = interleaving::command(188, 1, Durability::Quorum)?;
             let run = source.contract("Run")?;
-            let add = other.contract(if matches!(mode, Mode::CheckpointPreview) { "Sync" } else { "Add" })?;
+            let add = other.contract(match mode {
+                Mode::CheckpointPreview | Mode::CancelledCheckpointPreview => "Sync",
+                Mode::RegisteredPreview => "Registered",
+                _ => "Add",
+            })?;
+            if matches!(mode, Mode::CancelledPreview | Mode::CancelledCheckpointPreview) {
+                let (release, started) = hold_apply(&faults);
+                let mut command = Box::pin(other.command(
+                    &add, b"{}".to_vec(), interleaving::command(189, 1, Durability::Quorum)?,
+                ));
+                cellar::asyncrt::select! {
+                    result = &mut command => anyhow::bail!("private command escaped persistence barrier: {result:?}"),
+                    entered = cellar::asyncrt::timeout(TIMEOUT, started) => { entered??; }
+                }
+                drop(command);
+                let status = cluster.hosts[0].group(group)?.status().await?;
+                ensure!(status.applied.index == status.committed, "cancelled private image was submitted");
+                let usage = cluster.hosts[0].resource_usage().sql.context("SQL custody")?;
+                ensure!(usage.active_cells == 1 && usage.retained_bytes != 0, "cancellation released entered image I/O");
+                let mut close = Box::pin(cluster.hosts[0].close());
+                ensure!(cellar::asyncrt::timeout(Duration::from_millis(30), &mut close).await.is_err(), "host close detached entered image I/O");
+                let usage = cluster.hosts[0].resource_usage().sql.context("closing SQL custody")?;
+                ensure!(usage.active_cells == 1 && usage.retained_bytes != 0, "close released physical custody before join");
+                drop(release);
+                let report = cellar::asyncrt::timeout(TIMEOUT, close).await??;
+                ensure!(report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers);
+                return Ok(());
+            }
             if preview {
                 let (release, started) = hold_apply(&faults);
                 let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));

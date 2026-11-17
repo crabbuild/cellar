@@ -15,7 +15,7 @@ use cellar_logic::cell_group::{CellVersion, MutationSequence};
 
 #[path = "cell_preparation.rs"]
 mod preparation;
-pub(crate) use preparation::{CellPrivatePreparation, CellPrivatePrepared};
+pub(crate) use preparation::{CellPrivatePreparation, CellPrivatePrepared, CellStageCapture};
 
 #[path = "cell_rpc.rs"]
 mod rpc;
@@ -191,57 +191,19 @@ impl CellPrivateExecutor {
         input: &[u8],
         allow_new: bool,
     ) -> Result<CellStageOutcome, ExecutionError> {
-        self.stage_registered_kind(attempt, class, input, allow_new, false)
+        let captured =
+            self.capture_registered(attempt, class, input, allow_new, CommandAdmission::Public)?;
+        self.complete_capture(captured)
     }
 
-    pub(crate) fn stage_system_registered(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-        allow_new: bool,
-    ) -> Result<CellStageOutcome, ExecutionError> {
-        self.stage_registered_kind(attempt, class, input, allow_new, true)
-    }
-
-    pub(crate) fn lookup_event_registered(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-    ) -> Result<CellStageOutcome, ExecutionError> {
-        self.stage_admitted_registered(attempt, class, input, false, CommandAdmission::Event)
-    }
-
-    fn stage_registered_kind(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-        allow_new: bool,
-        system: bool,
-    ) -> Result<CellStageOutcome, ExecutionError> {
-        self.stage_admitted_registered(
-            attempt,
-            class,
-            input,
-            allow_new,
-            if system {
-                CommandAdmission::System
-            } else {
-                CommandAdmission::Public
-            },
-        )
-    }
-
-    fn stage_admitted_registered(
+    pub(crate) fn capture_registered(
         &mut self,
         attempt: CommandAttempt,
         class: &RaftClass,
         input: &[u8],
         allow_new: bool,
         admission: CommandAdmission,
-    ) -> Result<CellStageOutcome, ExecutionError> {
+    ) -> Result<CellStageCapture, ExecutionError> {
         let history = self.authority.cell().version.history.clone();
         let contract = super::registered::validate_admission(
             self.options.limits,
@@ -261,7 +223,7 @@ impl CellPrivateExecutor {
             group: self.authority.route().history,
             term: self.authority.term().get(),
         };
-        self.stage(attempt, allow_new, |transaction| {
+        self.capture(attempt, allow_new, |transaction| {
             if let Some(request) = system_request {
                 class.invoke_system_command(&history, &request, transaction, input, limits, origin)
             } else {
@@ -290,8 +252,18 @@ impl CellPrivateExecutor {
         allow_new: bool,
         callback: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<CellStageOutcome, ExecutionError> {
+        let captured = self.capture(attempt, allow_new, callback)?;
+        self.complete_capture(captured)
+    }
+
+    pub(crate) fn capture(
+        &mut self,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
+    ) -> Result<CellStageCapture, ExecutionError> {
         let mut preparation = match self.prepare_stage(&attempt, allow_new)? {
-            StageAdmission::Duplicate(receipt) => return Ok(CellStageOutcome::Duplicate(receipt)),
+            StageAdmission::Duplicate(receipt) => return Ok(CellStageCapture::Duplicate(receipt)),
             StageAdmission::New(preparation) => preparation,
         };
         let working = self
@@ -305,7 +277,8 @@ impl CellPrivateExecutor {
             preparation.maintenance.take(),
             callback,
         )?;
-        self.capture_stage(attempt, preparation)
+        self.capture_stage_input(attempt, preparation)
+            .map(|input| CellStageCapture::Captured(Box::new(input)))
     }
 
     fn prepare_stage(
@@ -313,7 +286,7 @@ impl CellPrivateExecutor {
         attempt: &CommandAttempt,
         allow_new: bool,
     ) -> Result<StageAdmission, ExecutionError> {
-        if self.pending.is_some() {
+        if self.pending.is_some() || self.preparing.is_some() {
             return Err(ExecutionError::Busy);
         }
         if self.poisoned {
@@ -360,15 +333,6 @@ impl CellPrivateExecutor {
             log_reservation,
             maintenance,
         }))
-    }
-
-    fn capture_stage(
-        &mut self,
-        attempt: CommandAttempt,
-        preparation: StagePreparation,
-    ) -> Result<CellStageOutcome, ExecutionError> {
-        let input = std::sync::Arc::new(self.capture_stage_input(attempt, preparation)?);
-        self.complete_preparation(input.prepare()?)
     }
 
     /// Set before awaiting proposal submission. A dropped response never frees

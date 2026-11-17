@@ -30,13 +30,22 @@ impl Preparation {
         mode: CellSqlStageMode,
     ) -> Self {
         Self {
-            task: None, input: Some(Arc::new(input)), retry: None, domain,
-            deadline: match mode { CellSqlStageMode::InvokeBefore(at) => at, _ => u64::MAX },
+            task: None,
+            input: Some(Arc::new(input)),
+            retry: None,
+            domain,
+            deadline: match mode {
+                CellSqlStageMode::InvokeBefore(at) => at,
+                _ => u64::MAX,
+            },
         }
     }
 
-    pub fn poll(&mut self, cx: &mut Context<'_>, stopped: bool)
-        -> Poll<Result<CellPrivatePrepared, ExecutionError>> {
+    pub fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+        stopped: bool,
+    ) -> Poll<Result<CellPrivatePrepared, ExecutionError>> {
         loop {
             if let Some(task) = &mut self.task {
                 let joined = match Pin::new(task).poll(cx) {
@@ -48,12 +57,16 @@ impl Preparation {
                 match result {
                     Err(error) if busy(&error) && !stopped => {
                         let now = self.domain.mono_ms().map_err(|_| unavailable())?;
-                        if now >= self.deadline { return Poll::Ready(Err(error)); }
+                        if now >= self.deadline {
+                            return Poll::Ready(Err(error));
+                        }
                         // Only physical inventory contention retries here. SQL,
                         // callbacks, command IDs and captured bytes never replay.
-                        self.retry = Some(self.domain.sleep_until(
-                            now.saturating_add(5).min(self.deadline),
-                        ).map_err(|_| unavailable())?);
+                        self.retry = Some(
+                            self.domain
+                                .sleep_until(now.saturating_add(5).min(self.deadline))
+                                .map_err(|_| unavailable())?,
+                        );
                     }
                     result => {
                         self.input.take();
@@ -61,19 +74,26 @@ impl Preparation {
                     }
                 }
             }
-            if stopped { return Poll::Ready(Err(unavailable())); }
+            if stopped {
+                return Poll::Ready(Err(unavailable()));
+            }
             if self.domain.mono_ms().map_err(|_| unavailable())? >= self.deadline {
                 return Poll::Ready(Err(crate::raft::execution::authority_failure(
                     RuntimeError::DeadlineExceeded,
                 )));
             }
             if let Some(retry) = &mut self.retry {
-                if retry.as_mut().poll(cx).is_pending() { return Poll::Pending; }
+                if retry.as_mut().poll(cx).is_pending() {
+                    return Poll::Pending;
+                }
                 self.retry = None;
             }
             let input = self.input.as_ref().ok_or_else(unavailable)?.clone();
-            self.task = Some(self.domain.blocking(move || input.prepare())
-                .map_err(|_| unavailable())?);
+            self.task = Some(
+                self.domain
+                    .blocking(move || input.prepare())
+                    .map_err(|_| unavailable())?,
+            );
         }
     }
 
@@ -85,11 +105,13 @@ impl Preparation {
             loop {
                 match Pin::new(&mut task).poll(&mut cx) {
                     Poll::Pending => std::thread::park(),
-                    Poll::Ready(joined) => return match joined.map_err(crate::raft::execution::storage)? {
-                        Ok(prepared) => { drop(prepared); Ok(()) },
-                        Err(error) if busy(&error) => Ok(()),
-                        Err(error) => Err(error),
-                    },
+                    Poll::Ready(joined) => {
+                        return match joined.map_err(crate::raft::execution::storage)? {
+                            Ok(prepared) => prepared.discard(),
+                            Err(error) if busy(&error) => Ok(()),
+                            Err(error) => Err(error),
+                        }
+                    }
                 }
             }
         }
@@ -100,8 +122,13 @@ impl Preparation {
 struct ThreadWake(std::thread::Thread);
 
 impl Wake for ThreadWake {
-    fn wake(self: Arc<Self>) { self.0.unpark(); }
-    fn wake_by_ref(self: &Arc<Self>) { self.0.unpark(); }
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
 }
 
 impl Drop for Preparation {

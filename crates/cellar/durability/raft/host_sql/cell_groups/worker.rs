@@ -1,12 +1,14 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::rpc_cache::RpcActivation;
 use super::preparation::Preparation;
+use super::rpc_cache::RpcActivation;
 use super::*;
 use std::collections::{BTreeMap, VecDeque};
 
 #[path = "suspended_rpc.rs"]
 mod rpc;
+#[path = "stage.rs"]
+mod stage;
 
 type VerificationCallback =
     Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>> + Send>;
@@ -201,11 +203,18 @@ impl Cells {
                         timer.finish(self.start_rpc(cell, *stage, reply, max, domain, now));
                         return;
                     }
+                    Action::Stage(stage) => {
+                        timer.finish(self.start_stage(cell, *stage, reply, max, domain, now));
+                        return;
+                    }
                     Action::Query(query) => {
                         // Retirement requires every same-cell private frame to
                         // join. Its discovery must not mask runnable callbacks.
                         let binding_ready = !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
-                            && !self.preparing.iter().any(|preparation| preparation.cell == cell);
+                            && !self
+                                .preparing
+                                .iter()
+                                .any(|preparation| preparation.cell == cell);
                         super::query::run(*query, domain, binding_ready)
                     }
                     action => self.run(cell, action, max, now),
@@ -231,73 +240,7 @@ impl Cells {
     ) -> Result<CellSqlOutcome, ExecutionError> {
         match action {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
-            Action::Stage(stage) => {
-                self.check_capacity(&cell, max)?;
-                // A parked RPC has released its writer lease, but still owns a
-                // continuation that may later complete the original sequence.
-                // Seal only after every same-cell frame has physically joined.
-                if matches!(
-                    stage.attempt.request.operation.as_str(),
-                    crate::raft::execution::binding_seal::OPERATION
-                        | crate::storage::raft_binding_recovery::CLAIM
-                        | crate::storage::raft_binding_recovery::SETTLE
-                        | crate::storage::raft_payloads::RETIRE
-                ) && self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
-                {
-                    return Err(ExecutionError::Busy);
-                }
-                let Stage {
-                    options,
-                    authority,
-                    attempt,
-                    mode,
-                    callback,
-                    lease,
-                    bytes,
-                } = *stage;
-                if authority.cell().version.history != cell {
-                    return Err(ExecutionError::Invalid("SQL cell history"));
-                }
-                let allow_new = mode.allows_new();
-                let max_result = options.limits().max_result_bytes;
-                let mut executor = options.open(authority)?;
-                let result = match callback {
-                    Callback::Verification(callback) => {
-                        executor.stage(attempt, allow_new, callback)
-                    }
-                    Callback::Registered {
-                        class,
-                        input,
-                        admission,
-                        ..
-                    } => match admission {
-                        CommandAdmission::System => {
-                            executor.stage_system_registered(attempt, &class, &input, allow_new)
-                        }
-                        CommandAdmission::Public => {
-                            executor.stage_registered(attempt, &class, &input, allow_new)
-                        }
-                        CommandAdmission::Event if !allow_new => {
-                            executor.lookup_event_registered(attempt, &class, &input)
-                        }
-                        CommandAdmission::Event => {
-                            Err(ExecutionError::Invalid("event requires the RPC owner"))
-                        }
-                    },
-                };
-                self.publish_stage(
-                    cell,
-                    executor,
-                    result,
-                    StageRetention {
-                        lease,
-                        bytes,
-                        max_result,
-                    },
-                    None,
-                    now,
-                )
-            }
+            Action::Stage(_) => Err(ExecutionError::Invalid("stage worker dispatch")),
             Action::Initialize(request) => {
                 self.check_capacity(&cell, max)?;
                 let Initialize {
