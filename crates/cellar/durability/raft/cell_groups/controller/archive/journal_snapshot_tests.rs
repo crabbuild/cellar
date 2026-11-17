@@ -150,7 +150,7 @@ async fn journal_load_rejects_foreign_or_noncanonical_replacement() -> anyhow::R
             purpose.domain = "foreign-journal-1".into();
             let mut history = journal.identity.clone();
             let mut creation = serde_json::to_value(&history.creation)?;
-            creation["route"]["history"]["group"] = serde_json::to_value(GroupId::new([69; 16])?)?;
+            creation["group"] = serde_json::to_value([69_u8; 16])?;
             history.creation = serde_json::from_value(creation)?;
             assert_ne!(
                 history.creation.route().history,
