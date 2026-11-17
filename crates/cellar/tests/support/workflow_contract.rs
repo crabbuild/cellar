@@ -610,7 +610,7 @@ pub(crate) async fn worker(
                 } else if id.starts_with("cron-")
                     || matches!(
                         id,
-                        "stream" | "stream-retry" | "stream-rollback" | "sensitive"
+                        "stream" | "stream-retry" | "stream-rollback" | "sensitive" | "lifecycle"
                     )
                 {
                     Some(output.to_json()?)

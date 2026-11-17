@@ -2,6 +2,9 @@
 
 //! Public Workflow journals and streams across managed voter replacement and wake.
 use super::*;
+use cellar::sdk::fleet_operations::{
+    RaftFleetControl, RaftFleetParkPhase, RaftFleetParkRequest, RaftFleetTransitionGroup,
+};
 use managed_fixture::movement;
 
 const STREAM_BYTES: usize = 128 * 1024 + 17;
@@ -225,10 +228,8 @@ async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
         None => catalog_fault::Store::default(),
     });
     let signals = Arc::new(contract::Signals::default());
-    let (application, mut configuration) = application(signals.clone(), false)?;
+    let (application, configuration) = application_with_sink(signals.clone(), false, false)?;
     let class = cellar::deploy::workflow_class(contract::SCRIPT);
-    configuration.do_classes = vec![class.clone()];
-    application.validate_configuration(&configuration)?;
     let mut fixture = Fixture::with_application(extents, &class, application, store).await?;
     fixture.configuration = Some(configuration);
     fixture.sql_workers = 1;
