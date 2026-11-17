@@ -309,7 +309,7 @@ impl CellQueryExecution {
         }
         if self.admission.minimum() == Some(cellar_logic::consensus::Durability::S3) {
             if trace_event {
-                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-s3-start", invocation=?self.request.invocation, cell=%cell.cell);
+                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-s3-start", invocation=?self.request.invocation, cell=%cell.cell.as_str());
             }
             let client = self
                 .dispatcher
@@ -331,7 +331,7 @@ impl CellQueryExecution {
             selected = *settled.selected;
             selected.retain_archive(settled.proof);
             if trace_event {
-                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-s3-ready", invocation=?self.request.invocation, cell=%cell.cell);
+                tracing::debug!(target: "cellar::raft::sql_ingress", probe="DEBUG-cg17-event-progress-1080", phase="event-s3-ready", invocation=?self.request.invocation, cell=%cell.cell.as_str());
             }
         }
         let token = self
