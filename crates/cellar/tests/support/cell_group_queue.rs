@@ -51,8 +51,20 @@ impl Cell for Caller {
                     json!(true)
                 }
                 "Metrics" => {
+                    if args["record"].as_bool() == Some(true) {
+                        let storage = context.storage()?;
+                        let count = storage
+                            .get_json("metrics-reads")?
+                            .and_then(|value| value.as_u64())
+                            .unwrap_or(0);
+                        storage.put_json("metrics-reads", &json!(count + 1))?;
+                    }
                     let metrics = context
-                        .queue(args.as_str().unwrap_or("Q"))?
+                        .queue(
+                            args.as_str()
+                                .or_else(|| args["queue"].as_str())
+                                .unwrap_or("Q"),
+                        )?
                         .metrics(&context)
                         .await?;
                     json!({"count":metrics.backlog_count,"bytes":metrics.backlog_bytes})
@@ -1025,5 +1037,5 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
 mod qualification;
 pub use qualification::{
     qualify_batch_proof, qualify_cold_metadata, qualify_extent_load, qualify_faults, qualify_load,
-    qualify_long, qualify_metadata_reads, qualify_metadata_s3,
+    qualify_long, qualify_metadata_reads, qualify_metadata_s3, qualify_sdk_metadata,
 };

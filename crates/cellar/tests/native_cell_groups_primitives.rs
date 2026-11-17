@@ -2460,6 +2460,25 @@ async fn rustfs_queue_extent_load_preserves_acknowledged_messages() -> Result<()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sdk_queue_metrics_preserve_target_versions_and_independent_minimums() -> Result<()> {
+    Box::pin(queues::qualify_sdk_metadata(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_sdk_queue_metrics_preserve_target_versions_and_independent_minimums() -> Result<()>
+{
+    Box::pin(queues::qualify_sdk_metadata(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_axum_sdk_queue_metrics_preserve_target_versions_and_independent_minimums(
+) -> Result<()> {
+    Box::pin(queues::qualify_sdk_metadata(true, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cold_queue_operator_reads_use_enrollment_without_an_ingress_command() -> Result<()> {
     Box::pin(queues::qualify_cold_metadata(false)).await
 }

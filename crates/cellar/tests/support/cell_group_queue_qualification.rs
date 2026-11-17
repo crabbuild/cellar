@@ -80,7 +80,15 @@ fn counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [41; 32])?
         .initializer([42; 32], |_, _| Ok(()))?
         .json_cell_rpc("Send", [43; 32])?
-        .json_cell_rpc("Metrics", [44; 32])?)
+        .json_cell_rpc("Metrics", [44; 32])?
+        .query("MetricsReads", [45; 32], |query, _| {
+            Ok(serde_json::to_vec(
+                &query
+                    .storage()
+                    .get_json("metrics-reads")?
+                    .unwrap_or(json!(0)),
+            )?)
+        })?)
 }
 
 fn binding(environment: &str, queue: &str) -> cellar::engine_api::QueueBinding {
@@ -114,6 +122,24 @@ fn applications(signals: Arc<Signals>, minimums: Minimums) -> Result<Deployments
                 } else {
                     "Q"
                 };
+                if request.url.contains("/metrics") {
+                    let result = context.queue(queue)?.metrics(&context).await;
+                    return Ok(Output::Http(cellar::engine_api::HttpResponse {
+                        status: if result.is_ok() { 200 } else { 503 },
+                        headers: vec![],
+                        body: result
+                            .map(|metrics| {
+                                json!({"count":metrics.backlog_count,"bytes":metrics.backlog_bytes})
+                                    .to_string()
+                                    .into_bytes()
+                            })
+                            .unwrap_or_else(|error| format!("{error:#}").into_bytes()),
+                        stream: None,
+                        websocket: None,
+                        write_position: None,
+                        observed_position: None,
+                    }));
+                }
                 let bytes = context
                     .take_body(request.body)?
                     .try_concat()
@@ -1121,6 +1147,131 @@ pub async fn qualify_cold_metadata(real: bool) -> Result<()> {
             eprintln!(
                 "QUEUE_COLD_METADATA realRustFS={real} extents={rooted} minimum={minimum:?}: PASS"
             );
+        }
+    }
+    Ok(())
+}
+
+async fn public_metrics(cluster: &ManagedCluster) -> Result<serde_json::Value> {
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(TIMEOUT + Duration::from_secs(1))
+        .build()?
+        .post(format!(
+            "http://{}/metrics",
+            cluster.nodes[0].info().public_address
+        ))
+        .send()
+        .await?;
+    let status = response.status();
+    let body = response.text().await?;
+    ensure!(status == 200, "Queue public metrics {status}: {body}");
+    Ok(serde_json::from_str(&body)?)
+}
+
+fn empty_metrics(value: serde_json::Value) -> bool {
+    value["count"] == 0.0 && value["bytes"] == 0.0
+}
+
+pub async fn qualify_sdk_metadata(real: bool, external: bool) -> Result<()> {
+    for rooted in [false, true] {
+        for source_minimum in [Durability::Quorum, Durability::S3] {
+            for target_minimum in [Durability::Quorum, Durability::S3] {
+                let store = Arc::new(if real {
+                    catalog_fault::Store::around(rustfs::store("queue-sdk-metrics", rooted)?)
+                } else {
+                    catalog_fault::Store::default()
+                });
+                let mut s = Scenario::prepare(
+                    rooted,
+                    store.clone(),
+                    external,
+                    5000,
+                    None,
+                    8,
+                    (
+                        Minimums {
+                            queue: target_minimum,
+                            dead: Durability::Quorum,
+                        },
+                        false,
+                    ),
+                )
+                .await?;
+                let domain = s.cluster.fixtures[0].domain.clone();
+                let outcome = domain.run(async {
+                    let id = CellId::new(cellar::engine_api::queue_cell_scope(QUEUE))?;
+                    ensure!(s.cluster.hosts[0].resolve_cell_history(
+                        s.queue.cluster, s.queue.namespace, id.clone(), QueryOptions::default(),
+                    ).await?.is_none());
+                    ensure!(empty_metrics(public_metrics(&s.cluster).await?));
+                    let history = s.cluster.hosts[0].resolve_cell_history(
+                        s.queue.cluster, s.queue.namespace, id, QueryOptions::default(),
+                    ).await?.context("cold SDK metrics enrolled its Queue")?;
+                    let cell = s.cluster.hosts[0].cell(history)?;
+                    let inspect = cell.contract("__sqlIngressSequence")?;
+                    let invocation = ProposalId::new([232;16])?;
+                    let query = || cell.query(
+                        invocation, &inspect,
+                        0u64.to_be_bytes().to_vec(), QueryOptions::default(),
+                    );
+                    let before = query().await?;
+                    let mut unused = 1u64.to_be_bytes().to_vec(); unused.push(0);
+                    ensure!(before.version.sequence.get() == 1 && before.result == unused,
+                        "SDK Queue metrics consumed a command instead of reading enrollment");
+
+                    let group = s.cluster.history;
+                    let source = s.cluster.hosts[0].cell(CellHistory {
+                        cluster:group.cluster, namespace:group.namespace,
+                        cell:identity("metrics-source")?, incarnation:IncarnationId::new([233;16])?,
+                    })?;
+                    source.enroll(CellEnrollmentRequest {
+                        creation:ProposalId::new([234;16])?, durability:source_minimum,
+                    },TIMEOUT).await?;
+                    let mut request = options(1)?; request.durability=source_minimum;
+                    let input=serde_json::to_vec(&json!({"queue":"Q","record":true}))?;
+                    let contract=source.contract("Metrics")?;
+                    let receipt=source.command(&contract,input.clone(),request.clone()).await?;
+                    ensure!(empty_metrics(serde_json::from_slice(&receipt.result)?));
+                    ensure!(receipt.durability >= source_minimum);
+                    let replay=source.command(&contract,input,request).await?;
+                    ensure!(replay.result == receipt.result && replay.version == receipt.version);
+                    let recorded=source.query(ProposalId::new([235;16])?,&source.contract("MetricsReads")?,vec![],QueryOptions::default()).await?;
+                    ensure!(recorded.result == b"1", "metrics source writes or exact replay changed");
+                    ensure!(empty_metrics(public_metrics(&s.cluster).await?));
+                    let after=query().await?;
+                    ensure!(before.version == after.version && before.result == after.result,
+                        "stateful/stateless SDK Queue metrics changed its target version or allocator");
+
+                    if target_minimum == Durability::S3 {
+                        let denied=store.denied_group_archive_writes.load(Ordering::Acquire);
+                        store.deny_group_archive_writes.store(true,Ordering::Release);
+                        let blocked=BlockArchive(store.clone());
+                        let (pause,refusal)=tokio::join!(admin(&s.cluster,QUEUE,json!({"op":"pause"})),async {
+                            cellar::asyncrt::timeout(TIMEOUT,async {
+                                loop {
+                                    let selected=query().await?;
+                                    if selected.version.sequence > after.version.sequence
+                                        && store.denied_group_archive_writes.load(Ordering::Acquire)>denied {break Ok::<_,anyhow::Error>(());}
+                                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                                }
+                            }).await.context("SDK metrics did not observe denied archive publication")??;
+                            ensure!(public_metrics(&s.cluster).await.is_err(),"SDK metrics exposed unarchived selected state");
+                            Ok::<_,anyhow::Error>(())
+                        });
+                        drop(blocked); refusal?;
+                        ensure!(pause.is_err(),"S3 pause acknowledged during archive denial");
+                        ensure!(empty_metrics(public_metrics(&s.cluster).await?));
+                    }
+                    for node in s.cluster.nodes.split_off(1) {node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;}
+                    ensure!(public_metrics(&s.cluster).await.is_err(),"SDK Queue metrics served without fresh quorum");
+                    Ok::<_,anyhow::Error>(())
+                }).await;
+                let cleanup = s.close(!matches!(&outcome, Ok(Ok(())))).await;
+                outcome??;
+                cleanup?;
+                eprintln!("QUEUE_SDK_METRICS realRustFS={real} extents={rooted} Axum={external} source={source_minimum:?} target={target_minimum:?}: PASS");
+            }
         }
     }
     Ok(())
