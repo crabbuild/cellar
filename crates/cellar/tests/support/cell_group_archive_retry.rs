@@ -50,7 +50,6 @@ pub(crate) async fn archive_controller_payload_outage(
         Some(&reference),
     )
     .await?;
-    drop(allocation);
     let route = cluster.birth.route().clone();
     let mut fixture = RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000).await?;
     for node in 0..3 {
@@ -146,13 +145,10 @@ pub(crate) async fn archive_controller_payload_outage(
     }))
     .await;
     remote.deny_payload_reads.store(false, Ordering::Release);
-    let mut cleanup = Ok(());
+    let mut cleanup: Result<()> = Ok(());
     for controller in &controllers {
-        if let Err(error) = controller.close().await {
-            if cleanup.is_ok() {
-                cleanup = Err(error.into());
-            }
-        }
+        let closed = controller.close().await.map_err(anyhow::Error::from);
+        cleanup = cleanup.and(closed);
     }
     drop(controllers);
     drop(config);
