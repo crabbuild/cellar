@@ -716,6 +716,31 @@ mod partition_inventory_tests {
     }
 
     #[test]
+    fn completed_member_removal_remains_retired_for_late_events() {
+        let removed = history(1, 2);
+        let split = history(2, 2);
+        let active = history(3, 2);
+        let unknown = history(4, 2);
+        let roster = GroupRoster::new([removed, split, active].into_iter(), 8);
+        assert!(!roster.detached(&removed));
+        assert!(!roster.begin_retirement(removed).unwrap());
+        assert!(!roster.begin_retirement(split).unwrap());
+        // Quiescing owners still have to drain their queued apply tickets.
+        assert!(!roster.detached(&removed));
+        roster.finish_retirement(removed, true).unwrap();
+        roster.finish_retirement(split, false).unwrap();
+        // The controller may discard late metadata for either fully joined
+        // owner, but neither owner becomes eligible for dispatch again.
+        assert!(roster.detached(&removed));
+        assert!(roster.detached(&split));
+        assert!(!roster.contains(&removed).unwrap());
+        assert!(!roster.contains(&split).unwrap());
+        assert!(!roster.detached(&active));
+        assert!(!roster.detached(&unknown));
+        assert!(roster.contains(&active).unwrap());
+    }
+
+    #[test]
     fn sizing_inventory_is_complete_scoped_and_excludes_unavailable_owners() {
         let a = history(1, 2);
         let b = history(2, 2);

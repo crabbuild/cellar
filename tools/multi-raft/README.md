@@ -1450,3 +1450,30 @@ All these campaigns use the owned RustFS backend and preserve exact test/source
 hashes and failed cases. The RF3 fixtures run on the development host, within
 one process. The backend's one-CPU/two-GiB cgroup does not qualify independent
 voter cgroups, physical hosts, sustained load or production fencing.
+
+## Workflow results through replacement and wake
+
+`--suite workflow-lifecycle` selects two exact public SDK cases, using native
+and Axum ingress. Each case runs materialized and extent images. Start an owned
+RustFS backend with `local.py`, commit the qualification sources, then run:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite workflow-lifecycle --keep-going \
+  --backend /absolute/owned/rustfs-run \
+  --output /absolute/new/workflow-lifecycle-run \
+  --target-directory /absolute/checkout-private/target
+```
+
+The fixture establishes an initial serving RF3 quorum before issuing a new
+Workflow's public create request. It preserves the original request and callback
+budgets, one SQL worker per voter and four physical voter directories. A waiting
+Workflow retains completed steps and stream bytes through an S3-seeded replacement,
+whole-group park, a public read that must wake the group, and retained restart.
+The replacement must serve a local linearizable version covering the original
+cell image. The final event completes the Workflow without rerunning completed
+steps. Every failed case keeps the campaign failed and retains its voter disks.
+
+This scope does not qualify requests issued before initial group readiness,
+independent voter process crashes, all-voter disk loss, full-size values,
+deployment changes or the complete Workflow family. Runtime results belong in
+the source-pinned campaign record and CG-17 progress log.

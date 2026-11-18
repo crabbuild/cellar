@@ -506,6 +506,16 @@ stability, full primitive acceptance or latency improvement is established.
    polling, deletion/recreation and retention through movement and fresh-history
    recovery. The [EventStream contract](event-stream-durability.md) keeps separate
    source, destination and output boundaries.
+   At integration `d05987085`, ordinary Workflow Axum extent `create/capped`
+   and a materialized filesystem initial write to cell 1 still exceed their
+   original deadlines. The filesystem failure precedes outage/movement/wake.
+   Include these public paths in the shared request-progress diagnosis without
+   assuming they share a cause or that earlier lifecycle passes remain current.
+   Coordinated successor `177c7f7f5` passes all eighteen scoped Workflow
+   configurations, including that creation path. Preserve the earlier failure;
+   it does not establish an exclusive cause or accept filesystem lifecycle.
+   Prioritize public reconciliation's remaining image reopen, EventStream and
+   original-deadline S3-source binding progress before another full cohort.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles. At `086f1663`, native producer sequence 33 exceeds its
    deadline; RustFS drain expires without a labelled phase. Establish that stage
@@ -533,6 +543,19 @@ stability, full primitive acceptance or latency improvement is established.
    creation/enrollment controls and keep their cause open; independent-voter,
    full-size, long-callback and combined lifecycle/recovery gates remain. Reuse
    bounded shared owners rather than per-idle-cell tasks.
+   The [Workflow replacement/wake gate](progress.md#cg-17-workflow-replacement-and-wake)
+   passes native and all four real-RustFS native/Axum image configurations at
+   `4fe5d3bdd`, after correcting late-event classification for fully removed
+   voters. It covers committed waiting steps/streams, S3 replacement, public-read
+   wake and retained restart. Keep the earlier Axum failure and initial-readiness
+   controls; in-flight effects and the full family fault matrix remain open.
+   The [committed delete gate](progress.md#cg-17-workflow-committed-delete-settlement)
+   now passes all four real-RustFS native/Axum image configurations at `d05987085`:
+   held callbacks cancel, absence is proven and deleted IDs recreate, including
+   after retained restart. Retirement waits for the committed-result handoff so
+   it cannot invalidate its own immutable preparation. The broader same-source
+   Workflow suite at that source remains failed by the separate extent creation
+   deadline above; the coordinated successor's eighteen configurations pass.
 4. **Extend payload and provider lifecycle qualification.** The
    [filesystem/Blob/payload checkpoint](progress.md#cg-17-filesystem-blob-and-retained-payload-roots)
    passes scoped real-store movement/wake, archive outage, fenced disk-loss
@@ -549,7 +572,10 @@ stability, full primitive acceptance or latency improvement is established.
    recovery and all CG-17 API/scenario/configuration gates, then CG-15/16 with
    constrained independent Linux voters, partitions, replacement, split/merge,
    park/wake, archive outages, physical reclamation, crashes and fenced all-voter
-   disk loss. Bound archive verification by generation/byte capacity as well as
+   disk loss. Qualify late metadata after physical removed-member reclamation,
+   when the joined roster entry is replaced by its persistent tombstone; the
+   Workflow retirement gate does not exercise that boundary. Bound archive
+   verification by generation/byte capacity as well as
    replay work. Require complete coverage evidence, public SDK/native/Axum/CLI/
    admin and Fleet/bucket/feature-mode regressions, then remove legacy Raft paths.
    Quorum refusal must never fall back to weaker durability.

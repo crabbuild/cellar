@@ -30,6 +30,9 @@ pub(crate) struct Resources {
     pub(crate) durable_callbacks: AtomicBool,
     pub(crate) provider_lifecycle: super::container_bindings::LifecycleLocks,
     pub(crate) retired: AtomicBool,
+    /// A completed handler requests retirement after its final image commits.
+    /// Immutable preparation still needs its live producer until that proof.
+    pub(crate) retire_after_commit: AtomicBool,
     pub(crate) source_generation: AtomicU64,
     pub(crate) source_closed: AtomicBool,
     /// Permanent erasure cannot be undone by recreating an event source.

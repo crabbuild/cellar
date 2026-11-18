@@ -113,6 +113,12 @@ outbound/query byte admission without consuming another subrequest per chunk.
 Deletion clears only the reserved Workflow key range through the fenced writable
 scope and cancels its alarm. It retains framework receipts and sequence floors;
 committing deletion retires the old activation before a new instance can run.
+Dropping the completed delete handler records a retirement request; it does not
+invalidate the producer that still owns immutable image preparation. That work
+retains its activation, term, route, image and original-deadline checks. The SQL
+owner consumes the request at the committed-result handoff, closes the old
+activation and returns the receipt. Abort and owner-loss paths keep their
+existing fences, and a lost response retains its original ambiguity.
 
 Delivery and callback execution are at least once after interruption. Completed
 step replay reuses its durable result. External effects still require their own
@@ -158,10 +164,41 @@ See [the read-deadline checkpoint](progress.md#cg-17-workflow-native-read-progre
 for the exact passing profile and failed controls. This closes the scoped MVP
 read-liveness qualification, not the complete Workflow family matrix.
 
-Full-size params/results, longer
-continuous callbacks, provider I/O, clock faults, deployment changes,
-movement/wake and fenced disk-loss recovery require their own qualifications.
-The common callback budget is bounded to 300 seconds; long sleeps and event
+Full-size params/results, longer continuous callbacks, provider I/O, clock faults,
+deployment changes,
+remaining movement/wake fault combinations and fenced disk-loss recovery require
+their own qualifications. The common callback budget is bounded to 300 seconds;
+long sleeps and event
 waits release that owner, but continuous callback work must fit its admitted
 budget. Full Workflow/CG-17 acceptance remains open until its complete public
 contract and independent scenario matrix pass.
+
+The scoped `workflow-lifecycle` gate exercises completed results and stream
+bytes across S3-seeded RF3 voter replacement, whole-group park/public-read wake,
+and retained restart before event completion. It establishes an initial serving
+quorum, then creates the new instance through the public SDK within its original
+request budget. Local version/image coverage on the replacement, actual archive
+payload reads and execution counters are required. See the
+[replacement/wake checkpoint](progress.md#cg-17-workflow-replacement-and-wake)
+for passing configurations, failures and the controller retirement correction.
+At `4fe5d3bdd`, both exact real RustFS cases pass all four native/Axum image
+configurations under the original request/callback budgets. The earlier Axum
+retirement failure remains recorded. This scenario alone does not accept requests
+before initial quorum readiness, in-flight provider effects, independent voter
+crashes or all-voter disk loss.
+
+The `workflow-deletion` gate holds callbacks through eight public
+delete/absence/recreate cycles, then deletes and recreates a waiting Workflow
+after retained RF3 restart. At integrated runtime `d05987085`, both native and
+Axum cases pass both image formats under the original budgets. The pre-fix
+integration control fails its first deletes because handler retirement
+invalidates asynchronous image preparation. The fix defers retirement to the
+committed-result handoff and retains all preparation guards. See the
+[committed deletion checkpoint](progress.md#cg-17-workflow-committed-delete-settlement)
+for exact sources and evidence. The broader same-source Workflow campaign still
+fails Axum extent `create/capped` after restart/replay; these delete passes do
+not accept the complete family or close that deadline.
+The coordinated successor `177c7f7f5` passes all eighteen deletion, ordinary,
+scheduled and replacement/wake configurations on one source and executable.
+Those later scoped results retain the earlier failures and do not qualify full
+Workflow/provider, independent-voter or disk-loss coverage.
