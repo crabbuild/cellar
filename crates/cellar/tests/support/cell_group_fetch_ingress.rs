@@ -177,10 +177,8 @@ async fn run(
             let selections = name_selections(&cluster)?;
             let initialized = initializers.load(Ordering::Acquire);
             ensure!(request(&cluster, 0).await.context("cold stateless Fetch")? == 2);
-            let selected = name_selections(&cluster)?;
-            eprintln!("[DEBUG-cg17-cold-owner-1352] cold response extents={rooted} target={minimum:?} Axum={external} selections_before={selections} selections_after={selected}");
             ensure!(
-                selected == selections,
+                name_selections(&cluster)? == selections,
                 "cold Fetch performed a redundant name selection before atomic enrollment"
             );
             ensure!(
@@ -264,11 +262,6 @@ async fn run(
 }
 
 pub(super) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
-    // DEBUG-cg17-cold-owner-1352: use existing boundaries without new warmup calls.
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug")
-        .with_test_writer()
-        .try_init();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
