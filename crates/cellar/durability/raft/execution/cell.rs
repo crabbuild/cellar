@@ -604,6 +604,15 @@ impl CellPrivateExecutor {
             {
                 CellReconciliation::Refused(CommandFailure::Unavailable)
             }
+            // This exact immutable image contains an intermediate receipt,
+            // which cannot supply the final RPC response. A checked same-term
+            // view stays pending until its term or cell version changes.
+            Err(ExecutionError::Uncertain)
+                if authority.term() == self.authority.term() && pending.rpc_prior_steps != 0 =>
+            {
+                check()?;
+                return Ok(CellReconciliationObservation::Pending);
+            }
             Err(error) => return Err(error),
             Ok(None) => {
                 check()?;

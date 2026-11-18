@@ -207,7 +207,12 @@ impl Cells {
         // private writer and per-cell reservation until exact settlement.
         // Pending was historically Uncertain, not a completed publication.
         timer.finish(
-            result.is_ok() && !matches!(&result, Ok(CellSqlOutcome::ReconciliationPending)),
+            result.is_ok()
+                && !matches!(
+                    &result,
+                    Ok(CellSqlOutcome::ReconciliationPending
+                        | CellSqlOutcome::ReconciliationRetained)
+                ),
         );
         let _ = reply.send(result);
     }
@@ -449,12 +454,22 @@ impl Cells {
                     .get_mut(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
                 let expected = pending.producer.command()?.prepared_final_version();
-                let CellReconciliationObservation::Resolved(resolution) = pending
+                let resolution = match pending
                     .producer
                     .command()?
-                    .observe_reconciliation(proposal, *authority)?
-                else {
-                    return Ok(CellSqlOutcome::ReconciliationPending);
+                    .observe_reconciliation(proposal, *authority)
+                {
+                    Ok(CellReconciliationObservation::Resolved(resolution)) => resolution,
+                    Ok(CellReconciliationObservation::Pending) => {
+                        return Ok(CellSqlOutcome::ReconciliationPending);
+                    }
+                    Err(ExecutionError::Uncertain) if pending.prepared.proposal() == proposal => {
+                        // This is exactly the ownership check performed by
+                        // Resume. It does not validate the observed image or
+                        // authorize caching, output or producer retirement.
+                        return Ok(CellSqlOutcome::ReconciliationRetained);
+                    }
+                    Err(error) => return Err(error),
                 };
                 let pending = self
                     .pending

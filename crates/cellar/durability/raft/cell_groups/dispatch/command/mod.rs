@@ -929,6 +929,11 @@ impl CellCommandInvocation {
                 origin.pending_view = Some(view);
                 Err(CellDispatchError::Execution(ExecutionError::Uncertain))
             }
+            Ok(CellSqlReconciliationObservation::Retained) => {
+                // Ownership replaces a Resume round trip, but the next
+                // attempt still needs fresh authority and SQL reconciliation.
+                Err(CellDispatchError::Execution(ExecutionError::Uncertain))
+            }
             Ok(CellSqlReconciliationObservation::Resolved(CellSqlReconciliation::Committed(
                 receipt,
             ))) => {

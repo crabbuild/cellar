@@ -1,0 +1,3494 @@
+{
+  "recorded_at_utc": "2026-11-18T06:20:24.079768+00:00",
+  "qualification_status": "FAILED",
+  "component_status": "PASSED: two work-count regressions in both image modes (four intended-red cases); sixteen focused native safety and progress cases",
+  "source": {
+    "compiler_input_sha256": "f8f9bee8105c49b9d5ed5190847df3ad5509cbd771b1a15328142fb607b54068",
+    "parent_commit": "8393e1ea7bc1b6a2e85c4227a6a3fc3a49a0ba26",
+    "main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+    "rpc_red_to_green_changed_files": [
+      "crates/cellar/durability/raft/execution/cell.rs"
+    ],
+    "rpc_test_fixture_identical": true,
+    "red_green_pair_scope": "The frozen regression deltas compare intended-red inputs with the e0d61c1b green source before its two-selector fixture correction",
+    "fixture_macro_correction": {
+      "prior_source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+      "changed_files": [
+        "crates/cellar/tests/support/cell_group_sql_pending.rs"
+      ],
+      "production_inputs_unchanged": true,
+      "selectors_corrected": 2,
+      "prior_qualification_interrupted_at": "clippy::disallowed_macros; original failed record and fixtures retained"
+    },
+    "retained_producer_red_to_green_changed_files": [
+      "crates/cellar/durability/raft/cell_groups/dispatch/command/mod.rs",
+      "crates/cellar/durability/raft/host_sql/cell_groups/mod.rs",
+      "crates/cellar/durability/raft/host_sql/cell_groups/worker.rs"
+    ],
+    "retained_producer_test_fixture_identical": true
+  },
+  "qualification_environment": {
+    "rust_toolchain": "1.98.1",
+    "locked_dependencies": true,
+    "build_jobs": 1,
+    "test_opt_level": 1,
+    "debug_assertions": true,
+    "overflow_checks": true,
+    "incremental": false,
+    "cellar_internal_tests": false,
+    "backend": "Native RF3 with in-memory object store; no constrained RustFS qualification"
+  },
+  "changes": [
+    "An uncertain SQL reconciliation can confirm that its exact original producer is retained. This avoids a second Resume work item; it does not validate or cache that uncertain observation.",
+    "After matching an intermediate RPC receipt in an immutable image, same-term reconciliation checks authority again and returns a private pending observation. Repeated settlement against that full term and cell version uses one SQL reconciliation.",
+    "Newer-term partial-RPC refusal retains its previous priority. Generic authority failures remain uncached, missing producers retain Resume and exact-receipt fallback, and public executor/pool pending results remain ExecutionError::Uncertain.",
+    "No write acknowledgement, non-commit decision, callback replay, producer retirement or capacity refund is authorized by either observation. Exact receipts and current authority still govern terminal resolution.",
+    "No new production tasks, timers, global map, image pins, deadlines, workers, admission banks or retention limits."
+  ],
+  "regressions": {
+    "retained_producer_before": {
+      "compiler_input_sha256": "8323ea99418d42205185b0dbdd01fb1e375bbcced554ae7c7fc2cb4a6604f752",
+      "stages": [
+        {
+          "name": "compile-native_cell_groups_execution",
+          "status": "PASSED",
+          "elapsed_seconds": 92.02975091600092,
+          "footers": [],
+          "log_sha256": "eb161f87e1769bf40f499808ccce1ec2e9706db1acf9d0a73a912ddd4bfcb300",
+          "failed_cases": []
+        },
+        {
+          "name": "retained_pending_producer_skips_resume_after_stale_observation",
+          "status": "FAILED",
+          "elapsed_seconds": 6.3124225420178846,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "cda3fe407f7d7816a397d904d5bc1b99d7021135e5c994815f24f2c2e3759557",
+          "failed_cases": [
+            "retained_pending_producer_skips_resume_after_stale_observation"
+          ]
+        },
+        {
+          "name": "rooted_retained_pending_producer_skips_resume_after_stale_observation",
+          "status": "FAILED",
+          "elapsed_seconds": 3.9128092079772614,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "5e2f7d2b84b418a08ddae13f364cab0cad1d1e007bf80bb7e98a8bcb61e8a9e4",
+          "failed_cases": [
+            "rooted_retained_pending_producer_skips_resume_after_stale_observation"
+          ]
+        }
+      ],
+      "scope": "Both stale-observation cases reach redundant Resume after retaining the ambiguous producer, then prove newer-term same-image non-commit, exact unrelated-cell receipt, once-only callback and joined cleanup."
+    },
+    "retained_producer_intermediate": {
+      "compiler_input_sha256": "8a044eba5aef9ef4c65eff3bbeeaf6778de3c815d48d4f44c48bc1f3cdd340ce",
+      "stages": [
+        {
+          "name": "compile-native_cell_groups_execution",
+          "status": "PASSED",
+          "elapsed_seconds": 565.7409293750534,
+          "footers": [],
+          "log_sha256": "ddea00729134637fc3b755f6c8f28dd34af145ac18a98117e02e55f846517c58",
+          "failed_cases": []
+        },
+        {
+          "name": "retained_pending_producer_skips_resume_after_stale_observation",
+          "status": "PASSED",
+          "elapsed_seconds": 7.51930404198356,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "2ca6d5b8f4886591a851eff805122f0ee819e141e301da009bea258f9722753f",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_retained_pending_producer_skips_resume_after_stale_observation",
+          "status": "PASSED",
+          "elapsed_seconds": 4.764472000009846,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "75ce826c0d4253d0718a36e0facc4bed3cda93a28b98323964ec4057761a848c",
+          "failed_cases": []
+        },
+        {
+          "name": "pending_command_progress_skips_redundant_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 1.507014375005383,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "b2eec4dbf9608bce64c3881f19976f9b097fdf013b1783d5f7f2847822033870",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_pending_command_progress_skips_redundant_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 1.6727496670209803,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "6a423512d3e06b7d6d742e095d15fd283f88a17baf95014d5c0f0828c59fb79c",
+          "failed_cases": []
+        },
+        {
+          "name": "catalog_routed_commands_preserve_producer_and_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 3.0524391250219196,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "7d7940ebe3c0564fb0a368bae9e3849a6f8469ed5d4c7e97c4e5a6085fa49784",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_catalog_routed_commands_preserve_producer_and_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 2.110596999991685,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "09b4ee934f122eab672e01c3542403760e05773acc1ad9f518f73fd1cd626214",
+          "failed_cases": []
+        },
+        {
+          "name": "cell_sql_reconciles_after_leadership_change",
+          "status": "PASSED",
+          "elapsed_seconds": 3.8407952080015093,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "edbecd8d8c42565619db3ebbea7c267bc71aa7dbacb01279c94389be47e8928d",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_cell_sql_reconciles_after_leadership_change",
+          "status": "PASSED",
+          "elapsed_seconds": 2.8203152079950087,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "48e109ee5986120d2b8aa1ba2b89fbe2ef4d5b6f02c0c44be5ff567010b405fe",
+          "failed_cases": []
+        },
+        {
+          "name": "cell_sql_reconciles_expired_and_conflicting_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 3.4628972909995355,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "6e1401152cc0b564e6239beb328d48e4ef4f8e1ef34c8a0b3016cc6f5f41fca8",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_cell_sql_reconciles_expired_and_conflicting_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 3.9770928339567035,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "581a7ed9cf93bc24bcbbddb75071758d195e191052a52f743cc71c1ae568ae9c",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_remote_command_receipt_reconciles_unknown_reply",
+          "status": "PASSED",
+          "elapsed_seconds": 3.96488441695692,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "79f8a73f20f5145a51ca09fdfc0398b9a4298a9f413fb23c96ee4ae66110013b",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_remote_command_receipt_absence_stays_unknown",
+          "status": "PASSED",
+          "elapsed_seconds": 6.067753583018202,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "af085ba0d10e76468c6bb489fd9b79e37efdd0fbbdbed9dd7283461f5d7a7c52",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+          "status": "PASSED",
+          "elapsed_seconds": 3.104872833995614,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "f926f3477f5f81b52801cbaa541abde3902420468e2d946d0db06281c83272e8",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
+          "status": "PASSED",
+          "elapsed_seconds": 3.1200958330300637,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "f654efd339ee0b249e22c897dc06cbc6e985d1608e0fbe2817978d9ecb50aa46",
+          "failed_cases": []
+        },
+        {
+          "name": "compile-native_cell_groups_primitives",
+          "status": "PASSED",
+          "elapsed_seconds": 73.81972079101251,
+          "footers": [],
+          "log_sha256": "7d98a46ed87ea32f12e8f331981e45289e601da87d83a3b65a8c75d18a5a3ecf",
+          "failed_cases": []
+        },
+        {
+          "name": "queue_four_in_flight_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "elapsed_seconds": 102.109593125002,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "a055282109d3512f6943f9cc2a368122a59186ed6b9302745a5ca1ff76e83bbc",
+          "failed_cases": [
+            "queue_four_in_flight_preserves_acknowledged_messages"
+          ]
+        }
+      ],
+      "scope": "Fourteen focused controls pass at the isolated retained-producer candidate. The original Queue C4 case fails, with its failed fixtures retained."
+    },
+    "rpc_checkpoint_before": {
+      "compiler_input_sha256": "a17f7764f10e73c362713db97d1e4cd833181c5cd415a3e7c646c7f983d5477e",
+      "stages": [
+        {
+          "name": "compile-native_cell_groups_execution",
+          "status": "PASSED",
+          "elapsed_seconds": 44.64206404099241,
+          "footers": [],
+          "log_sha256": "153c6dad04022580160e81db44ed5097bc1b036f719029b60cc86fc2d6005a99",
+          "failed_cases": []
+        },
+        {
+          "name": "pending_rpc_checkpoint_view_skips_repeated_sql",
+          "status": "FAILED",
+          "elapsed_seconds": 0.741343041008804,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "75f6bb6fa63ae1f173347bad9642fd07611ee640126d5b77f93c12034acc7286",
+          "failed_cases": [
+            "pending_rpc_checkpoint_view_skips_repeated_sql"
+          ]
+        },
+        {
+          "name": "rooted_pending_rpc_checkpoint_view_skips_repeated_sql",
+          "status": "FAILED",
+          "elapsed_seconds": 0.7369334169779904,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "8c263b6f0a0350d9c86ecaefb84cb8dbcd9e22ca7e0e296ca954c91f7545356a",
+          "failed_cases": [
+            "rooted_pending_rpc_checkpoint_view_skips_repeated_sql"
+          ]
+        }
+      ],
+      "scope": "Both real root-checkpoint cases reach repeated SQL reconciliation; final output 11, all-replica version/witness, duplicate replay, callback count one and joined closure pass before the work assertion fails."
+    },
+    "after": {
+      "compiler_input_sha256": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+      "stages": [
+        {
+          "name": "compile-native_cell_groups_execution",
+          "status": "PASSED",
+          "elapsed_seconds": 516.7095751250163,
+          "footers": [],
+          "log_sha256": "191319d330758b0b48645c842bef2fae67ad252ade02319204618957b43716a2",
+          "failed_cases": []
+        },
+        {
+          "name": "pending_rpc_checkpoint_view_skips_repeated_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 0.8756220829673111,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "cc40de996eb3be316ea8fe66e2e47a2345119237b676c8971c09b05d10326c52",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_pending_rpc_checkpoint_view_skips_repeated_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 1.0074105419917032,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "5e1066e8e9023fc2e6841deca6ac8a921ca49ec13e47372622a879cac6abfb65",
+          "failed_cases": []
+        },
+        {
+          "name": "retained_pending_producer_skips_resume_after_stale_observation",
+          "status": "PASSED",
+          "elapsed_seconds": 0.7701737909810618,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "c8bf3e9cd6d95bf82ca9c14d9f4df1ee2b4530a263a091c021917bf31abd314c",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_retained_pending_producer_skips_resume_after_stale_observation",
+          "status": "PASSED",
+          "elapsed_seconds": 0.9064270830131136,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "0ed62b1e2e7395e3a4dc6d9c22f822971a9cbf5cbd346a3449d42f20825744c7",
+          "failed_cases": []
+        },
+        {
+          "name": "pending_command_progress_skips_redundant_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 0.7674544579931535,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "32bfc20b70a2b2aed774e2e45edbab1aa1fd4e8a68d5ecf95c2d49b811d764c8",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_pending_command_progress_skips_redundant_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 0.7670885840198025,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "1097e87ef863502185e9c45afa184b9f9c9c7df11d42bc73b1a836f75f6ddb43",
+          "failed_cases": []
+        },
+        {
+          "name": "catalog_routed_commands_preserve_producer_and_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 0.9757313340087421,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "94f18fde64c2db4540d46ecb40317fbda4c96e28f8be86bf7e975489c32d49c0",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_catalog_routed_commands_preserve_producer_and_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 0.9834518750431016,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "c52fbabe7ee14dead6212722989175b41921d194c27289da3a0e673cc5eb3ca4",
+          "failed_cases": []
+        },
+        {
+          "name": "cell_sql_reconciles_after_leadership_change",
+          "status": "PASSED",
+          "elapsed_seconds": 1.238029333006125,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "ab8bbdb343b1c51cc4ba7de70e2c0d5334b1cb9e0c62f6eb24a0a2a9f5c259ca",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_cell_sql_reconciles_after_leadership_change",
+          "status": "PASSED",
+          "elapsed_seconds": 1.320036958961282,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "29f8049fe66d7c159095bf3f6b4b041646b9d5561d7a2d617b6fbc58c7499e4b",
+          "failed_cases": []
+        },
+        {
+          "name": "cell_sql_reconciles_expired_and_conflicting_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 1.0783637500135228,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "18012e84d49e897463be758b47aa867511313f351822a8d2868d8114659b90fe",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_cell_sql_reconciles_expired_and_conflicting_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 1.4245478750090115,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "a65be73e6242084ae3894ced66e5ae62664e4ec0b6506028f947ad4d04ec846b",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_remote_command_receipt_reconciles_unknown_reply",
+          "status": "PASSED",
+          "elapsed_seconds": 1.3900180829805322,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "dd572f812e8d34bf0fbc2870c796d0accd6ed9877768573b96494f0b72a0b657",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_remote_command_receipt_absence_stays_unknown",
+          "status": "PASSED",
+          "elapsed_seconds": 4.478322292037774,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "70c4f2e1bf5a7129cde549bb39873ee260929cbeee88e0880d4ab0f6cf0d68cc",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+          "status": "PASSED",
+          "elapsed_seconds": 1.180591833021026,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "760783d192d83774dfabe8825fec9fc81669c858798a891c8268f1b74424e83e",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
+          "status": "PASSED",
+          "elapsed_seconds": 1.253032791952137,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "165c72abc5f7999891df9d4d16b7c058cf87c7f2179623062cc115afc387d735",
+          "failed_cases": []
+        },
+        {
+          "name": "compile-native_cell_groups_primitives",
+          "status": "PASSED",
+          "elapsed_seconds": 43.90628225001274,
+          "footers": [],
+          "log_sha256": "0ac149821249188383432fc27e88bbefe59003fa320993d2d31017d042f6e7de",
+          "failed_cases": []
+        },
+        {
+          "name": "queue_four_in_flight_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "elapsed_seconds": 50.76187870797003,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "aab56d3e2f97963d396342597be8b46e165c78083702b085c6ab27ab45933509",
+          "failed_cases": [
+            "queue_four_in_flight_preserves_acknowledged_messages"
+          ]
+        }
+      ],
+      "scope": "One SQL reconciliation for four unchanged final-RPC observations, no Resume; stale generic observations remain uncached. Original Queue C4 result stays explicit."
+    },
+    "fixture_construction_failures": [
+      "Two initial retained-producer cohorts attempted an unrelated ordinary SQL read while the unchanged one-cell bank was full. The read did not enter; the second cohort confirmed Refused(Overloaded). These are retained fixture failures, not intended-red results.",
+      "Two initial RPC cohorts used a cancelling preparation/pump select. Completion could drop a pump turn owning another replica physical apply; both timed out before the intended work assertion. The corrected fixture completes each pump turn before polling preparation again. These failed cohorts remain retained."
+    ],
+    "current_after_fixture_correction": {
+      "compiler_input_sha256": "f8f9bee8105c49b9d5ed5190847df3ad5509cbd771b1a15328142fb607b54068",
+      "stages": [
+        {
+          "name": "pending_rpc_checkpoint_view_skips_repeated_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 2.118596084008459,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "d8e52ccb35395824e923da26ef7127ee4c09faa61f82bbda3fa80904d4725c00",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_pending_rpc_checkpoint_view_skips_repeated_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 3.4257348750252277,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "b1bace4227ead60c225ac4cf0603bc9f23873003073b829fc7ee24adaf1391d3",
+          "failed_cases": []
+        },
+        {
+          "name": "retained_pending_producer_skips_resume_after_stale_observation",
+          "status": "PASSED",
+          "elapsed_seconds": 2.6392882079817355,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "2bcf879ad1bb3172a54333bf37b46087d49aa76c66d6358c94ded17ef2b62320",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_retained_pending_producer_skips_resume_after_stale_observation",
+          "status": "PASSED",
+          "elapsed_seconds": 2.2834593749721535,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "383fa92e27943b977d58b159921af48cff92c5dc4f7e9351b49a01bd84b9a41b",
+          "failed_cases": []
+        },
+        {
+          "name": "pending_command_progress_skips_redundant_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 1.8539390829973854,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "d03f73f89e77fc8de8cabaeaf026e42fd63b5932cf456a78629fc47f572100b8",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_pending_command_progress_skips_redundant_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 2.187043084006291,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "53a933c000f99ddabd4da31fa49964341bacf815fb552dbc043e53f44660a283",
+          "failed_cases": []
+        },
+        {
+          "name": "catalog_routed_commands_preserve_producer_and_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 2.7773961249622516,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "9a709e5a5547306cdace0b8507a0362d08bad5fc6339196e2029a1a87b40b58b",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_catalog_routed_commands_preserve_producer_and_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 2.831683458003681,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "996d63b252f7e0ffcd284f6dfc5b7d881dd34c0b7f3bd19df2d3e4394f9e5ade",
+          "failed_cases": []
+        },
+        {
+          "name": "cell_sql_reconciles_after_leadership_change",
+          "status": "PASSED",
+          "elapsed_seconds": 3.5934813329949975,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "0d021ef74205bbb33d85ad2a9a62e37d9f59eecb4916bc8a6501426050ff6d53",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_cell_sql_reconciles_after_leadership_change",
+          "status": "PASSED",
+          "elapsed_seconds": 3.73551241599489,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "aa709844dfaa861a60efcfedb71b1a9fde5a1a556c9aa93c25d90fb547edd728",
+          "failed_cases": []
+        },
+        {
+          "name": "cell_sql_reconciles_expired_and_conflicting_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 4.025533500011079,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "038d7cf4519e913342e710b07e42e880c0e11c8c1e3cfd540ef02a776880a1d5",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_cell_sql_reconciles_expired_and_conflicting_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 3.482916250010021,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "61577abb39e506b073886c6e6cc13869c1835ed419bcf9d2c45643de6d80f51c",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_remote_command_receipt_reconciles_unknown_reply",
+          "status": "PASSED",
+          "elapsed_seconds": 4.052041541959625,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "53496a6121923ec8943fd9a4ace55d32e1aa90645bb1f4a85f2638217d73655d",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_remote_command_receipt_absence_stays_unknown",
+          "status": "PASSED",
+          "elapsed_seconds": 6.696148374991026,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "c7caa2e4163692f140a789eb46b7c4cc5a814bb3380e5ba2128575bd0a47e1cd",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+          "status": "PASSED",
+          "elapsed_seconds": 3.729294624994509,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "c4783c3765b777fdf345e387afc2efacc7249a6098559bf749aa1ccd21149fa0",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
+          "status": "PASSED",
+          "elapsed_seconds": 4.184887709037866,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "4613d1c2ff82a57adc589ad477f2be66704e488eee71a444930eec013fbce450",
+          "failed_cases": []
+        }
+      ],
+      "scope": "All sixteen focused cases rechecked under the required Cellar selectors; production inputs match e0d61c1b."
+    }
+  },
+  "current_source_qualification": {
+    "stages": [
+      {
+        "name": "compile-native_cell_groups_execution",
+        "status": "PASSED",
+        "elapsed_seconds": 108.55317504203413,
+        "footers": [],
+        "log_sha256": "6df4915556b28bb2a87021961cafc32ad9d2223b780508947b6fd21b984cdb28",
+        "failed_cases": []
+      },
+      {
+        "name": "pending_rpc_checkpoint_view_skips_repeated_sql",
+        "status": "PASSED",
+        "elapsed_seconds": 2.118596084008459,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "d8e52ccb35395824e923da26ef7127ee4c09faa61f82bbda3fa80904d4725c00",
+        "failed_cases": []
+      },
+      {
+        "name": "rooted_pending_rpc_checkpoint_view_skips_repeated_sql",
+        "status": "PASSED",
+        "elapsed_seconds": 3.4257348750252277,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b1bace4227ead60c225ac4cf0603bc9f23873003073b829fc7ee24adaf1391d3",
+        "failed_cases": []
+      },
+      {
+        "name": "retained_pending_producer_skips_resume_after_stale_observation",
+        "status": "PASSED",
+        "elapsed_seconds": 2.6392882079817355,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "2bcf879ad1bb3172a54333bf37b46087d49aa76c66d6358c94ded17ef2b62320",
+        "failed_cases": []
+      },
+      {
+        "name": "rooted_retained_pending_producer_skips_resume_after_stale_observation",
+        "status": "PASSED",
+        "elapsed_seconds": 2.2834593749721535,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "383fa92e27943b977d58b159921af48cff92c5dc4f7e9351b49a01bd84b9a41b",
+        "failed_cases": []
+      },
+      {
+        "name": "pending_command_progress_skips_redundant_sql",
+        "status": "PASSED",
+        "elapsed_seconds": 1.8539390829973854,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "d03f73f89e77fc8de8cabaeaf026e42fd63b5932cf456a78629fc47f572100b8",
+        "failed_cases": []
+      },
+      {
+        "name": "rooted_pending_command_progress_skips_redundant_sql",
+        "status": "PASSED",
+        "elapsed_seconds": 2.187043084006291,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "53a933c000f99ddabd4da31fa49964341bacf815fb552dbc043e53f44660a283",
+        "failed_cases": []
+      },
+      {
+        "name": "catalog_routed_commands_preserve_producer_and_receipts",
+        "status": "PASSED",
+        "elapsed_seconds": 2.7773961249622516,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "9a709e5a5547306cdace0b8507a0362d08bad5fc6339196e2029a1a87b40b58b",
+        "failed_cases": []
+      },
+      {
+        "name": "rooted_catalog_routed_commands_preserve_producer_and_receipts",
+        "status": "PASSED",
+        "elapsed_seconds": 2.831683458003681,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "996d63b252f7e0ffcd284f6dfc5b7d881dd34c0b7f3bd19df2d3e4394f9e5ade",
+        "failed_cases": []
+      },
+      {
+        "name": "cell_sql_reconciles_after_leadership_change",
+        "status": "PASSED",
+        "elapsed_seconds": 3.5934813329949975,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0d021ef74205bbb33d85ad2a9a62e37d9f59eecb4916bc8a6501426050ff6d53",
+        "failed_cases": []
+      },
+      {
+        "name": "rooted_cell_sql_reconciles_after_leadership_change",
+        "status": "PASSED",
+        "elapsed_seconds": 3.73551241599489,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "aa709844dfaa861a60efcfedb71b1a9fde5a1a556c9aa93c25d90fb547edd728",
+        "failed_cases": []
+      },
+      {
+        "name": "cell_sql_reconciles_expired_and_conflicting_receipts",
+        "status": "PASSED",
+        "elapsed_seconds": 4.025533500011079,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "038d7cf4519e913342e710b07e42e880c0e11c8c1e3cfd540ef02a776880a1d5",
+        "failed_cases": []
+      },
+      {
+        "name": "rooted_cell_sql_reconciles_expired_and_conflicting_receipts",
+        "status": "PASSED",
+        "elapsed_seconds": 3.482916250010021,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "61577abb39e506b073886c6e6cc13869c1835ed419bcf9d2c45643de6d80f51c",
+        "failed_cases": []
+      },
+      {
+        "name": "shared_remote_command_receipt_reconciles_unknown_reply",
+        "status": "PASSED",
+        "elapsed_seconds": 4.052041541959625,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "53496a6121923ec8943fd9a4ace55d32e1aa90645bb1f4a85f2638217d73655d",
+        "failed_cases": []
+      },
+      {
+        "name": "shared_remote_command_receipt_absence_stays_unknown",
+        "status": "PASSED",
+        "elapsed_seconds": 6.696148374991026,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c7caa2e4163692f140a789eb46b7c4cc5a814bb3380e5ba2128575bd0a47e1cd",
+        "failed_cases": []
+      },
+      {
+        "name": "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+        "status": "PASSED",
+        "elapsed_seconds": 3.729294624994509,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c4783c3765b777fdf345e387afc2efacc7249a6098559bf749aa1ccd21149fa0",
+        "failed_cases": []
+      },
+      {
+        "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
+        "status": "PASSED",
+        "elapsed_seconds": 4.184887709037866,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "4613d1c2ff82a57adc589ad477f2be66704e488eee71a444930eec013fbce450",
+        "failed_cases": []
+      },
+      {
+        "name": "full-native-execution",
+        "status": "PASSED",
+        "elapsed_seconds": 1165.9920710410224,
+        "footers": [
+          [
+            "ok",
+            "225",
+            "0",
+            "2"
+          ]
+        ],
+        "log_sha256": "27f787e0c4dd3fd5d3b2a599d8588daea436b09292327a04ab2232f307734fd6",
+        "failed_cases": []
+      },
+      {
+        "name": "compile-native_cell_groups_primitives",
+        "status": "PASSED",
+        "elapsed_seconds": 1.2054115000064485,
+        "footers": [],
+        "log_sha256": "bff10a70d07c5c594af6e884bc7f660693f8f0433ae4e214e8f068148b3613ec",
+        "failed_cases": []
+      },
+      {
+        "name": "queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "elapsed_seconds": 50.76187870797003,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "aab56d3e2f97963d396342597be8b46e165c78083702b085c6ab27ab45933509",
+        "failed_cases": [
+          "queue_four_in_flight_preserves_acknowledged_messages"
+        ],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-after-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "ordinary_json_rpc_uses_raft_owned_context",
+        "status": "PASSED",
+        "elapsed_seconds": 62.02142725000158,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "bf4938e341588baa7405f666e4d7c41e71634f2f715c0fd8057889f6523c95d2",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "ordinary_cell_rpcs_interleave_between_proven_roots",
+        "status": "PASSED",
+        "elapsed_seconds": 171.97669437498553,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "39b99b69436a8b2d36e82860fa3a5b9a3b8ac34b620ffb1a67ec323f62a7d56b",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "proven_rpc_continuation_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "elapsed_seconds": 17.50736562500242,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3e11cbbf1c989bd0cf8346886fb077d5e5708e0158b7c895abaeffdc4965bd82",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "elapsed_seconds": 18.277831625018734,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "878239442321b8c4d70f1c35205155ea87e67eea4f00e69225652302f353b121",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+        "status": "PASSED",
+        "elapsed_seconds": 84.66641599999275,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "1c6eca29b018cce274c98d91290a1d91d854778e3ac47c7a7b9f121473f14ae9",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "elapsed_seconds": 152.79097291699145,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b8d83e0c270eb9547606c24431d3f132f58a6752ce34e5bb2eed914ff16f2343",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "elapsed_seconds": 356.00407545798225,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "6432d45474951ca7ad6d89c141ea1cdddee4a14cc7b4b2949255a7d9bf591685",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "ordinary_queue_callbacks_use_shared_quorum",
+        "status": "FAILED",
+        "elapsed_seconds": 39.59362008300377,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "10c1dd1185859513520cbd5707266920e3c45c968a63bbeaf9b3524dce5b68a6",
+        "failed_cases": [
+          "ordinary_queue_callbacks_use_shared_quorum"
+        ],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "warm_kv_payloads_preserve_source_proof_and_cold_enrollment",
+        "status": "PASSED",
+        "elapsed_seconds": 68.1657856249949,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c04ea2500fb1c0221b0fece712a716bc101231c02be7316368ef7cb980690644",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+        "status": "FAILED",
+        "elapsed_seconds": 120.66014108294621,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "8ac4f8f1ba5a6d7c0bf82bd85c139d7c557db84a80dc16b1da34920b9debcf40",
+        "failed_cases": [
+          "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk"
+        ],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+        "status": "FAILED",
+        "elapsed_seconds": 519.0660911250161,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "33d17dbf845c0afe6e77b4149c11bf3c44b4060a7a67c3e3cb7fae59a70d31f4",
+        "failed_cases": [
+          "interrupted_sql_bindings_recover_without_replaying_business_calls"
+        ],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "elapsed_seconds": 0.3707603749935515,
+        "footers": [],
+        "log_sha256": "a6642d53b4455c516c208bcceb284329d288820f66b47a9b62492867eae256b0",
+        "failed_cases": []
+      },
+      {
+        "name": "full-library",
+        "status": "FAILED",
+        "elapsed_seconds": 409.55602379201446,
+        "footers": [
+          [
+            "FAILED",
+            "1252",
+            "1",
+            "2"
+          ]
+        ],
+        "log_sha256": "058fa61f87e914d67d990818414cc56fe905ce9b8fcd48c5d2d54b1658961720",
+        "failed_cases": [
+          "raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay"
+        ],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "a22c92baf0de54c1b54ec0a921d3357afcd7b8bacc3ff9cff5e8f14bd375f47b",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "compile-native_cell_groups_archive_controller",
+        "status": "PASSED",
+        "elapsed_seconds": 38.36717483296525,
+        "footers": [],
+        "log_sha256": "4bcbf97d53a2272571cc97d2e881baf4884cb642f734fcef5e438039d21d56cf",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_unknown_reply_requires_exact_s3_receipt",
+        "status": "PASSED",
+        "elapsed_seconds": 6.12833049998153,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0419ae0ed3d4279fe5fdb2688ef7aef2701f91adbcd7b5b06b871e50407756b1",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "s3_remote_outputs_preserve_durability_and_creation",
+        "status": "PASSED",
+        "elapsed_seconds": 26.709553833003156,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "fdaa500ed2e8ee0320ca00f77e9593c338d8128af695d0971313879fabab082e",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "s3_remote_deadlines_preserve_ambiguity_and_callbacks",
+        "status": "PASSED",
+        "elapsed_seconds": 36.06492029200308,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "f49b0cc4081e9a0678b3af2b669fd01a3c4f728b1602c6967fd4d6107f3f7aff",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "s3_remote_slow_delivery_retains_proofs_and_bounds",
+        "status": "PASSED",
+        "elapsed_seconds": 86.29132841702085,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3f6daf7cd0b3e6972af1d6f77c3662c9aa5b7fa612665addedb1ad326ead32f5",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "s3_receipt_lookup_tracks_archived_observations",
+        "status": "PASSED",
+        "elapsed_seconds": 5.805917875026353,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b504b5f19991288e2de5c76f8d2be5e6cd66dcd9110d5c89ed3bb33439f2d86a",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "s3_receipt_lookup_honors_namespace_and_stored_minimums",
+        "status": "PASSED",
+        "elapsed_seconds": 9.246124750003219,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "2748de468c9d6073dbb400a26ca7cf33d49f729f11fdc29f9f0b7c60af57375f",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "s3_receipt_lookup_preserves_typed_failures_and_result_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 16.148179917014204,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c3e9947872f241e4b0a45a3c1c8a34b276c7c65f9482217c4b844bb0c3974a25",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "s3_receipt_lookup_deadlines_refund_read_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 9.814735291991383,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "f3077e4b1bd5e126f5b6b5e5e51aad6717505b58ee92d18099da6412d4a402b7",
+        "failed_cases": [],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-qualified-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      },
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 663.7655773750157,
+        "footers": [],
+        "log_sha256": "285cd7dd3ae03d648e79ec47a88307b2d05607e767431d9fdc74dc9056e2d48b",
+        "failed_cases": []
+      },
+      {
+        "name": "recovery-consumer-clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 3.044554500025697,
+        "footers": [],
+        "log_sha256": "c9400cfa9f1fdd4f8803b90ca763d9f076cd5c50ba76e6b994ec2630699bb6bc",
+        "failed_cases": []
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "elapsed_seconds": 115.8027802919969,
+        "footers": [],
+        "log_sha256": "572b9bf66c088eff914c2cf606126380a309b9e644edd8b4bd1cf7cf528c4c32",
+        "failed_cases": []
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "elapsed_seconds": 0.2709524579695426,
+        "footers": [],
+        "log_sha256": "1a7c6f83eb3dcb9bb3421f8cead940283f52eb4c189ab160cc5820b918dc86bc",
+        "failed_cases": []
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "elapsed_seconds": 0.458392541971989,
+        "footers": [],
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+        "failed_cases": []
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "elapsed_seconds": 0.8845473330002278,
+        "footers": [],
+        "log_sha256": "448b70e085256df9f27eefb0b08f493e2fda5d436a00436723c5d5265500d7a8",
+        "failed_cases": []
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "elapsed_seconds": 2.55883095797617,
+        "footers": [],
+        "log_sha256": "cf7f6a12676feeaa0192cd3c5ba8ed9face0b3a15a0eb4f228410da57fc74816",
+        "failed_cases": []
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "elapsed_seconds": 0.04282279097242281,
+        "footers": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "failed_cases": []
+      }
+    ],
+    "original_queue_result": [
+      {
+        "name": "queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "elapsed_seconds": 50.76187870797003,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "aab56d3e2f97963d396342597be8b46e165c78083702b085c6ab27ab45933509",
+        "failed_cases": [
+          "queue_four_in_flight_preserves_acknowledged_messages"
+        ],
+        "reused_from": {
+          "cohort": "rpc-checkpoint-pending-after-01",
+          "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+          "executable_sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "basis": "Exact executable bytes and test profile; original test log/result, not a new execution."
+        }
+      }
+    ],
+    "source_inputs_unchanged": true,
+    "executables": {
+      "native_cell_groups_execution": {
+        "sha256": "7c0b2b0e8228482c4c0426d262710e7cb09cc52263ee29203fc770da1aba83a0",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar": {
+        "sha256": "a22c92baf0de54c1b54ec0a921d3357afcd7b8bacc3ff9cff5e8f14bd375f47b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_archive_controller": {
+        "sha256": "2bbf86b5dc90d3259ea972c6f11a7a3ae061b094f2a67a4fa8c223807f5ed38a",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "control_comparison": {
+    "shared_remote_execution_uses_request_deadline_and_bounded_socket_io": {
+      "cohort": "rpc-pending-remote-controls-01",
+      "ordered_results": [
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "930706f4844b0fbbea04940bbe5b06f6994ac961f8f25332c170d61b2ad29ac8",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "3996bc8c47296adbbd6aac4bc7f1238e060270e92399b04964b58a47e60c3df1",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "b823b29add6a3aefab458c68764cfd78c6db7c3f7a05dfc1f24afae0e5acaef4",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "4484f268b76240c70a61c901d61509542ada68fccfe39194a54c1a085fd1b89c",
+          "observed_failure_categories": []
+        }
+      ],
+      "all_parent_pass": true,
+      "all_candidate_fail": false,
+      "candidate_only_failure_observed": false
+    },
+    "shared_remote_queries_bind_cell_versions_and_gateway_owners": {
+      "cohort": "rpc-pending-remote-controls-01",
+      "ordered_results": [
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "f100b16247604906c0d3c6680af38c071d9895befb24a65ec574266bc146ba9c",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "6ac6a3fd5511200f9646621b5e8684508079e626fac0cf98c974a212260fc10a",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "7cb69d6e2d09fa5b77fe57b72de19279030c3d93be80abe826b8bd0279bf5cee",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "0180aefc9a039d2ab29a4262b483a9a751bb84c5d50bda2b639e9cd8d69d3c87",
+          "observed_failure_categories": []
+        }
+      ],
+      "all_parent_pass": true,
+      "all_candidate_fail": false,
+      "candidate_only_failure_observed": false
+    },
+    "raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay": {
+      "cohort": "rpc-pending-park-controls-01",
+      "ordered_results": [
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "da1fc40fee234223f121a42fc3d5bb0079e46eb465b9e815bd6c20d4f77176bb",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "da1fc40fee234223f121a42fc3d5bb0079e46eb465b9e815bd6c20d4f77176bb",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "d13e52bb13e96c425c994af8ca644a50626ee5f803bbf5557ad1a6960f8bd193",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "806a5dd740344862ca0f535be42aa724f362b43b755c2a7843e9fcbde6943b4e",
+          "observed_failure_categories": []
+        }
+      ],
+      "all_parent_pass": true,
+      "all_candidate_fail": false,
+      "candidate_only_failure_observed": false
+    },
+    "ordinary_queue_callbacks_use_shared_quorum": {
+      "cohort": "rpc-pending-queue-controls-01",
+      "ordered_results": [
+        {
+          "label": "baseline",
+          "status": "FAILED",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "fd4fdb57c8926d23134a9db9a43b0ef6442c62d669d4a4c2cdd3148697aebb78",
+          "observed_failure_categories": [
+            "DeadlineExceeded"
+          ]
+        },
+        {
+          "label": "candidate",
+          "status": "FAILED",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "5d49baa2d7462566896c6b2ea489f95d4ba84806040d8f26d7d5e51595e305bf",
+          "observed_failure_categories": [
+            "DeadlineExceeded"
+          ]
+        },
+        {
+          "label": "candidate",
+          "status": "FAILED",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "7956d0f4eac66ee442454d13a2f98835c628c61c9ccc01f6c0efbd6df2244884",
+          "observed_failure_categories": [
+            "DeadlineExceeded"
+          ]
+        },
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "607e96a7a4e43cc75c308c14c4b7c5d91e3a027d5feee0e9ddc1bb958dbc70ee",
+          "observed_failure_categories": []
+        }
+      ],
+      "all_parent_pass": false,
+      "all_candidate_fail": true,
+      "candidate_only_failure_observed": false
+    },
+    "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk": {
+      "cohort": "rpc-pending-queue-controls-01",
+      "ordered_results": [
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "47547d457aa84248918ea33de99783cfa62c5a233d12a8da0c77e739c1ce08b9",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "cb61fbdd806be36b1cdcec51861959227232f0921a06dd9535ac0be7b4b440bf",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "e1d1b5f83fb0a2143143314076d9f48b2801b295fac673fad43305469c98715e",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "8e2b03e828aa4c369cf23c7755659a8b2fe1bfd5ec66e7f5e34ecd47bafea197",
+          "observed_failure_categories": []
+        }
+      ],
+      "all_parent_pass": true,
+      "all_candidate_fail": false,
+      "candidate_only_failure_observed": false
+    },
+    "sql_error_recovery_preserves_s3_extent_progress": {
+      "cohort": "rpc-pending-queue-controls-01",
+      "ordered_results": [
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "8577171c244d85207c068d0eef3904ede375ef3a00f7cc0e6c811ba8d165c8ba",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "4831960fe127e0299c9e0bee51b73bbdd39883c60e5094f12ab7cd34b0c36afa",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "candidate",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "07b675c6b431c76d84a16ac682bcbcfab90ae9accf475ff38bbbdc22c5c98cf4",
+          "observed_failure_categories": []
+        },
+        {
+          "label": "baseline",
+          "status": "PASSED",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "c119a68fb5a339ac6cdbf6fdc5bc168fa5c8946de08ec9c053fb04b94ed483ef",
+          "observed_failure_categories": []
+        }
+      ],
+      "all_parent_pass": true,
+      "all_candidate_fail": false,
+      "candidate_only_failure_observed": false
+    }
+  },
+  "remote_failure_controls": {
+    "scope": "ABBA frozen parent/candidate controls for the two retained full-native remote failures. Original two-second command, 600-ms physical callback, 200-ms framing, five-second paired-query budgets, one-worker/pending-cell bank, identity, exact receipts and closure assertions remain unchanged. Isolated controls establish no causal repair or full-suite qualification",
+    "stages": [
+      {
+        "name": "01-baseline-shared_remote_execution_uses_request_deadline_and_bounded_socket_io",
+        "status": "PASSED",
+        "elapsed_seconds": 6.976872375002131,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "930706f4844b0fbbea04940bbe5b06f6994ac961f8f25332c170d61b2ad29ac8",
+        "failed_cases": []
+      },
+      {
+        "name": "01-baseline-shared_remote_queries_bind_cell_versions_and_gateway_owners",
+        "status": "PASSED",
+        "elapsed_seconds": 2.1899552500108257,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "f100b16247604906c0d3c6680af38c071d9895befb24a65ec574266bc146ba9c",
+        "failed_cases": []
+      },
+      {
+        "name": "02-candidate-shared_remote_execution_uses_request_deadline_and_bounded_socket_io",
+        "status": "PASSED",
+        "elapsed_seconds": 7.395084708055947,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3996bc8c47296adbbd6aac4bc7f1238e060270e92399b04964b58a47e60c3df1",
+        "failed_cases": []
+      },
+      {
+        "name": "02-candidate-shared_remote_queries_bind_cell_versions_and_gateway_owners",
+        "status": "PASSED",
+        "elapsed_seconds": 3.7801104580285028,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "6ac6a3fd5511200f9646621b5e8684508079e626fac0cf98c974a212260fc10a",
+        "failed_cases": []
+      },
+      {
+        "name": "03-candidate-shared_remote_execution_uses_request_deadline_and_bounded_socket_io",
+        "status": "PASSED",
+        "elapsed_seconds": 8.351891125028487,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b823b29add6a3aefab458c68764cfd78c6db7c3f7a05dfc1f24afae0e5acaef4",
+        "failed_cases": []
+      },
+      {
+        "name": "03-candidate-shared_remote_queries_bind_cell_versions_and_gateway_owners",
+        "status": "PASSED",
+        "elapsed_seconds": 2.2120449999929406,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "7cb69d6e2d09fa5b77fe57b72de19279030c3d93be80abe826b8bd0279bf5cee",
+        "failed_cases": []
+      },
+      {
+        "name": "04-baseline-shared_remote_execution_uses_request_deadline_and_bounded_socket_io",
+        "status": "PASSED",
+        "elapsed_seconds": 7.067705957975704,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "4484f268b76240c70a61c901d61509542ada68fccfe39194a54c1a085fd1b89c",
+        "failed_cases": []
+      },
+      {
+        "name": "04-baseline-shared_remote_queries_bind_cell_versions_and_gateway_owners",
+        "status": "PASSED",
+        "elapsed_seconds": 2.248208708013408,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0180aefc9a039d2ab29a4262b483a9a751bb84c5d50bda2b639e9cd8d69d3c87",
+        "failed_cases": []
+      }
+    ],
+    "frozen_pins": {
+      "baseline": {
+        "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+        "executable": {
+          "sha256": "3b3b3dec0e16e48e66c6584f8669aac66a972f4d5020f91596d2942a1ffa320b",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "candidate": {
+        "source_digest": "f8f9bee8105c49b9d5ed5190847df3ad5509cbd771b1a15328142fb607b54068",
+        "executable": {
+          "sha256": "7c0b2b0e8228482c4c0426d262710e7cb09cc52263ee29203fc770da1aba83a0",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      }
+    },
+    "unchanged_owning_fixture": true,
+    "ranked_hypotheses": [
+      {
+        "rank": 1,
+        "hypothesis": "Bounded peer progress under full-suite pressure",
+        "prediction": "An isolated pass at either revision leaves the retained full-run failure unexplained."
+      },
+      {
+        "rank": 2,
+        "hypothesis": "Query-credit handoff race during paired reads",
+        "prediction": "The query-only fixture can expose overload independently of command/RPC reconciliation; original paired ingress remains necessary."
+      },
+      {
+        "rank": 3,
+        "hypothesis": "Candidate producer-lifetime regression",
+        "prediction": "Candidate failures consistently separated from parent controls would support a direct regression; all-pass ABBA would not demonstrate a repair."
+      }
+    ],
+    "limits": "Frozen isolated controls do not erase the retained full-native command timeout and query overload, establish their cause, or demonstrate a repair."
+  },
+  "primitive_failure_controls": {
+    "scope": "ABBA frozen parent/candidate controls for the retained ordinary Queue quorum-dead operator, fragmented KV Large and the existing single extent/S3/error SQL recovery setup controls. The full eight-configuration SQL recovery matrix remains failed and is not replaced by its one-configuration diagnostic. Original nested ingress, fragmented payload/chunk and outer deadlines, callbacks, identities, receipts, resource banks, both image modes and joined shutdown assertions remain unchanged. An isolated pass does not erase the retained broad failure or establish a causal repair",
+    "stages": [
+      {
+        "name": "01-baseline-ordinary_queue_callbacks_use_shared_quorum",
+        "status": "FAILED",
+        "elapsed_seconds": 59.27068666595733,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "fd4fdb57c8926d23134a9db9a43b0ef6442c62d669d4a4c2cdd3148697aebb78",
+        "failed_cases": [
+          "ordinary_queue_callbacks_use_shared_quorum"
+        ]
+      },
+      {
+        "name": "01-baseline-fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+        "status": "PASSED",
+        "elapsed_seconds": 73.40251420799177,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "47547d457aa84248918ea33de99783cfa62c5a233d12a8da0c77e739c1ce08b9",
+        "failed_cases": []
+      },
+      {
+        "name": "01-baseline-sql_error_recovery_preserves_s3_extent_progress",
+        "status": "PASSED",
+        "elapsed_seconds": 30.571740707964636,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "8577171c244d85207c068d0eef3904ede375ef3a00f7cc0e6c811ba8d165c8ba",
+        "failed_cases": []
+      },
+      {
+        "name": "02-candidate-ordinary_queue_callbacks_use_shared_quorum",
+        "status": "FAILED",
+        "elapsed_seconds": 38.962217167019844,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "5d49baa2d7462566896c6b2ea489f95d4ba84806040d8f26d7d5e51595e305bf",
+        "failed_cases": [
+          "ordinary_queue_callbacks_use_shared_quorum"
+        ]
+      },
+      {
+        "name": "02-candidate-fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+        "status": "PASSED",
+        "elapsed_seconds": 74.67736729199532,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "cb61fbdd806be36b1cdcec51861959227232f0921a06dd9535ac0be7b4b440bf",
+        "failed_cases": []
+      },
+      {
+        "name": "02-candidate-sql_error_recovery_preserves_s3_extent_progress",
+        "status": "PASSED",
+        "elapsed_seconds": 32.64247741701547,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "4831960fe127e0299c9e0bee51b73bbdd39883c60e5094f12ab7cd34b0c36afa",
+        "failed_cases": []
+      },
+      {
+        "name": "03-candidate-ordinary_queue_callbacks_use_shared_quorum",
+        "status": "FAILED",
+        "elapsed_seconds": 64.11011758301174,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "7956d0f4eac66ee442454d13a2f98835c628c61c9ccc01f6c0efbd6df2244884",
+        "failed_cases": [
+          "ordinary_queue_callbacks_use_shared_quorum"
+        ]
+      },
+      {
+        "name": "03-candidate-fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+        "status": "PASSED",
+        "elapsed_seconds": 71.5640492090024,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "e1d1b5f83fb0a2143143314076d9f48b2801b295fac673fad43305469c98715e",
+        "failed_cases": []
+      },
+      {
+        "name": "03-candidate-sql_error_recovery_preserves_s3_extent_progress",
+        "status": "PASSED",
+        "elapsed_seconds": 31.993127625028137,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "07b675c6b431c76d84a16ac682bcbcfab90ae9accf475ff38bbbdc22c5c98cf4",
+        "failed_cases": []
+      },
+      {
+        "name": "04-baseline-ordinary_queue_callbacks_use_shared_quorum",
+        "status": "PASSED",
+        "elapsed_seconds": 201.08698541700142,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "607e96a7a4e43cc75c308c14c4b7c5d91e3a027d5feee0e9ddc1bb958dbc70ee",
+        "failed_cases": []
+      },
+      {
+        "name": "04-baseline-fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+        "status": "PASSED",
+        "elapsed_seconds": 68.58173070801422,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "8e2b03e828aa4c369cf23c7755659a8b2fe1bfd5ec66e7f5e34ecd47bafea197",
+        "failed_cases": []
+      },
+      {
+        "name": "04-baseline-sql_error_recovery_preserves_s3_extent_progress",
+        "status": "PASSED",
+        "elapsed_seconds": 59.843947917048354,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c119a68fb5a339ac6cdbf6fdc5bc168fa5c8946de08ec9c053fb04b94ed483ef",
+        "failed_cases": []
+      }
+    ],
+    "frozen_pins": {
+      "baseline": {
+        "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+        "executable": {
+          "sha256": "297d3289e1a841dab81f663543833c842b34b179aa3d61ed10d623e7c789efc1",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "candidate": {
+        "source_digest": "f8f9bee8105c49b9d5ed5190847df3ad5509cbd771b1a15328142fb607b54068",
+        "executable": {
+          "sha256": "daacf56ded4d21057c9c8ca791a2c3e2928213bfb81c0baf817bad10ab9db6b6",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      }
+    },
+    "unchanged_owning_fixture": true,
+    "ranked_hypotheses": [
+      {
+        "rank": 1,
+        "hypothesis": "Existing cold preparation and bounded queue progress exceed original deadlines",
+        "prediction": "Failures or isolated passes at both frozen revisions leave the initial broad failures unexplained."
+      },
+      {
+        "rank": 2,
+        "hypothesis": "Coalesced observations expose a candidate progress regression",
+        "prediction": "Consistent candidate failure separated from passing parent controls supports revision-specific progress work; an all-pass isolated control does not establish a repair."
+      },
+      {
+        "rank": 3,
+        "hypothesis": "Retained admission or source-lane ownership blocks streaming or recovery",
+        "prediction": "Phase and finite-bank observations must distinguish held physical ownership from unavailable terminal proof before any credit or producer can be released."
+      }
+    ],
+    "limits": "Isolated controls do not erase the retained broad ordinary Queue/fragmented KV/full SQL recovery failures or establish their cause or repair."
+  },
+  "park_failure_controls": {
+    "scope": "ABBA frozen parent/candidate controls for the retained full-library partial-certificate park entry NotReady. The unchanged three-TLS-voter fixture retains its original deadlines, certificate lifetimes, entry/wake/replay and joined owner-shutdown proofs. Isolated passes establish no full-suite repair",
+    "stages": [
+      {
+        "name": "01-baseline",
+        "status": "PASSED",
+        "elapsed_seconds": 3.1044497909606434,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "da1fc40fee234223f121a42fc3d5bb0079e46eb465b9e815bd6c20d4f77176bb",
+        "failed_cases": []
+      },
+      {
+        "name": "02-candidate",
+        "status": "PASSED",
+        "elapsed_seconds": 3.1025373750017025,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "da1fc40fee234223f121a42fc3d5bb0079e46eb465b9e815bd6c20d4f77176bb",
+        "failed_cases": []
+      },
+      {
+        "name": "03-candidate",
+        "status": "PASSED",
+        "elapsed_seconds": 3.949323832988739,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "d13e52bb13e96c425c994af8ca644a50626ee5f803bbf5557ad1a6960f8bd193",
+        "failed_cases": []
+      },
+      {
+        "name": "04-baseline",
+        "status": "PASSED",
+        "elapsed_seconds": 3.4085265829926357,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "806a5dd740344862ca0f535be42aa724f362b43b755c2a7843e9fcbde6943b4e",
+        "failed_cases": []
+      }
+    ],
+    "frozen_pins": {
+      "baseline": {
+        "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+        "executable": {
+          "sha256": "45a03fa8e6d948354a0804194345251289e9a1261bfecbf1a24a76badad2fe62",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "candidate": {
+        "source_digest": "f8f9bee8105c49b9d5ed5190847df3ad5509cbd771b1a15328142fb607b54068",
+        "executable": {
+          "sha256": "a22c92baf0de54c1b54ec0a921d3357afcd7b8bacc3ff9cff5e8f14bd375f47b",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      }
+    },
+    "unchanged_owning_fixture": true,
+    "ranked_hypotheses": [
+      {
+        "rank": 1,
+        "hypothesis": "Existing park/readiness ordering under full-suite timing",
+        "prediction": "All-pass isolated controls leave the full-run NotReady unexplained."
+      },
+      {
+        "rank": 2,
+        "hypothesis": "Park certificate/owner progress race",
+        "prediction": "A reproduced unchanged control must localize entry readiness before wake or replay can be assessed."
+      },
+      {
+        "rank": 3,
+        "hypothesis": "Candidate lifecycle interference",
+        "prediction": "Consistent candidate/parent separation would support revision-specific investigation; the park fixture itself is unchanged and does not exercise SQL settlement."
+      }
+    ],
+    "limits": "Isolated controls establish no repair of the retained full-library partial park entry NotReady."
+  },
+  "queue_failure": [
+    {
+      "activeCalls": 0,
+      "callbackSlots": 2,
+      "extents": false,
+      "failedProducers": 4,
+      "inFlightRequests": 4,
+      "ordinaryBytes": 131072,
+      "ordinarySlots": 8,
+      "peakInFlightRequests": 4,
+      "perQueueInFlight": 2,
+      "realRustFS": false
+    }
+  ],
+  "sql_recovery_configuration_results": [
+    {
+      "real_rustfs": false,
+      "extents": false,
+      "source_durability": "Quorum",
+      "application_error": false,
+      "status": "FAILED"
+    },
+    {
+      "real_rustfs": false,
+      "extents": false,
+      "source_durability": "Quorum",
+      "application_error": true,
+      "status": "PASS"
+    },
+    {
+      "real_rustfs": false,
+      "extents": false,
+      "source_durability": "S3",
+      "application_error": false,
+      "status": "PASS"
+    },
+    {
+      "real_rustfs": false,
+      "extents": false,
+      "source_durability": "S3",
+      "application_error": true,
+      "status": "PASS"
+    },
+    {
+      "real_rustfs": false,
+      "extents": true,
+      "source_durability": "Quorum",
+      "application_error": false,
+      "status": "FAILED"
+    },
+    {
+      "real_rustfs": false,
+      "extents": true,
+      "source_durability": "Quorum",
+      "application_error": true,
+      "status": "PASS"
+    },
+    {
+      "real_rustfs": false,
+      "extents": true,
+      "source_durability": "S3",
+      "application_error": false,
+      "status": "PASS"
+    },
+    {
+      "real_rustfs": false,
+      "extents": true,
+      "source_durability": "S3",
+      "application_error": true,
+      "status": "FAILED"
+    }
+  ],
+  "failure_details": [
+    {
+      "case": "queue_four_in_flight_preserves_acknowledged_messages",
+      "stage": "queue_four_in_flight_preserves_acknowledged_messages",
+      "observed_error_categories": [
+        "DeadlineExceeded"
+      ],
+      "log_sha256": "aab56d3e2f97963d396342597be8b46e165c78083702b085c6ab27ab45933509",
+      "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+      "scope": "Categories from this exact retained log; no private IDs, payloads or configuration exported."
+    },
+    {
+      "case": "ordinary_queue_callbacks_use_shared_quorum",
+      "stage": "ordinary_queue_callbacks_use_shared_quorum",
+      "observed_error_categories": [
+        "DeadlineExceeded"
+      ],
+      "log_sha256": "10c1dd1185859513520cbd5707266920e3c45c968a63bbeaf9b3524dce5b68a6",
+      "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+      "scope": "Categories from this exact retained log; no private IDs, payloads or configuration exported."
+    },
+    {
+      "case": "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+      "stage": "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+      "observed_error_categories": [
+        "DeadlineExceeded"
+      ],
+      "log_sha256": "8ac4f8f1ba5a6d7c0bf82bd85c139d7c557db84a80dc16b1da34920b9debcf40",
+      "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+      "scope": "Categories from this exact retained log; no private IDs, payloads or configuration exported."
+    },
+    {
+      "case": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+      "stage": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+      "observed_error_categories": [
+        "DeadlineExceeded",
+        "NotReady",
+        "Unsettled source lane"
+      ],
+      "log_sha256": "33d17dbf845c0afe6e77b4149c11bf3c44b4060a7a67c3e3cb7fae59a70d31f4",
+      "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+      "scope": "Categories from this exact retained log; no private IDs, payloads or configuration exported."
+    },
+    {
+      "case": "raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay",
+      "stage": "full-library",
+      "observed_error_categories": [
+        "NotReady"
+      ],
+      "log_sha256": "058fa61f87e914d67d990818414cc56fe905ce9b8fcd48c5d2d54b1658961720",
+      "source_digest": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+      "scope": "Categories from this exact retained log; no private IDs, payloads or configuration exported."
+    }
+  ],
+  "historical_interrupted_qualification": {
+    "compiler_input_sha256": "e0d61c1b7c6f53f5d5bbeb0a32588c234d3887c59b9cfb1fc61354d02297e94f",
+    "stages": [
+      {
+        "name": "compile-native_cell_groups_execution",
+        "status": "PASSED",
+        "elapsed_seconds": 0.750239374989178,
+        "footers": [],
+        "log_sha256": "3f9a8851a85dbfa588c2270fce81956efc40b71df665f849419c70a84e51a112",
+        "failed_cases": []
+      },
+      {
+        "name": "full-native-execution",
+        "status": "FAILED",
+        "elapsed_seconds": 760.4134349159431,
+        "footers": [
+          [
+            "FAILED",
+            "223",
+            "2",
+            "2"
+          ]
+        ],
+        "log_sha256": "0422c6e66f608b217a2bd95b4965e3dd461e56f901bb24f6ecc22e4a4f93457a",
+        "failed_cases": [
+          "shared_remote_execution_uses_request_deadline_and_bounded_socket_io",
+          "shared_remote_queries_bind_cell_versions_and_gateway_owners"
+        ]
+      },
+      {
+        "name": "compile-native_cell_groups_primitives",
+        "status": "PASSED",
+        "elapsed_seconds": 0.9389619170106016,
+        "footers": [],
+        "log_sha256": "acc4ebfc6a015f8f7a0e35e9acb14d68c0216c51cae2d0ecb6b3631e58f439cf",
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_json_rpc_uses_raft_owned_context",
+        "status": "PASSED",
+        "elapsed_seconds": 62.02142725000158,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "bf4938e341588baa7405f666e4d7c41e71634f2f715c0fd8057889f6523c95d2",
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_cell_rpcs_interleave_between_proven_roots",
+        "status": "PASSED",
+        "elapsed_seconds": 171.97669437498553,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "39b99b69436a8b2d36e82860fa3a5b9a3b8ac34b620ffb1a67ec323f62a7d56b",
+        "failed_cases": []
+      },
+      {
+        "name": "proven_rpc_continuation_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "elapsed_seconds": 17.50736562500242,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3e11cbbf1c989bd0cf8346886fb077d5e5708e0158b7c895abaeffdc4965bd82",
+        "failed_cases": []
+      },
+      {
+        "name": "applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "elapsed_seconds": 18.277831625018734,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "878239442321b8c4d70f1c35205155ea87e67eea4f00e69225652302f353b121",
+        "failed_cases": []
+      },
+      {
+        "name": "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+        "status": "PASSED",
+        "elapsed_seconds": 84.66641599999275,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "1c6eca29b018cce274c98d91290a1d91d854778e3ac47c7a7b9f121473f14ae9",
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "elapsed_seconds": 152.79097291699145,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b8d83e0c270eb9547606c24431d3f132f58a6752ce34e5bb2eed914ff16f2343",
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "elapsed_seconds": 356.00407545798225,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "6432d45474951ca7ad6d89c141ea1cdddee4a14cc7b4b2949255a7d9bf591685",
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_queue_callbacks_use_shared_quorum",
+        "status": "FAILED",
+        "elapsed_seconds": 39.59362008300377,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "10c1dd1185859513520cbd5707266920e3c45c968a63bbeaf9b3524dce5b68a6",
+        "failed_cases": [
+          "ordinary_queue_callbacks_use_shared_quorum"
+        ]
+      },
+      {
+        "name": "warm_kv_payloads_preserve_source_proof_and_cold_enrollment",
+        "status": "PASSED",
+        "elapsed_seconds": 68.1657856249949,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c04ea2500fb1c0221b0fece712a716bc101231c02be7316368ef7cb980690644",
+        "failed_cases": []
+      },
+      {
+        "name": "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+        "status": "FAILED",
+        "elapsed_seconds": 120.66014108294621,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "8ac4f8f1ba5a6d7c0bf82bd85c139d7c557db84a80dc16b1da34920b9debcf40",
+        "failed_cases": [
+          "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk"
+        ]
+      },
+      {
+        "name": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+        "status": "FAILED",
+        "elapsed_seconds": 519.0660911250161,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "33d17dbf845c0afe6e77b4149c11bf3c44b4060a7a67c3e3cb7fae59a70d31f4",
+        "failed_cases": [
+          "interrupted_sql_bindings_recover_without_replaying_business_calls"
+        ]
+      },
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "elapsed_seconds": 674.6425286660087,
+        "footers": [],
+        "log_sha256": "3fb4360976280aa05475a13e555eb495da9a11be339f73b483a5885d04f96afb",
+        "failed_cases": []
+      },
+      {
+        "name": "full-library",
+        "status": "FAILED",
+        "elapsed_seconds": 409.55602379201446,
+        "footers": [
+          [
+            "FAILED",
+            "1252",
+            "1",
+            "2"
+          ]
+        ],
+        "log_sha256": "058fa61f87e914d67d990818414cc56fe905ce9b8fcd48c5d2d54b1658961720",
+        "failed_cases": [
+          "raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay"
+        ]
+      },
+      {
+        "name": "compile-native_cell_groups_archive_controller",
+        "status": "PASSED",
+        "elapsed_seconds": 81.79521362500964,
+        "footers": [],
+        "log_sha256": "356c599b286ea45405a2cd86eb2df79d6404f8c3e0f2cfb201fb77a2790398eb",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_unknown_reply_requires_exact_s3_receipt",
+        "status": "PASSED",
+        "elapsed_seconds": 6.12833049998153,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0419ae0ed3d4279fe5fdb2688ef7aef2701f91adbcd7b5b06b871e50407756b1",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_outputs_preserve_durability_and_creation",
+        "status": "PASSED",
+        "elapsed_seconds": 26.709553833003156,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "fdaa500ed2e8ee0320ca00f77e9593c338d8128af695d0971313879fabab082e",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_deadlines_preserve_ambiguity_and_callbacks",
+        "status": "PASSED",
+        "elapsed_seconds": 36.06492029200308,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "f49b0cc4081e9a0678b3af2b669fd01a3c4f728b1602c6967fd4d6107f3f7aff",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_slow_delivery_retains_proofs_and_bounds",
+        "status": "PASSED",
+        "elapsed_seconds": 86.29132841702085,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3f6daf7cd0b3e6972af1d6f77c3662c9aa5b7fa612665addedb1ad326ead32f5",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_receipt_lookup_tracks_archived_observations",
+        "status": "PASSED",
+        "elapsed_seconds": 5.805917875026353,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b504b5f19991288e2de5c76f8d2be5e6cd66dcd9110d5c89ed3bb33439f2d86a",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_receipt_lookup_honors_namespace_and_stored_minimums",
+        "status": "PASSED",
+        "elapsed_seconds": 9.246124750003219,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "2748de468c9d6073dbb400a26ca7cf33d49f729f11fdc29f9f0b7c60af57375f",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_receipt_lookup_preserves_typed_failures_and_result_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 16.148179917014204,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c3e9947872f241e4b0a45a3c1c8a34b276c7c65f9482217c4b844bb0c3974a25",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_receipt_lookup_deadlines_refund_read_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 9.814735291991383,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "f3077e4b1bd5e126f5b6b5e5e51aad6717505b58ee92d18099da6412d4a402b7",
+        "failed_cases": []
+      },
+      {
+        "name": "clippy",
+        "status": "FAILED",
+        "elapsed_seconds": 160.23989374999655,
+        "footers": [],
+        "log_sha256": "62f5cbc1f7f23f2434ccd1a8d16aeb5e95bcd779dc5ede6818d7c9c5522b9e8f",
+        "failed_cases": []
+      }
+    ],
+    "closed_source_verified": true,
+    "scope": "Stopped at disallowed direct Tokio selectors in the new test fixture. The original incomplete/failed record is retained. The corrected source changes only two test macro calls; production inputs are unchanged and only exact executable/profile matches permit result reuse."
+  },
+  "published_parent_typed_rpc_feedback": {
+    "commit": "8393e1ea7bc1b6a2e85c4227a6a3fc3a49a0ba26",
+    "workflow_run": 44224500422,
+    "job": 134534315605,
+    "profile": "Typed RPC (3.14t)",
+    "failed_step": "Owned Node, V8 and Python lifecycle matrices",
+    "failure": "Python child retained work beyond its single known suppression task",
+    "observed_report_fields": {
+      "pending_tasks": "1",
+      "pending_objects": "0",
+      "pending_threads": "0",
+      "objects_created": "1",
+      "objects_retired": "1",
+      "peak_tasks": "3",
+      "budget_exhaustions": "0",
+      "runtime_failed": "false",
+      "host_failed": "true",
+      "unraisable_errors": "0",
+      "thread_errors": "0",
+      "active_invocations": "1",
+      "active_tasks": "1",
+      "resident_objects": "0",
+      "pending_retirements": "0"
+    },
+    "log_sha256": "df5065c325a5da7ceba20cb546d7d7ac9397fd9012d351f5b07e4d5dd1b03c6d",
+    "limits": "Published parent feedback only; the local e0d61c1b candidate has no hosted qualification or repair from this observation."
+  },
+  "previous_qualification": "pending-command-settlement-qualification-2026-11-17.json remains source-specific historical evidence. Isolated ABBA controls there do not close unexplained full-run failures.",
+  "constrained_backend": {
+    "observed_at_utc": "2026-11-18T06:19:50.586499+00:00",
+    "available_bytes": 0,
+    "reserve_bytes": 6442450944,
+    "admissible": false,
+    "same_original_backend_and_limits": true,
+    "restarts": 0,
+    "actions": [
+      "Read-only exact original container, engine and limit checks",
+      "Read-only filesystem availability check",
+      "No pruning, restart, resource, retention or reserve changes"
+    ]
+  },
+  "performance_limits": [
+    "Native work counters establish eliminated redundant SQL operations, not constrained throughput, latency percentiles or an end-to-end repair.",
+    "Original Queue C4, all primitive deadlines and resource banks are unchanged. Failed or unmatched windows cannot establish an optimization gain.",
+    "The latest read-only original RustFS check reports zero available bytes at 2026-11-18 06:19 UTC, below its unchanged 6 GiB reserve. No constrained performance campaign is admitted; no pruning, restart, relocation, VM/resource change or reserve relaxation is performed."
+  ],
+  "open_priorities": [
+    "P0: original Queue C4, ordinary Queue operator and fragmented KV Large deadlines and three failing SQL recovery configurations, and current full-native remote command timeout/query overload and full-library partial park entry NotReady; repeatable original SQL/ownership, S3-wait admission and recovery setup, and current hosted SDK/recovery qualification.",
+    "P1: attribute physical SQL/image/apply/persistence/archive cost on a request critical path; qualify bounded batching and sparse traffic latency.",
+    "P1: mixed-group and competing-ingress fairness, cold-group control/election/shutdown progress, physical reclamation and exactly-once credit, sustainable repeated placement/movement.",
+    "P2: combined authority/partition/restart/fenced recovery and feature-mode acceptance; matched SQL/KV/Queue Quorum, Quorum+S3, Fleet and Bucket at C1/4/16, RF3, three groups and original three 1-vCPU/2-GiB Colima nodes using RustFS."
+  ],
+  "gate_status": "OPEN: no complete OPT-01 through OPT-08 package, remaining CG, release, SDK, disaster/recovery, fairness, reclamation/placement or constrained performance acceptance is closed by this record.",
+  "retained_cohorts": {
+    "retained-producer-before-01": {
+      "files": 76,
+      "bytes": 244821,
+      "manifest_sha256": "ed6a16e426b200f166c46e9d4f2cd76723bb69b15becad9be256eac5b8fcb0b0"
+    },
+    "retained-producer-before-02": {
+      "files": 76,
+      "bytes": 244780,
+      "manifest_sha256": "a80dadbe370f708d33d34cf00026b99bade0ee0ea4b99b92332b5fa202f08ff3"
+    },
+    "retained-producer-before-03": {
+      "files": 93,
+      "bytes": 433059,
+      "manifest_sha256": "4cae2a35de4ec143ab0328fc8abfe9765e942a81ae93d2660a99e58a70534af3"
+    },
+    "retained-producer-after-01": {
+      "files": 1421,
+      "bytes": 12317397,
+      "manifest_sha256": "36ff1206a047fd49a6c53135ffb5f240e821f6eeb5942f83d5630f4b86c19ab0"
+    },
+    "rpc-checkpoint-pending-before-01": {
+      "files": 90,
+      "bytes": 353868,
+      "manifest_sha256": "517462e836e6248630b54b3ba0ccb6580e761b9aef7ea752f2e8a922d9044709"
+    },
+    "rpc-checkpoint-pending-before-02": {
+      "files": 90,
+      "bytes": 353807,
+      "manifest_sha256": "a170a4389f9b6ea1c17a0536e03a5c8a257d955be4d550a0cbb7b74219fe5e64"
+    },
+    "rpc-checkpoint-pending-before-03": {
+      "files": 101,
+      "bytes": 464283,
+      "manifest_sha256": "fbcd470cab6aecf9f74ee4a3e151aac8d35f5096fadb33a12c039e53fc66e14e"
+    },
+    "rpc-checkpoint-pending-after-01": {
+      "files": 1500,
+      "bytes": 12438520,
+      "manifest_sha256": "a3ba72827bcf0747fd42ca7e0757df0e76d04e829ab68fc74fab0b9c14c56899"
+    },
+    "rpc-checkpoint-pending-qualified-01": {
+      "files": 23860,
+      "bytes": 841411654,
+      "manifest_sha256": "2e93cfdc25f808e4710c0b51c67fd9701513c6dc4435eca30401571cff2ee8fd"
+    },
+    "rpc-checkpoint-pending-qualified-02": {
+      "files": 20055,
+      "bytes": 808839338,
+      "manifest_sha256": "41dc35eabddcf18d57ed4b619b8bd6b2f128819891c147f11c3c49ef4c6b328d"
+    },
+    "rpc-pending-remote-controls-01": {
+      "files": 644,
+      "bytes": 2255488,
+      "manifest_sha256": "fba93933e65d2ef00cea38c12804ee3b1b33cb88654565ab2c90c2b83d153bb7"
+    },
+    "rpc-pending-queue-controls-01": {
+      "files": 955,
+      "bytes": 17260979,
+      "manifest_sha256": "26c0357c86af5be6dd6db50138a2ec760bc626b4fe8c9c9900017272ff39abbd"
+    },
+    "rpc-pending-park-controls-01": {
+      "files": 84,
+      "bytes": 624270,
+      "manifest_sha256": "15968cf1632d9f4abc55b0336c635d1b0a852d841e5d3fb5ef5f67dbb2cbaee4"
+    }
+  },
+  "historical_failure_details": [
+    {
+      "case": "raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay",
+      "phase": "Partial park entry, voter 0",
+      "failure": "Runtime NotReady",
+      "limits": "Later wake/replay assertions are not reached in this failed full run"
+    },
+    {
+      "case": "shared_remote_execution_uses_request_deadline_and_bounded_socket_io",
+      "failure": "Ambiguous command Transport(Timeout)",
+      "limits": "Original two-second request, 600-ms callback and 200-ms framing"
+    },
+    {
+      "case": "shared_remote_queries_bind_cell_versions_and_gateway_owners",
+      "failure": "Transport(Query(Overloaded))",
+      "phase": "Unlocalized within unchanged query/gateway fixture"
+    },
+    {
+      "case": "ordinary_queue_callbacks_use_shared_quorum",
+      "extents": false,
+      "phase": "Queue operator quorum-dead",
+      "failure": "HTTP 503 with ambiguous Runtime(DeadlineExceeded)",
+      "target_attempt": 1,
+      "target_started_remaining_ms": 2998
+    },
+    {
+      "case": "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+      "extents": false,
+      "phase": "Source KV Large",
+      "failure": "Ambiguous Runtime(DeadlineExceeded)"
+    },
+    {
+      "case": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+      "failures": [
+        {
+          "extents": false,
+          "source": "Quorum",
+          "application_error": false,
+          "failure": "Source lane did not settle"
+        },
+        {
+          "extents": true,
+          "source": "Quorum",
+          "application_error": false,
+          "failure": "Runtime NotReady"
+        },
+        {
+          "extents": true,
+          "source": "S3",
+          "application_error": true,
+          "failure": "Setup HTTP 503 with ambiguous Runtime DeadlineExceeded",
+          "target_started_remaining_ms": 1237
+        }
+      ]
+    }
+  ],
+  "retained_copies": {
+    "retained-producer-retention-01": {
+      "files": 76,
+      "bytes": 244821,
+      "manifest_sha256": "ed6a16e426b200f166c46e9d4f2cd76723bb69b15becad9be256eac5b8fcb0b0",
+      "originals_double_hashed": true,
+      "copies_verified": true
+    },
+    "retained-producer-retention-02": {
+      "files": 76,
+      "bytes": 244780,
+      "manifest_sha256": "a80dadbe370f708d33d34cf00026b99bade0ee0ea4b99b92332b5fa202f08ff3",
+      "originals_double_hashed": true,
+      "copies_verified": true
+    },
+    "retained-producer-retention-03": {
+      "files": 93,
+      "bytes": 433059,
+      "manifest_sha256": "4cae2a35de4ec143ab0328fc8abfe9765e942a81ae93d2660a99e58a70534af3",
+      "originals_double_hashed": true,
+      "copies_verified": true
+    },
+    "retained-producer-retention-04": {
+      "files": 1421,
+      "bytes": 12317397,
+      "manifest_sha256": "36ff1206a047fd49a6c53135ffb5f240e821f6eeb5942f83d5630f4b86c19ab0",
+      "originals_double_hashed": true,
+      "copies_verified": true
+    },
+    "rpc-checkpoint-pending-retention-01": {
+      "files": 90,
+      "manifest_sha256": "517462e836e6248630b54b3ba0ccb6580e761b9aef7ea752f2e8a922d9044709",
+      "originals_double_hashed": true,
+      "copies_verified": true,
+      "verified": true
+    },
+    "rpc-checkpoint-pending-retention-02": {
+      "files": 90,
+      "manifest_sha256": "a170a4389f9b6ea1c17a0536e03a5c8a257d955be4d550a0cbb7b74219fe5e64",
+      "originals_double_hashed": true,
+      "copies_verified": true,
+      "verified": true
+    },
+    "rpc-checkpoint-pending-retention-03": {
+      "files": 101,
+      "manifest_sha256": "fbcd470cab6aecf9f74ee4a3e151aac8d35f5096fadb33a12c039e53fc66e14e",
+      "originals_double_hashed": true,
+      "copies_verified": true,
+      "verified": true
+    },
+    "rpc-checkpoint-pending-retention-04": {
+      "files": 1500,
+      "manifest_sha256": "a3ba72827bcf0747fd42ca7e0757df0e76d04e829ab68fc74fab0b9c14c56899",
+      "originals_double_hashed": true,
+      "copies_verified": true,
+      "verified": true
+    },
+    "rpc-checkpoint-pending-retention-05": {
+      "verified": true,
+      "cohorts": {
+        "rpc-checkpoint-pending-qualified-01": {
+          "files": 23860,
+          "bytes": 841411654,
+          "manifest_sha256": "2e93cfdc25f808e4710c0b51c67fd9701513c6dc4435eca30401571cff2ee8fd",
+          "originals_double_hashed": true,
+          "copies_verified": true
+        }
+      }
+    },
+    "rpc-checkpoint-pending-retention-06": {
+      "verified": true,
+      "cohorts": {
+        "rpc-checkpoint-pending-qualified-02": {
+          "files": 20055,
+          "bytes": 808839338,
+          "manifest_sha256": "41dc35eabddcf18d57ed4b619b8bd6b2f128819891c147f11c3c49ef4c6b328d",
+          "originals_double_hashed": true,
+          "copies_verified": true
+        },
+        "rpc-pending-remote-controls-01": {
+          "files": 644,
+          "bytes": 2255488,
+          "manifest_sha256": "fba93933e65d2ef00cea38c12804ee3b1b33cb88654565ab2c90c2b83d153bb7",
+          "originals_double_hashed": true,
+          "copies_verified": true
+        },
+        "rpc-pending-queue-controls-01": {
+          "files": 955,
+          "bytes": 17260979,
+          "manifest_sha256": "26c0357c86af5be6dd6db50138a2ec760bc626b4fe8c9c9900017272ff39abbd",
+          "originals_double_hashed": true,
+          "copies_verified": true
+        },
+        "rpc-pending-park-controls-01": {
+          "files": 84,
+          "bytes": 624270,
+          "manifest_sha256": "15968cf1632d9f4abc55b0336c635d1b0a852d841e5d3fb5ef5f67dbb2cbaee4",
+          "originals_double_hashed": true,
+          "copies_verified": true
+        }
+      }
+    }
+  },
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "matches": 0
+  }
+}

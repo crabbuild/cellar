@@ -1391,6 +1391,26 @@ async fn rooted_pending_command_progress_skips_redundant_sql() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_pending_producer_skips_resume_after_stale_observation() -> Result<()> {
+    Box::pin(runtime_fixture::stale_pending_progress(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_retained_pending_producer_skips_resume_after_stale_observation() -> Result<()> {
+    Box::pin(runtime_fixture::stale_pending_progress(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn pending_rpc_checkpoint_view_skips_repeated_sql() -> Result<()> {
+    Box::pin(runtime_fixture::rpc_checkpoint_pending_progress(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_pending_rpc_checkpoint_view_skips_repeated_sql() -> Result<()> {
+    Box::pin(runtime_fixture::rpc_checkpoint_pending_progress(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn physical_group_transport_multiplexes_real_raft() -> Result<()> {
     Box::pin(runtime_fixture::physical_transport()).await
 }

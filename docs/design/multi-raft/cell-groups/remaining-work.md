@@ -36,37 +36,63 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
-At compiler input `6c280bdd`, a positively observed pending SQL producer can
-reuse its unchanged term and complete cell version within one live invocation.
-Each settlement attempt still fetches and checks current authority; changed
-terms or images force SQL reconciliation. Generic uncertain results retain the
-original resume/receipt path. Both image modes turn an intended-red work-count
-regression green: four pending checks use one reconciliation and no resume,
-then preserve exact commit or newer-term unchanged-image non-commit resolution,
-once-only callbacks and joined closure. Twelve focused native checks pass.
+At compiler input `f8f9bee8`, SQL reconciliation can confirm ownership of
+its exact original producer without queuing Resume; an uncertain observation
+remains uncached. A matching intermediate RPC receipt in a checked same-term
+immutable image reuses the pending view until its term or full cell version
+changes. Every settlement fetches and checks current authority. Exact Quorum/S3
+terminal proof still governs output, non-commit, retirement and credit release.
 
-Current-source qualification remains **failed**. Full native execution reports
-220 passed / 1 failed / 2 existing ignores. The ownership response-deadline
-case fails with an unlocalized elapsed deadline. Ordinary SQL fails its concurrent-ingress
-race under the original deadline. Original Queue four-in-flight still fails in
-the materialized iteration before extent coverage. KV, ordinary Queue, warm and
-fragmented KV, Queue proof sharing and the interrupted SQL recovery matrix pass.
-Full library: 1,253 passed / 0 failed / 2 existing ignores. All eight selected
-native S3 controls pass, including the previously unstable deadline control; this establishes no
-causal repair or stable full S3 acceptance. See the
-[pending settlement record](pending-command-settlement-qualification-2026-11-17.json) for every check,
-profile and failed control. Earlier [pipeline evidence](cell-sql-pipeline-qualification-2026-11-17.json)
-remains historical evidence at its own source, not current-source qualification.
+Two work-count regressions turn intended-red to green in both image modes at
+`e0d61c1b`, with identical fixtures across isolated production changes. Four
+unchanged final-RPC checks use one SQL reconciliation and no Resume. The current
+source corrects two fixture calls to Cellar's required runtime selector, with
+production inputs unchanged. All sixteen focused cases are rechecked, including
+exact output, replica version/witness agreement, newer-term non-commit,
+unknown replies, once-only callbacks and joined closure.
 
-Frozen baseline/candidate runs in ABBA order pass both the response-deadline
-and ordinary-SQL cases. Those passes leave the broad failures unexplained
-and establish no causal repair.
-The instrumented failed Queue workload exercises 766 cached observations and
-retains 29 generic-uncertain resumes. Its remaining wakes match the existing
-five-millisecond controller retry timer. These are diagnostic observations,
-not throughput or latency percentiles. The recorded read-only original-backend
-check finds zero available bytes below the unchanged 6 GiB reserve; no constrained run is
-admitted. No complete OPT/CG, SDK/release or performance gate is closed.
+Owning-boundary qualification is **FAILED**. Full native execution:
+225 passed / 0 failed / 2 existing ignores. Full library:
+1252 passed / 1 failed / 2 existing ignores. Original Queue C4: **FAILED**.
+The selected public RPC/SQL/KV/Queue/recovery and S3 controls report
+16/19 passed. Interrupted SQL recovery reports
+5/8 configurations passed; its full matrix remains an acceptance requirement.
+The [current record](rpc-pending-settlement-qualification-2026-11-17.json)
+contains every result, failed cohort, executable, profile and retained manifest.
+
+The initial `e0d61c1b` broad campaign stopped at forbidden direct Tokio selector
+calls in the new fixture. Its original failed record and fixtures remain
+retained. The corrected campaign rechecks full native execution and the owning
+fixture; 21 other results are reused only after exact executable and test-profile
+identity, each carrying its original source, log hash and explicit reuse basis.
+A reused failure remains failed. No source-specific failure is erased.
+
+Frozen parent/candidate ABBA controls report remote
+8/8, park-entry
+4/4, and ordinary Queue/fragmented KV/focused SQL recovery
+9/12 passed. These isolated controls establish no causal
+repair of failed broad runs. Ordinary Queue ABBA is failed / failed / failed / passed:
+both candidate runs fail and one parent run fails, leaving the deadline cause open.
+The one-configuration SQL diagnostic does not
+replace the failed eight-configuration matrix. The
+[previous settlement record](pending-command-settlement-qualification-2026-11-17.json)
+retains earlier ownership/SQL failures and passing ABBA controls at `6c280bdd`.
+
+Published parent `8393e1ea` passes the hosted disaster diagnostic. Typed RPC
+reports three successful jobs and one failed Python 3.14t lifecycle job, where
+`host_failed` is true despite one known retained task. This feedback does not
+qualify the current source or the full SDK/release matrix.
+
+The read-only original RustFS check finds 0 available bytes at
+2026-11-18 06:19 UTC, below the unchanged 6 GiB reserve. Identity, start and
+container limits match with no restart or resource/data changes. No constrained
+campaign is admitted. Native work counts and elapsed times establish no
+throughput or latency-percentile gain. No full OPT/CG, SDK/release or performance
+gate is closed by this component.
+
+Current library failure cases: `raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay`.
+
+Failed selected public cases: `ordinary_queue_callbacks_use_shared_quorum`, `fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk`, `interrupted_sql_bindings_recover_without_replaying_business_calls`.
 
 The parent `b08df720` origin-denial checkpoint separately passes 23 public routing
 cases with 13 explicit RustFS ignores. Its authenticated denial preserves command
@@ -79,7 +105,7 @@ throughput or latency.
 
 | Priority | Remaining gap | Required result |
 | --- | --- | --- |
-| P0 | Original-deadline progress and command settlement | Close Queue four-in-flight deadlines, current ordinary-SQL concurrent-ingress and response-deadline ownership failures, unstable SQL recovery setup, repeatable S3-wait admission coverage, pending-RPC/busy receipt progress and hosted recovery/SDK failures. Preserve original IDs, callbacks, exact receipts/bodies and banks. Native nested ingress is three seconds; the five-second callback timeout, five-second constrained operation bound and 800-ms S3 phase control are separate unchanged limits. |
+| P0 | Original-deadline progress and command settlement | Close Queue four-in-flight, ordinary Queue operator and fragmented KV deadlines; full SQL recovery, remote transport/admission and park-readiness failures; repeatable busy-receipt/RPC/S3 progress and hosted recovery/SDK qualification. Preserve original IDs, callbacks, exact receipts/bodies and banks. Native nested ingress is three seconds; the five-second callback timeout, five-second constrained operation bound and 800-ms S3 phase control are separate unchanged limits. |
 | P1 | SQL, persistence and archive cost | Attribute request-critical-path time and physical amplification before tuning. Explicit read-only SQL, prepared-submission batching and shared persistence already exist; qualify their combined behavior and bounded sparse-traffic latency. |
 | P1 | Shared-worker fairness | Qualify competing ingress nodes and stale sequence hints, then prove a busy group or slow callback/archive cannot starve cold-group SQL, lease/control traffic, elections or shutdown. Measure queue wait and p95/p99 under mixed load without increasing resource banks. |
 | P1 | Sustainable capacity and placement | Prove physical shared-file/segment deletion and once-only credit after readers, snapshots and archive/transfer owners release. Then qualify repeated split/move/merge and reserve-aware placement under the original bounds. |
@@ -89,8 +115,8 @@ Complete passing cases must report throughput, p50/p95/p99, errors, CPU, I/O and
 archive lag. Failed, unmeasured or differently constrained windows cannot
 establish an optimization gain.
 
-The recorded original RustFS check reports zero available bytes at
-2026-11-18 00:50 UTC, below its unchanged 6 GiB reserve. No constrained campaign
+The latest recorded original RustFS check reports 0 available bytes at
+2026-11-18 06:19 UTC, below its unchanged 6 GiB reserve. No constrained campaign
 is admitted; backend identity and limits match, with no pruning, restart,
 resource change or reserve relaxation. Native elapsed test times are not
 throughput or percentile measurements. All complete

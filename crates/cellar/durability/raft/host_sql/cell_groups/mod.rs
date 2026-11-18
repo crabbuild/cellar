@@ -372,6 +372,8 @@ pub enum CellSqlOutcome {
     Reconciled(CellSqlReconciliation),
     /// The exact producer is retained, with no receipt or non-commit proof.
     ReconciliationPending,
+    /// The preparation is retained, but its observation remains uncertain.
+    ReconciliationRetained,
     Enrollment(Box<CellSqlEnrollment>),
     EnrollmentResolved(CellSqlEnrollmentResolution),
     Rejected,
@@ -388,6 +390,8 @@ pub enum CellSqlReconciliation {
 
 pub(crate) enum CellSqlReconciliationObservation {
     Pending,
+    /// This confirms ownership only; the caller must not cache the view.
+    Retained,
     Resolved(CellSqlReconciliation),
 }
 
@@ -1243,7 +1247,8 @@ impl CellGroupSqlPool {
         authority: CellReconciliationAuthority,
     ) -> Result<CellSqlReconciliation, ExecutionError> {
         match self.observe_reconciliation(proposal, authority).await? {
-            CellSqlReconciliationObservation::Pending => Err(ExecutionError::Uncertain),
+            CellSqlReconciliationObservation::Pending
+            | CellSqlReconciliationObservation::Retained => Err(ExecutionError::Uncertain),
             CellSqlReconciliationObservation::Resolved(resolution) => Ok(resolution),
         }
     }
@@ -1268,6 +1273,9 @@ impl CellGroupSqlPool {
                 Ok(CellSqlReconciliationObservation::Resolved(resolution))
             }
             CellSqlOutcome::ReconciliationPending => Ok(CellSqlReconciliationObservation::Pending),
+            CellSqlOutcome::ReconciliationRetained => {
+                Ok(CellSqlReconciliationObservation::Retained)
+            }
             _ => Err(ExecutionError::Invalid("cell SQL reconciliation response")),
         }
     }

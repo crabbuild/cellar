@@ -1047,6 +1047,8 @@ pub(super) use sql::routed_queries;
 
 pub(super) use sql::pending_progress;
 pub(super) use sql::routed_commands;
+pub(super) use sql::rpc_checkpoint_pending_progress;
+pub(super) use sql::stale_pending_progress;
 
 pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
     Box::pin(sql::commands_over_tcp(rooted)).await

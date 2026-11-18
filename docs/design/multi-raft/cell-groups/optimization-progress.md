@@ -5918,3 +5918,33 @@ five-millisecond controller retry timer. These are diagnostic observations,
 not throughput or latency percentiles. The recorded read-only original-backend
 check finds zero available bytes below the unchanged 6 GiB reserve; no constrained run is
 admitted. No complete OPT/CG, SDK/release or performance gate is closed.
+
+
+## Retained producers and RPC checkpoint settlement
+
+Compiler input `f8f9bee8` preserves public uncertainty while reducing two
+redundant SQL paths. Ownership of the exact live producer avoids Resume without
+caching uncertain authority. A checked same-term intermediate RPC receipt can
+reuse one pending view until its term or full cell version changes. Neither
+observation grants output, non-commit, retirement or credit release.
+
+At `e0d61c1b`, two isolated work-count regressions turn red to green in both image
+modes with identical fixtures. The current source corrects two fixture selector
+calls with production inputs unchanged and rechecks all sixteen focused cases.
+Four final-RPC observations use one reconciliation and no Resume, followed by
+exact output and duplicate replay without another callback. Stale observations
+remain uncached. See the [source-bound record](rpc-pending-settlement-qualification-2026-11-17.json)
+for current/historical results, exact executable reuse and failed-fixture retention.
+
+Owning qualification is **FAILED**. Native execution:
+225 passed / 0 failed / 2 existing ignores; library:
+1252 passed / 1 failed / 2 existing ignores; original Queue C4: FAILED.
+Selected public/S3 controls: 16/19 pass. SQL recovery:
+5/8 configurations pass. Isolated ABBA controls and the focused
+recovery diagnostic establish no repair of failed broad runs. Published-parent
+Python lifecycle and current-source full SDK/fault qualification remain open.
+
+The original RustFS has 0 available bytes at the read-only 2026-11-18 06:19 UTC check,
+below its unchanged 6 GiB reserve. No constrained campaign is admitted. No
+throughput/percentile gain, complete OPT-01–08 package or remaining CG/release
+acceptance follows from this component result.
