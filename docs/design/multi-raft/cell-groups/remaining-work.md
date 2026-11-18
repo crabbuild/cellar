@@ -36,6 +36,28 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Separate S3 output and mutation readiness
+
+Implementation `5546c388` includes `origin/main` `2f083f14`. A committed S3 response could leave while a later unrelated-cell mutation was held at the real group-manifest sync. The trace observes a successful S3 response at 1,243 ms within the original 5,000 ms budget. Mutation preparation intentionally tolerates a bounded unrelated-cell prefix; output had incorrectly reused that exception. Missing archive data or data loss was not established.
+
+S3 command output now requests an atomic whole-prefix authority check from the existing group owner. It retains the exact committed receipt and archive proof until applied equals committed, then performs the existing route, leader/catalog, token and deadline checks. Preparation keeps its original per-cell prefix optimization. Budgets, workers, deadlines, public APIs and wire markers remain unchanged.
+
+The paired regression requires preparation authority to succeed during the hold while retaining every original S3 pending-response, receipt/version/replica, handler-count and cleanup assertion. Before the fix, preparation passes and the original output oracle fails in the first materialized/fresh case; the other three iterations are unrun. The identical fixture/profile passes all four materialized/rooted and fresh/duplicate cases after the fix. All temporary phase instrumentation is removed.
+
+Current source `35fa251497d583e62d8c19dfb611d95ed023dd09f52758f3071b0801c02d8db8` passes the full native effects target (10 passed / 1 existing ignore), eleven selected native execution controls and all nine strict checks. The controls retain unrelated-cell preparation, shared persistence, intervening-read ordering, event capacity, readiness deadlines and exact live-image work counts. This is a scoped run; the prior full library/native execution results belong to source391b and are not reattributed to this source.
+
+Original application-boundary feedback (**FAILED**):
+
+- `native_cell_groups_primitives--ordinary_sql_bindings_use_managed_shared_groups`: **FAILED**.
+- `native_cell_groups_primitives--ordinary_kv_bindings_use_managed_shared_groups`: **PASSED**.
+- `native_cell_groups_primitives--ordinary_queue_callbacks_use_shared_quorum`: **FAILED**.
+
+The initial rooted concurrent SQL ingress failure records zero S3 coverage/output-check starts on all three nodes. Pinned parent391b/candidate35fa controls in A/B/B/A order: A:PASSED; B:FAILED; B:FAILED; A:FAILED. The additional current-source S3 SQL error/recovery control is PASSED. Initial failures remain recorded; controls do not erase them.
+
+The read-only original RustFS observation at 2026-11-18T19:58:09.774810+00:00 finds 0 available bytes, below the unchanged 6 GiB reserve. Original identity/limits and the inspection pair are stable, with zero restarts. No constrained comparison is admitted.
+
+The original Queue C2/C4 failures on source391b remain open; those minimum-Quorum load cases were not rerun for this S3-only output fix. The published-parent disaster/token recovery failure still requires diagnosis, and local S3 success does not close hosted SDK acceptance. Remaining priorities are original-deadline Queue progress, recovery/SDK faults, actual extent-profile propagation, measured batching/fairness, physical reclamation/once-only credit and reserve-aware movement, then the full original constrained comparison. Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open. No throughput or latency gain is claimed. See the [source-bound S3 fence record](s3-output-fence-qualification-2026-11-18.json).
+
 ### Disposable close checkpoint work and current priorities
 
 The materialized shared-cell close now avoids copying a disposable WAL into the private main file immediately before that file is discarded. The real-close regression independently seals and syncs the result, observes the old main inode across actual cleanup, and rebuilds the correct value from the sealed result. The same fixture fails before the policy change and passes after it. This proves avoided work; it does not qualify throughput or latency.
