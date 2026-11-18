@@ -1237,3 +1237,23 @@ This scope does not qualify requests issued before initial group readiness,
 independent voter process crashes, all-voter disk loss, full-size values,
 deployment changes or the complete Workflow family. Runtime results belong in
 the source-pinned campaign record and CG-17 progress log.
+
+## Workflow deletion and recreation
+
+`--suite workflow-deletion` selects native and Axum public deletion cases, each
+with materialized and extent images against the owned RustFS backend:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite workflow-deletion --keep-going \
+  --backend /absolute/owned/rustfs-run \
+  --output /absolute/new/workflow-deletion-run \
+  --target-directory /absolute/checkout-private/target
+```
+
+Each image performs eight delete/recreate cycles while a Workflow callback is
+held. Deletion must commit, join that callback and report linearizable absence
+before recreation. The case also deletes and recreates a waiting Workflow after
+retained RF3 restart, then verifies fresh step execution and event completion.
+Original request/callback budgets, one SQL worker per voter and refusal checks
+remain. Voters share one process; provider interruption, independent host loss,
+clock/deployment changes and the complete Workflow matrix remain separate gates.
