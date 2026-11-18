@@ -36,6 +36,22 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Disposable close checkpoint work and current priorities
+
+The materialized shared-cell close now avoids copying a disposable WAL into the private main file immediately before that file is discarded. The real-close regression independently seals and syncs the result, observes the old main inode across actual cleanup, and rebuilds the correct value from the sealed result. The same fixture fails before the policy change and passes after it. This proves avoided work; it does not qualify throughput or latency.
+
+Committed implementation `aa93bb82` includes `origin/main` `2f083f14`. The full affected library (1,258 passed / 2 existing ignores) and native execution (232 passed / 2 existing ignores) suites pass. All nine strict checks pass. Nine of ten selected SQL/KV/Queue/RPC/recovery checks pass; ordinary Queue fails with an extent-iteration deadline. Combined qualification remains **FAILED**. Original Queue C2/C4 load qualification still fails. Two temporary C2 phase probes reach successful enqueue completion at peak two, then fail the original final consumer drain; one observes 472 of 528 required completions. Their diagnostic sources and all failures remain distinct from the restored candidate. The probe code is removed. Ordinary Queue and batch-proof A/B/B/A controls also reproduce failures on the published parent; they do not establish a candidate-specific regression or close Queue progress.
+
+Completion priorities, in order:
+
+1. **P0: Progress and proof correctness.** Close original-deadline Queue delivery/drain in both image modes, repeatable provider-error handling and remaining receipt/RPC/recovery failures. Published-parent hosted native-framework failures include disaster/token recovery's diagnostic panic and the S3-output pending-response oracle. Classify the actual S3 response before attributing an incorrect acknowledgement.
+2. **P1: Complete configured fast paths.** Carry the configured extent apply validation profile into independent image preparation. The public profile currently refuses reuse because execution-derived preparation and committed apply limits differ. Preserve exact-profile equality, negative controls and existing budgets.
+3. **P1: Bounded persistence and scheduling.** Measure and reduce SQL queue/image work, physical sync amplification and archive interference. Preserve Ready/sync/completion ordering and progress for leases, elections, control and shutdown; sparse traffic must not wait to fill a batch.
+4. **P1: Sustainable capacity.** Prove physical shared-segment deletion and once-only capacity credit, then repeated reserve-aware split/move/merge with retained readers, snapshots and uncertain work.
+5. **P2: Combined release and comparison.** Complete authority/partition/wake/recovery, SDK/daemon/feature-mode gates and the source-matched SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket C1/4/16 matrix on the original three 1-vCPU/2-GiB Colima nodes, RF3/three groups/shared RustFS, 256-byte payloads, Queue batch eight and reversed repetitions.
+
+The latest read-only original RustFS observation still fails the unchanged 6 GiB free-space reserve; no constrained comparison is admitted. All OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See the [source-bound close qualification](disposable-close-qualification-2026-11-18.json) for exact sources, artifacts/profiles, all outcomes, retention limits and capacity evidence.
+
 ### Exact live-image reuse and incoming-voter fencing
 
 Committed implementation `53c0fb05` includes `origin/main`
