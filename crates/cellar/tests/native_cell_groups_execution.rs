@@ -670,6 +670,16 @@ async fn materialized_cell_scratch_needs_no_ancestor_sync() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn materialized_live_apply_reuses_exact_producer_image() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_image_reuse(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_live_apply_reuses_exact_producer_image() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_image_reuse(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn enrollment_recovery_after_leadership_change() -> Result<()> {
     runtime_fixture::recover_initialization(false).await
 }

@@ -1015,6 +1015,10 @@ pub(super) async fn materialized_scratch_barriers() -> Result<()> {
     sql::materialized_scratch_barriers().await
 }
 
+pub(super) async fn prepared_image_reuse(rooted: bool) -> Result<()> {
+    sql::prepared_image_reuse(rooted).await
+}
+
 pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
     sql::recover_initialization(rooted).await
 }

@@ -7,10 +7,11 @@ use cellar_ltx::{
     DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo,
     HostFileLock, HostMetadata,
 };
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub const BEFORE_IMAGE_SYNC: u8 = 1;
 pub const AFTER_IMAGE_SYNC: u8 = 2;
@@ -35,6 +36,9 @@ pub struct Faults {
     pub all_directory_files: AtomicBool,
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
+    /// An explicitly bounded set of physical files selected by the fixture.
+    /// Ordinary fixtures pay no locking cost while this observation is absent.
+    pub watched_reads: OnceLock<Arc<Mutex<BTreeMap<PathBuf, usize>>>>,
     pub image_creates: AtomicUsize,
     pub image_renames: AtomicUsize,
     pub private_ltx_readbacks: AtomicUsize,
@@ -59,6 +63,7 @@ impl Faults {
             all_directory_files: AtomicBool::new(false),
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
+            watched_reads: OnceLock::new(),
             image_creates: AtomicUsize::new(0),
             image_renames: AtomicUsize::new(0),
             private_ltx_readbacks: AtomicUsize::new(0),
@@ -183,6 +188,11 @@ impl HostFileIo for File {
 
     fn read_exact_at(&mut self, offset: u64, length: usize) -> io::Result<Vec<u8>> {
         self.faults.reads.fetch_add(1, Ordering::AcqRel);
+        if let Some(watched) = self.faults.watched_reads.get() {
+            if let Some(count) = watched.lock().unwrap().get_mut(&self.path) {
+                *count += 1;
+            }
+        }
         if self
             .path
             .extension()

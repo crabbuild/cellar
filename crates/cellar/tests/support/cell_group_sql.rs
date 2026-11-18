@@ -527,6 +527,13 @@ pub(crate) use reads::{
 
 #[path = "cell_group_sql_apply.rs"]
 pub(super) mod apply;
+
+#[path = "cell_group_sql_prepared_image.rs"]
+mod prepared_image;
+
+pub(super) async fn prepared_image_reuse(rooted: bool) -> Result<()> {
+    Box::pin(prepared_image::reuse(rooted)).await
+}
 pub(crate) use apply::apply_images;
 #[path = "cell_group_sql_pipeline.rs"]
 mod pipeline;
