@@ -441,6 +441,7 @@ impl RaftCells {
                 .ok_or(RuntimeError::DeadlineExceeded)?;
             Ok((
                 route.admission,
+                route.schema,
                 route.contract,
                 route.durability,
                 route.history_hint,
@@ -457,6 +458,7 @@ impl RaftCells {
         Box::pin(async move {
             let (
                 admission,
+                schema,
                 contract,
                 durability,
                 history_hint,
@@ -578,7 +580,7 @@ impl RaftCells {
                             );
                         }
                         remaining()?;
-                        return Ok(Reply::Rpc(response));
+                        return Ok((Reply::Rpc(response), None));
                     }
                 }
                 // Updates and other primitives need the same bounded SQL/image
@@ -606,14 +608,33 @@ impl RaftCells {
                         crate::raft::performance::Counter::CellKvResolvedPayloadPreparations,
                         1,
                     );
-                    return Ok(Reply::Rpc(response));
+                    return Ok((Reply::Rpc(response), None));
                 }
                 let cell = owner.cell(history.clone())?;
+                let cursor = call_scope.ingress_cursor.as_ref().map(|cursor| {
+                    (
+                        cursor,
+                        super::super::ingress_cursor::Key::new(&history, schema),
+                    )
+                });
                 // The runtime-owned initializer creates an empty stream. This
                 // is a hint at the enrollment cut, never an exclusive sequence
                 // reservation: another caller can still consume it first.
+                let now = owner.handle.domain.mono_ms()?;
                 let next = if newly_enrolled {
                     1
+                } else if let Some(next) = cursor
+                    .as_ref()
+                    .and_then(|(cursor, key)| cursor.take(*key, now))
+                {
+                    // A previous verified receipt only supplies a candidate.
+                    // Command admission and the fresh conflict proof below are
+                    // unchanged; no read/serving authority is cached here.
+                    owner.handle.core.log.performance().increment(
+                        crate::raft::performance::Counter::CellIngressSequenceHints,
+                        1,
+                    );
+                    next
                 } else {
                     observe(&cell, 0, remaining()?).await?.next
                 };
@@ -694,7 +715,10 @@ impl RaftCells {
                 if fetch {
                     let response = super::super::native_fetch::decode_response(&receipt.result)?;
                     remaining()?;
-                    return Ok(Reply::Fetch(response));
+                    return Ok((
+                        Reply::Fetch(response),
+                        cursor.map(|(_, key)| (key, id.sequence())),
+                    ));
                 }
                 let response = native_rpc::decode_response(&receipt.result)?;
                 if let Some(limit) = reservation.reply_limit() {
@@ -706,7 +730,10 @@ impl RaftCells {
                     );
                 }
                 remaining()?;
-                Ok(Reply::Rpc(response))
+                Ok((
+                    Reply::Rpc(response),
+                    cursor.map(|(_, key)| (key, id.sequence())),
+                ))
             };
             let timed = async {
                 let timer = owner.handle.domain.sleep_until(deadline)?;
@@ -721,6 +748,17 @@ impl RaftCells {
                 timed,
             )
             .await
+            .and_then(|(reply, completed)| {
+                // Replenish only after the original cancellation/deadline
+                // selection delivers success. An undelivered receipt cannot
+                // advance the invocation's candidate after an unknown result.
+                if let (Some(cursor), Some((key, sequence))) =
+                    (call_scope.ingress_cursor.as_ref(), completed)
+                {
+                    cursor.remember(key, sequence, deadline, owner.handle.domain.mono_ms()?);
+                }
+                Ok(reply)
+            })
             .map_err(|cause| {
                 let Some(command) = command.into_inner().unwrap() else {
                     return cause;

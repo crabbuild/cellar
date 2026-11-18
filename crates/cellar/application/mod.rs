@@ -844,6 +844,7 @@ pub(crate) struct EventState {
     pub(crate) raft_event: bool,
     /// Declared native classes and their immutable deployment configurations.
     pub(crate) raft_cell_classes: Option<Arc<std::collections::BTreeMap<String, [u8; 32]>>>,
+    pub(crate) raft_ingress_cursor: std::sync::OnceLock<Arc<consensus::ingress_cursor::Cursor>>,
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
     // Keep framework cleanup behind the requesting event and its reply proof.

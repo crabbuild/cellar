@@ -17,6 +17,7 @@ pub(crate) mod group_client;
 mod group_contracts;
 pub(crate) use group_contracts::cell_routing_key;
 pub(crate) mod group_protocol;
+pub(crate) mod ingress_cursor;
 mod native_applications;
 pub use native_applications::RaftApplications;
 mod native_cell;

@@ -24,8 +24,10 @@ pub(crate) fn event_rpc(
         );
         authority.validate_target(&scope, name.as_deref(), &method)?;
         context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
-        let call_scope =
-            CallScope::in_context(context, context.io.rpc_deadline_ms.get().copied(), None);
+        let call_scope = ingress_scope(
+            context,
+            CallScope::in_context(context, context.io.rpc_deadline_ms.get().copied(), None),
+        );
         let services = crate::asyncrt::services();
         let now = crate::asyncrt::mono_ms();
         let budget =
@@ -91,8 +93,10 @@ pub(crate) fn fetch(
             name.as_deref(),
         )?;
         context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
-        let call_scope =
-            CallScope::in_context(context, context.io.rpc_deadline_ms.get().copied(), None);
+        let call_scope = ingress_scope(
+            context,
+            CallScope::in_context(context, context.io.rpc_deadline_ms.get().copied(), None),
+        );
         let services = crate::asyncrt::services();
         let now = crate::asyncrt::mono_ms();
         let deadline = now
@@ -155,6 +159,7 @@ fn submit(
             context.identity().is_none(),
             CommandFailure::UnsupportedCapability
         );
+        let call_scope = ingress_scope(context, call_scope);
         let read = scope
             .split_once(':')
             .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
@@ -244,4 +249,15 @@ fn submit(
         })
     })();
     Box::pin(async move { prepared?.await })
+}
+
+fn ingress_scope(context: &Context, mut scope: CallScope) -> CallScope {
+    scope.ingress_cursor = Some(
+        context
+            .state
+            .raft_ingress_cursor
+            .get_or_init(Default::default)
+            .clone(),
+    );
+    scope
 }
