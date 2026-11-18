@@ -173,7 +173,7 @@ pub(super) async fn work(
     Ok(())
 }
 
-pub(super) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
+pub(crate) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
         let result = async {
