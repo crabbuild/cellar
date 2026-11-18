@@ -61,6 +61,11 @@ not unique-operation counts, serving authority, quiescence or durability proofs.
 Subtracting them does not measure pending work. Prometheus exports them with the
 `cellar_raft_` prefix and `_total` suffix, without per-cell labels.
 
+Trace targets `cellar::raft::sql_publish` and `cellar::raft::cell_reconciliation`
+report unresolved private-publication attempts and their receipt/authority phase.
+They distinguish an unchanged checkpoint from missing receipt or authority
+readiness. These traces describe an attempt, not whether a mutation committed.
+
 ## Event-delivery observations
 
 ### Host counters and histograms

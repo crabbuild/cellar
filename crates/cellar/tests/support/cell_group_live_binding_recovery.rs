@@ -276,6 +276,10 @@ fn progress(hosts: &[RaftCells], before: &[RaftPerformanceSnapshot]) -> serde_js
 }
 
 pub(super) async fn qualify(rooted: bool, real_rustfs: bool, cut: Cut) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_publish=trace,cellar::raft::cell_reconciliation=trace")
+        .with_test_writer()
+        .try_init();
     let minima = if real_rustfs {
         &[Durability::Quorum, Durability::S3][..]
     } else {

@@ -439,8 +439,24 @@ impl CellPrivateExecutor {
         {
             return Err(ExecutionError::Invalid("cell reconciliation identity"));
         }
+        let observe_uncertain = |phase: &'static str| {
+            tracing::trace!(target: "cellar::raft::cell_reconciliation", phase,
+                command = ?pending.request.id,
+                base_sequence = self.authority.cell().version.sequence.get(),
+                expected_sequence = pending.result.sequence.get(),
+                observed_sequence = authority.cell().version.sequence.get(),
+                base_term = self.authority.term().get(),
+                observed_term = authority.term().get(),
+                submitted = pending.submitted,
+                prior_steps = pending.rpc_prior_steps,
+                rpc_step = ?pending.rpc_step,
+                "private receipt remains uncertain");
+        };
         let current_error = |error| match error {
-            RuntimeError::NotReady => ExecutionError::Uncertain,
+            RuntimeError::NotReady => {
+                observe_uncertain("authority-not-ready");
+                ExecutionError::Uncertain
+            }
             error => authority_failure(error),
         };
         let check = || authority.check().map_err(current_error);
@@ -465,6 +481,7 @@ impl CellPrivateExecutor {
                 // Continuing this RPC already validated its unfinished receipt
                 // in this exact base. The final private receipt proves neither
                 // completion nor absence until its own result image applies.
+                observe_uncertain("unchanged-checkpoint");
                 Err(ExecutionError::Uncertain)
             }
         } else if pending.submitted
@@ -514,8 +531,16 @@ impl CellPrivateExecutor {
             {
                 CellReconciliation::Refused(CommandFailure::Unavailable)
             }
-            Err(error) => return Err(error),
-            Ok(None) => return Err(ExecutionError::Uncertain),
+            Err(error) => {
+                if matches!(&error, ExecutionError::Uncertain) {
+                    observe_uncertain("unfinished-receipt");
+                }
+                return Err(error);
+            }
+            Ok(None) => {
+                observe_uncertain("receipt-absent-same-term");
+                return Err(ExecutionError::Uncertain);
+            }
         };
         check()?;
         self.retire_reconciled()?;

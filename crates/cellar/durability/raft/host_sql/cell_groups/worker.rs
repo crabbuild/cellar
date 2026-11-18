@@ -188,6 +188,13 @@ impl Cells {
             Action::Query(_) => crate::raft::performance::Operation::SqlQuery,
             _ => crate::raft::performance::Operation::SqlOther,
         };
+        let publication = match &action {
+            Action::Finish(_) => Some("finish"),
+            Action::Reconcile(..) => Some("reconcile"),
+            Action::ResolveEnrollment(..) => Some("resolve-enrollment"),
+            Action::Reject(_) => Some("reject"),
+            _ => None,
+        };
         let timer = performance.timer(operation);
         let result = match domain.mono_ms() {
             Ok(now) if !stopped.load(Ordering::Acquire) => {
@@ -227,6 +234,10 @@ impl Cells {
         };
         // A lost receiver drops only the delivery. Pending owns both the
         // private writer and per-cell reservation until exact settlement.
+        if let (Some(action), Err(error)) = (publication, &result) {
+            tracing::trace!(target: "cellar::raft::sql_publish", action, ?error,
+                "private publication attempt remains unresolved");
+        }
         timer.finish(result.is_ok());
         let _ = reply.send(result);
     }
