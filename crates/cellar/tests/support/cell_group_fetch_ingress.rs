@@ -262,6 +262,11 @@ async fn run(
 }
 
 pub(super) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
+    // DEBUG-cg17-business-stage-1391: distinguish selection from target progress.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug")
+        .with_test_writer()
+        .try_init();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
