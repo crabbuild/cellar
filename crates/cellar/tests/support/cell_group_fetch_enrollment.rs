@@ -186,11 +186,6 @@ pub(super) async fn work(
 }
 
 pub(crate) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
-    // DEBUG-cg17-init-entry-1400: correlate receiver refusal and initializer entry.
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug")
-        .with_test_writer()
-        .try_init();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         let result = async {

@@ -78,8 +78,6 @@ async fn run(
     let initialized = initializers.clone();
     let class = RaftClass::new("FetchCell", 1, [201; 32])?
         .initializer([202; 32], move |_, tx| {
-            // DEBUG-cg17-init-entry-1400: passive timestamp, no extra request.
-            tracing::debug!(target: "cellar::raft::sql_ingress", phase = "DEBUG-cg17-init-entry-1400", rooted, ?minimum);
             initialized.fetch_add(1, Ordering::AcqRel);
             tx.storage()?.put_json("value", &json!(0))
         })?
@@ -264,11 +262,6 @@ async fn run(
 }
 
 pub(super) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
-    // DEBUG-cg17-business-stage-1391: distinguish selection from target progress.
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug")
-        .with_test_writer()
-        .try_init();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
