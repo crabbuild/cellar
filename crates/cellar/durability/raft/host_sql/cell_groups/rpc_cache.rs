@@ -173,10 +173,13 @@ impl RpcCache {
         }
         if self.closed.load(Ordering::Acquire)
             || !value.fence.current()
-            || value
-                .activation
-                .as_ref()
-                .is_some_and(|activation| !activation.live())
+            || value.activation.as_ref().is_some_and(|activation| {
+                !activation.live()
+                    || activation
+                        .resources()
+                        .retire_after_commit
+                        .load(Ordering::Acquire)
+            })
         {
             return self.retire(value);
         }
