@@ -227,7 +227,28 @@ impl Resolution {
             }
             let local = match self.owner.handle.core.log.cell_group(&route.history) {
                 Ok(group) => {
-                    if self.local_locator {
+                    let member = group.identity().member;
+                    let current_member = match group.read() {
+                        Ok(cache) => {
+                            if new_route && matches!(self.options.routing, QueryRouting::Automatic)
+                            {
+                                let vote = cache.hard_state.vote;
+                                if cache.conf_state.voters.contains(&vote)
+                                    || cache.conf_state.voters_outgoing.contains(&vote)
+                                {
+                                    preferred = MemberId::new(vote).ok();
+                                }
+                            }
+                            crate::raft::member_state::members(&cache.conf_state)
+                                .contains(&member.get())
+                        }
+                        Err(LogError::NotFound) => false,
+                        Err(error) => return Err(CellDispatchError::Runtime(error.into())),
+                    };
+                    // A removed member can retain its log through restart, but
+                    // has no local consensus dispatch. Treat it as an ingress
+                    // so an absent router can discover the current replicas.
+                    if current_member && self.local_locator {
                         if let Some(history) = group
                             .applied_history_hint(
                                 &route,
@@ -243,21 +264,7 @@ impl Resolution {
                             return Ok(Some(history));
                         }
                     }
-                    if new_route && matches!(self.options.routing, QueryRouting::Automatic) {
-                        match group.read() {
-                            Ok(cache) => {
-                                let vote = cache.hard_state.vote;
-                                if cache.conf_state.voters.contains(&vote)
-                                    || cache.conf_state.voters_outgoing.contains(&vote)
-                                {
-                                    preferred = MemberId::new(vote).ok();
-                                }
-                            }
-                            Err(LogError::Closed | LogError::NotFound) => (),
-                            Err(error) => return Err(CellDispatchError::Runtime(error.into())),
-                        }
-                    }
-                    Some(group.identity().member)
+                    current_member.then_some(member)
                 }
                 Err(LogError::NotFound) => None,
                 Err(error) => return Err(CellDispatchError::Runtime(error.into())),
