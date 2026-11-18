@@ -516,36 +516,31 @@ impl RaftCells {
                                 enrollment_ambiguous.store(error.ambiguous, Ordering::Release);
                                 let retry = retry_unsubmitted_enrollment(&error);
                                 loop {
-                                    match ready_name(&owner, &candidate, deadline).await {
-                                        Ok(Some(history)) => {
-                                            enrollment_pending.store(false, Ordering::Release);
-                                            break 'enrollment (history, None);
-                                        }
-                                        Ok(None) => {
-                                            let delay = (remaining()?.as_millis() as u64).min(
-                                                owner
-                                                    .handle
-                                                    .core
-                                                    .controller
-                                                    .limits()
-                                                    .retry_interval_ms,
-                                            );
-                                            let now = owner.handle.domain.mono_ms()?;
-                                            owner
-                                                .handle
-                                                .domain
-                                                .sleep_until(
-                                                    now.saturating_add(delay).min(deadline),
-                                                )?
-                                                .await;
-                                            // Absence is not non-commit proof. Only
-                                            // a witnessed pre-entry refusal permits
-                                            // another attempt of this same creation.
-                                            if retry {
-                                                break;
+                                    if !retry {
+                                        match ready_name(&owner, &candidate, deadline).await {
+                                            Ok(Some(history)) => {
+                                                enrollment_pending.store(false, Ordering::Release);
+                                                break 'enrollment (history, None);
                                             }
+                                            Ok(None) => (),
+                                            Err(_) => return Err(error.into()),
                                         }
-                                        Err(_) => return Err(error.into()),
+                                    }
+                                    let delay = (remaining()?.as_millis() as u64).min(
+                                        owner.handle.core.controller.limits().retry_interval_ms,
+                                    );
+                                    let now = owner.handle.domain.mono_ms()?;
+                                    owner
+                                        .handle
+                                        .domain
+                                        .sleep_until(now.saturating_add(delay).min(deadline))?
+                                        .await;
+                                    // A typed pre-entry refusal proves this attempt
+                                    // did not enter initialization. Retry only the
+                                    // same creation; no name/absence cut is needed.
+                                    // Every other failure still reconciles above.
+                                    if retry {
+                                        break;
                                     }
                                 }
                             }
