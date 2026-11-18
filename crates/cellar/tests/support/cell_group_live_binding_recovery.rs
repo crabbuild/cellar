@@ -4,6 +4,8 @@
 
 use super::*;
 
+const SETTLEMENTS: &str = "cell_binding_recovery_settlements";
+
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Cut {
     Checkpoint,
@@ -47,6 +49,7 @@ async fn run(
                 .await.context("live recovery source enrollment")?;
             let original = bindings::options(1, minimum)?;
             ensure!(original.timeout == TIMEOUT);
+            let initial: Vec<_> = cluster.hosts.iter().map(RaftCells::performance).collect();
             let (method, target_name, next_method, before, after) = match cut {
                 Cut::Checkpoint => ("Abandon", "held-target", "Again", b"1".as_slice(), 3),
                 Cut::Unused => (
@@ -103,30 +106,39 @@ async fn run(
                     rejected
                 }
             };
-            // No host restart or parent retry clears the old invocation. Give the
-            // node-owned due worker its ordinary opportunity before observing it.
+            // Observe only synchronous host metrics until the node-owned worker
+            // confirms settlement. Application probes cannot drive this phase.
             cellar::asyncrt::sleep(Duration::from_secs(2)).await;
             let end = cellar::asyncrt::mono_ms() + 60_000;
-            let mut sequence = 2;
             loop {
-                let probe = source
-                    .command(
-                        &source.contract("RecoveryProbe")?,
-                        b"{}".to_vec(),
-                        bindings::options(sequence, minimum)?,
-                    )
-                    .await.with_context(|| format!("live recovery readiness probe sequence {sequence}"))?;
-                sequence += 1;
-                if probe.result == b"true" {
+                let mut observed = false;
+                for (host, initial) in cluster.hosts.iter().zip(&initial) {
+                    let current = host.performance();
+                    ensure!(current.available && !current.saturated && initial.available && !initial.saturated,
+                        "recovery observations must be available and unsaturated");
+                    ensure!(current.source == initial.source, "a voter owner restarted during live recovery");
+                    let before = initial.counters.iter().find(|counter| counter.name == SETTLEMENTS)
+                        .map_or(0, |counter| counter.value);
+                    let current = current.counters.iter().find(|counter| counter.name == SETTLEMENTS)
+                        .context("binding recovery settlement observation is missing")?.value;
+                    ensure!(current >= before, "binding recovery counter moved backwards");
+                    observed |= current > before;
+                }
+                if observed {
                     break;
                 }
-                ensure!(probe.result == b"false");
                 ensure!(
                     cellar::asyncrt::mono_ms() < end,
-                    "live recovery did not release the binding lane"
+                    "live recovery did not confirm settlement without application traffic"
                 );
-                cellar::asyncrt::sleep(Duration::from_millis(200)).await;
+                cellar::asyncrt::sleep(Duration::from_millis(100)).await;
             }
+            // The metric is a historical observation, never serving authority.
+            // Now check the real committed obligation guard and business state.
+            let probe = source.command(&source.contract("RecoveryProbe")?, b"{}".to_vec(),
+                bindings::options(2, minimum)?).await.context("readiness after autonomous settlement")?;
+            ensure!(probe.result == b"true", "observed settlement left a binding obligation");
+            let sequence = 3;
             let target_history = cluster.hosts[leader]
                 .resolve_cell_history(
                     group.cluster,
