@@ -333,7 +333,7 @@ pub(crate) async fn s3_remote_outputs(rooted: bool, store: Arc<dyn ObjectStore>)
     h.close().await
 }
 
-async fn deadline_attempt(h: &Harness, remote: &Remote, kind: &str) -> Result<()> {
+async fn deadline_attempt(h: &Harness, remote: &Remote, kind: &str) -> Result<String> {
     let bounds = CellRoutingLimits {
         timeout: Duration::from_millis(800),
         max_attempts: 4,
@@ -356,6 +356,7 @@ async fn deadline_attempt(h: &Harness, remote: &Remote, kind: &str) -> Result<()
                 .err()
                 .context("S3 command deadline")?;
             assert!(error.ambiguous);
+            Ok(format!("{error:?}"))
         }
         "enrollment" => {
             let mut i = h
@@ -377,6 +378,7 @@ async fn deadline_attempt(h: &Harness, remote: &Remote, kind: &str) -> Result<()
                 .err()
                 .context("S3 enrollment deadline")?;
             assert!(error.ambiguous);
+            Ok(format!("{error:?}"))
         }
         "receipt" => {
             let mut request = h.receipt_request(1, b"remote", Durability::S3)?;
@@ -385,14 +387,15 @@ async fn deadline_attempt(h: &Harness, remote: &Remote, kind: &str) -> Result<()
                 .dispatcher
                 .lookup_receipt(h.cell.clone(), request, bounds, None)?;
             i.begin().await?;
-            assert!(i
+            let error = i
                 .execute_remote(&remote.router.transport, MemberId::new(1)?)
                 .await
-                .is_err());
+                .err()
+                .context("S3 receipt deadline")?;
+            Ok(format!("{error:?}"))
         }
         _ => anyhow::bail!("deadline kind"),
     }
-    Ok(())
 }
 
 pub(crate) async fn s3_remote_deadlines(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
@@ -410,15 +413,36 @@ pub(crate) async fn s3_remote_deadlines(rooted: bool, store: Arc<dyn ObjectStore
             h.remote.outage.store(true, Ordering::Release);
             let mut pending = Box::pin(deadline_attempt(&h, &remote, kind));
             match futures_util::future::select(pending.as_mut(), Box::pin(h.waiting())).await {
-                futures_util::future::Either::Left((result, _)) => {
-                    anyhow::bail!("{kind} completed before S3 wait: {result:?}")
+                futures_util::future::Either::Left((result, waiting)) => {
+                    drop(waiting);
+                    drop(pending);
+                    let usage = h.controllers[0].usage();
+                    let sql = h.fixture.appliers[&(0, h.route.history)]
+                        .0
+                        .usage()
+                        .map(|usage| usage.active_cells);
+                    let failure = anyhow::anyhow!("{kind} completed before S3 wait: {result:?}; retained_s3={}, retained_commands={}, sql_active_cells={sql:?}, initializers={}, callbacks={}",
+                        usage.retained_s3, usage.retained_commands,
+                        h.initializations.load(Ordering::Acquire), h.calls.load(Ordering::Acquire));
+                    // An ambiguous initializer may still be node-owned. Keep its
+                    // disks and join both owners before returning the failure.
+                    h.fixture.cluster._root.disable_cleanup(true);
+                    eprintln!(
+                        "retained remote deadline disk: {}",
+                        h.fixture.cluster._root.path().display()
+                    );
+                    let remote_closed = remote.close().await;
+                    let host_closed = h.close().await;
+                    return Err(failure.context(format!(
+                        "cleanup: remote={remote_closed:?}, host={host_closed:?}"
+                    )));
                 }
                 futures_util::future::Either::Right((result, _)) => result?,
             }
             if cancel {
                 drop(pending);
             } else {
-                pending.await?;
+                let _ = pending.await?;
             }
             refunded(&h).await?;
             assert!(h.controllers[0].group_failure(h.route.history)?.is_none());
