@@ -622,6 +622,18 @@ async fn expired_extent_preparation_requires_independent_replay() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn final_materialized_receipt_uses_frozen_prepared_writer() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Receipt)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn final_extent_receipt_uses_frozen_prepared_writer() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Receipt)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn corrupt_materialized_preparation_refuses_committed_apply() -> Result<()> {
     runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Corrupt)
         .await

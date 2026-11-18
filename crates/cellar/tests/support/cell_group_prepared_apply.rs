@@ -15,6 +15,7 @@ pub(crate) enum PreparationCase {
     Expired,
     Transferred,
     Corrupt,
+    Receipt,
 }
 
 fn images(directory: &Path, rooted: bool) -> Result<BTreeSet<PathBuf>> {
@@ -251,6 +252,23 @@ pub(crate) async fn verified_preparation_handoff(
             .await?;
         let expected = authority.cell().version.clone();
         if let Some(mut executor) = executor {
+            let receipt_reads = Arc::new(AtomicUsize::new(0));
+            if matches!(case, PreparationCase::Receipt) {
+                let prepared_image = added[0].clone();
+                let reads = receipt_reads.clone();
+                // Every replica has durably applied the exact proposal. Only
+                // final settlement is left: its frozen writer must not reopen
+                // the image that it already prepared and the owner proved.
+                *faults.read_open.lock().unwrap() = Some(Arc::new(move |path| {
+                    if path == prepared_image {
+                        reads.fetch_add(1, Ordering::AcqRel);
+                        return Err(std::io::Error::other(
+                            "final receipt reopened its exact prepared image",
+                        ));
+                    }
+                    Ok(())
+                }));
+            }
             fixture
                 .cluster
                 .domain
@@ -262,6 +280,32 @@ pub(crate) async fn verified_preparation_handoff(
                     Ok(())
                 })?
                 .await??;
+            if matches!(case, PreparationCase::Receipt) {
+                anyhow::ensure!(
+                    receipt_reads.load(Ordering::Acquire) == 0,
+                    "final settlement reread its own prepared bytes"
+                );
+                faults.read_open.lock().unwrap().take();
+                // Independent replay still reads the committed image and must
+                // recover the exact result without invoking business code.
+                let mut replay = fixture.private_cell(&cell).await?;
+                fixture
+                    .cluster
+                    .domain
+                    .blocking(move || -> Result<()> {
+                        let CellStageOutcome::Duplicate(receipt) =
+                            replay.stage(cell_attempt(120)?, false, |_| {
+                                panic!("final receipt replay executed callback");
+                            })?
+                        else {
+                            anyhow::bail!("independently committed final receipt missing");
+                        };
+                        anyhow::ensure!(receipt.receipt.result() == b"exact-preparation");
+                        replay.close()?;
+                        Ok(())
+                    })?
+                    .await??;
+            }
         } else {
             drop(authority);
             let mut executor = fixture.private_cell(&cell).await?;
