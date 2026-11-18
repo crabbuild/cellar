@@ -53,6 +53,14 @@ reads. This does not create a recovery or native admission capability.
 image seal. An identical root from another directory cannot substitute for that
 local physical capability.
 
+`NodeExtentStore::has_current_image_seal` checks the known persistence
+observations behind an existing local `SealedImageRoot` without I/O. It creates
+no seal and verifies no new bytes. Foreign inventory owners are ineligible;
+quarantine refuses reuse, and a known failed dependency read requires full
+verification before eligibility returns. Callers must separately bind any reuse
+to their exact verified input and current publication authority. Ordinary image
+preparation and untrusted archive replay retain their independent byte checks.
+
 `NodeExtentStore::prepare_transient_image_root` runs the same bounded LTX,
 geometry, closure and persistence checks as `prepare_image_root`, but a fresh
 root does not keep an additional permanent host reference. Its returned image

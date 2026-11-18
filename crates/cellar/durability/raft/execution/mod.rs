@@ -8,6 +8,8 @@ use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
+mod prepared_image;
+pub(crate) use prepared_image::PreparedCellImage;
 mod submission;
 pub(crate) use cell::{
     authority_failure, CellReconciliationObservation, CellRpcDispatch, CellRpcEnvironment,

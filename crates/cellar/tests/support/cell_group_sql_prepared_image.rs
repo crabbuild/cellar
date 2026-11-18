@@ -5,9 +5,7 @@ use super::*;
 use futures_util::FutureExt;
 use std::sync::Mutex;
 
-#[path = "raft_ltx_fault.rs"]
-#[allow(dead_code)]
-mod files;
+use super::apply_faults::physical as files;
 
 pub(super) async fn reuse(rooted: bool) -> Result<()> {
     let mut root = tempfile::tempdir()?;

@@ -52,6 +52,7 @@ pub struct CellGroupTicket {
     digest: [u8; 32],
     pub(super) admission: Option<Arc<crate::raft::budget::Permit>>,
     pub(crate) preparation: Option<Arc<crate::raft::budget::Permit>>,
+    pub(super) prepared_image: Option<Weak<crate::raft::execution::PreparedCellImage>>,
 }
 
 impl CellGroupTicket {
@@ -461,7 +462,26 @@ impl CellGroupOwner {
         }
     }
 
+    fn incoming_voter(&self) -> bool {
+        self.node
+            .raft
+            .prs()
+            .conf()
+            .voters()
+            .contains_incoming(self.node.raft.id)
+    }
+
     fn refresh_execution_fence(&mut self) {
+        // An established outgoing protocol leader can still finish Joint.
+        // An outgoing-only follower cannot start a new election.
+        if !self.incoming_voter()
+            && matches!(
+                self.node.raft.state,
+                StateRole::Candidate | StateRole::PreCandidate
+            )
+        {
+            self.node.raft.become_follower(self.node.raft.term, 0);
+        }
         if self.node.raft.leader_id != 0 || self.node.raft.state != StateRole::Follower {
             self.startup_read_candidate = false;
         }
@@ -495,13 +515,7 @@ impl CellGroupOwner {
             && self.current.marker().source_seal().is_none()
             && self.node.raft.state == StateRole::Leader
             && self.node.raft.lead_transferee.is_none()
-            && self
-                .node
-                .raft
-                .prs()
-                .conf()
-                .voters()
-                .contains(self.node.raft.id)
+            && self.incoming_voter()
         {
             self.node.raft.term
         } else {
@@ -935,17 +949,23 @@ impl CellGroupOwner {
         })
     }
 
+    fn active_protocol_ready(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
+        !self.managed_recovery_fenced
+            && !self.park_fenced()
+            && self.pending_seal.is_none()
+            && self.current.marker().is_active()
+            && self.protocol_ready(cache)
+    }
+
     fn status_at(&self, cache: &crate::raft::cache::CachedGroup) -> CellGroupStatus {
         CellGroupStatus {
             term: Term::new(self.node.raft.term),
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
-            ready: !self.managed_recovery_fenced
-                && !self.park_fenced()
-                && self.pending_seal.is_none()
-                && self.current.marker().is_active()
-                && self.protocol_ready(cache),
+            ready: self.active_protocol_ready(cache)
+                && self.incoming_voter()
+                && cache.conf_state.voters.contains(&self.node.raft.id),
         }
     }
 
@@ -1112,6 +1132,8 @@ impl CellGroupOwner {
     }
 
     fn selected_leader(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
+        // Configuration control can finish Joint under its outgoing leader.
+        // Application readiness and captured authority require incoming membership.
         self.node.raft.state == StateRole::Leader
             && self.node.raft.lead_transferee.is_none()
             && self
@@ -1560,7 +1582,8 @@ impl CellGroupOwner {
 
     pub fn campaign(&mut self) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.pending_park.is_some()
+        if !self.incoming_voter()
+            || self.pending_park.is_some()
             || self.parked.is_some()
             || self.phase.is_some()
             || self.checkpoint.is_some()
@@ -1669,7 +1692,9 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         self.expire_park_preparation()?;
-        let admission = if self.node.raft.state == StateRole::Leader {
+        let incoming = self.incoming_voter();
+        let protocol_leader = self.node.raft.state == StateRole::Leader;
+        let admission = if protocol_leader || !incoming {
             Default::default()
         } else {
             match self
@@ -1687,8 +1712,15 @@ impl CellGroupOwner {
                 }
             }
         };
-        let election_tick = self.node.raft.state != StateRole::Leader;
-        let ready = self.node.tick();
+        let election_tick = !protocol_leader && incoming;
+        let ready = if protocol_leader || incoming {
+            self.node.tick()
+        } else {
+            // Outgoing voters must still expire their voting lease; skipping
+            // their clock entirely would prevent eligible incoming elections.
+            self.node.raft.tick_passive();
+            false
+        };
         let performance = self.log.performance();
         performance.increment(Counter::CellGroupTicksExecuted, 1);
         if election_tick && ready {
@@ -1891,7 +1923,18 @@ impl CellGroupOwner {
             &[]
         };
         let mut admission = self.log_admission.prepare(&self.group, entries, None)?;
+        if message.get_msg_type() == MessageType::MsgTimeoutNow && !self.incoming_voter() {
+            // Preserve higher-term evidence from a stale handoff without
+            // starting an outgoing-only campaign or recording a self-vote.
+            if message.term > self.node.raft.term {
+                self.node.raft.become_follower(message.term, 0);
+            }
+            self.refresh_execution_fence();
+            self.finish_log_admission(admission)?;
+            return Ok(());
+        }
         if self.node.raft.state != StateRole::Leader
+            && self.incoming_voter()
             && matches!(
                 message.get_msg_type(),
                 MessageType::MsgRequestVoteResponse
@@ -1934,7 +1977,13 @@ impl CellGroupOwner {
         if self.node.raft.state != StateRole::Leader {
             return Err(RuntimeError::NotLeader);
         }
-        if !self.status()?.ready
+        let ready = {
+            let cache = self.group.read()?;
+            self.active_protocol_ready(&cache)
+        };
+        // An outgoing protocol leader can finish Joint without regaining
+        // application write, enrollment or leader-bound read authority.
+        if !ready
             || !self.apply.is_empty()
             || self.applying.is_some()
             || self.node.raft.pending_conf_index > self.node.raft.raft_log.applied
@@ -2108,13 +2157,17 @@ impl CellGroupOwner {
             return Err(RuntimeError::Invalid("prepared submission owner".into()));
         }
         self.prepared_only = true;
-        prepared.submit(&engine, group, || {
+        let outcome = prepared.submit(&engine, group, || {
             self.live()?;
             if prepared.term().get() != self.node.raft.term {
                 return Err(RuntimeError::StaleCompletion);
             }
             self.try_propose(prepared.bytes().to_vec(), Some(prepared.log_reservation()?))
-        })
+        })?;
+        if let crate::raft::execution::CellSubmissionOutcome::Accepted(acceptance) = &outcome {
+            self.proposals.attach_image(&prepared, acceptance);
+        }
+        Ok(outcome)
     }
 
     fn try_propose(
@@ -2297,6 +2350,7 @@ impl CellGroupOwner {
         }
         if self.node.raft.leader_id != 0
             || self.node.raft.state != StateRole::Follower
+            || !self.incoming_voter()
             || !self.node.raft.promotable()
         {
             self.startup_read_candidate = false;
@@ -2795,6 +2849,7 @@ impl CellGroupOwner {
             digest,
             admission: None,
             preparation: None,
+            prepared_image: None,
         })
     }
 
@@ -3285,7 +3340,10 @@ impl CellGroupOwner {
                     else {
                         return Ok(None);
                     };
-                    let ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;
+                    let mut ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;
+                    ticket.prepared_image = self
+                        .proposals
+                        .prepared_image(entry_position(&entry), &entry.data);
                     self.applying = Some(ticket.clone());
                     return Ok(Some(CellGroupEffect::Apply(Box::new(CellGroupApply {
                         ticket,

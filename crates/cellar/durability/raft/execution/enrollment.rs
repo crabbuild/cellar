@@ -28,6 +28,7 @@ struct Pending {
     log_reservation: std::sync::Arc<crate::raft::cell_groups::log_retention::LogReservation>,
     record: EnrollmentRecord,
     _preview: Preview,
+    _image: std::sync::Arc<PreparedCellImage>,
     submitted: bool,
 }
 
@@ -176,7 +177,8 @@ impl CellPrivateEnrollment {
             .images
             .preview_initial(
                 &self.options,
-                attempt.preview,
+                Images::cell_preview_id(state.cell(), 1, attempt.preview, &update)
+                    .map_err(storage)?,
                 &update,
                 cell_image_history_digest(state.cell()),
             )
@@ -185,20 +187,33 @@ impl CellPrivateEnrollment {
         log_reservation
             .encoded(bytes.len())
             .map_err(|error| authority_failure(error.into()))?;
-        self.pending = Some(Pending {
-            log_reservation: log_reservation.clone(),
-            record,
-            _preview: preview,
-            submitted: false,
-        });
-        Ok(CellPreparedCommand::new(
+        let image = PreparedCellImage::new(
+            state.engine_owner().clone(),
+            state.route().history,
+            &bytes,
+            self.options
+                .images
+                .preparation_limits(&self.options)
+                .map_err(storage)?,
+            &preview,
+        );
+        let prepared = CellPreparedCommand::new(
             bytes,
             attempt.creation,
             state.term(),
             state.route().history,
             state.engine_owner().clone(),
         )
-        .with_log_reservation(log_reservation))
+        .with_log_reservation(log_reservation.clone())
+        .with_image(&image);
+        self.pending = Some(Pending {
+            log_reservation,
+            record,
+            _preview: preview,
+            _image: image,
+            submitted: false,
+        });
+        Ok(prepared)
     }
 
     pub fn mark_submitted(&mut self, creation: ProposalId) -> Result<(), ExecutionError> {

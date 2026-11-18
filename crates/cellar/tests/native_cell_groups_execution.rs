@@ -281,6 +281,26 @@ async fn membership_read_retries_without_unrelated_work() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn outgoing_materialized_voter_cannot_campaign() -> Result<()> {
+    Box::pin(runtime_fixture::outgoing_voter_cannot_campaign(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn outgoing_extent_voter_cannot_campaign() -> Result<()> {
+    Box::pin(runtime_fixture::outgoing_voter_cannot_campaign(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn outgoing_materialized_handoff_preserves_term_fence() -> Result<()> {
+    Box::pin(runtime_fixture::outgoing_handoff_preserves_term(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn outgoing_extent_handoff_preserves_term_fence() -> Result<()> {
+    Box::pin(runtime_fixture::outgoing_handoff_preserves_term(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_controller_compacts_materialized_groups_during_writes() -> Result<()> {
     runtime_fixture::automatic_checkpoints(false, false).await
 }

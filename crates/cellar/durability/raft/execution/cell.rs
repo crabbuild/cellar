@@ -64,6 +64,9 @@ struct PendingCell {
     request: CommandRequest,
     result: CellVersion,
     _preview: Preview,
+    // Only the live producer owns this capability. Submission/ticket metadata
+    // cannot prolong image custody after terminal settlement.
+    _image: std::sync::Arc<PreparedCellImage>,
     submitted: bool,
     rpc_step: Option<u64>,
     rpc_prior_steps: u64,
@@ -426,7 +429,13 @@ impl CellPrivateExecutor {
             .preview_cell(
                 &self.options,
                 self.authority.image(),
-                attempt.preview,
+                Images::cell_preview_id(
+                    &self.authority.cell().version.history,
+                    sequence.get(),
+                    attempt.preview,
+                    &update,
+                )
+                .map_err(storage)?,
                 &update,
                 cell_image_history_digest(&self.authority.cell().version.history),
             )
@@ -435,6 +444,16 @@ impl CellPrivateExecutor {
         log_reservation
             .encoded(bytes.len())
             .map_err(|error| authority_failure(error.into()))?;
+        let image = PreparedCellImage::new(
+            self.authority.engine_owner().clone(),
+            route.history,
+            &bytes,
+            self.options
+                .images
+                .preparation_limits(&self.options)
+                .map_err(storage)?,
+            &preview,
+        );
         let prepared = CellPreparedCommand::new(
             bytes,
             attempt.proposal,
@@ -442,7 +461,8 @@ impl CellPrivateExecutor {
             route.history,
             self.authority.engine_owner().clone(),
         )
-        .with_log_reservation(log_reservation);
+        .with_log_reservation(log_reservation)
+        .with_image(&image);
         self.pending = Some(PendingCell {
             prepared: prepared.clone(),
             request: attempt.request,
@@ -452,6 +472,7 @@ impl CellPrivateExecutor {
                 image: update.result.into(),
             },
             _preview: preview,
+            _image: image,
             submitted: false,
             rpc_step: None,
             rpc_prior_steps: 0,

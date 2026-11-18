@@ -12,7 +12,7 @@ use cellar_logic::{
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 pub(super) struct Candidate {
     cell: CellId,
@@ -31,6 +31,7 @@ struct Accepted {
     candidate: Candidate,
     acceptance: CellGroupProposal,
     _permit: Permit,
+    image: Option<Weak<crate::raft::execution::PreparedCellImage>>,
 }
 
 pub(super) enum Admission {
@@ -135,8 +136,47 @@ impl ProposalAdmission {
                 candidate,
                 acceptance,
                 _permit: permit,
+                image: None,
             },
         );
+    }
+
+    /// Advisory data preparation only. Weak metadata adds no image/payload
+    /// custody to the already bounded accepted-proposal table.
+    pub(super) fn attach_image(
+        &mut self,
+        prepared: &crate::raft::execution::CellPreparedCommand,
+        acceptance: &CellGroupProposal,
+    ) {
+        let Some(cell) = self.positions.get(&acceptance.position.index) else {
+            return;
+        };
+        let Some(accepted) = self.cells.get_mut(cell) else {
+            return;
+        };
+        if accepted.acceptance.position == acceptance.position
+            && accepted.acceptance.digest == acceptance.digest
+            && accepted.candidate.proposal == prepared.proposal()
+            && accepted.candidate.payload == <[u8; 32]>::from(Sha256::digest(prepared.bytes()))
+        {
+            if let Some(image) = prepared.prepared_image() {
+                accepted.image = Some(image);
+            }
+        }
+    }
+
+    pub(super) fn prepared_image(
+        &self,
+        position: LogPosition,
+        bytes: &[u8],
+    ) -> Option<Weak<crate::raft::execution::PreparedCellImage>> {
+        let accepted = self.cells.get(self.positions.get(&position.index)?)?;
+        if accepted.acceptance.position != position
+            || accepted.candidate.payload != <[u8; 32]>::from(Sha256::digest(bytes))
+        {
+            return None;
+        }
+        accepted.image.clone()
     }
 
     pub(super) fn applied(&mut self, position: LogPosition) {

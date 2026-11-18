@@ -127,9 +127,7 @@ impl CellReadAuthority {
                     || !cache
                         .conf_state
                         .voters
-                        .iter()
-                        .chain(&cache.conf_state.voters_outgoing)
-                        .any(|id| *id == s.group.identity().member.get())
+                        .contains(&s.group.identity().member.get())
             })
         {
             return Err(RuntimeError::NotReady);

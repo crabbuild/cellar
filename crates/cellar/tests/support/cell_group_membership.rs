@@ -76,6 +76,276 @@ pub(super) fn change(
     }
 }
 
+pub(crate) async fn outgoing_voter_cannot_campaign(rooted: bool) -> Result<()> {
+    use futures_util::FutureExt as _;
+    let mut refused = Vec::new();
+    let mut elections = Vec::new();
+    let mut observed_ticks = Vec::new();
+    let mut passive_votes = Vec::new();
+    for kind in [ConfChangeType::AddLearnerNode, ConfChangeType::RemoveNode] {
+        let class = RaftClass::new("Counter", 1, [81; 32])?;
+        let (mut fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        let outcome = std::panic::AssertUnwindSafe(async {
+            let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
+            let request = CellGroupMembershipChange::new(
+                &route,
+                &group.membership()?,
+                change(3, kind, ConfChangeTransition::Explicit),
+                &[],
+            )?;
+            let accepted = fixture.runtimes[0]
+                .configure(route.history, request)
+                .await?;
+            fixture.drive(Some(accepted.position.index)).await?;
+            // No automatic controller ticks run here. Drain the terminal
+            // configuration deliveries before testing candidate eligibility.
+            for _ in 0..16 {
+                fixture.pump(&[], &mut BTreeMap::new()).await?;
+                tokio::task::yield_now().await;
+            }
+            for voter in &fixture.cluster.voters {
+                let conf = voter
+                    .log
+                    .cell_group(&route.history)?
+                    .initial_state()?
+                    .conf_state;
+                assert_eq!(conf.voters, vec![1, 2]);
+                assert_eq!(conf.voters_outgoing, vec![1, 2, 3]);
+            }
+            let mut ticks = 0;
+            let mut messages = 0;
+            // Lose this member's leader traffic across more than its maximum
+            // randomized election timeout. It must still age voting leases,
+            // but cannot initiate either a pre-vote or vote campaign.
+            for _ in 0..256 {
+                match fixture.runtimes[2].tick().await {
+                    Ok(()) => ticks += 1,
+                    Err(RuntimeError::NotReady) => (),
+                    Err(error) => return Err(error.into()),
+                }
+                fixture
+                    .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                        if message.from == 3
+                            && matches!(
+                                message.get_msg_type(),
+                                MessageType::MsgRequestPreVote | MessageType::MsgRequestVote
+                            )
+                        {
+                            messages += 1;
+                        }
+                        message.to != 3
+                    })
+                    .await?;
+                tokio::task::yield_now().await;
+                if ticks == 64 {
+                    break;
+                }
+            }
+            for _ in 0..16 {
+                fixture
+                    .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                        if message.from == 3
+                            && matches!(
+                                message.get_msg_type(),
+                                MessageType::MsgRequestPreVote | MessageType::MsgRequestVote
+                            )
+                        {
+                            messages += 1;
+                        }
+                        message.to != 3
+                    })
+                    .await?;
+                tokio::task::yield_now().await;
+            }
+            let incoming = fixture.cluster.voters[1].log.cell_group(&route.history)?;
+            let last = incoming.last_index()?;
+            let mut vote = ::raft::prelude::Message {
+                from: 2,
+                to: 3,
+                term: fixture.runtimes[2]
+                    .status(route.history)
+                    .await?
+                    .term
+                    .get()
+                    .checked_add(1)
+                    .context("pre-vote term")?,
+                index: last,
+                log_term: incoming.term(last)?,
+                ..Default::default()
+            };
+            vote.set_msg_type(MessageType::MsgRequestPreVote);
+            fixture.runtimes[2].step(route.history, vote).await?;
+            let mut response = None;
+            let granted = tokio::time::timeout(Duration::from_secs(20), async {
+                loop {
+                    fixture
+                        .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                            if message.from == 3
+                                && message.to == 2
+                                && message.get_msg_type() == MessageType::MsgRequestPreVoteResponse
+                            {
+                                response = Some(!message.reject);
+                            }
+                            message.to != 3
+                        })
+                        .await?;
+                    if let Some(granted) = response {
+                        return Ok::<_, anyhow::Error>(granted);
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await??;
+            let refused = matches!(
+                fixture.runtimes[2].campaign(route.history).await,
+                Err(RuntimeError::NotReady)
+            );
+            Ok::<_, anyhow::Error>((refused, messages, ticks, granted))
+        })
+        .catch_unwind()
+        .await;
+        let closed = fixture.close().await;
+        let result = match outcome {
+            Ok(result) => result?,
+            Err(panic) => std::panic::resume_unwind(panic),
+        };
+        closed?;
+        refused.push(result.0);
+        elections.push(result.1);
+        observed_ticks.push(result.2);
+        passive_votes.push(result.3);
+    }
+    eprintln!(
+        "outgoing campaign refusals: rooted={rooted} demoted={} removed={}",
+        refused[0], refused[1]
+    );
+    eprintln!(
+        "outgoing election work: rooted={rooted} elections={elections:?} ticks={observed_ticks:?}"
+    );
+    eprintln!("outgoing passive votes: rooted={rooted} granted={passive_votes:?}");
+    anyhow::ensure!(
+        observed_ticks.iter().all(|ticks| *ticks == 64),
+        "the original outgoing tick schedule must execute"
+    );
+    anyhow::ensure!(
+        passive_votes.iter().all(|granted| *granted),
+        "outgoing voters must still age leases and vote for eligible incoming candidates"
+    );
+    anyhow::ensure!(
+        refused.iter().all(|refused| *refused),
+        "outgoing-only voters cannot start an election"
+    );
+    anyhow::ensure!(
+        elections.iter().all(|messages| *messages == 0),
+        "outgoing-only voters cannot initiate automatic elections"
+    );
+    Ok(())
+}
+
+pub(crate) async fn outgoing_handoff_preserves_term(rooted: bool) -> Result<()> {
+    use futures_util::FutureExt as _;
+    let class = RaftClass::new("Counter", 1, [81; 32])?;
+    let (mut fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
+    let outcome = std::panic::AssertUnwindSafe(async {
+        let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
+        let request = CellGroupMembershipChange::new(
+            &route,
+            &group.membership()?,
+            change(
+                3,
+                ConfChangeType::AddLearnerNode,
+                ConfChangeTransition::Explicit,
+            ),
+            &[],
+        )?;
+        let accepted = fixture.runtimes[0]
+            .configure(route.history, request)
+            .await?;
+        fixture.drive(Some(accepted.position.index)).await?;
+        for _ in 0..16 {
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            tokio::task::yield_now().await;
+        }
+        let group = fixture.cluster.voters[2].log.cell_group(&route.history)?;
+        let before = group.group_manifest()?.context("outgoing root")?;
+        let term = group
+            .initial_state()?
+            .hard_state
+            .term
+            .checked_add(2)
+            .context("handoff term")?;
+        let mut message = ::raft::prelude::Message {
+            from: 1,
+            to: 3,
+            term,
+            ..Default::default()
+        };
+        message.set_msg_type(MessageType::MsgTimeoutNow);
+        fixture.runtimes[2].step(route.history, message).await?;
+        let mut elections = 0;
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                fixture
+                    .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                        if message.from == 3
+                            && matches!(
+                                message.get_msg_type(),
+                                MessageType::MsgRequestVote | MessageType::MsgRequestPreVote
+                            )
+                        {
+                            elections += 1;
+                        }
+                        message.from != 3 && message.to != 3
+                    })
+                    .await?;
+                if group.initial_state()?.hard_state.term >= term {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await??;
+        for _ in 0..16 {
+            fixture
+                .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                    if message.from == 3
+                        && matches!(
+                            message.get_msg_type(),
+                            MessageType::MsgRequestVote | MessageType::MsgRequestPreVote
+                        )
+                    {
+                        elections += 1;
+                    }
+                    message.from != 3 && message.to != 3
+                })
+                .await?;
+            tokio::task::yield_now().await;
+        }
+        let durable = group.initial_state()?.hard_state;
+        let ready = fixture.runtimes[2].status(route.history).await?.ready;
+        let same_root = group.group_manifest()?.as_ref() == Some(&before);
+        Ok::<_, anyhow::Error>((
+            durable.term == term,
+            durable.vote == 0,
+            ready,
+            same_root,
+            elections,
+        ))
+    })
+    .catch_unwind()
+    .await;
+    let closed = fixture.close().await;
+    let (exact_term, no_vote, ready, same_root, elections) = match outcome {
+        Ok(result) => result?,
+        Err(panic) => std::panic::resume_unwind(panic),
+    };
+    closed?;
+    eprintln!("outgoing handoff proof: rooted={rooted} exact_term={exact_term} no_vote={no_vote} ready={ready} same_root={same_root} elections={elections}");
+    anyhow::ensure!(exact_term && no_vote && !ready && same_root && elections == 0,
+        "an outgoing handoff must persist its higher term without campaigning or advancing application state");
+    Ok(())
+}
+
 pub(super) async fn configure_at(
     fixture: &RuntimeCluster,
     leader: usize,
@@ -673,6 +943,8 @@ pub(crate) async fn membership_lifecycle(rooted: bool) -> Result<()> {
         &[],
     )
     .await?;
+    let lost_during_joint = producer.check().is_err();
+    let not_ready_during_joint = !fixture.runtimes[1].status(route.history).await?.ready;
     configure_at(&fixture, 1, &route, ConfChangeV2::default(), &[]).await?;
     assert!(producer.check().is_err());
     assert!(!fixture.runtimes[1].status(route.history).await?.ready);
@@ -728,7 +1000,10 @@ pub(crate) async fn membership_lifecycle(rooted: bool) -> Result<()> {
     );
     // Metadata reopening alone is not permission to serve or a disk-replacement proof.
     reopened.close().await?;
-    fixture.close().await
+    fixture.close().await?;
+    eprintln!("joint demotion fences: rooted={rooted} producer={lost_during_joint} not_ready={not_ready_during_joint}");
+    anyhow::ensure!(lost_during_joint && not_ready_during_joint, "Joint demotion must revoke application authority before the outgoing leader finishes configuration");
+    Ok(())
 }
 
 pub(crate) async fn membership_sync() -> Result<()> {

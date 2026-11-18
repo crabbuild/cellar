@@ -89,6 +89,14 @@ impl Configuration {
         self.incoming.contains(&id) || self.outgoing.contains(&id)
     }
 
+    /// Check whether an id belongs to the incoming voter configuration.
+    /// Applications can restrict candidate eligibility independently of the
+    /// joint vote and commit quorums, which continue to use both voter sets.
+    #[inline]
+    pub fn contains_incoming(&self, id: u64) -> bool {
+        self.incoming.contains(&id)
+    }
+
     /// Describe returns a (multi-line) representation of the commit indexes for the
     /// given lookuper.
     #[cfg(test)]

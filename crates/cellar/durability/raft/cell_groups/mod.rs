@@ -16,6 +16,7 @@ pub use crate::raft::transport::{
 };
 
 mod apply;
+pub(crate) use apply::images::image_id as materialized_cell_image_id;
 mod archive;
 pub(crate) use archive::CellGroupArchiveAcquireOutcome;
 pub(crate) use archive::ControllerExecution as ArchiveExecution;

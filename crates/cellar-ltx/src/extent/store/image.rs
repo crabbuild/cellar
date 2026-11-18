@@ -76,6 +76,33 @@ fn extent_index(page: u32, page_size: u32) -> u32 {
 }
 
 impl NodeExtentStore {
+    /// Check the known persistence observations behind an existing image seal.
+    /// This performs no I/O, verifies no new bytes and creates no new seal. A
+    /// failed dependency read invalidates eligibility until full verification
+    /// restores it. Another inventory's seal is never eligible here.
+    pub fn has_current_image_seal(&self, image: &SealedImageRoot) -> Result<bool, StoreError> {
+        if !self.owns_image(image) {
+            return Ok(false);
+        }
+        let state = self.inner.state()?;
+        if state.quarantined {
+            return Err(StoreError::Quarantined);
+        }
+        let view = image.view();
+        let root = match state.roots.get(&view.reference.root) {
+            Some(root) => root,
+            None => return Ok(false),
+        };
+        Ok(root.persisted
+            && root.bytes == u64::from(view.reference.length)
+            && view.data.objects.iter().all(|id| {
+                state.objects.get(id).is_some_and(|entry| {
+                    entry.persistence == ObjectPersistence::Durable
+                        && entry.bytes == u64::from(id.length())
+                })
+            }))
+    }
+
     fn read_image_extent(
         &self,
         id: ExtentId,

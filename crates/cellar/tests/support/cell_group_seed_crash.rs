@@ -31,7 +31,7 @@ pub(crate) async fn seed_crash(rooted: bool) -> Result<()> {
         "after-sync",
         "published",
     ] {
-        let directory = tempfile::tempdir()?;
+        let directory = crash_fixture::retained_directory()?;
         let root = directory.path();
         crash_fixture::kill_at(root, "seed_process_fixture", rooted, cut).await?;
         Box::pin(recover(root, rooted, cut))

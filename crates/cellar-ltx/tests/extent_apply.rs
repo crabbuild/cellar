@@ -268,6 +268,77 @@ fn image_updates_share_one_directory_barrier_after_all_file_seals() {
 }
 
 #[test]
+fn existing_image_seal_reuse_refuses_invalidated_and_quarantined_proofs() {
+    let (mut fixture, bytes) = Fixture::new(4096, 4096);
+    fixture.root.disable_cleanup(true);
+    eprintln!(
+        "retained image eligibility disk: {}",
+        fixture.root.path().display()
+    );
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let image = fixture.seal(&bytes, false, &mut buffer);
+    let reads = fixture.files.metrics.read_bytes.load(Ordering::Acquire);
+    let files = fixture
+        .files
+        .metrics
+        .file_sync_calls
+        .load(Ordering::Acquire);
+    let directories = fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire);
+    assert!(fixture.store.has_current_image_seal(&image).unwrap());
+    assert_eq!(
+        fixture.files.metrics.read_bytes.load(Ordering::Acquire),
+        reads
+    );
+    assert_eq!(
+        fixture
+            .files
+            .metrics
+            .file_sync_calls
+            .load(Ordering::Acquire),
+        files
+    );
+    assert_eq!(
+        fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire),
+        directories
+    );
+    let foreign = NodeExtentStore::open(
+        fixture.root.path().join("foreign"),
+        fixture.files.clone(),
+        Default::default(),
+    )
+    .unwrap();
+    assert!(!foreign.has_current_image_seal(&image).unwrap());
+    let extent = image.manifest().extent(0).unwrap();
+    fixture
+        .files
+        .metrics
+        .short_read
+        .store(true, Ordering::Release);
+    assert!(image.view().read_extent(extent).is_err());
+    assert!(!fixture.store.has_current_image_seal(&image).unwrap());
+    // Only a fresh full identity check and the required barriers restore it.
+    assert_eq!(image.view().read_extent(extent).unwrap(), bytes);
+    assert!(fixture.store.has_current_image_seal(&image).unwrap());
+    let after = fixture.mutate("UPDATE counter SET value=8");
+    let encoded = delta(&bytes, &after, 4096, 2, false);
+    let update = fixture.update(&image, &encoded, &after, 2, false);
+    fixture
+        .files
+        .metrics
+        .fail_dir_sync
+        .store(true, Ordering::Release);
+    assert!(fixture
+        .store
+        .prepare_image_root(Some(&image), &update, &ApplyLimits::default(), &mut buffer)
+        .is_err());
+    assert!(fixture.store.usage().unwrap().quarantined);
+    assert!(matches!(
+        fixture.store.has_current_image_seal(&image),
+        Err(StoreError::Quarantined)
+    ));
+}
+
+#[test]
 fn a_small_write_shares_unchanged_extents_and_preserves_sqlite_and_checksums() {
     for (page_size, checksums) in [(512, false), (4096, false), (65536, false), (4096, true)] {
         let (fixture, before) = Fixture::new(page_size, 12 * 1024 * 1024);

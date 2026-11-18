@@ -105,7 +105,7 @@ async fn persist(
 
 pub(super) async fn run() -> Result<()> {
     for cut in ["before-sync", "after-sync", "acknowledged"] {
-        let temp = tempfile::tempdir()?;
+        let temp = crash_fixture::retained_directory()?;
         let root = temp.path();
         let (domain, log) = open(root, LogOpenMode::Create, 1, Arc::new(DirectFileSystem)).await?;
         let local = MemberId::new(1)?;

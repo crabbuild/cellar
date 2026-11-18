@@ -724,6 +724,7 @@ pub(crate) use membership::{
     membership_delivery_fence, membership_lifecycle, membership_physical_delivery_fence,
     membership_quorum_floor, membership_quorum_followers,
     membership_read_retries_without_unrelated_work, membership_sync,
+    outgoing_handoff_preserves_term, outgoing_voter_cannot_campaign,
 };
 
 #[path = "cell_group_seed.rs"]

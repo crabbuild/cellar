@@ -17,6 +17,19 @@ impl Storage {
         configuration: Option<(&ConfState, &GroupMembership)>,
         verify_existing: bool,
     ) -> Result<PreparedGroupManifest, ExecutionError> {
+        self.prepare_entry_with_image(base, entry, configuration, verify_existing, None)
+    }
+
+    /// Only live committed apply supplies a checked producer capability.
+    /// Archive/recovery callers retain the independent replay entry point above.
+    pub(super) fn prepare_entry_with_image(
+        &mut self,
+        base: &PreparedGroupManifest,
+        entry: &Entry,
+        configuration: Option<(&ConfState, &GroupMembership)>,
+        verify_existing: bool,
+        prepared: Option<&crate::raft::execution::PreparedCellImage>,
+    ) -> Result<PreparedGroupManifest, ExecutionError> {
         let Storage {
             tree,
             pages,
@@ -125,7 +138,7 @@ impl Storage {
                         unchanged
                     }
                     Ok(EnrollmentDecision::Propose(record)) => {
-                        let prepared = images.prepare(
+                        let prepared = images.prepare_with_image(
                             images::ImageApply {
                                 cell: &cell,
                                 sequence: 1,
@@ -136,6 +149,7 @@ impl Storage {
                                 max_effect_rows: *max_effect_rows,
                             },
                             verify_existing,
+                            prepared,
                         )?;
                         let leaf = CellManifestLeaf {
                             enrollment: record,
@@ -161,7 +175,7 @@ impl Storage {
                     .pin_cell(&mutation.cell.cell)
                     .ok_or(ExecutionError::Invalid("apply cell missing"))?;
                 mutation.check_base(&old.version).map_err(storage)?;
-                let prepared = images.prepare(
+                let prepared = images.prepare_with_image(
                     images::ImageApply {
                         cell: &mutation.cell,
                         sequence: mutation.sequence.get(),
@@ -172,6 +186,7 @@ impl Storage {
                         max_effect_rows: *max_effect_rows,
                     },
                     verify_existing,
+                    prepared,
                 )?;
                 let leaf = CellManifestLeaf {
                     enrollment: old.enrollment.clone(),

@@ -216,6 +216,14 @@ impl CellGroupApplier {
                 ExecutionError::Invalid("poisoned group applier")
             }
         })?;
+        // Upgrade only on the admitted physical worker. Public submission and
+        // queued ticket clones retain no image custody after producer closure.
+        let image = work
+            .ticket
+            .prepared_image
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .filter(|image| image.matches(&self.group.owner, self.history(), &work.entry.data));
         let next = if work.entry.get_entry_type() == ::raft::prelude::EntryType::EntryConfChangeV2 {
             let cache = self.group.read().map_err(storage)?;
             owner.prepare_entry(
@@ -225,7 +233,13 @@ impl CellGroupApplier {
                 false,
             )?
         } else {
-            owner.prepare_entry(&work.base, &work.entry, None, false)?
+            owner.prepare_entry_with_image(
+                &work.base,
+                &work.entry,
+                None,
+                false,
+                image.as_deref(),
+            )?
         };
         self.check(work)?;
         Ok(next)

@@ -482,6 +482,15 @@ impl WorkingImage {
 }
 
 impl Preview {
+    pub(super) fn cell_pin(&self) -> crate::raft::cell_groups::CellImagePin {
+        match self {
+            Self::Materialized(pin) => {
+                crate::raft::cell_groups::CellImagePin::Materialized(pin.clone())
+            }
+            Self::Rooted(root) => crate::raft::cell_groups::CellImagePin::Extents(root.clone()),
+        }
+    }
+
     pub fn state(&self) -> State {
         match self {
             Self::Materialized(pin) => State::Materialized(pin.state()),
@@ -491,6 +500,48 @@ impl Preview {
 }
 
 impl Images {
+    pub(super) fn preparation_limits(
+        &self,
+        options: &Options,
+    ) -> anyhow::Result<cellar_ltx::apply::ApplyLimits> {
+        match self {
+            Self::Materialized(store) => Ok(store.apply_limits()),
+            Self::Extents { .. } => apply_limits(options.limits),
+        }
+    }
+
+    /// Shared-cell materialized previews use the final recovery lookup name.
+    /// The name supplies no proof; the preview still independently replays LTX.
+    pub(super) fn cell_preview_id(
+        cell: &cellar_logic::cell_group::CellHistory,
+        sequence: u64,
+        fallback: ImageId,
+        update: &crate::raft::working::CapturedUpdate,
+    ) -> anyhow::Result<ImageId> {
+        let ImageCommitment::Sha256(digest) = update.result.commitment else {
+            return Ok(fallback);
+        };
+        let header = cellar_ltx::ltx::Header::parse(
+            &update
+                .files
+                .last()
+                .ok_or_else(|| anyhow::anyhow!("empty command cut"))?
+                .bytes,
+        )?;
+        Ok(crate::raft::cell_groups::materialized_cell_image_id(
+            cell,
+            sequence,
+            ImageState {
+                epoch: update.result.epoch,
+                txid: TXID(update.result.txid),
+                checksum: update.result.checksum,
+                page_size: header.page_size,
+                length: u64::from(header.commit) * u64::from(header.page_size),
+                digest,
+            },
+        )?)
+    }
+
     pub fn workspace(&self) -> Option<&NodeWorkspace> {
         match self {
             Self::Materialized(_) => None,
