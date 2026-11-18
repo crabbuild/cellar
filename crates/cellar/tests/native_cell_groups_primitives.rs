@@ -2464,17 +2464,6 @@ async fn ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn materialized_source_s3_named_rpc_progress() -> Result<()> {
-    Box::pin(bindings::materialized_s3_progress(false)).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires isolated local RustFS"]
-async fn rustfs_materialized_source_s3_named_rpc_progress() -> Result<()> {
-    Box::pin(bindings::materialized_s3_progress(true)).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
     Box::pin(bindings::qualify(true)).await

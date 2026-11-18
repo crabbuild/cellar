@@ -24,6 +24,8 @@ pub struct Metrics {
     pub random_write_window_calls: AtomicUsize,
     pub native_random_windows: AtomicBool,
     pub file_sync_calls: AtomicUsize,
+    pub scratch_sync_calls: AtomicUsize,
+    pub reject_scratch_sync: AtomicBool,
     pub dir_sync_calls: AtomicUsize,
     pub active_handles: AtomicUsize,
     pub fail_append: AtomicBool,
@@ -50,6 +52,7 @@ struct File {
     inner: HostFile,
     metrics: Arc<Metrics>,
     root_metadata: bool,
+    scratch: bool,
 }
 
 impl Drop for File {
@@ -177,6 +180,14 @@ impl HostFileIo for File {
     }
 
     fn sync_all(&mut self) -> io::Result<()> {
+        if self.scratch {
+            self.metrics
+                .scratch_sync_calls
+                .fetch_add(1, Ordering::AcqRel);
+            if self.metrics.reject_scratch_sync.load(Ordering::Acquire) {
+                return Err(io::Error::other("anonymous scratch sync forbidden"));
+            }
+        }
         self.metrics.file_sync_calls.fetch_add(1, Ordering::AcqRel);
         if self.metrics.fail_sync.swap(false, Ordering::AcqRel) {
             return Err(io::Error::other("uncertain file sync"));
@@ -213,6 +224,7 @@ impl BoundedFiles {
             inner: file,
             metrics: self.metrics.clone(),
             root_metadata: false,
+            scratch: false,
         })
     }
 }
@@ -248,7 +260,14 @@ impl FileSystem for BoundedFiles {
     }
 
     fn temporary_file(&self, _: Option<&Path>) -> io::Result<HostFile> {
-        Ok(self.wrap(DirectFileSystem.temporary_file(Some(&self.directory))?))
+        let inner = DirectFileSystem.temporary_file(Some(&self.directory))?;
+        self.metrics.active_handles.fetch_add(1, Ordering::AcqRel);
+        Ok(HostFile::from_io(File {
+            inner,
+            metrics: self.metrics.clone(),
+            root_metadata: false,
+            scratch: true,
+        }))
     }
 
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
@@ -261,6 +280,7 @@ impl FileSystem for BoundedFiles {
         let file = HostFile::from_io(File {
             inner,
             metrics: self.metrics.clone(),
+            scratch: false,
             root_metadata: path
                 .file_name()
                 .and_then(|n| n.to_str())

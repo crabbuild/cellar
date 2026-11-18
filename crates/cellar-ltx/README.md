@@ -51,6 +51,13 @@ images. Its pin prevents reclamation while borrowed; it supplies no apply,
 publication or serving authority. The caller must obtain the expected state from
 its committed input and publish the resulting complete manifest separately.
 
+`GenerationReceive` independently checks the incoming anonymous spool without
+syncing it. The spool is never adopted or renamed into an immutable image. A new
+destination is copied, independently checked and synced with its directory;
+reusing an existing destination still rereads it and completes both barriers.
+Cancellation or spool loss cannot produce a pin, and a failed destination
+barrier still refuses the receive.
+
 `RootView::read_extent` supplies one complete dependency to an admitted blocking
 transfer owner. The caller reserves its at-most-4-MiB output. It refuses objects
 outside the pinned root and returns bytes only after the full extent identity
