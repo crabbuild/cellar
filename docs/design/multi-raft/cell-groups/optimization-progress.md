@@ -6023,3 +6023,71 @@ and persistence require causal measurement before another production change.
 Then qualify bounded persistence batching and shared-worker fairness, physical
 reclamation and movement, combined authority/recovery/SDK faults, and the full
 source-matched SQL/KV/Queue constrained comparison.
+
+## Exact live-image reuse and incoming-voter fencing
+
+Committed implementation `53c0fb05` includes `origin/main`
+`2f083f14`. A pending producer's independently replayed and
+synced image can serve the exact live committed apply on that engine. Engine,
+group, encoded input, validation limits, store, result and base checks remain
+required. Submission and ticket clones carry weak references. Independent
+follower/archive/recovery replay, inventory health, commit/serving proofs,
+operation deadlines, banks and workers remain required. A cached result name
+without the live capability must independently replay the supplied LTX.
+
+Both image work-count regressions pass after exact replica value, receipt,
+version/witness and joined-close checks. Leader base-image reads fall from one
+to zero; follower reads stay one each. Materialized apply seals fall from one
+to zero. This qualifies reduced duplicate work, **not throughput or latency**.
+
+A full native run exposed outgoing-only application readiness after a Joint
+restart. The fix requires incoming membership for application readiness,
+producer/enrollment and leader-bound read authority; outgoing followers cannot
+campaign. They still age voting leases and vote for legitimate incoming
+candidates. Higher-term handoffs retain term evidence without self-voting.
+An existing outgoing protocol leader can finish Joint. Six focused cases and
+twelve original crash/sync/delivery/image controls pass on their recorded
+source. The final combined run rechecks the full suites below.
+
+**Combined owning qualification: FAILED.**
+Strict all-feature/all-target Clippy, native-only host/Python facade build,
+format/layout/dependency/docs/plan/runner/whitespace checks pass (9/9).
+Current-source failed selections:
+
+- `native_cell_groups_primitives--materialized_queue_four_in_flight_preserves_acknowledged_messages`.
+- `native_cell_groups_primitives--rooted_queue_four_in_flight_preserves_acknowledged_messages`.
+- `native_cell_groups_primitives--queue_four_in_flight_preserves_acknowledged_messages`.
+- `native_cell_groups_primitives--queue_load_preserves_acknowledged_messages`.
+- `native_cell_groups_primitives--ordinary_kv_bindings_use_managed_shared_groups`.
+
+Full-suite results:
+
+- `extent_apply--full`: PASSED; 15 passed, 0 failed, 0 ignored.
+- `cellar--full`: PASSED; 1257 passed, 0 failed, 2 ignored.
+- `native_cell_groups_execution--full`: PASSED; 232 passed, 0 failed, 2 ignored.
+- `native_cell_groups_storage--full`: PASSED; 22 passed, 0 failed, 2 ignored.
+
+The four original Queue C2/C4 checks retain their exact offered concurrency
+and ambiguous deadlines. Independent C4 cases exercise both image modes;
+the combined/C2 cases stop at their first failed materialized iteration.
+Ordinary Queue and batch-proof sharing, ordinary/Axum SQL, Axum KV,
+fragmented KV, ordinary JSON RPC and both selected SQL recovery cases pass.
+A failed ordinary KV negative-provider case returns an ambiguous deadline
+rather than the required unavailable-payload error; later configurations
+inside that test are unrun. See the [source-bound record](prepared-image-and-incoming-voter-qualification-2026-11-18.json) for every
+selection, artifact/profile, failed earlier cohort and retained manifest.
+The earlier failed membership-crash TempDir auto-cleaned before capture:
+its disk state is unavailable, while logs/source/executable and remaining
+fixture data are retained. Crash parents now retain their directories.
+
+The read-only original RustFS check at 2026-11-18T11:39:56.787709+00:00 found
+0 available bytes, below the unchanged 6,442,450,944-byte reserve.
+No constrained campaign is admitted. The native suites use in-memory object
+stores. Previous published failures remain; later narrow passes do not replace
+them. Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open.
+
+P0 remains repeatable original-deadline SQL/KV/Queue, receipt/RPC and recovery
+progress. Then measure persistence batching and shared-worker fairness,
+physical reclamation/once-only credit and reserve-aware movement, combined
+fault/SDK qualification, and the original three-node SQL/KV/Queue
+Quorum/Quorum+S3/Fleet/Bucket C1/4/16 throughput/latency comparison.
