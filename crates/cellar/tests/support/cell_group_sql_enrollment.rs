@@ -568,3 +568,92 @@ pub(super) async fn owned_workspace_barriers() -> Result<()> {
     drop(pool);
     fixture.close().await
 }
+
+pub(super) async fn materialized_scratch_barriers() -> Result<()> {
+    let (mut fixture, route) = cluster(false).await?;
+    let pool = CellGroupSqlPool::start(&fixture.cluster.voters[0].log, limits(2))?;
+    let cell = history(&route, "disposable-workspace")?;
+    let mut options = fixture.cell_options(&cell).await?;
+    let CellSqlOptions::Materialized(private) = &mut options else {
+        anyhow::bail!("materialized workspace required")
+    };
+    let gate = fault::Gate::new(None);
+    private.host = private
+        .host
+        .clone()
+        .with_filesystem(Arc::new(fault::FaultFileSystem { gate: gate.clone() }));
+    // All three authoritative image stores and engines are already open.
+    // Reject only an ancestor barrier from the disposable SQL workspace.
+    // Their own file/directory barriers remain on their original providers.
+    *gate.sync_path.lock().unwrap() = Some(fixture.cluster._root.path().to_path_buf());
+    let release = gate.arm(fault::FAIL_PARENT_SYNC);
+    let work = async {
+        let authority = fixture.runtimes[0]
+            .enrollment_authority(route.history, cell.clone())
+            .await?;
+        let CellSqlOutcome::Prepared(initial) = pool
+            .initialize(options.clone(), authority, attempt(170)?, |tx| {
+                tx.execute_batch("CREATE TABLE value(n); INSERT INTO value VALUES(7)")?;
+                Ok(())
+            })
+            .await?
+        else {
+            anyhow::bail!("prepared enrollment")
+        };
+        submit(&mut fixture, &pool, 0, &cell, &initial).await?;
+        let enrolled = resolved(&fixture, &pool, 0, &cell, initial.proposal()).await?;
+        anyhow::ensure!(enrolled.record().cell() == &cell);
+        drop(enrolled);
+        drop(initial);
+        let authority = fixture.runtimes[0]
+            .execution_authority(route.history, cell.clone())
+            .await?;
+        let CellSqlOutcome::Prepared(command) = pool
+            .stage(options, authority, cell_attempt(171)?, true, |tx| {
+                tx.execute("UPDATE value SET n=n+1", [])?;
+                Ok(b"after-initialization".to_vec())
+            })
+            .await?
+        else {
+            anyhow::bail!("prepared command")
+        };
+        let receipt = commit_on(&mut fixture, &pool, 0, &cell, command).await?;
+        anyhow::ensure!(receipt.receipt().version.sequence.get() == 2);
+        let version = receipt.receipt().version.clone();
+        let witness = receipt.receipt().witness;
+        drop(receipt);
+        for node in 0..3 {
+            let current = fixture.runtimes[node]
+                .reconciliation_authority(route.history, cell.clone())
+                .await?;
+            anyhow::ensure!(current.cell().version == version && current.cell().witness == witness);
+            let authority =
+                super::reads::selected(&mut fixture, node, &cell, CellReadConsistency::Stale)
+                    .await?;
+            let output = fixture.appliers[&(node, route.history)]
+                .0
+                .query(
+                    fixture.cell_options_at(&cell, node).await?,
+                    authority,
+                    |db, version| {
+                        anyhow::ensure!(version.sequence.get() == 2);
+                        let value: i64 =
+                            db.query_row("SELECT n FROM value", [], |row| row.get(0))?;
+                        Ok(value.to_le_bytes().to_vec())
+                    },
+                )
+                .await?;
+            anyhow::ensure!(output.result() == 8_i64.to_le_bytes());
+        }
+        anyhow::ensure!(gate.mode.load(Ordering::Acquire) == fault::FAIL_PARENT_SYNC);
+        anyhow::ensure!(pool.usage()?.active_cells == 0 && pool.usage()?.retained_bytes == 0);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    // Join the physical owners even for the intended pre-fix failure.
+    pool.close().await?;
+    drop(pool);
+    fixture.close().await?;
+    drop(release);
+    work
+}

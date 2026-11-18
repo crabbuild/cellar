@@ -142,7 +142,7 @@ impl CellPrivateExecutor {
                 name.push(format!(".cursor-{slot}"));
                 options.directory = directory.with_file_name(name);
             }
-            options.prepare_directory()?;
+            options.prepare_cell_scratch()?;
             match filesystem.lock_file(&options.directory.join("working.lock")) {
                 Ok(lock) => {
                     acquired = Some(lock);

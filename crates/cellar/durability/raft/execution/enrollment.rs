@@ -68,7 +68,7 @@ impl CellPrivateEnrollment {
             return Err(ExecutionError::Invalid("initialization binding"));
         }
         let filesystem = options.host.filesystem();
-        options.prepare_directory()?;
+        options.prepare_cell_scratch()?;
         let lock = PrivateLock {
             _lock: filesystem
                 .lock_file(&options.directory.join("working.lock"))

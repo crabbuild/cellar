@@ -665,6 +665,11 @@ async fn rooted_enrollment_and_commands_reuse_owned_workspace_barriers() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn materialized_cell_scratch_needs_no_ancestor_sync() -> Result<()> {
+    Box::pin(runtime_fixture::materialized_scratch_barriers()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn enrollment_recovery_after_leadership_change() -> Result<()> {
     runtime_fixture::recover_initialization(false).await
 }

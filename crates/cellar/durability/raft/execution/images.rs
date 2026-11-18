@@ -130,6 +130,25 @@ impl Options {
             .map_err(storage)
     }
 
+    /// Cell writers rebuild scratch from a separately sealed image before entry.
+    /// Its directories need no crash-persistence barrier; the live lock and
+    /// workspace reservation still outlive every physical producer.
+    pub(super) fn prepare_cell_scratch(&self) -> Result<(), ExecutionError> {
+        if self.images.workspace().is_some() {
+            return self.prepare_directory();
+        }
+        if !self.directory.is_absolute() || self.directory.components().take(129).count() > 128 {
+            return Err(storage(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "bounded absolute directory required",
+            )));
+        }
+        self.host
+            .filesystem()
+            .create_dir_all(&self.directory)
+            .map_err(storage)
+    }
+
     /// Only shared-cell private scratch is disposable here. Keep the lock inode
     /// and sealed image stores; an unresolved producer still owns this directory
     /// until its physical callback/settlement has joined.
