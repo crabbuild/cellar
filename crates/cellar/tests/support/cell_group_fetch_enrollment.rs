@@ -84,25 +84,30 @@ pub(super) async fn work(
         pending(cluster),
     );
     let callback_count = callbacks.load(Ordering::Acquire);
+    let initializer_count = initializers.load(Ordering::Acquire);
     drop(release);
     observed.context("archive write did not enter")?;
     let metadata = result?;
     ensure!(
         metadata["kind"] == "enrollment"
             && metadata["ambiguous"] == true
-            && metadata["minimum"] == "S3"
+            && metadata["minimum"] == "S3",
+        "unexpected birth metadata: {metadata}"
     );
-    ensure!(metadata["cause"]
-        .as_str()
-        .context("birth cause")?
-        .contains("DeadlineExceeded"));
+    ensure!(
+        metadata["cause"]
+            .as_str()
+            .context("birth cause")?
+            .contains("DeadlineExceeded"),
+        "birth deadline cause: {metadata}"
+    );
     ensure!(
         callback_count == 0,
         "business input ran before birth's S3 proof"
     );
     ensure!(
-        initializers.load(Ordering::Acquire) == initialized + 1,
-        "archive outage blocked quorum birth or repeated its initializer"
+        initializer_count == initialized + 1,
+        "initializer count while archive writes remained held: before={initialized}, observed={initializer_count}"
     );
     let group = cluster.history;
     ensure!(
