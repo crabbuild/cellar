@@ -218,3 +218,35 @@ absence. Real-RustFS native/Axum deletion/recreation passes all four image
 configurations again (1218), including cancellation and retained restart. The
 broader 18-configuration result above remains pinned to `177c7f7f5`; complete
 family and combined recovery qualification remain open.
+
+## Qualification integrated from main
+
+The scoped `workflow-lifecycle` gate exercises completed results and stream
+bytes across S3-seeded RF3 voter replacement, whole-group park/public-read wake,
+and retained restart before event completion. It establishes an initial serving
+quorum, then creates the new instance through the public SDK within its original
+request budget. Local version/image coverage on the replacement, actual archive
+payload reads and execution counters are required. See the
+[replacement/wake checkpoint](progress.md#cg-17-workflow-replacement-and-wake)
+for passing configurations, failures and the controller retirement correction.
+At `4fe5d3bdd`, both exact real RustFS cases pass all four native/Axum image
+configurations under the original request/callback budgets. The earlier Axum
+retirement failure remains recorded. This scenario alone does not accept requests
+before initial quorum readiness, in-flight provider effects, independent voter
+crashes or all-voter disk loss.
+
+The `workflow-deletion` gate holds callbacks through eight public
+delete/absence/recreate cycles, then deletes and recreates a waiting Workflow
+after retained RF3 restart. At integrated runtime `d05987085`, both native and
+Axum cases pass both image formats under the original budgets. The pre-fix
+integration control fails its first deletes because handler retirement
+invalidates asynchronous image preparation. The fix defers retirement to the
+committed-result handoff and retains all preparation guards. See the
+[committed deletion checkpoint](progress.md#cg-17-workflow-committed-delete-settlement)
+for exact sources and evidence. The broader same-source Workflow campaign still
+fails Axum extent `create/capped` after restart/replay; these delete passes do
+not accept the complete family or close that deadline.
+The coordinated successor `177c7f7f5` passes all eighteen deletion, ordinary,
+scheduled and replacement/wake configurations on one source and executable.
+Those later scoped results retain the earlier failures and do not qualify full
+Workflow/provider, independent-voter or disk-loss coverage.
