@@ -179,6 +179,13 @@ impl Working {
         Ok(update)
     }
 
+    /// Skip capture's final checkpoint before shared-cell scratch is discarded.
+    /// The ordinary close path drops the command connection before capture.
+    pub(super) fn close_for_discard(self) -> Result<()> {
+        self.capture.disable_disposable_close_checkpoint()?;
+        self.close()
+    }
+
     pub fn close(self) -> Result<()> {
         drop(self.database);
         self.capture.close()?;

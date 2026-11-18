@@ -412,7 +412,10 @@ impl WorkingImage {
     pub(super) fn close_cell(self, options: &Options) -> anyhow::Result<()> {
         // Close SQLite/WAL capture before removing any path, including when its
         // close reports an error. The caller still owns the private lock.
-        let closed = self.close();
+        let closed = match self {
+            Self::Materialized(working) => (*working).close_for_discard(),
+            Self::Rooted(working) => (*working).close(),
+        };
         options.discard_cell_scratch()?;
         closed
     }
@@ -806,3 +809,7 @@ pub(super) fn apply_limits(
         max_total_pages: usize::try_from(envelope.max_pages)?,
     })
 }
+
+#[cfg(test)]
+#[path = "images_tests.rs"]
+mod tests;
