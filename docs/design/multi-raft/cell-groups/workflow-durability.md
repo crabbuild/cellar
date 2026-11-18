@@ -113,6 +113,12 @@ outbound/query byte admission without consuming another subrequest per chunk.
 Deletion clears only the reserved Workflow key range through the fenced writable
 scope and cancels its alarm. It retains framework receipts and sequence floors;
 committing deletion retires the old activation before a new instance can run.
+Dropping the completed delete handler records a retirement request; it does not
+invalidate the producer that still owns immutable image preparation. That work
+retains its activation, term, route, image and original-deadline checks. The SQL
+owner consumes the request at the committed-result handoff, closes the old
+activation and returns the receipt. Abort and owner-loss paths keep their
+existing fences, and a lost response retains its original ambiguity.
 
 Delivery and callback execution are at least once after interruption. Completed
 step replay reuses its durable result. External effects still require their own
