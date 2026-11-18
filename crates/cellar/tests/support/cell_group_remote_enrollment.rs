@@ -114,11 +114,14 @@ pub(crate) async fn remote_enrollment() -> Result<()> {
         assert!(
             matches!(
                 error.cause.as_ref(),
-                CellDispatchError::Runtime(cellar::raft::completion::RuntimeError::NotLeader)
+                CellDispatchError::Runtime(RuntimeError::NotLeader)
             ),
             "{error:?}"
         );
-        assert!(!error.ambiguous, "follower never entered initialization: {error:?}");
+        assert!(
+            !error.ambiguous,
+            "follower never entered initialization: {error:?}"
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         drop(follower);
         drop(follower_gateway);
