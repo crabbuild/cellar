@@ -107,6 +107,20 @@ async fn uncontended_binding_preserves_its_proven_source_writer() -> Result<()> 
 async fn rustfs_uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
     binding_writer::qualify(true).await
 }
+#[path = "support/cell_group_fetch.rs"]
+mod fetch_bindings;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cell_fetch_retains_http_response_and_child_identity() -> Result<()> {
+    fetch_bindings::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_ordinary_cell_fetch_retains_http_response_and_child_identity() -> Result<()> {
+    fetch_bindings::qualify(true).await
+}
+
 #[path = "support/cell_group_filesystem.rs"]
 mod filesystem;
 #[path = "support/cell_group_initial_read.rs"]

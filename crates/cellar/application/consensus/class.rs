@@ -365,6 +365,7 @@ enum CommandHandler {
     NativeCellRpc { method: String, json_only: bool },
     NativeWork,
     NativeEventRpc,
+    NativeFetch,
 }
 
 /// Framework provenance is supplied by admission, never by application input.
@@ -991,6 +992,23 @@ impl RaftClass {
         Ok(self)
     }
 
+    /// Retain buffered ordinary `Invocation::Fetch` responses in independently
+    /// durable command receipts. Input and result use the host's encoded byte
+    /// limits. Streams and WebSocket upgrades require a separate session owner.
+    pub fn cell_fetch(mut self, digest: [u8; 32]) -> Result<Self, RegistrationError> {
+        let operation = super::native_fetch::OPERATION;
+        self.validate_new(operation, digest)?;
+        self.commands.insert(
+            operation.into(),
+            Command {
+                digest,
+                handler: CommandHandler::NativeFetch,
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
     pub(crate) fn binding_contract(&self, operation: &str) -> Option<OperationContract> {
         if (self.name == crate::deploy::SQL_CLASS
             && operation == crate::application::sql::operator::METHOD)
@@ -1005,7 +1023,9 @@ impl RaftClass {
         }
         let command = self.commands.get(operation)?;
         match &command.handler {
-            CommandHandler::NativeCellRpc { .. } => self.contract(operation),
+            CommandHandler::NativeCellRpc { .. } | CommandHandler::NativeFetch => {
+                self.contract(operation)
+            }
             CommandHandler::JsonCellRpc => {
                 self.contract(&super::native_rpc::binding_operation(operation))
             }
@@ -1043,6 +1063,7 @@ impl RaftClass {
         match &self.commands.get(operation)?.handler {
             CommandHandler::JsonCellRpc => Some(true),
             CommandHandler::NativeCellRpc { json_only, .. } => Some(*json_only),
+            CommandHandler::NativeFetch => Some(false),
             CommandHandler::Registered(_)
             | CommandHandler::NativeWork
             | CommandHandler::NativeEventRpc => None,
@@ -1225,6 +1246,7 @@ impl RaftClass {
                         | CommandHandler::NativeCellRpc { .. }
                         | CommandHandler::NativeWork
                         | CommandHandler::NativeEventRpc
+                        | CommandHandler::NativeFetch
                 )
             })
     }
@@ -1240,6 +1262,7 @@ impl RaftClass {
                         | CommandHandler::NativeCellRpc { .. }
                         | CommandHandler::NativeWork
                         | CommandHandler::NativeEventRpc
+                        | CommandHandler::NativeFetch
                 )
             })
     }
@@ -1285,6 +1308,7 @@ impl RaftClass {
             },
             CommandHandler::NativeWork => CellRpcMethod::Work,
             CommandHandler::NativeEventRpc => CellRpcMethod::Event,
+            CommandHandler::NativeFetch => CellRpcMethod::Fetch,
             CommandHandler::Registered(_) => return Err(RegistrationError::KindMismatch.into()),
         };
         if self.filesystem.is_some() {
@@ -1965,6 +1989,13 @@ impl RaftClass {
                 hash.update(method.as_bytes());
                 hash.update([u8::from(*json_only)]);
             }
+        }
+        if self
+            .commands
+            .values()
+            .any(|c| matches!(c.handler, CommandHandler::NativeFetch))
+        {
+            hash.update(b"native-cell-buffered-http-1");
         }
         if self.has_binding_maintenance() {
             hash.update(b"binding-sequence-seal-1");

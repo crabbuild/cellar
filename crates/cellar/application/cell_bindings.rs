@@ -581,6 +581,31 @@ pub(crate) fn event_rpc(
     )
 }
 
+enum BindingInput {
+    Rpc {
+        args: RpcData,
+        event: Option<super::consensus::native_event_rpc::Authority>,
+    },
+    Fetch(super::Request),
+}
+
+pub(crate) fn fetch(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    request: super::Request,
+) -> HandlerFuture<crate::engine_api::HttpResponse> {
+    admitted(
+        context,
+        scope,
+        name,
+        super::consensus::native_fetch::OPERATION.into(),
+        BindingInput::Fetch(request),
+        crate::host_rpc::CallScope::in_context(context, None, None),
+        super::consensus::native_fetch::decode_response,
+    )
+}
+
 fn rpc_admitted(
     context: &Context,
     scope: String,
@@ -590,6 +615,26 @@ fn rpc_admitted(
     call_scope: crate::host_rpc::CallScope,
     event: Option<super::consensus::native_event_rpc::Authority>,
 ) -> HandlerFuture<RpcData> {
+    admitted(
+        context,
+        scope,
+        name,
+        method,
+        BindingInput::Rpc { args, event },
+        call_scope,
+        super::consensus::native_rpc::decode_response,
+    )
+}
+
+fn admitted<T: Send + 'static>(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    input: BindingInput,
+    call_scope: crate::host_rpc::CallScope,
+    decode: fn(&[u8]) -> Result<T>,
+) -> HandlerFuture<T> {
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
         context.check_binding_turn()?;
@@ -607,7 +652,11 @@ fn rpc_admitted(
             dispatch = dispatch.limit_source(Duration::from_millis(remaining))?;
         }
         let source = dispatch.binding_source()?;
-        let mut route = match &event {
+        let event = match &input {
+            BindingInput::Rpc { event, .. } => event.as_ref(),
+            BindingInput::Fetch(_) => None,
+        };
+        let mut route = match event {
             Some(authority) => {
                 authority.validate_target(&scope, name.as_deref(), &method)?;
                 source.host.event_route(
@@ -633,7 +682,14 @@ fn rpc_admitted(
             name.as_deref(),
         )?;
         anyhow::ensure!(
-            !route.json_only || matches!(&args, RpcData::Json(_)),
+            !route.json_only
+                || matches!(
+                    &input,
+                    BindingInput::Rpc {
+                        args: RpcData::Json(_),
+                        ..
+                    }
+                ),
             CommandFailure::UnsupportedCapability
         );
         // The source SQL stage does not own buffers retained by the child
@@ -651,8 +707,11 @@ fn rpc_admitted(
             .and_then(|n| n.checked_add(8192))
             .ok_or(CommandFailure::Overloaded)?;
         let lease = source.host.admit(source.group, bytes)?;
-        let input = match event {
-            Some(authority) => super::consensus::native_event_rpc::encode(
+        let input = match input {
+            BindingInput::Rpc {
+                args,
+                event: Some(authority),
+            } => super::consensus::native_event_rpc::encode(
                 &scope,
                 name.as_deref(),
                 &method,
@@ -660,9 +719,16 @@ fn rpc_admitted(
                 &args,
                 route.max_input_bytes,
             )?,
-            None => super::consensus::native_rpc::encode_request(
+            BindingInput::Rpc { args, event: None } => {
+                super::consensus::native_rpc::encode_request(
+                    name.as_deref(),
+                    &args,
+                    route.max_input_bytes,
+                )?
+            }
+            BindingInput::Fetch(request) => super::consensus::native_fetch::encode_request(
                 name.as_deref(),
-                &args,
+                &request,
                 route.max_input_bytes,
             )?,
         };
@@ -708,6 +774,7 @@ fn rpc_admitted(
                         observed_command,
                     )
                     .await
+                    .and_then(|bytes| decode(&bytes))
                     .map(|value| (value, lease))
                 })?;
                 Ok((identity, call))
@@ -754,7 +821,7 @@ async fn run(
     io: RaftDispatchIo,
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
-) -> Result<RpcData> {
+) -> Result<Vec<u8>> {
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -891,7 +958,7 @@ async fn run(
                     _lease: memory,
                 });
             }
-            super::consensus::native_rpc::decode_response(&receipt.result)
+            Ok(receipt.result)
         }
         Err(cause) => {
             *source.hint.lock().unwrap() = None;

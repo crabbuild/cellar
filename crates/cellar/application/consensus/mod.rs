@@ -24,6 +24,7 @@ mod native_configuration;
 mod native_event_enrollment;
 pub(crate) mod native_event_query;
 pub(crate) mod native_event_rpc;
+pub(crate) mod native_fetch;
 pub(crate) mod native_ingress;
 pub(crate) mod native_queue_metrics;
 pub(crate) mod native_queue_query;

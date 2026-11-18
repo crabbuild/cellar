@@ -28,6 +28,7 @@ pub(super) enum CellRpcMethod<'a> {
     Json(&'a str),
     Work,
     Event,
+    Fetch,
     Owned { method: &'a str, json_only: bool },
 }
 
@@ -402,6 +403,21 @@ impl NativeCellFactory {
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>> {
+        let fetch = if matches!(method, CellRpcMethod::Fetch) {
+            let (name, request) = super::native_fetch::decode_request(input)?;
+            super::native_rpc::validate_identity(
+                &self.config.script_name,
+                &self.class,
+                cell.cell.as_str(),
+                name.as_deref(),
+            )?;
+            let limit = crate::storage::capture_raft_dispatch()?
+                .ok_or(CommandFailure::UnsupportedCapability)?
+                .result_limit()?;
+            Some((name, request, limit))
+        } else {
+            None
+        };
         let owned_wire = matches!(method, CellRpcMethod::Owned { .. } | CellRpcMethod::Event);
         let work = if matches!(method, CellRpcMethod::Work) {
             anyhow::ensure!(self.callbacks, CommandFailure::UnsupportedCapability);
@@ -461,6 +477,12 @@ impl NativeCellFactory {
                     Some(request.authority),
                 )
             }
+            CellRpcMethod::Fetch => (
+                String::new(),
+                RpcData::Json("null".into()),
+                fetch.as_ref().and_then(|(name, _, _)| name.clone()),
+                None,
+            ),
             CellRpcMethod::Work => (String::new(), RpcData::Json("null".into()), None, None),
             CellRpcMethod::Json(operation) => {
                 let json = std::str::from_utf8(input)?;
@@ -522,11 +544,13 @@ impl NativeCellFactory {
         if let Some(authority) = event_authority {
             authority.install(&mut context);
         }
-        let invocation = match &work {
-            Some((work, _)) => Invocation::Alarm {
+        let fetch_limit = fetch.as_ref().map(|(_, _, limit)| *limit);
+        let invocation = match (&work, fetch) {
+            (None, Some((_, request, _))) => Invocation::Fetch(request),
+            (Some((work, _)), _) => Invocation::Alarm {
                 scheduled_ms: i64::try_from(work.due)?,
             },
-            None => Invocation::CellRpc {
+            (None, None) => Invocation::CellRpc {
                 method: operation.to_owned(),
                 args,
             },
@@ -644,6 +668,12 @@ impl NativeCellFactory {
             } else {
                 future.await?
             };
+            if let Some(limit) = fetch_limit {
+                let Output::Http(response) = output else {
+                    anyhow::bail!(CommandFailure::UnsupportedCapability);
+                };
+                return super::native_fetch::encode_response(&response, limit);
+            }
             let Output::Rpc(result) = output else {
                 anyhow::bail!(CommandFailure::UnsupportedCapability);
             };
