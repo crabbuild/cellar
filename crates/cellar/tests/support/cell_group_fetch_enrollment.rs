@@ -140,7 +140,11 @@ pub(super) async fn work(
             TIMEOUT,
         )
         .await?;
-    ensure!(recovered.record().creation() == creation && recovered.record().cell() == &history);
+    ensure!(
+        recovered.record().creation() == creation
+            && recovered.record().cell() == &history
+            && recovered.durability() == Durability::S3
+    );
     drop(recovered);
     let query = target.contract("Get")?;
     drop(target);
