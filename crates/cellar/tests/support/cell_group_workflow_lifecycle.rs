@@ -282,7 +282,9 @@ async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
                 cellar::asyncrt::mono_ms().saturating_sub(readiness_started)
             );
             call(&cluster, "create", "lifecycle").await?;
-            state(&cluster, "lifecycle", "waiting").await?;
+            state(&cluster, "lifecycle", "waiting")
+                .await
+                .context("initial Workflow waiting phase")?;
             ensure!(
                 signals.first.load(Ordering::SeqCst) == 1
                     && signals.stream_runs.load(Ordering::SeqCst) == 1
@@ -311,7 +313,9 @@ async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
             named_service::restart(&mut cluster)
                 .await
                 .context("Workflow retained replacement restart")?;
-            state(&cluster, "lifecycle", "waiting").await?;
+            state(&cluster, "lifecycle", "waiting")
+                .await
+                .context("Workflow waiting phase after retained restart")?;
             let resumed = local_version(&cluster, 3, &history, 192).await?;
             ensure!(
                 matches!(resumed.covers(&minimum), Ok(true)),
