@@ -371,7 +371,33 @@ impl CellPrivateExecutor {
         committed
             .check_committed_entry(pending.prepared.bytes())
             .map_err(authority_failure)?;
-        let receipt = self.read_receipt(&committed, &pending.request)?;
+        committed.check().map_err(authority_failure)?;
+        // No application work can run between capture and exact settlement.
+        // This frozen writer produced the prepared image that the committed
+        // entry proves above, just as for an intermediate RPC checkpoint.
+        // Independent replay/reconciliation still reads the selected image.
+        let receipt = {
+            let connection = self
+                .working
+                .as_ref()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database()
+                .framework();
+            if !connection.is_autocommit() {
+                return Err(ExecutionError::Invalid(
+                    "final receipt writer is not frozen",
+                ));
+            }
+            receipts::preflight(connection, &pending.request, &self.options.limits)?
+                .ok_or(ExecutionError::Invalid("committed cell receipt missing"))?
+        };
+        committed.check().map_err(authority_failure)?;
+        let receipt = CellCommittedReceipt {
+            receipt,
+            version: committed.cell().version.clone(),
+            position: committed.cell().last_mutation,
+            witness: committed.cell().witness,
+        };
         // Only exact committed/reconciliation authority retires a private
         // preview. Pending retains its live pin through physical settlement.
         self.options
