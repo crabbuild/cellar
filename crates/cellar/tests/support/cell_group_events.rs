@@ -88,6 +88,10 @@ impl Cell for Producer {
                     json!(true)
                 }
                 "Consume" => {
+                    let mark = |phase: &str| {
+                        eprintln!("DEBUG-cg17-consume-1152 phase={phase} mono_ms={}", cellar::asyncrt::mono_ms());
+                    };
+                    mark("start");
                     let subscription = stream.subscription("consumer")?;
                     let batch = subscription
                         .next_with_id(
@@ -101,6 +105,7 @@ impl Cell for Producer {
                         )
                         .await?
                         .context("pending event batch")?;
+                    mark("next-ready");
                     storage.tx(|tx| {
                         let inbox = tx.inbox("orders")?;
                         for record in &batch.records {
@@ -110,11 +115,15 @@ impl Cell for Producer {
                         tx.put_json("consumed", &json!(batch.records.len()))?;
                         Ok(())
                     })?;
+                    mark("inbox-ready");
                     storage.sync().await?;
+                    mark("sync-ready");
                     ensure!(batch.ack(&context).await? == events::Acknowledgment::Acknowledged);
+                    mark("ack-ready");
                     ensure!(
                         batch.ack(&context).await? == events::Acknowledgment::AlreadyAcknowledged
                     );
+                    mark("repeat-ack-ready");
                     json!(batch.records.len())
                 }
                 _ => anyhow::bail!("unknown event test operation"),
