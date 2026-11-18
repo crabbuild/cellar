@@ -41,24 +41,26 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Latest main `2f083f148` is included. Runtime `82d40385c` adds bounded recovery
-observations and passive no-request tests around the existing binding protocol.
-All eight real-RustFS configurations observe autonomous source settlement and
-pass actual obligation/state checks. **The campaign still fails, 6/8 passing**:
-both extent S3 configurations exceed the original deadline on their first next
-child. Native live recovery passes 3/4; the materialized unused-sequence case has
-the same subsequent-child failure. SDK startup and materialized S3 enrollment
-controls also fail, leaving the native campaign at 3/6 selectors. Failed outcomes
-and disks remain retained. Target durability is declared Quorum; target-S3
-recovery is not qualified.
+Latest main `2f083f148` is included. At `b4e8f46cc`, buffered ordinary cell
+Fetch uses the durable binding kernel and normal owned-body APIs. Native passes
+9/10 selectors: Fetch, Fleet HTTP and source-proof/live/restart controls pass, but
+ordinary named RPC fails materialized Quorum and extent S3 first-command deadlines;
+real RustFS passes all 12 Fetch/live-recovery configurations. New targets retain
+Quorum while sources exercise Quorum/S3 independently. Four codec safety tests
+also pass. Earlier failures/disks remain: these results establish this scoped
+feature, not an exclusive deadline cause, stability or complete-family acceptance.
+Stateless Fetch to a declared Raft target now refuses instead of falling through
+to Fleet; its adapter and streaming/session support still must be delivered.
 
 Deliver the next features in this order:
 
-1. Fix original-deadline request progress after binding recovery, cold managed
-   startup and explicit S3 enrollment. Diagnose source entry, target execution,
-   writer resumption and final source proof separately; never relabel an unknown
-   mutation or replay a whole multi-transaction callback. Complete normal SQL/KV
-   bindings and EventStream startup, activation, Consume and outbox recovery.
+1. Close original-budget named-RPC deadlines, then complete stateless/native/Axum
+   Fetch and streaming/leased-session ownership with original deadlines, stable
+   outcomes and no weaker fallback. Close the
+   outstanding EventStream activation/Consume/outbox failures and normal SQL/KV
+   conformance. Never relabel an unknown mutation or replay an entire
+   multi-transaction callback. Retain original-budget startup, S3 enrollment and
+   post-recovery progress in the combined qualification matrix.
 2. Complete Queue leases, acknowledgement, callback settlement and autonomous
    drain, plus alarms/cron and Workflow lifecycle contracts. Qualify the combined
    source, including retention/recreation, deployment changes and clock faults.

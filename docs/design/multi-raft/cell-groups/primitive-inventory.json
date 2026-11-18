@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "4436c4945059d576ff7c3c0ff6de990b83915480aaa000db34f020f1ce000511"
+    "crates/cellar/application/mod.rs": "4cec7f8800caf2bc4622db677fbddcb1b863819b3f6e34783637d01fb4f702a1"
   },
   "entries": [
     {
@@ -536,14 +536,20 @@
         "cellar::sdk::Invocation::Rpc",
         "cellar::sdk::Invocation::CellRpc",
         "cellar::sdk::Context::wait_until",
-        "cellar::sdk::consensus::RaftCells::resolve_cell_history"
+        "cellar::sdk::consensus::RaftCells::resolve_cell_history",
+        "cellar::sdk::RaftClass::cell_fetch"
       ],
       "owners": [
         "crates/cellar/application/mod.rs",
         "crates/cellar/application/service/mod.rs",
         "crates/cellar/application/cells.rs",
         "crates/cellar/application/rpc/mod.rs",
-        "crates/cellar/application/consensus/group_client/names.rs"
+        "crates/cellar/application/consensus/group_client/names.rs",
+        "crates/cellar/application/http.rs",
+        "crates/cellar/application/cell_bindings.rs",
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/application/consensus/native_cell.rs",
+        "crates/cellar/application/consensus/native_fetch.rs"
       ],
       "schemas": [],
       "bindings": [
@@ -557,9 +563,9 @@
         "axum"
       ],
       "permission": "Origin, target, operation and original deadline",
-      "proof": "Independent mutation proofs; transport outcomes may be uncertain",
+      "proof": "Buffered cell Fetch/RPC use independent source/target command proofs; external transport outcomes may remain uncertain",
       "ordering": "Separate cross-cell and provider transactions",
-      "recovery": "Reconnect and reconcile declared stable external identities",
+      "recovery": "Retain owned command results and durable binding identities; reconnect sessions and reconcile stable external identities",
       "case": "primitives_http_rpc_and_cross_cell_effects",
       "refusals": {}
     },

@@ -32,6 +32,67 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+Source `b4e8f46cc` includes latest fetched origin/main `2f083f148` and delivers
+buffered ordinary `CellStub::fetch` through the existing shared-group binding
+intent, child identity, independent receipt proof and recovery path. Register
+`RaftClass::cell_fetch(digest)` before `Registry::raft_cell`. Its format-1 binary
+wire retains method, URL, ordered duplicate headers, binary body and HTTP result
+within the host's encoded input/result limits. Admission precedes input copying.
+Followers apply committed bytes and never invoke the HTTP handler.
+
+Owned request/response body helpers now check the active Raft invocation; Fleet
+helpers keep their existing authority checks. Constructor-time response limits
+come from captured transaction metadata without minting a dispatch capability.
+Streams, WebSocket upgrades and Fleet scalar positions cannot enter the receipt.
+Stateless Fetch to a declared Raft class refuses instead of entering the Fleet
+proxy; completing its adapter remains required, alongside streaming/session work.
+
+Qualification at this source:
+
+- Native campaign 1287 is **FAILED, 9/10 selectors passing**. Fetch passes both
+  image forms and Quorum/S3 source modes; both original Fleet body/Web controls,
+  SDK source proof, four passive live-recovery cases and retained restart pass.
+  Original named RPC passes only 2/4 configurations: materialized Quorum and
+  extent S3 parent sequence 1 exceed their unchanged five-second deadline.
+  Both results remain ambiguous and all six failed voter disks are retained.
+- Real-RustFS campaign 1289 passes **3/3 selectors, 12/12 configurations**: the
+  four Fetch configurations and eight live-recovery checkpoint/unused-sequence
+  configurations. New Fetch and live-recovery targets retain declared Quorum;
+  this does not qualify their independent target-S3 matrix.
+- Fetch checks binary bytes, duplicate headers, normal public body readers,
+  source writes before/after dispatch, exact parent replay, callback counts,
+  retained RF3 restart and final linearizable target state. Host stream IDs and
+  streaming responses must still refuse. The four owning codec safety tests
+  pass at `a0d5f8efd`; codec/test bytes remain unchanged in the corrected source.
+- Locked builds, strict affected library/integration/Fleet Clippy and canonical
+  formatting pass. Original request/recovery budgets, minima, admission banks
+  and one SQL worker per voter remain. RF3 voters share one process and separate
+  workspace disks; RustFS has one CPU/two GiB. Independent compiler activity is
+  recorded, so these are scoped functional checks, not isolated timing or
+  independent-voter release qualification.
+
+First Fetch source `a0d5f8efd` fails all four configurations at public turn/setup
+boundaries; eleven other selectors pass (**11/12 overall**). That failed record and all
+12 voter disks remain retained. The correction adds public owned-body checks;
+it never weakens the original response/replay/durability assertions or budgets.
+
+Earlier merged-source campaign 1274b passes all six native recovery/control
+selectors; official RustFS suite 1275 passes both selectors/all eight
+configurations with verbose traces off. This does not prove an algorithmic fix
+for older intermittent deadlines: all failures below remain retained, and the
+broader public/EventStream cohort has not been rerun or accepted by these passes.
+All owned runtimes joined; the owned backend and VM are stopped with objects retained.
+
+CG-17 remains **IN_PROGRESS**, with all **32 cases** required. The generated index
+remains **13/17 tasks, 147/195 accepted cases**. Full validation still lacks
+historical CG-01 evidence. Next close the outstanding original-budget named RPC
+deadlines, stateless/native/Axum Fetch and session ownership, EventStream progress
+and the normal primitive/provider conformance matrix, then CG-13 recovery and
+CG-15/16 release gates. No full
+primitive family or hard cutover is accepted from this checkpoint.
+
+## Previous passive recovery checkpoint
+
 Origin/main `2f083f148` is integrated. Its Workflow production changes were
 already byte-identical to this branch; both qualification histories remain
 source-pinned below. Combined-source qualification remains required.
