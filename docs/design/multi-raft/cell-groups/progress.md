@@ -29,6 +29,58 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. Runtime `387f5a12c` closes the actual public
+`Action::Reconcile` image-reopen gap. An unchanged, already validated unfinished
+checkpoint remains `Uncertain` without rereading its image. Final receipt reuse
+requires submission, the exact result version, retained committed entry bytes and
+term, an autocommit writer and current-authority checks before and after lookup.
+Changed or compacted images retain ordinary reconciliation. S3 outputs retain
+their independent proof. No request budget, quota, minimum or assertion changes.
+
+Corrected read-denial baseline `1f6e791f9` fails both public image forms. The first
+candidate `ccbd095e1` still fails both: exact final-result reuse alone leaves the
+unchanged-checkpoint read before final apply. The final runtime passes **14/14
+focused selectors** on identical regression source (1216/1218):
+
+- Four public image/backend regressions require zero SQL-owner immutable-image
+  reopens, exact responses, replay without another callback and linearizable
+  final state, including real RustFS.
+- Six existing controls cover leader changes, stale/foreign authorities, changed
+  images, conflict/pruning, ambiguous results and cell-specific progress.
+- Native/RustFS checkpoint controls pass both images. Real-RustFS native/Axum
+  Workflow deletion/recreation passes all four image configurations, including
+  cancellation and retained restart. The broader 18-configuration Workflow result
+  below remains pinned to `177c7f7f5`.
+
+**The original public cohort is FAILED, 3/10 selectors (1219).** Both SDK
+source-proof selectors pass all eight image/minimum configurations. Native named
+bindings pass all four configurations under their original five-second budgets.
+RustFS named bindings pass materialized Quorum, but fail materialized S3 command 2,
+extent Quorum command 3 and extent S3 command 7 with ambiguous deadlines. All six
+EventStream selectors fail: native/Axum Consume command 2, RustFS startup or
+Consume, and initial explicit-resource activation. Native Consume starts with
+2,853 ms remaining; this is an observed boundary, not an exclusive cause. The
+startup failure also records controller transport timeout and cleanup errors.
+No failed mutation is relabeled by a later successful history.
+
+Locked builds, strict library/affected-integration Clippy, canonical formatting,
+layout and native dependency checks pass. RF3 voters share one process and use
+separate workspace disks; public cases retain one SQL worker per voter. RustFS
+has one CPU/two GiB. Independent compilation is recorded, so these are functional
+results, not isolated timing, complete-family or independent-voter acceptance.
+Aggregate 1221 verifies six cohort records, twelve executable copies, unchanged
+regression inputs and **42 retained failure directories** from this run. All
+owned handles joined; RustFS/VM are stopped with objects retained.
+
+The generated index remains current at **13/17 accepted tasks, 147/195 cases**.
+Full plan validation still lacks historical CG-01 evidence. Next: autonomous
+binding recovery and safe sequence sealing against original histories/receipts;
+SQL/KV binding delivery; EventStream/startup and S3 response progress; Queue and
+the remaining primitive/provider matrix; then CG-13/15/16 recovery and release
+qualification. The full goal stays active.
+
+## Previous Workflow integration checkpoint
+
 Latest main `16c45b266` is included. Runtime `177c7f7f5` combines deferred
 Workflow retirement with exact direct-final-receipt reuse. Successful deletion
 keeps its private producer live through immutable preparation and committed

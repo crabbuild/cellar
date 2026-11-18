@@ -521,15 +521,20 @@ image closure, sync changed manifest pages, then atomically persist the group ro
 and applied=N in the engine. Publish and acknowledge only after the marker succeeds.
 Old roots remain pinned until no recovery/reader/transfer owner needs them.
 
-For direct final settlement, `CellPrivateExecutor::finish` may read the receipt
-from its frozen private SQLite state after proving the exact committed entry and
-cell version. It requires autocommit and rechecks current authority around the
-receipt lookup; this producer remains frozen through settlement. Independent
-replay and reconciliation still read the selected committed image. The public
-client also uses reconciliation, so direct-finish reuse alone does not remove
-that path's image reopen. Any future reuse there must retain exact entry evidence
-and the ordinary ambiguous-outcome rules, including compacted or changed images.
-Explicit S3 output still requires its independent archive proof.
+Direct final settlement and public reconciliation may read a receipt from the
+frozen private SQLite state only after proving the submitted preparation's exact
+cell version and retained committed entry bytes and term. The writer must remain
+in autocommit under the pending producer's lease. Current authority is checked
+before and after receipt lookup. Missing or compacted entries and changed images
+retain ordinary selected-image reconciliation; independent replay also reads the
+committed image. Explicit S3 output still requires its independent archive proof.
+
+An unchanged base cannot establish final completion. If continuing the RPC
+already validated an unfinished checkpoint receipt in that exact base, retain
+`Uncertain` without reopening it. Do not substitute the private final receipt or
+infer absence. A newer-term barrier after committed partial roots retains the
+existing refusal behavior. Changed images still inspect receipt identity,
+conflicts and replicated pruning floors.
 
 A leader may combine commit-only hard-state metadata with that atomic root
 publication when every entry in the newly committed prefix has an exact live

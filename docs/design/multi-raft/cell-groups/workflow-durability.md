@@ -210,3 +210,11 @@ The common callback budget is bounded to 300 seconds; long sleeps and event
 waits release that owner, but continuous callback work must fit its admitted
 budget. Full Workflow/CG-17 acceptance remains open until its complete public
 contract and independent scenario matrix pass.
+
+At `387f5a12c`, public reconciliation also reuses the exact frozen final writer
+only with retained committed-entry proof. An unchanged unfinished checkpoint
+stays uncertain without reopening its base; it cannot prove final completion or
+absence. Real-RustFS native/Axum deletion/recreation passes all four image
+configurations again (1218), including cancellation and retained restart. The
+broader 18-configuration result above remains pinned to `177c7f7f5`; complete
+family and combined recovery qualification remain open.
