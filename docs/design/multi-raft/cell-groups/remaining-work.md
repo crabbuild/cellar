@@ -149,7 +149,10 @@ stability, full primitive acceptance or latency improvement is established.
    recovery and all CG-17 API/scenario/configuration gates, then CG-15/16 with
    constrained independent Linux voters, partitions, replacement, split/merge,
    park/wake, archive outages, physical reclamation, crashes and fenced all-voter
-   disk loss. Bound archive verification by generation/byte capacity as well as
+   disk loss. Qualify late metadata after physical removed-member reclamation,
+   when the joined roster entry is replaced by its persistent tombstone; the
+   Workflow retirement gate does not exercise that boundary. Bound archive
+   verification by generation/byte capacity as well as
    replay work. Require complete coverage evidence, public SDK/native/Axum/CLI/
    admin and Fleet/bucket/feature-mode regressions, then remove legacy Raft paths.
    Quorum refusal must never fall back to weaker durability.
