@@ -29,6 +29,78 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. Runtime `d20c242ea` prioritizes S3 outputs
+waiting on the shared archive publication lane. Ready foreground groups retain
+FIFO order and receive at most two turns before a ready background group.
+Blocked retries consume no turn; expired/cancelled outputs lose priority. An
+active proof batch retains its foreground identity. Publication concurrency,
+durability checks and admission banks are unchanged.
+
+The physical regression first holds an active background publication, then
+queues another held background group before a foreground receipt. The FIFO
+baseline `c868517fc` fails its original five-second receipt deadline in the
+materialized configuration. The new scheduler passes natively and against real
+RustFS in both image forms; all six regression source files are byte-identical
+across red/green. Three queue controls verify ordering, blocked/removal handling
+and background progress under continuous foreground arrivals.
+
+**Correctness cohort 1138 is FAILED, 19/21.** All three queue units and eight
+native/RustFS archive-control pairs pass, covering the new priority behavior,
+independent multi-group recovery/reclamation, minima, receipt deadlines/refunds,
+typed failures, remote output durability/creation and retirement/maintenance
+progress. The remote deadline/cancellation pair fails before observing its
+enrollment S3-wait stage. The inner helper had observed an ambiguous failure;
+this is not evidence of a premature successful S3 acknowledgement.
+
+**Public cohort 1139 is FAILED, 5/19.** All three SDK Queue metrics selectors
+pass their 24 native/RustFS/RustFS-Axum image/source/target-minimum
+configurations. Both startup-refusal controls pass. All eight EventStream
+lifecycle selectors fail: four ordinary paths expire ambiguously on Consume
+command **2**, and four explicit paths fail initial activation. Both genesis
+selectors, independent-target-S3 selectors and retained-activation selectors
+also fail; native genesis includes a Quorum extent startup timeout. The
+RustFS/Axum target-S3 selector reaches Consume before failing. Original public
+fixtures, deadlines, quotas, minima and assertions remain.
+
+Follow-up diagnostic source `6ec1f0a0c` changes only the remote-deadline test
+helper: it reports typed errors/counters and retains ambiguous enrollment disks
+while joining remote and host owners on early exit. Both original
+deadline/cancellation selectors pass in diagnostic cohort 1142, native and
+RustFS, across both images. The original 800 ms budget, wait-stage gate,
+callback/refund assertions and production bytes remain. This separate rerun does
+not rewrite cohort 1138 or qualify timing stability; it did not reproduce that
+earlier enrollment failure.
+
+Locked library/unit/integration build 1137 and diagnostic integration build
+1141c pass with optimization 1, assertions, overflow checks and incremental=0.
+Strict library plus affected-integration Clippy 1132 passes at `9164bdaf2`;
+`d20c242ea` only formats its queue selection. Formatting, layout, dependency and
+document checks pass. Final publication checks 1144 additionally cover the
+diagnostic helper. Earlier cancelled and failed diagnostic builds remain
+recorded. All owned compiler/runtime handles joined before source changes.
+Independent compiler activity is recorded; no isolated performance claim is
+made. RF3 voters share a process with separate workspace disks and one SQL
+worker per public voter; RustFS has one CPU/two GiB on a four-CPU/eight-GiB VM.
+
+All 42 failed voter directories and nine intentional refusal directories from
+1139 remain. Earlier recorded failure roots remain, including the 48 from
+1122/1123 and baseline 1117's 33 roots. The failed 1138 helper did not retain or
+report roots; the new failure branch closes that evidence/cleanup gap. Aggregate
+1143 under ignored `.cellar/cg17-payload-01/` verifies source, binaries, logs,
+fixture fidelity and reported retained roots. Owned RustFS/VM are stopped with
+objects retained. Full plan validation still stops on missing historical CG-01
+evidence; the generated index remains current.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Prioritize EventStream
+source/child/final Consume settlement and cold/retained/outbox activation under
+the original budgets. Then qualify interrupted binding recovery and unused
+sequence sealing, exact Queue settlement and native extent producer **15**.
+Alarm/cron, Workflow and remaining primitive/provider recovery matrices, CG-13
+managed recovery, CG-15 independent-voter qualification and CG-16 cutover remain
+open. The full implementation goal stays active.
+
+## Previous broker-genesis checkpoint
+
 Latest main `16c45b266` is included. Runtime `4b3247b34` adds an immutable exact
 broker configuration receipt; `aff4d31c4` lets its provisioning read join cold
 schema enrollment after the full source checkpoint. Parallel broker preparation
