@@ -41,29 +41,35 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Latest main `2f083f148` is included. At `0618f7d50`, buffered stateless
-CellStub Fetch joins the existing admitted shared-group RPC/SQL driver with
-bounded input ownership, independent target proof and distinct ingress nonces.
-Native/Axum passes all four Quorum configurations but only one of four S3
-configurations (**5/8; campaign FAILED**). Real RustFS passes **20/20** Fetch and
-passive recovery configurations, including all eight stateless ingress cases
-with independent Quorum/S3 target minima. Original native regression remains
-**FAILED, 9/12 selectors**: SQL extent concurrency, stateful extent S3 Fetch and
-both named-RPC S3 source configurations exceed unchanged deadlines. Eight
-owning codec/admission units pass; their files remain unchanged in final source.
-Keep all failures, ambiguous identities and failed disks. These results establish
-scoped feature delivery, not a causal deadline fix or complete-family acceptance.
+Latest main `2f083f148` is included. Source `f0b607d40` adds one disposable
+sequence candidate from a verified receipt per stateless invocation, preserving
+current command admission, independent minimum proofs, fresh quorum conflict
+proofs and original ambiguous identities. Twelve owning units pass. Native SQL
+passes both images and Axum SQL materialized mode, including actual candidate
+use, but Axum extent concurrency still expires (**3/4 SQL configurations**).
+The native campaign remains **FAILED, 5/10 selectors**: stateless Fetch passes
+only 1/8 configurations due cold deadlines, named RPC 2/4 and stateful Fetch 3/4.
+Real RustFS remains **FAILED, 3/5 selectors**: SQL 4/4, stateful Fetch 4/4 and
+stateless Fetch 3/8 configurations pass (**11/16 total**). Preserve
+all prior/current failures and disks; no exclusive deadline cause, stability or
+complete-family acceptance is established. See the current checkpoint for exact
+source, proof, budget and target-minimum coverage boundaries.
 
 Deliver the next features in this order:
 
-1. Close original-budget SQL ingress concurrency, cold target-S3 and named/source
-   S3 deadlines. Preserve exact candidate/sequence identities and fresh quorum
-   conflict proofs; reduce redundant work without treating a hint as authority.
-   Close EventStream activation/Consume/outbox progress and normal SQL/KV
-   conformance, then complete buffered ingress qualification and streaming/leased
-   session ownership. Never relabel an unknown mutation or replay an entire
-   multi-transaction callback. Retain startup, archive outage and post-recovery
-   progress in the combined qualification matrix.
+1. Close cold history/enrollment and shared-stream contention under the original
+   deadlines, then named/source-S3 progress. The observed first-command budget
+   can be only 6 ms; an invocation-local candidate cannot repair that first call.
+   Admit unhinted cold enrollment through the existing server authority before
+   redundant origin name lookup. Preserve foreign-creator refusal before the
+   initializer, original creation identity, current readiness and all minimum
+   proofs; adopt another creator only after fresh quorum selection. Qualify
+   unknown births, typed conflicts and restart. Preserve fresh consumed-other
+   proofs and unknown mutation identities. Complete EventStream activation/
+   Consume/outbox progress and SQL/KV conformance, including the independent
+   target-S3 matrix. Finish buffered ingress and streaming/leased-session
+   ownership, archive outage and post-recovery progress; never replay an entire
+   multi-transaction callback after an unknown result.
 2. Complete Queue leases, acknowledgement, callback settlement and autonomous
    drain, plus alarms/cron and Workflow lifecycle contracts. Qualify the combined
    source, including retention/recreation, deployment changes and clock faults.

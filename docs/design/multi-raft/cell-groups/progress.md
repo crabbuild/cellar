@@ -32,6 +32,75 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+Source `f0b607d40` includes latest fetched origin/main `2f083f148`. Stateless
+native SQL, Fetch/RPC and event commands can consume one sequence candidate
+from a previous verified successful receipt in the same invocation. It skips a
+redundant initial sequence query without reserving a sequence or caching serving
+or read authority. Every command retains current admission, exact history and
+minimum proof; a conflict still requires fresh quorum proof of a different
+immutable fingerprint before selecting another sequence.
+
+The candidate is fixed-size, keyed by cluster, namespace, cell, incarnation and
+schema, consumed before submission and expires at the previous call's original
+monotonic deadline. Replenishment follows successful outer deadline/cancellation
+selection; a refused, cancelled or ambiguous call cannot replenish it. It retains
+no receipt, image, resource ticket, node or execution-domain owner. Fleet keeps
+its existing call path. The public SQL race adds an actual-use metric assertion
+alongside its unchanged data, rollback, client-slot, replay, restart and quorum
+refusal assertions.
+
+Qualification at this source:
+
+- Twelve owning units pass: candidate identity/expiry/consumption, existing SQL
+  nonce and conflict rules, typed unknown outcomes, shared RPC/Fetch admission,
+  reply ownership and performance observations. Locked build and strict affected
+  library/integration/Fleet Clippy pass.
+- Native campaign 1319 is **FAILED, 5/10 selectors passing**. Native SQL passes
+  both images and Axum SQL passes materialized mode (**3/4 configurations**),
+  including actual candidate use. Axum extent SQL's competing first CREATE
+  expires at candidate sequence 3. The cursor does not close this contention
+  blocker. SDK source proof, missing/ambiguous namespace refusal and both Fleet
+  HTTP controls pass.
+- Stateless Fetch passes only **1/8 native/Axum configurations** (Axum
+  materialized Quorum); the other seven fail cold first-call deadlines. One
+  materialized Quorum command starts with only 6 ms remaining, before this
+  invocation has any successful receipt to reuse. Named RPC passes both Quorum
+  sources but fails both S3 sources (**2/4**); stateful Fetch fails extent S3
+  (**3/4**). All unknown outcomes retain their original identities.
+- Real-RustFS campaign 1321 is **FAILED, 3/5 selectors passing**:
+  all four native/Axum SQL configurations and all four stateful Fetch
+  configurations pass. Stateful sources exercise Quorum/S3 with Quorum targets;
+  stateless targets exercise both minima but pass only **3/8**. Native extent S3
+  and all four Axum configurations fail cold first-call deadlines, including
+  uncertain enrollment. Overall **11/16 configurations** pass. SQL retains its
+  existing namespace policy; independent target-S3 SQL qualification is still
+  required. These results do not erase the native failures, establish their
+  exclusive cause or prove an algorithmic deadline fix or stability.
+
+Stateless host operations retain three seconds, HTTP clients five seconds and
+stateful bindings five seconds. One SQL worker per voter, controller/byte banks,
+independent minima and all safety assertions remain. Voters share one process
+with separate workspace disks; real RustFS retains one CPU/two GiB. Compiler
+activity is recorded; this is functional qualification, not isolated timing or
+independent-voter release qualification.
+
+Aggregate 1323 verifies three frozen records, 12 executable copies, the linked
+previous history and all 147 retained failed voter directories. The initial
+RustFS signed resume probe returns 503; the warm signed probe passes before the
+campaign. Both records remain retained. All owned jobs join; the owned backend
+and VM are stopped with objects and failed disks retained.
+
+CG-17 remains **IN_PROGRESS**, with all **32 cases** required. The generated index
+remains **13/17 tasks, 147/195 accepted cases**. Full validation still lacks
+historical CG-01 evidence. Next address cold history/enrollment and shared-stream
+contention under the original deadlines, then source-S3 progress, EventStream
+activation/Consume and complete SQL/KV conformance. Remaining adapters and the
+full primitive/provider, retention, deployment, clock and recovery matrix,
+including CG-13 and CG-15/16 gates, remain required. No full primitive family or
+hard cutover is accepted.
+
+## Previous stateless Fetch checkpoint
+
 Source `0618f7d50` includes latest fetched origin/main `2f083f148` and adds
 buffered stateless `CellStub::fetch` through the same admitted shared-group
 command driver as native RPC/SQL. Native and Axum ingress retain namespace

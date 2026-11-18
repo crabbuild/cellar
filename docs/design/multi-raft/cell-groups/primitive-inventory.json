@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "4cec7f8800caf2bc4622db677fbddcb1b863819b3f6e34783637d01fb4f702a1"
+    "crates/cellar/application/mod.rs": "3e7b4ef529c5ff279f7660b2dd25766aabf10806bdac0380469a8e229997c6af"
   },
   "entries": [
     {
@@ -84,7 +84,8 @@
         "crates/cellar/durability/raft/cell_groups/host/bindings.rs",
         "crates/cellar/application/consensus/sql_ingress_identity.rs",
         "crates/cellar/application/consensus/native_rpc.rs",
-        "crates/cellar/application/consensus/class.rs"
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/application/consensus/ingress_cursor.rs"
       ],
       "schemas": [
         "Target SQLite and migration history",
@@ -553,7 +554,8 @@
         "crates/cellar/application/consensus/native_ingress.rs",
         "crates/cellar/application/consensus/group_client/sql_ingress.rs",
         "crates/cellar/execution/outbound_rpc.rs",
-        "crates/cellar/execution/services.rs"
+        "crates/cellar/execution/services.rs",
+        "crates/cellar/application/consensus/ingress_cursor.rs"
       ],
       "schemas": [],
       "bindings": [

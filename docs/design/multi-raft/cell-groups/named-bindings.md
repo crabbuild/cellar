@@ -85,6 +85,18 @@ including a lost reply after commit, must not replay the mutation with a new
 identity. Axum applications keep this operator protocol on the private node
 listener and use `CellarService` for public SDK ingress.
 
+A stateless native invocation may retain one sequence candidate from its last
+verified successful command receipt. The fixed-size candidate binds the exact
+logical history and schema, expires at that call's original monotonic deadline
+and is consumed before submission. It owns no receipt, image or execution
+capability. Replenishment happens after successful deadline/cancellation
+selection. Every command still obtains its own current admission and required
+durability proof; a collision still needs a fresh quorum observation of a
+different immutable fingerprint. Missing, pruned and matching receipts never
+prove an unknown mutation cannot commit. This candidate is shared across methods
+of the same cell; it is neither a sequence reservation nor a read-consistency
+cache. Cold selection and contending first calls retain their ordinary protocol.
+
 Operator calls reuse the bounded per-database stream, nonce validation and
 original absolute deadline below. The SQL service schema digest changes for this
 contract; provision fresh compatible SQL namespaces and matching voter binaries.
