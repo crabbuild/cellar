@@ -119,6 +119,10 @@ impl Cell for BoundCounter {
                 "Relay" => {
                     let started = cellar::asyncrt::mono_ms();
                     eprintln!("named Relay: entered callback");
+                    eprintln!(
+                        "[DEBUG-cg17-source-s3-1439] relay-enter mono_ms={started} wall_ms={}",
+                        cellar::asyncrt::wall_ms()
+                    );
                     update(&self.0, 1)?;
                     let namespace = context.namespace("COUNTERS")?;
                     let stub = namespace.get_by_name(input["name"].as_str().context("name")?);
@@ -206,6 +210,13 @@ impl Cell for BoundCounter {
                 }
                 _ => anyhow::bail!("unknown method {method}"),
             };
+            if method == "Relay" {
+                eprintln!(
+                    "[DEBUG-cg17-source-s3-1439] relay-return mono_ms={} wall_ms={}",
+                    cellar::asyncrt::mono_ms(),
+                    cellar::asyncrt::wall_ms()
+                );
+            }
             Ok(Output::Rpc(RpcData::Json(result.to_string())))
         })
     }
@@ -239,13 +250,30 @@ pub async fn qualify_recovery(real_rustfs: bool) -> Result<()> {
     qualify_case(real_rustfs, true).await
 }
 
-async fn qualify_case(real_rustfs: bool, recovery: bool) -> Result<()> {
+fn archive_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             "cellar::raft::cell_groups::controller::effects=debug,cellar::raft::group_archive=debug",
         )
         .with_test_writer()
         .try_init();
+}
+
+pub async fn materialized_s3_progress(real_rustfs: bool) -> Result<()> {
+    archive_tracing();
+    let store = if real_rustfs {
+        Arc::new(catalog_fault::Store::around(rustfs::store(
+            "named-bindings-materialized-s3-progress",
+            false,
+        )?))
+    } else {
+        Arc::new(catalog_fault::Store::default())
+    };
+    Box::pin(run(false, Durability::S3, store)).await
+}
+
+async fn qualify_case(real_rustfs: bool, recovery: bool) -> Result<()> {
+    archive_tracing();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for durability in [Durability::Quorum, Durability::S3] {
@@ -403,9 +431,13 @@ pub async fn run(
             let relay = source.contract("Relay")?;
             let input = json!({"name":"target"}).to_string().into_bytes();
             let first_options = options(1, durability)?;
+            let request_started = cellar::asyncrt::mono_ms();
+            eprintln!("[DEBUG-cg17-source-s3-1439] command-start seq=1 durability={durability:?} mono_ms={request_started} wall_ms={}", cellar::asyncrt::wall_ms());
             let first = source
                 .command(&relay, input.clone(), first_options.clone())
-                .await?;
+                .await;
+            eprintln!("[DEBUG-cg17-source-s3-1439] command-end seq=1 mono_ms={} wall_ms={} elapsed_ms={} success={}", cellar::asyncrt::mono_ms(), cellar::asyncrt::wall_ms(), cellar::asyncrt::mono_ms()-request_started, first.is_ok());
+            let first = first?;
             ensure!(
                 serde_json::from_slice::<serde_json::Value>(&first.result)?
                     == json!({"source":1,"target":{"value":2,"name":"target"}})
@@ -506,9 +538,13 @@ pub async fn run(
                 .await?;
             ensure!(replay.result == first.result);
             // Lane counters and target business names survive all voter owners.
+            let request_started = cellar::asyncrt::mono_ms();
+            eprintln!("[DEBUG-cg17-source-s3-1439] command-start seq=7 durability={durability:?} mono_ms={request_started} wall_ms={}", cellar::asyncrt::wall_ms());
             let receipt = current
                 .command(&current.contract("Relay")?, input, options(7, durability)?)
-                .await?;
+                .await;
+            eprintln!("[DEBUG-cg17-source-s3-1439] command-end seq=7 mono_ms={} wall_ms={} elapsed_ms={} success={}", cellar::asyncrt::mono_ms(), cellar::asyncrt::wall_ms(), cellar::asyncrt::mono_ms()-request_started, receipt.is_ok());
+            let receipt = receipt?;
             ensure!(
                 serde_json::from_slice::<serde_json::Value>(&receipt.result)?
                     == json!({"source":6,"target":{"value":8,"name":"target"}})
