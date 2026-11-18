@@ -44,7 +44,7 @@ async fn run(
                     },
                     TIMEOUT,
                 )
-                .await?;
+                .await.context("live recovery source enrollment")?;
             let original = bindings::options(1, minimum)?;
             ensure!(original.timeout == TIMEOUT);
             let (method, target_name, next_method, before, after) = match cut {
@@ -90,7 +90,7 @@ async fn run(
                 Cut::Unused => {
                     let receipt = source
                         .command(&contract, b"{}".to_vec(), original.clone())
-                        .await?;
+                        .await.context("unused-sequence parent before recovery")?;
                     ensure!(receipt.result == b"true");
                     let rejected = rejected.load(Ordering::Acquire);
                     ensure!(
@@ -115,7 +115,7 @@ async fn run(
                         b"{}".to_vec(),
                         bindings::options(sequence, minimum)?,
                     )
-                    .await?;
+                    .await.with_context(|| format!("live recovery readiness probe sequence {sequence}"))?;
                 sequence += 1;
                 if probe.result == b"true" {
                     break;
@@ -147,7 +147,7 @@ async fn run(
                         ..Default::default()
                     },
                 )
-                .await?;
+                .await.context("target state after recovery, before next child")?;
             ensure!(
                 value.result == before,
                 "recovery executed or repeated the child business mutation"
@@ -175,7 +175,7 @@ async fn run(
                     b"{}".to_vec(),
                     bindings::options(sequence, minimum)?,
                 )
-                .await?;
+                .await.with_context(|| format!("first {next_method} child after recovered lane, parent sequence {sequence}"))?;
             ensure!(
                 serde_json::from_slice::<serde_json::Value>(&next.result)?
                     == json!({"value": after, "name": target_name}),
@@ -191,7 +191,7 @@ async fn run(
                         ..Default::default()
                     },
                 )
-                .await?;
+                .await.context("source state after the next child")?;
             ensure!(
                 source_value.result == b"0",
                 "recovery probes published business writes"
