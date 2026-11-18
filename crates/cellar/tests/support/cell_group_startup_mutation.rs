@@ -23,13 +23,23 @@ async fn request(
 }
 
 pub(crate) async fn retained_private_election(connected: bool) -> Result<()> {
+    private_election(connected, true).await
+}
+
+pub(crate) async fn initial_private_election(connected: bool) -> Result<()> {
+    private_election(connected, false).await
+}
+
+async fn private_election(connected: bool, retained: bool) -> Result<()> {
     for enrollment in [false, true] {
         let mut cluster = Cluster::new().await?;
-        cluster.elect().await?;
+        if retained {
+            cluster.elect().await?;
+        }
         let route = cluster.birth.route().clone();
         let prior = cluster.voters[0].owner.as_ref().unwrap().status()?.term;
         let cell = history(&route, "retained-private")?;
-        // Reattach all three retained disks with automatic ticks disabled.
+        // Attach real initial or retained disks with automatic ticks disabled.
         let mut fixture = RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000).await?;
         let result = futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
             assert!(matches!(

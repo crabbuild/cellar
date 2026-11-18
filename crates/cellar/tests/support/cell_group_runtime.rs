@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 #[path = "cell_group_startup_mutation.rs"]
 mod startup_mutation;
-pub(super) use startup_mutation::retained_private_election;
+pub(super) use startup_mutation::{initial_private_election, retained_private_election};
 
 #[path = "raft_catalog_fault.rs"]
 #[allow(dead_code)]

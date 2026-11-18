@@ -44,6 +44,17 @@ async fn retained_private_requests_without_quorum_never_grant_authority_or_recam
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn initial_private_requests_start_one_normal_election_without_idle_ticks() -> Result<()> {
+    runtime_fixture::initial_private_election(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn initial_private_requests_without_quorum_never_grant_authority_or_recampaign() -> Result<()>
+{
+    runtime_fixture::initial_private_election(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn command_waits_for_committed_group_apply() -> Result<()> {
     Box::pin(runtime_fixture::command_waits_for_apply(false)).await
 }
