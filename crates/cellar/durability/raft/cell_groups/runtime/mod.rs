@@ -199,6 +199,7 @@ enum Command {
     Status,
     RoutingStatus {
         advice: bool,
+        activity: bool,
     },
     PendingTransferQuorum,
     Observe,
@@ -1274,7 +1275,7 @@ impl CellGroupRuntime {
         };
         let observation = async {
             let observation = match self
-                .call(Some(history), Command::RoutingStatus { advice }, bytes)
+                .call(Some(history), Command::RoutingStatus { advice, activity: wake }, bytes)
                 .await?
             {
                 Response::RoutingStatus(observation) => observation,
@@ -1291,7 +1292,7 @@ impl CellGroupRuntime {
                 // A pre-wake sample never supplies reusable advice. Resample
                 // the same owner after the fresh wake barrier has completed.
                 return match self
-                    .call(Some(history), Command::RoutingStatus { advice }, bytes)
+                    .call(Some(history), Command::RoutingStatus { advice, activity: wake }, bytes)
                     .await?
                 {
                     Response::RoutingStatus(fresh) if fresh.park.is_none() => {

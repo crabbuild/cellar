@@ -315,7 +315,7 @@ pub struct CellGroupOwner {
     waking_after: Option<LogIndex>,
     // One prior durable self-vote selects a restart candidate. This is only a
     // bounded liveness hint; campaigning still needs PreVote and quorum votes.
-    startup_read_candidate: bool,
+    startup_candidate: bool,
 }
 
 impl CellGroupOwner {
@@ -369,7 +369,7 @@ impl CellGroupOwner {
                 current.marker().position().index <= *floor
                     || current.marker().position().term.get() != cache.hard_state.term
             });
-        let startup_read_candidate = cache.hard_state.term > 0
+        let startup_candidate = cache.hard_state.term > 0
             && cache.hard_state.vote == group.identity().member.get()
             && (cache.conf_state.voters.contains(&cache.hard_state.vote)
                 || cache
@@ -449,7 +449,7 @@ impl CellGroupOwner {
             pending_park: None,
             parked: None,
             waking_after,
-            startup_read_candidate,
+            startup_candidate,
         })
     }
 
@@ -490,7 +490,7 @@ impl CellGroupOwner {
 
     fn refresh_execution_fence(&mut self) {
         if self.node.raft.leader_id != 0 || self.node.raft.state != StateRole::Follower {
-            self.startup_read_candidate = false;
+            self.startup_candidate = false;
         }
         let source = (self.node.raft.term, self.node.raft.leader_id);
         if source != self.source_identity {
@@ -2235,7 +2235,7 @@ impl CellGroupOwner {
         if context.is_empty() || context.len() > 4096 {
             return Err(RuntimeError::Invalid("read context".into()));
         }
-        self.begin_startup_read_election()?;
+        self.begin_startup_election()?;
         if !self.status()?.ready {
             return Err(RuntimeError::NotReady);
         }
@@ -2274,20 +2274,42 @@ impl CellGroupOwner {
         self.group.identity().member.get()
     }
 
+    /// An admitted private request can spend the same one-shot restart hint as
+    /// a strong read. Route mismatch cannot consume it; this grants no private
+    /// execution or enrollment authority before the normal quorum/apply gates.
+    pub(super) fn begin_private_startup_election(
+        &mut self,
+        cell: &CellHistory,
+    ) -> Result<bool, RuntimeError> {
+        let route = self.current.marker().route();
+        if !route.history.same_namespace(cell)
+            || !route
+                .range
+                .contains(&crate::application::consensus::cell_routing_key(
+                    cell.namespace,
+                    &cell.cell,
+                ))
+        {
+            return Ok(false);
+        }
+        self.begin_startup_election()
+    }
+
     /// A recovered voter that last voted for itself may try one ordinary
-    /// election when a strong read arrives before any leader is known. Waiting
+    /// election when an admitted request arrives before any leader is known. Waiting
     /// for the full idle election timeout can consume the request deadline.
     /// The hint grants no authority: unchanged PreVote, durable vote admission,
-    /// membership fences and the new term's applied ReadIndex barrier remain.
-    pub(super) fn begin_startup_read_election(&mut self) -> Result<bool, RuntimeError> {
-        if !self.startup_read_candidate {
+    /// membership fences and the new term's applied barrier remain. Reads still
+    /// need their fresh ReadIndex proof; private commands need current authority.
+    pub(super) fn begin_startup_election(&mut self) -> Result<bool, RuntimeError> {
+        if !self.startup_candidate {
             return Ok(false);
         }
         if self.node.raft.leader_id != 0
             || self.node.raft.state != StateRole::Follower
             || !self.node.raft.promotable()
         {
-            self.startup_read_candidate = false;
+            self.startup_candidate = false;
             return Ok(false);
         }
         self.require_application_active()?;
@@ -2299,7 +2321,7 @@ impl CellGroupOwner {
         {
             return Ok(false);
         }
-        self.startup_read_candidate = false;
+        self.startup_candidate = false;
         self.campaign()?;
         Ok(true)
     }

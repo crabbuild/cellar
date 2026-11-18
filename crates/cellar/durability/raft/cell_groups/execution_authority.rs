@@ -12,6 +12,55 @@ use std::sync::{
 };
 
 impl GroupLog<GroupHistory> {
+    /// A retained durable vote can locate a restart candidate before a leader
+    /// is known. This is only a destination hint, never a leader observation or
+    /// serving authority. The destination must run ordinary Raft and recheck all
+    /// command/enrollment admission and output proofs.
+    pub(crate) fn retained_vote_hint(
+        &self,
+        route: &GroupRoute,
+    ) -> Result<Option<cellar_logic::consensus::MemberId>, crate::raft::storage::LogError> {
+        use crate::raft::storage::LogError;
+        if self.identity.scope != route.history
+            || !self.consensus_claimed.load(Ordering::Acquire)
+            || self.closed.load(Ordering::Acquire)
+            || self.reclaimed.load(Ordering::Acquire)
+        {
+            return Ok(None);
+        }
+        let cache = match self.read() {
+            Ok(cache) => cache,
+            Err(LogError::Closed | LogError::NotFound) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let Some(manifest) = &cache.group_manifest else {
+            return Ok(None);
+        };
+        let vote = cache.hard_state.vote;
+        if !manifest.is_active()
+            || manifest.route() != route
+            || cache.hard_state.term != manifest.position().term.get()
+            || cache.hard_state.commit != manifest.position().index.get()
+            || !cache.membership.permits_group(&self.identity)
+            || !cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|member| *member == self.identity.member.get())
+            || !cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|member| *member == vote)
+        {
+            return Ok(None);
+        }
+        // Invalid/unselected identities cannot supply even a routing hint.
+        Ok(cellar_logic::consensus::MemberId::new(vote).ok())
+    }
+
     /// A locator from a live local voter's fully applied tree. Callers must
     /// first select this exact route through bounded verified namespace routing
     /// or its charged range cache.

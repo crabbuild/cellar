@@ -94,7 +94,18 @@ pub(in crate::raft::cell_groups) async fn mutation_peer(
     match status {
         Ok(status) => {
             let Some(leader) = status.leader else {
-                return Ok(None);
+                let group = runtime
+                    .log()
+                    .cell_group(&route.history)
+                    .map_err(|error| CellDispatchError::Runtime(error.into()))?;
+                // A former follower can reach the retained candidate without
+                // waiting for idle election ticks. This is not leader advice:
+                // the receiver still needs ordinary election/admission, and
+                // every unknown outcome retains the original identity.
+                return group
+                    .retained_vote_hint(route)
+                    .map(|member| member.filter(|member| *member != group.identity().member))
+                    .map_err(|error| CellDispatchError::Runtime(error.into()));
             };
             let local = runtime
                 .log()

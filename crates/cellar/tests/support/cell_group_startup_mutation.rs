@@ -110,7 +110,10 @@ pub(crate) async fn retained_private_election(connected: bool) -> Result<()> {
         if !matches!(&result, Ok(Ok(()))) || closed.is_err() {
             let root = root.keep();
             for voter in 1..=3 {
-                eprintln!("retained private startup disk: {}", root.join(format!("node-{voter}")).display());
+                eprintln!(
+                    "retained private startup disk: {}",
+                    root.join(format!("node-{voter}")).display()
+                );
             }
         }
         match result {
