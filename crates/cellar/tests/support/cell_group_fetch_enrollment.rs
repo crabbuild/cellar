@@ -183,11 +183,6 @@ pub(super) async fn work(
 }
 
 pub(crate) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
-    // DEBUG-cg17-birth-cause-1372: inspect the receiver's existing typed failure.
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::enrollment=debug")
-        .with_test_writer()
-        .try_init();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         let result = async {
