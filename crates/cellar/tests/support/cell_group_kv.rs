@@ -10,6 +10,27 @@ mod cli;
 const SCRIPT: &str = "kv-binding-service";
 const NAMESPACE: &str = "shared/cache";
 
+/// Restore injected outages before managed shutdown, including early errors.
+struct StoreFault<'a> {
+    flag: &'a std::sync::atomic::AtomicBool,
+    previous: bool,
+}
+
+impl<'a> StoreFault<'a> {
+    fn enable(flag: &'a std::sync::atomic::AtomicBool) -> Self {
+        Self {
+            flag,
+            previous: flag.swap(true, Ordering::AcqRel),
+        }
+    }
+}
+
+impl Drop for StoreFault<'_> {
+    fn drop(&mut self) {
+        self.flag.store(self.previous, Ordering::Release);
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Coverage {
     Api,
@@ -680,13 +701,13 @@ async fn run(
             let preparation_before = local_preparations(&cluster)?;
             let puts_before = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
             let denied_before = cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire);
-            cluster.fixtures[0].store.deny_group_archive_writes.store(true, Ordering::Release);
+            let proof_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_group_archive_writes);
             let refused = proof_source.command(&proof_source.contract("ProofGuard")?,
                 b"null".to_vec(), bindings::options(1, Durability::S3)?).await;
             let published = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
             let denied = cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire);
             let preparations_after = local_preparations(&cluster);
-            cluster.fixtures[0].store.deny_group_archive_writes.store(false, Ordering::Release);
+            drop(proof_outage);
             ensure!(refused.is_err(), "unproved S3 source published a KV value");
             ensure!(preparations_after? == preparation_before + 1, "S3 guard did not reach warm preparation");
             ensure!(denied > denied_before, "S3 guard did not reach the actual archive adapter");
@@ -736,9 +757,9 @@ async fn run(
             ensure!(admin(&cluster, json!({"op":"get","key":"warm"})).await?["revision"] == token);
             public_ok(&cluster, 2, "ReadLarge").await?;
             let denied_payload = cluster.fixtures[0].store.denied_cell_payload_reads.load(Ordering::Acquire);
-            cluster.fixtures[0].store.deny_cell_payload_reads.store(true, Ordering::Release);
+            let payload_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_cell_payload_reads);
             let (status, body) = public(&cluster, 0, "ReadLarge").await?;
-            cluster.fixtures[0].store.deny_cell_payload_reads.store(false, Ordering::Release);
+            drop(payload_outage);
             ensure!(status == 503 && body.contains("payload"), "unavailable external value became a miss/success: {status}: {body}");
             ensure!(cluster.fixtures[0].store.denied_cell_payload_reads.load(Ordering::Acquire) > denied_payload);
             public_ok(&cluster, 2, "ReadLarge").await?;
@@ -747,10 +768,7 @@ async fn run(
                 .store
                 .denied_group_archive_writes
                 .load(Ordering::Acquire);
-            cluster.fixtures[0]
-                .store
-                .deny_group_archive_writes
-                .store(true, Ordering::Release);
+            let archive_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_group_archive_writes);
             source
                 .command(
                     &source.contract("Write")?,
@@ -772,10 +790,7 @@ async fn run(
             })
             .await
             .context("archive outage did not reach the actual PUT adapter")?;
-            cluster.fixtures[0]
-                .store
-                .deny_group_archive_writes
-                .store(false, Ordering::Release);
+            drop(archive_outage);
             let stopped = cluster.nodes.split_off(1);
             managed_fixture::close_group_nodes_with_groups(stopped, &cluster.hosts[1..], 2).await?;
             cluster.hosts.truncate(1);

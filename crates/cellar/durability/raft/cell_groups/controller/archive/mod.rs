@@ -1065,6 +1065,16 @@ fn archive_retryable(error: &CellGroupArchiveError) -> bool {
             | CellGroupArchiveError::Expired
             | CellGroupArchiveError::Unconfirmed
             | CellGroupArchiveError::Storage(_)
+            // These failures do not disprove a referenced payload. Resume the
+            // journaled publication and verify its bytes again on the next
+            // attempt. Missing, invalid and retired payloads stay fatal.
+            | CellGroupArchiveError::Payload(
+                CellGroupPayloadError::Overloaded
+                    | CellGroupPayloadError::DeadlineExceeded
+                    | CellGroupPayloadError::Unconfirmed
+                    | CellGroupPayloadError::Conflict
+                    | CellGroupPayloadError::Storage(_)
+            )
             | CellGroupArchiveError::Checkpoint(
                 CellGroupCheckpointError::NotReady
                     | CellGroupCheckpointError::Busy

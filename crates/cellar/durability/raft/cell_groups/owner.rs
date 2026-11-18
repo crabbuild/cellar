@@ -2319,6 +2319,21 @@ impl CellGroupOwner {
         {
             return Ok(false);
         }
+        // The attachment hint cannot override a later vote for another voter.
+        // Recheck the actor's current term/vote after its Ready work has joined;
+        // a follower may have granted that vote without learning its leader yet.
+        let candidate = {
+            let cache = self.group.read()?;
+            super::startup::candidate(
+                &self.node.raft.hard_state(),
+                &cache.conf_state,
+                self.current.marker().position(),
+            )
+        };
+        if candidate != Some(self.group.identity().member) {
+            self.startup_candidate = false;
+            return Ok(false);
+        }
         self.startup_candidate = false;
         self.campaign()?;
         Ok(true)

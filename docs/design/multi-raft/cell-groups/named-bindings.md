@@ -33,8 +33,11 @@ Binding dispatch has no Fleet or weaker-durability fallback.
 Initial and retained groups can start one ordinary election when a strong read,
 private execution/enrollment request or active mutation probe arrives before a
 leader is known. Only the exact unvoted genesis cut selects its minimum voter;
-retained startup uses an existing vote for a current or outgoing voter. Applied
-local metadata supplies a destination hint, never leader or execution authority.
+retained startup uses an existing vote for a current or outgoing voter.
+The actor rechecks its current term and vote before spending the attachment
+hint; a newer vote for another candidate invalidates it even before a leader
+is known. Applied local metadata supplies a destination hint, never leader or
+execution authority.
 PreVote, durable votes, current membership, quorum and applied readiness still
 decide admission. Stale advisory refreshes and parked groups cannot spend this
 hint; wake retains its separate fresh-quorum barrier.
@@ -425,6 +428,14 @@ first newly waiting S3 proof initiates one immediate attempt; subsequent waiters
 share its work and bounded schedule. Requests keep their original deadlines.
 This scheduling interval is not a disaster-recovery RPO or response-time promise.
 Quorum acknowledgements remain independent of asynchronous archival.
+
+Payload storage failures, admission contention, deadlines and uncertain CAS
+confirmation keep the existing journaled publication retryable. Retrying
+preserves full dependency verification before coverage can authorize publication
+or output, including the existing rules for reusing a live verified prefix.
+Missing, corrupt, retired or wrongly scoped payloads stop the archive lane and
+remain visible in its status. Background recovery preserves the foreground
+request's original deadline, identity and output-proof requirements.
 
 Followers may acquire an older published prefix while later local entries are
 unarchived. Its route, complete physical closure and local term/index match must
