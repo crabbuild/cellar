@@ -51,6 +51,20 @@ CASES = (
 )
 
 SUITES = {
+    "live-binding-recovery": (
+        "native_cell_groups_primitives",
+        ("rustfs_live_materialized_binding_recovery_and_unused_sequence",
+         "rustfs_live_extent_binding_recovery_and_unused_sequence"),
+        "live-host binding checkpoint recovery and unused target sequence sealing",
+        "Both image forms, Quorum/S3 source minima and declared Quorum target minima, "
+        "one SQL worker per voter and original request budgets. After a child "
+        "checkpoint or rolled-back refusal, synchronous host snapshots must observe "
+        "autonomous settlement before any further application request. Committed "
+        "obligations, exact business state, original parent replay and next child "
+        "sequence are then checked. Metrics do not authorize serving. RF3 voters "
+        "share a process; no independent voter crash, all-voter disk loss, provider "
+        "execution or complete primitive family is qualified.",
+    ),
     "ordinary-event-stream": (
         "native_cell_groups_primitives",
         ("rustfs_event_stream_publication_subscriptions_and_outbox_recover_through_quorum",
@@ -770,8 +784,8 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
-        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV, alarm, Workflow, filesystem or Queue suite")
+    if args.keep_going and args.suite not in ("live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
+        parser.error("--keep-going requires a process-isolated primitive or binding recovery suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -821,7 +835,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -839,7 +853,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
+            elif args.suite in ("live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

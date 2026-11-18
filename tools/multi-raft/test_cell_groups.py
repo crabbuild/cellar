@@ -43,7 +43,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+                if suite in ("live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -55,7 +55,7 @@ class SqlCampaignTests(unittest.TestCase):
                 if suite == "queue-primitives":
                     self.assertEqual("--nocapture" in argv,
                                      selection == "rustfs_queue_load_preserves_acknowledged_messages")
-                if suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle"):
+                if suite in ("live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle"):
                     self.assertIn("--show-output", argv)
                     self.assertNotIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
@@ -144,6 +144,23 @@ class AlarmCampaignTests(unittest.TestCase):
 
     def test_alarms_collect_independent_cases_without_waiving_failures(self):
         self.campaign("zero", "ordinary-alarms", keep_going=True)
+
+
+class LiveBindingRecoveryCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_recovery_captures_both_image_cases_without_claiming_cli(self):
+        self.assertEqual(cell_groups.SUITES["live-binding-recovery"][1], (
+            "rustfs_live_materialized_binding_recovery_and_unused_sequence",
+            "rustfs_live_extent_binding_recovery_and_unused_sequence",
+        ))
+        self.campaign(suite="live-binding-recovery")
+
+    def test_recovery_refuses_success_with_no_selected_test(self):
+        self.campaign("zero", "live-binding-recovery")
+
+    def test_recovery_preserves_each_failed_case(self):
+        self.campaign("zero", "live-binding-recovery", keep_going=True)
 
 
 class EventStreamCampaignTests(unittest.TestCase):

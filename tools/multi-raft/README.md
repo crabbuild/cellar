@@ -1257,3 +1257,27 @@ retained RF3 restart, then verifies fresh step execution and event completion.
 Original request/callback budgets, one SQL worker per voter and refusal checks
 remain. Voters share one process; provider interruption, independent host loss,
 clock/deployment changes and the complete Workflow matrix remain separate gates.
+
+## Live binding recovery
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite live-binding-recovery --keep-going \
+  --backend /absolute/owned/rustfs-run \
+  --output /absolute/new/live-binding-recovery-run \
+  --target-directory /absolute/checkout-private/target
+```
+
+Both materialized and extent cases cover Quorum and S3 source minima with the
+target's declared Quorum minimum. A child either checkpoints before losing its
+response or refuses and rolls back, leaving an unused reserved sequence. All
+original RF3 hosts stay running. Before any further application request, the
+case waits using synchronous host snapshots for an observed source settlement.
+It then checks the committed obligation guard, exact child state, parent replay
+and a subsequent child using the recovered lane. A refusing child must not run
+again. Counters are observations, never serving authority or an exact backlog.
+
+The suite retains original five-second requests, one SQL worker per voter and
+controller admission limits. In-process RF3 with local RustFS does not qualify
+independent voter crashes, all-voter disk loss, target S3 minima, providers or
+the complete binding/primitive family. `--keep-going` retains both case outcomes;
+any failed configuration keeps the campaign failed.

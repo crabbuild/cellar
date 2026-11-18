@@ -242,6 +242,10 @@ pub(super) async fn run(
             // loopback target needs the same admission bank.
             drop(receipt);
             authority.check().map_err(Error::Runtime)?;
+            shared.runtime.log().performance().increment(
+                crate::raft::performance::Counter::CellBindingRecoveryClaims,
+                1,
+            );
             let host = registration
                 .dispatcher
                 .bindings
@@ -291,7 +295,15 @@ pub(super) async fn run(
                 )?,
             )
             .await?;
-            check_result(receipt.result())
+            check_result(receipt.result())?;
+            // Count only an observed successful source settlement, including
+            // its required output proof. This is not a live authority or an
+            // exact count of committed rows when a reply was lost.
+            shared.runtime.log().performance().increment(
+                crate::raft::performance::Counter::CellBindingRecoverySettlements,
+                1,
+            );
+            Ok(())
         }
         DueEffect::Alarm(_) | DueEffect::Work(_) | DueEffect::Payload(_) => {
             check_result(receipt.result())
