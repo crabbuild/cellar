@@ -279,6 +279,38 @@ impl Intent {
     }
 }
 
+/// A stateless call can lose its creation response before a business command
+/// exists. Reconcile this exact history and creation at the original minimum;
+/// an ambiguous creation never authorizes a new incarnation or business replay.
+#[derive(Debug)]
+pub struct EnrollmentCallError {
+    /// Reuse this original proposal when reconciling the creation.
+    pub creation: ProposalId,
+    /// Original candidate history, including its proposed incarnation.
+    pub target: CellHistory,
+    /// Independently required target durability, including namespace policy.
+    pub minimum: Durability,
+    /// Concerns creation; no business command has been submitted yet.
+    pub ambiguous: bool,
+    pub cause: anyhow::Error,
+}
+
+impl std::fmt::Display for EnrollmentCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "cell binding enrollment {:?} for {:?}, ambiguous={}: {}",
+            self.creation, self.target, self.ambiguous, self.cause
+        )
+    }
+}
+
+impl std::error::Error for EnrollmentCallError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cause.as_ref())
+    }
+}
+
 /// An admitted ordinary call can outlive its response. Preserve this identity
 /// when reconciling; a source failure may leave a durable, unfinished intent.
 #[derive(Debug)]

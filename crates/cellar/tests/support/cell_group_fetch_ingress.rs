@@ -7,6 +7,16 @@ use super::*;
 use cellar::engine_api::RequestBody;
 use cellar::sdk::{http::Response, Request};
 
+#[path = "cell_group_fetch_enrollment.rs"]
+mod enrollment;
+
+pub(super) use enrollment::qualify as qualify_enrollment;
+
+enum Scenario {
+    Requests,
+    EnrollmentTimeout,
+}
+
 fn name_selections(cluster: &ManagedCluster) -> Result<u64> {
     cluster.hosts.iter().try_fold(0u64, |total, host| {
         let sample = host.performance();
@@ -61,6 +71,7 @@ async fn run(
     minimum: Durability,
     external: bool,
     store: Arc<catalog_fault::Store>,
+    scenario: Scenario,
 ) -> Result<()> {
     let callbacks = Arc::new(AtomicUsize::new(0));
     let initializers = Arc::new(AtomicUsize::new(0));
@@ -82,10 +93,11 @@ async fn run(
                 let Invocation::Fetch(incoming) = invocation else {
                     anyhow::bail!("public HTTP required")
                 };
+                let enrollment_reply = incoming.url.ends_with("/enrollment-timeout");
                 let mut reader = incoming.into_body_reader(&context)?;
                 let body = reader.bytes(&context).await?;
                 ensure!(body == BODY);
-                let response = context
+                let result = context
                     .namespace("CELLS")?
                     .get_by_name("target")
                     .fetch(
@@ -101,7 +113,14 @@ async fn run(
                             entrypoint: None,
                         },
                     )
-                    .await?;
+                    .await;
+                if enrollment_reply {
+                    return enrollment::reply(
+                        &context,
+                        result.err().context("S3 birth escaped the held archive")?,
+                    );
+                }
+                let response = result?;
                 Ok(Output::Http(
                     Response::from_http(response).into_http(&context)?,
                 ))
@@ -115,6 +134,7 @@ async fn run(
     declared.do_classes = vec!["FetchCell".into()];
     declared.bindings = vec![("CELLS".into(), "FetchCell".into())];
     application.validate_deployment(&configuration::deployment(declared.clone()))?;
+    let observed_store = store.clone();
     let mut fixture = Fixture::with_definition_policies(
         rooted,
         vec![(application.resolve_raft_class("FetchCell")?, minimum)],
@@ -150,6 +170,10 @@ async fn run(
             // Namespace origins authorize application RPCs independently of
             // RF3 membership, after this boot's peer endpoints are verified.
             named_service::grant(&cluster).await?;
+            if matches!(scenario, Scenario::EnrollmentTimeout) {
+                return enrollment::work(&mut cluster, observed_store, &callbacks, &initializers)
+                    .await;
+            }
             let selections = name_selections(&cluster)?;
             let initialized = initializers.load(Ordering::Acquire);
             ensure!(request(&cluster, 0).await.context("cold stateless Fetch")? == 2);
@@ -255,7 +279,7 @@ pub(super) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
                 } else {
                     Arc::new(catalog_fault::Store::default())
                 };
-                Box::pin(run(rooted, minimum, external, store)).await
+                Box::pin(run(rooted, minimum, external, store, Scenario::Requests)).await
             }
             .await;
             match result {

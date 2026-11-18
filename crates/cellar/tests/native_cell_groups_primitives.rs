@@ -132,6 +132,28 @@ async fn rustfs_axum_stateless_cell_fetch_uses_shared_group_ingress() -> Result<
     fetch_ingress::qualify(true, true).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_stateless_enrollment_timeout_retains_creation_identity() -> Result<()> {
+    fetch_ingress::qualify_enrollment(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_stateless_enrollment_timeout_retains_creation_identity() -> Result<()> {
+    fetch_ingress::qualify_enrollment(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_native_stateless_enrollment_timeout_retains_creation_identity() -> Result<()> {
+    fetch_ingress::qualify_enrollment(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_axum_stateless_enrollment_timeout_retains_creation_identity() -> Result<()> {
+    fetch_ingress::qualify_enrollment(true, true).await
+}
+
 #[path = "support/cell_group_fetch.rs"]
 mod fetch_bindings;
 

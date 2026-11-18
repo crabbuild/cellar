@@ -4,7 +4,11 @@
 
 use super::super::sql_ingress_identity::{self, Observation};
 use super::*;
-use crate::application::{cell_bindings::CallError, consensus::native_rpc, HandlerFuture};
+use crate::application::{
+    cell_bindings::{CallError, EnrollmentCallError},
+    consensus::native_rpc,
+    HandlerFuture,
+};
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
 use cellar_logic::consensus::{IncarnationId, ProposalId};
@@ -472,6 +476,8 @@ impl RaftCells {
             let selected = Mutex::new(None);
             let command = Mutex::new(None);
             let submitted = std::sync::atomic::AtomicBool::new(false);
+            let enrollment_pending = std::sync::atomic::AtomicBool::new(false);
+            let enrollment_ambiguous = std::sync::atomic::AtomicBool::new(false);
             let started = owner.handle.domain.mono_ms()?;
             let remaining = || -> anyhow::Result<Duration> {
                 let now = owner.handle.domain.mono_ms()?;
@@ -483,29 +489,38 @@ impl RaftCells {
                 ))
             };
             let operation = async {
-                // A local applied history is only a locator. The sequence query
-                // and command still require the exact target's fresh quorum.
+                // A local applied history is only a locator. Atomic enrollment
+                // already checks current routing, authority and foreign births
+                // before initialization. Do not first prove absence by query.
+                // Every business command still requires its own target proof.
                 let (history, enrollment) = if let Some(history) = history_hint {
                     (history, None)
                 } else {
-                    match ready_name(&owner, &candidate, deadline).await? {
-                        Some(history) => (history, None),
-                        None => {
-                            match owner
-                                .cell(candidate.clone())?
-                                .enroll(
-                                    CellEnrollmentRequest {
-                                        creation,
-                                        durability,
-                                    },
-                                    remaining()?,
-                                )
-                                .await
-                            {
-                                Ok(response) => (candidate.clone(), Some(response)),
-                                Err(error) => loop {
+                    'enrollment: loop {
+                        let cell = owner.cell(candidate.clone())?;
+                        let call = cell.enroll(
+                            CellEnrollmentRequest {
+                                creation,
+                                durability,
+                            },
+                            remaining()?,
+                        );
+                        enrollment_pending.store(true, Ordering::Release);
+                        enrollment_ambiguous.store(true, Ordering::Release);
+                        match call.await {
+                            Ok(response) => {
+                                enrollment_pending.store(false, Ordering::Release);
+                                break (candidate.clone(), Some(response));
+                            }
+                            Err(error) => {
+                                enrollment_ambiguous.store(error.ambiguous, Ordering::Release);
+                                let retry = retry_unsubmitted_enrollment(&error);
+                                loop {
                                     match ready_name(&owner, &candidate, deadline).await {
-                                        Ok(Some(history)) => break (history, None),
+                                        Ok(Some(history)) => {
+                                            enrollment_pending.store(false, Ordering::Release);
+                                            break 'enrollment (history, None);
+                                        }
                                         Ok(None) => {
                                             let delay = (remaining()?.as_millis() as u64).min(
                                                 owner
@@ -523,10 +538,16 @@ impl RaftCells {
                                                     now.saturating_add(delay).min(deadline),
                                                 )?
                                                 .await;
+                                            // Absence is not non-commit proof. Only
+                                            // a witnessed pre-entry refusal permits
+                                            // another attempt of this same creation.
+                                            if retry {
+                                                break;
+                                            }
                                         }
                                         Err(_) => return Err(error.into()),
                                     }
-                                },
+                                }
                             }
                         }
                     }
@@ -761,6 +782,16 @@ impl RaftCells {
             })
             .map_err(|cause| {
                 let Some(command) = command.into_inner().unwrap() else {
+                    if enrollment_pending.load(Ordering::Acquire) {
+                        return EnrollmentCallError {
+                            creation,
+                            target: candidate,
+                            minimum: durability,
+                            ambiguous: enrollment_ambiguous.load(Ordering::Acquire),
+                            cause,
+                        }
+                        .into();
+                    }
                     return cause;
                 };
                 let ambiguous = cause.downcast_ref::<Arc<CellCommandError>>().map_or_else(
@@ -779,8 +810,8 @@ impl RaftCells {
     }
 }
 
-/// Read-only readiness precedes enrollment/business dispatch. Reuse the same
-/// logical candidate and absolute deadline; no submitted mutation is retried.
+/// Fresh name selection is read-only, including recovery of another creator's
+/// history. An absence cut never proves a pending creation cannot still commit.
 pub(super) async fn ready_name(
     owner: &RaftCells,
     candidate: &CellHistory,
@@ -885,9 +916,100 @@ fn dispatch_failure(error: Arc<CellCommandError>, attempt: u64, budget_ms: u128)
     anyhow::Error::from(error).context(message)
 }
 
+fn retry_unsubmitted_enrollment(error: &CellEnrollmentError) -> bool {
+    !error.ambiguous
+        && matches!(
+            error.cause.as_ref(),
+            CellDispatchError::Runtime(
+                RuntimeError::Overloaded
+                    | RuntimeError::NotReady
+                    | RuntimeError::NotFound
+                    | RuntimeError::NotLeader
+            )
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enrollment_retry_requires_a_typed_pre_entry_refusal() -> anyhow::Result<()> {
+        for reason in [
+            RuntimeError::Overloaded,
+            RuntimeError::NotReady,
+            RuntimeError::NotFound,
+            RuntimeError::NotLeader,
+            RuntimeError::DeadlineExceeded,
+            RuntimeError::Closed,
+        ] {
+            let retry = matches!(
+                reason,
+                RuntimeError::Overloaded
+                    | RuntimeError::NotReady
+                    | RuntimeError::NotFound
+                    | RuntimeError::NotLeader
+            );
+            let mut error = CellEnrollmentError {
+                creation: ProposalId::new([1; 16])?,
+                ambiguous: false,
+                cause: Box::new(CellDispatchError::Runtime(reason)),
+            };
+            assert_eq!(retry_unsubmitted_enrollment(&error), retry);
+            error.ambiguous = true;
+            assert!(!retry_unsubmitted_enrollment(&error));
+        }
+        let error = CellEnrollmentError {
+            creation: ProposalId::new([1; 16])?,
+            ambiguous: false,
+            cause: Box::new(CellDispatchError::Execution(
+                crate::raft::execution::ExecutionError::Refused(
+                    super::super::super::CommandFailure::Overloaded,
+                ),
+            )),
+        };
+        assert!(!retry_unsubmitted_enrollment(&error));
+        Ok(())
+    }
+
+    #[test]
+    fn enrollment_error_keeps_the_original_creation_history_minimum_and_cause() -> anyhow::Result<()>
+    {
+        let original = Arc::new(CellEnrollmentError {
+            creation: ProposalId::new([1; 16])?,
+            ambiguous: true,
+            cause: Box::new(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+        });
+        let history = CellHistory {
+            cluster: cellar_logic::consensus::ClusterId::new([2; 16])?,
+            namespace: cellar_logic::consensus::NamespaceId::new([3; 16])?,
+            cell: cellar_logic::cell_group::CellId::new("FetchCell:target")?,
+            incarnation: IncarnationId::new([4; 16])?,
+        };
+        let error: anyhow::Error = EnrollmentCallError {
+            creation: original.creation,
+            target: history.clone(),
+            minimum: Durability::S3,
+            ambiguous: true,
+            cause: original.clone().into(),
+        }
+        .into();
+        let stored = error
+            .downcast_ref::<crate::sdk::CellBindingEnrollmentError>()
+            .unwrap();
+        assert_eq!(stored.creation, original.creation);
+        assert_eq!(stored.target, history);
+        assert_eq!(stored.minimum, Durability::S3);
+        assert!(stored.ambiguous);
+        assert!(Arc::ptr_eq(
+            stored
+                .cause
+                .downcast_ref::<Arc<CellEnrollmentError>>()
+                .unwrap(),
+            &original
+        ));
+        Ok(())
+    }
 
     #[test]
     fn dispatch_context_keeps_the_typed_unknown_outcome() -> anyhow::Result<()> {

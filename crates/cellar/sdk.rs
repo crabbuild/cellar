@@ -185,6 +185,9 @@
 //! }
 //! ```
 pub use crate::actor::{Actor, ActorIdentity, ActorOptions, ActorServices};
+pub use crate::application::cell_bindings::{
+    CallError as CellBindingCallError, EnrollmentCallError as CellBindingEnrollmentError,
+};
 pub use crate::application::consensus::{
     CellGroupPartitionCell, CellGroupPartitionContext, CellGroupPartitionObservation,
     CellGroupPartitionWriter, CellGroupWorkload, CommandContext, OperationContract, OperationKind,

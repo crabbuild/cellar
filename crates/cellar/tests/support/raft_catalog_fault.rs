@@ -169,6 +169,42 @@ pub struct NamespaceReadGate {
     resume: tokio::sync::Notify,
 }
 
+/// Hold admitted archive PUTs without changing conditional-write semantics.
+/// Release wakes every waiter, including work whose response was cancelled.
+#[derive(Debug, Default)]
+pub struct ArchiveWriteGate {
+    blocked: AtomicBool,
+    pub entered: tokio::sync::Notify,
+    resumed: tokio::sync::Notify,
+}
+
+impl ArchiveWriteGate {
+    pub fn arm(&self) {
+        self.blocked.store(true, Ordering::Release);
+    }
+
+    pub fn release(&self) {
+        self.blocked.store(false, Ordering::Release);
+        self.resumed.notify_waiters();
+    }
+
+    async fn pause(&self) {
+        if !self.blocked.load(Ordering::Acquire) {
+            return;
+        }
+        loop {
+            let resumed = self.resumed.notified();
+            tokio::pin!(resumed);
+            resumed.as_mut().enable();
+            if !self.blocked.load(Ordering::Acquire) {
+                return;
+            }
+            self.entered.notify_one();
+            resumed.await;
+        }
+    }
+}
+
 impl NamespaceReadGate {
     pub fn new(namespace: String) -> std::sync::Arc<Self> {
         std::sync::Arc::new(Self {
@@ -217,6 +253,7 @@ pub struct Store {
     pub denied_prefix: std::sync::Mutex<Option<Path>>,
     pub denied_prefix_reads: AtomicUsize,
     pub deny_group_archive_writes: AtomicBool,
+    pub group_archive_writes: ArchiveWriteGate,
     pub denied_group_archive_writes: AtomicUsize,
     pub deny_registry_writes: std::sync::Arc<AtomicBool>,
     pub denied_registry_writes: AtomicUsize,
@@ -563,12 +600,13 @@ impl ObjectStore for Store {
                 return Err(failure());
             }
         }
-        if path.as_ref().contains("/cell-group-archives/")
-            && self.deny_group_archive_writes.load(Ordering::Acquire)
-        {
-            self.denied_group_archive_writes
-                .fetch_add(1, Ordering::AcqRel);
-            return Err(failure());
+        if path.as_ref().contains("/cell-group-archives/") {
+            self.group_archive_writes.pause().await;
+            if self.deny_group_archive_writes.load(Ordering::Acquire) {
+                self.denied_group_archive_writes
+                    .fetch_add(1, Ordering::AcqRel);
+                return Err(failure());
+            }
         }
         if path.as_ref().contains("/cell-group-archives/")
             && path.as_ref().ends_with("/ownership/registry")
