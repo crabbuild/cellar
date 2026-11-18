@@ -2326,3 +2326,25 @@ async fn queue_load_preserves_acknowledged_messages() -> Result<()> {
 async fn queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
     Box::pin(queues::qualify_load(false, 2)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn materialized_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load_mode(false, 2, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load_mode(false, 2, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_materialized_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load_mode(true, 2, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_rooted_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load_mode(true, 2, true)).await
+}
