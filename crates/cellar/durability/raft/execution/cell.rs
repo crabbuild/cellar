@@ -375,7 +375,8 @@ impl CellPrivateExecutor {
         // No application work can run between capture and exact settlement.
         // This frozen writer produced the prepared image that the committed
         // entry proves above, just as for an intermediate RPC checkpoint.
-        // Independent replay/reconciliation still reads the selected image.
+        // Independent replay and reconciliation of other images still read
+        // the selected immutable state.
         let receipt = {
             let connection = self
                 .working
@@ -438,41 +439,55 @@ impl CellPrivateExecutor {
         {
             return Err(ExecutionError::Invalid("cell reconciliation identity"));
         }
-        let check = || {
-            authority.check().map_err(|error| match error {
-                RuntimeError::NotReady => ExecutionError::Uncertain,
-                error => authority_failure(error),
-            })
+        let current_error = |error| match error {
+            RuntimeError::NotReady => ExecutionError::Uncertain,
+            error => authority_failure(error),
         };
+        let check = || authority.check().map_err(current_error);
         check()?;
+        let lookup = |connection: &rusqlite::Connection| {
+            if let Some(step) = pending.rpc_step {
+                receipts::lookup_rpc_identity(connection, &pending.request, &self.options.limits)
+                    .map(|receipt| {
+                        receipt
+                            .filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
+                    })
+            } else {
+                receipts::lookup_identity(connection, &pending.request, &self.options.limits)
+            }
+        };
         // Staging already established absence in this exact immutable base.
         // In particular an enrollment image need not yet have receipt tables.
         let receipt = if authority.cell().version == self.authority.cell().version
             && pending.rpc_prior_steps == 0
         {
             Ok(None)
+        } else if pending.submitted
+            && authority.cell().version == pending.result
+            && authority
+                .retains_committed_entry(pending.prepared.bytes())
+                .map_err(current_error)?
+        {
+            // The pending producer still owns the writer, with no application
+            // work since capture. Exact version and committed-entry evidence
+            // bind its frozen SQL state to the selected immutable image.
+            let connection = self
+                .working
+                .as_ref()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database()
+                .framework();
+            if !connection.is_autocommit() {
+                return Err(ExecutionError::Invalid("cell receipt writer is not frozen"));
+            }
+            lookup(connection)
         } else {
             let database = self
                 .options
                 .images
                 .read_cell(&self.options, authority.image())
                 .map_err(storage)?;
-            if let Some(step) = pending.rpc_step {
-                receipts::lookup_rpc_identity(
-                    database.connection(),
-                    &pending.request,
-                    &self.options.limits,
-                )
-                .map(|receipt| {
-                    receipt.filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
-                })
-            } else {
-                receipts::lookup_identity(
-                    database.connection(),
-                    &pending.request,
-                    &self.options.limits,
-                )
-            }
+            lookup(database.connection())
         };
         let resolution = match receipt {
             Ok(Some(receipt)) => CellReconciliation::Committed(Box::new(CellCommittedReceipt {

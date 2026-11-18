@@ -514,6 +514,21 @@ impl CellReconciliationAuthority {
         &self.image
     }
 
+    /// A compacted or different entry supplies no frozen-writer proof. Its
+    /// selected image remains eligible for ordinary receipt reconciliation.
+    pub(crate) fn retains_committed_entry(&self, bytes: &[u8]) -> Result<bool, RuntimeError> {
+        self.check()?;
+        let cache = self.group.read()?;
+        let position = self.leaf.last_mutation;
+        Ok(cache.hard_state.commit >= position.index.get()
+            && cache
+                .entries
+                .get(&position.index.get())
+                .is_some_and(|entry| {
+                    entry.term == position.term.get() && entry.data.as_ref() == bytes
+                }))
+    }
+
     pub fn check(&self) -> Result<(), RuntimeError> {
         let cache = self.group.read()?;
         let current = cache
