@@ -32,6 +32,69 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+Source `0618f7d50` includes latest fetched origin/main `2f083f148` and adds
+buffered stateless `CellStub::fetch` through the same admitted shared-group
+command driver as native RPC/SQL. Native and Axum ingress retain namespace
+onboarding, exact history, command identity, independent target minimum proof,
+fresh quorum conflict resolution and the original absolute deadline. Distinct
+nonces keep independent identical HTTP mutations distinct. A lost response
+remains ambiguous. Declared Raft targets never fall through to Fleet.
+
+Fetch and RPC share the existing bounded outbound call/byte bank. Reservation
+precedes dense copies, includes header structure/text and survives body aliases.
+The capability digest includes the new ingress wire contract; format markers
+remain 1. Stateful Fetch retains the source-journaled binding kernel delivered
+below. Streams, upgrades and leased sessions still need their own ownership
+contracts and qualification.
+
+Qualification at this source:
+
+- New native/Axum campaign 1304 is **FAILED, 5/8 configurations passing**.
+  All four Quorum configurations pass cold onboarding, identical sequential and
+  concurrent mutations, retained RF3 restart, callback counts and final
+  linearizable target state. Native materialized S3 also passes. Native extent
+  S3 and both Axum S3 configurations exceed the original cold-call deadline.
+- Real-RustFS campaign 1307 passes **5/5 selectors, 20/20 configurations**:
+  all eight native/Axum stateless Fetch configurations, four stateful Fetch
+  configurations and eight passive recovery/checkpoint/unused-sequence
+  configurations. Stateless targets exercise independent Quorum/S3 minima;
+  stateful/recovery targets retain Quorum while sources exercise both minima.
+  These passes do not erase the native failures or prove their cause or a fix.
+- Original native regression campaign 1305 is **FAILED, 9/12 selectors passing**.
+  SQL ingress passes materialized mode but its extent concurrent race expires;
+  stateful Fetch fails extent S3 (3/4 pass); named RPC fails both S3 source
+  configurations (2/4 pass). Missing/ambiguous namespace refusal, both Fleet
+  HTTP controls, SDK source proof, four passive live-recovery selectors and
+  interrupted retained restart pass. Unknown outcomes retain their identities.
+- Eight owning codec/admission unit tests pass at `02144418`; their two owning
+  files are byte-identical through `0618f7d50`. The first public candidate fails
+  both selectors/all eight configurations. Its fixture omitted required namespace
+  origin grants. The correction uses existing boot-verified onboarding
+  and refreshes grants on restart; permission checks and budgets are unchanged.
+- Locked build, strict affected library/integration/Fleet Clippy and canonical
+  formatting pass. Stateless host operations retain three seconds and HTTP
+  clients five seconds; stateful bindings retain five seconds. Controller and
+  byte banks, one SQL worker per voter and all original safety assertions remain.
+  RF3 voters share one process and separate workspace disks; real RustFS retains
+  one CPU/two GiB. Recorded independent compiler activity prevents isolated
+  timing claims; independent-voter release qualification remains required.
+
+Aggregate 1309 verifies four frozen records, 13 executable copies, the linked
+prior history and all 99 retained failed voter directories. The initial RustFS resume
+probe returns 503; the signed warm probe passes before the campaign. Both
+records remain retained. All owned runtimes join; the owned backend and VM are
+stopped with objects and failed disks retained.
+
+CG-17 remains **IN_PROGRESS**, with all **32 cases** required. The generated index
+remains **13/17 tasks, 147/195 accepted cases**. Full validation still lacks
+historical CG-01 evidence. Next close original-budget SQL ingress and cold/source
+S3 progress, EventStream activation/Consume and normal SQL/KV conformance, then
+complete streaming/session/provider adapters and the combined primitive,
+retention, deployment, clock and recovery matrix. CG-13 and CG-15/16 gates remain
+required. No full primitive family or hard cutover is accepted.
+
+## Previous buffered Fetch checkpoint
+
 Source `b4e8f46cc` includes latest fetched origin/main `2f083f148` and delivers
 buffered ordinary `CellStub::fetch` through the existing shared-group binding
 intent, child identity, independent receipt proof and recovery path. Register

@@ -549,7 +549,11 @@
         "crates/cellar/application/cell_bindings.rs",
         "crates/cellar/application/consensus/class.rs",
         "crates/cellar/application/consensus/native_cell.rs",
-        "crates/cellar/application/consensus/native_fetch.rs"
+        "crates/cellar/application/consensus/native_fetch.rs",
+        "crates/cellar/application/consensus/native_ingress.rs",
+        "crates/cellar/application/consensus/group_client/sql_ingress.rs",
+        "crates/cellar/execution/outbound_rpc.rs",
+        "crates/cellar/execution/services.rs"
       ],
       "schemas": [],
       "bindings": [
@@ -563,7 +567,7 @@
         "axum"
       ],
       "permission": "Origin, target, operation and original deadline",
-      "proof": "Buffered cell Fetch/RPC use independent source/target command proofs; external transport outcomes may remain uncertain",
+      "proof": "Buffered stateless cell Fetch/RPC require independently verified target minimum proofs; source-cell calls also retain independent source proofs; transport outcomes may remain uncertain",
       "ordering": "Separate cross-cell and provider transactions",
       "recovery": "Retain owned command results and durable binding identities; reconnect sessions and reconcile stable external identities",
       "case": "primitives_http_rpc_and_cross_cell_effects",

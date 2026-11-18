@@ -41,26 +41,29 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Latest main `2f083f148` is included. At `b4e8f46cc`, buffered ordinary cell
-Fetch uses the durable binding kernel and normal owned-body APIs. Native passes
-9/10 selectors: Fetch, Fleet HTTP and source-proof/live/restart controls pass, but
-ordinary named RPC fails materialized Quorum and extent S3 first-command deadlines;
-real RustFS passes all 12 Fetch/live-recovery configurations. New targets retain
-Quorum while sources exercise Quorum/S3 independently. Four codec safety tests
-also pass. Earlier failures/disks remain: these results establish this scoped
-feature, not an exclusive deadline cause, stability or complete-family acceptance.
-Stateless Fetch to a declared Raft target now refuses instead of falling through
-to Fleet; its adapter and streaming/session support still must be delivered.
+Latest main `2f083f148` is included. At `0618f7d50`, buffered stateless
+CellStub Fetch joins the existing admitted shared-group RPC/SQL driver with
+bounded input ownership, independent target proof and distinct ingress nonces.
+Native/Axum passes all four Quorum configurations but only one of four S3
+configurations (**5/8; campaign FAILED**). Real RustFS passes **20/20** Fetch and
+passive recovery configurations, including all eight stateless ingress cases
+with independent Quorum/S3 target minima. Original native regression remains
+**FAILED, 9/12 selectors**: SQL extent concurrency, stateful extent S3 Fetch and
+both named-RPC S3 source configurations exceed unchanged deadlines. Eight
+owning codec/admission units pass; their files remain unchanged in final source.
+Keep all failures, ambiguous identities and failed disks. These results establish
+scoped feature delivery, not a causal deadline fix or complete-family acceptance.
 
 Deliver the next features in this order:
 
-1. Close original-budget named-RPC deadlines, then complete stateless/native/Axum
-   Fetch and streaming/leased-session ownership with original deadlines, stable
-   outcomes and no weaker fallback. Close the
-   outstanding EventStream activation/Consume/outbox failures and normal SQL/KV
-   conformance. Never relabel an unknown mutation or replay an entire
-   multi-transaction callback. Retain original-budget startup, S3 enrollment and
-   post-recovery progress in the combined qualification matrix.
+1. Close original-budget SQL ingress concurrency, cold target-S3 and named/source
+   S3 deadlines. Preserve exact candidate/sequence identities and fresh quorum
+   conflict proofs; reduce redundant work without treating a hint as authority.
+   Close EventStream activation/Consume/outbox progress and normal SQL/KV
+   conformance, then complete buffered ingress qualification and streaming/leased
+   session ownership. Never relabel an unknown mutation or replay an entire
+   multi-transaction callback. Retain startup, archive outage and post-recovery
+   progress in the combined qualification matrix.
 2. Complete Queue leases, acknowledgement, callback settlement and autonomous
    drain, plus alarms/cron and Workflow lifecycle contracts. Qualify the combined
    source, including retention/recreation, deployment changes and clock faults.
