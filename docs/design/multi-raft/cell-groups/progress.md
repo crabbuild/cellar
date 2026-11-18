@@ -32,6 +32,95 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+Runtime source `052f7e5b4` includes latest fetched origin/main `2f083f148`.
+It delivers three correctness changes on the shared-group primitive path:
+
+- Cold and retained requests may start one ordinary election. Only the exact
+  unvoted genesis cut selects its minimum voter. Before campaigning, the actor
+  rechecks its current durable vote; voting for another candidate invalidates
+  the attachment hint. Hints grant no execution, read or output authority.
+- Missing namespace permission produces an authenticated, request-bound transport
+  refusal. Opaque I/O remains read unavailability, and a transport refusal never
+  clears mutation uncertainty. This internal format-1 RPC cutover requires
+  matching binaries; it adds no legacy reader.
+- Transient payload storage, admission, deadline and uncertain-CAS failures keep
+  the existing archive journal retryable. Missing, corrupt, retired and wrongly
+  scoped payloads remain fatal. Publication still requires complete physical
+  dependency verification. KV fault controls restore their flags before managed
+  shutdown, including early errors, without changing any failure oracle.
+
+The causal baseline `a2d2fef3b` reproduces both stale-vote campaigns and the
+permanent archive stop after a temporary payload GET failure. Its integrity
+negative control passes. The fixed source then passes **73/73 owning checks**:
+53 unique units, five TLS controls, eight startup/read controls, five hibernation
+controls and two native archive/payload controls. The latter cover both image
+forms, autonomous recovery without application traffic, actual restored bytes,
+corruption, missing data, retained recovery cuts and GC.
+
+The current public/RustFS campaign is **FAILED, 16/18 selectors passing**:
+
+- KV passes all four selectors: **8/8 image/ingress/backend configurations**.
+  Ordinary SDK operations, large values, RustFS CLI/operator calls, retained
+  restart/replay, unavailable payloads, source-S3 publication refusal, no expired
+  upload after healing, actual archive PUT admission and quorum refusal retain
+  their original assertions.
+- SQL passes all four selectors: **8/8 image/ingress/backend configurations**,
+  including concurrency, operator paths and retained progress. Independent
+  target-S3 SQL and KV conformance remains required.
+- Stateless Fetch passes all four selectors: **16/16 configurations** across
+  native/Axum, memory/RustFS, images and target minima, with the original cold
+  admission, no-redundant-name-query, concurrency and retained-restart checks.
+- Interrupted SQL-binding recovery passes on both backends: **16/16 image,
+  source-durability and error configurations**. These results do not establish
+  complete ordinary-binding or lifecycle acceptance.
+- Named RPC passes **6/8 configurations**; both selectors fail in materialized
+  source-S3 mode. The native first command, client `[121; 16]` sequence 1, and
+  RustFS post-restart sequence 7 exceed the original deadline with uncertainty
+  preserved. The native callback logs both Add and Echo completion, but lack an
+  absolute command-start/entry timestamp; they do not isolate pre-entry versus
+  final S3 settlement cost. Extent source-S3 and both Quorum-source modes pass.
+- Both real-RustFS archive/payload selectors pass in both image forms, including
+  the injected payload-GET outage and physical corruption/missing-data controls.
+
+Every owning request identity, deadline, minimum, callback, byte/data, refusal
+and fencing assertion remains. Ordinary profiles retain their 3 s/5 s budgets;
+large/compound fixtures retain their predeclared 20 s/60 s exceptions and recovery
+observation retains 60 s. Public controller admission remains two commands/64 KiB,
+SQL one worker per voter and cache eight cells/512 MiB. Startup-only controls have
+no SQL callbacks. RF3 actors share one process with separate workspace disks;
+RustFS is pinned at one CPU/two GiB. These scoped checks make no isolated timing,
+stability, exclusive performance-cause or independent-voter release claim.
+
+The earlier broad campaign at `10e888494` remains **FAILED, 34/56 selectors**
+(native 18/30, RustFS 16/26). The current focused rerun does not requalify its
+EventStream, Queue, Workflow, alarm/cron, filesystem and Blob families. Historical
+passes remain separately pinned, rather than current full-family acceptance.
+
+Integrity aggregate 1436 links the earlier audit, verifies 25 additional frozen
+executables and the current CLI companion, and retains **517 failed node
+directories**. Three earlier causal-test revisions include two fixture setup
+failures; only `a2d2fef3b` reaches the intended archive-stop regression. Four node
+disks from the older pre-retention hibernation failure in 1419 were deleted by
+that fixture; its failed log/hash remain, and the later strict baseline retains
+its disks. All owned processes join; RustFS and its VM stop with objects retained.
+The first signed RustFS resume returns 503; the warm probe passes without restart.
+Locked optimized build, strict affected Clippy, canonical formatting/check,
+layout, native dependency, documentation, catalog, source/index and all thirteen
+coverage-validator checks pass.
+
+**CG-17 remains IN_PROGRESS. All 32 cases and existing dependencies remain
+mandatory.** Acceptance stays **13/17 tasks, 147/195 cases**; full plan validation
+still lacks historical CG-01 evidence. The inventory remains partial at 215 public
+symbols, eighteen entries and 4,872 listed coverage cells.
+
+Next close materialized source-S3 named-RPC progress, then EventStream
+activation/Consume/outbox and durable Queue/Workflow/alarm execution. Complete
+independent target minima, providers, feature modes, deployment/clock/retention
+and combined lifecycle/recovery qualification before family or default-cutover
+acceptance. See [remaining work](remaining-work.md#primitive-delivery-priority).
+
+## Previous authenticated-enrollment checkpoint
+
 Source `d20e50215` includes latest fetched origin/main `2f083f148`.
 Authenticated remote enrollment failures now preserve the original creation,
 receiver entry disposition and specified runtime causes. Previously, a receiver
