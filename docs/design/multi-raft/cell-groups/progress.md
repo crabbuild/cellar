@@ -103,6 +103,10 @@ previous aggregates. The initial signed RustFS resume returns 503; the warm
 probe passes before qualification. All owned jobs join; RustFS and its VM are
 stopped with objects and failed disks retained.
 
+Layout, native dependency, documentation, catalog, source/index and all thirteen
+coverage-validator checks pass. The reviewed inventory remains partial: 215
+public symbols, eighteen entries and 4,872 required coverage cells.
+
 CG-17 stays **IN_PROGRESS**, with all **32 cases** and the complete public API,
 provider, feature-mode and lifecycle matrix required. The generated index remains
 **13/17 tasks, 147/195 accepted cases**; full validation still lacks historical
