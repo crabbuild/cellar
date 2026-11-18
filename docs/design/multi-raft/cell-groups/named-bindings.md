@@ -150,6 +150,16 @@ NotFound or NotLeader) permits retrying that same candidate and creation under
 the original deadline; entered, execution-refused and ambiguous calls are not
 resubmitted on absence. Original cancellation and target minimum proofs remain.
 
+The authenticated enrollment reply binds the original request and creation ID,
+including its route, purpose, history and requested minimum. It carries the
+receiver's entry disposition and specified runtime causes instead of flattening
+a verified pre-entry refusal to generic unavailability. Invalid flags, unknown
+codes, truncation, trailing bytes and foreign creations are rejected. A matching
+non-entry reply settles only that send; uncertainty from an earlier send remains
+sticky. Lost, malformed or unauthenticated replies remain ambiguous. No refusal
+supplies serving or durability authority. This is an internal format-1 RPC hard
+cutover; mixed enrollment-reply formats have no compatibility reader.
+
 Before a business command identity exists, an interrupted pending creation
 returns `sdk::CellBindingEnrollmentError` with its original candidate history,
 creation proposal, independent minimum durability, ambiguity and typed cause.

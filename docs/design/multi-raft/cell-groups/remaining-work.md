@@ -41,58 +41,61 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Latest main `2f083f148` is included. Source `85dcdda6c` implements atomic
-creation first for unhinted stateless bindings, plus a typed creation error that
-preserves the original history, proposal, minimum durability and ambiguity before
-a business command exists. Fourteen units and five remote enrollment safety
-controls pass. New interrupted-creation recovery passes **8/8 configurations**
-across memory/real RustFS, native/Axum and both images, with original deadlines,
-verified S3 proof, one initializer, no business replay and retained restart.
+Latest main `2f083f148` is included. Source `d20e50215` preserves authenticated
+remote birth failures: exact creation, receiver entry disposition and specified
+runtime causes. Unknown replies and earlier uncertainty stay ambiguous. A typed
+non-entry refusal permits only same-creation retry under the original deadline;
+all other failures retain required fresh canonical quorum reconciliation.
 
-**CG-17 remains open.** Native core qualification is **FAILED, 6/10 selectors**:
-native SQL 2/2 and stateful Fetch 4/4 pass; Axum SQL materialized fails `NotReady`
-and extents are not reached, while named RPC passes 1/4. Stateless Fetch is 0/8
-qualified: six successful first responses fail the strict name-query oracle and
-two cold requests expire. RustFS is **FAILED, 5/7 selectors**, including the two
-new timeout selectors: SQL 4/4, stateful Fetch 4/4 and timeout recovery 4/4 pass;
-stateless Fetch is 0/8, with three query-oracle failures and five cold deadlines.
-The total query counter cannot identify a selection's position or caller; keep
-required fresh post-refusal quorum reconciliation while finding the remaining
-admission/selection work. Preserve all failures and unknown identities.
+Nineteen focused units, the full 31-test wire suite and five TLS enrollment
+controls pass. Public birth-timeout recovery fully passes **6/8 configurations**:
+real RustFS 4/4 and memory-store 2/4. All eight reach exact S3 creation recovery
+with one initializer and no business replay; two memory configurations fail a
+later post-restart business command. The stronger pre-release initializer sample
+and every original deadline, quota, minimum and safety assertion remain.
+
+**CG-17 remains open.** Native qualification is **FAILED, 7/13 selectors**:
+native SQL 2/2, Axum SQL 1/2, named RPC 2/4 and stateful Fetch 4/4 pass their scoped
+configurations. RustFS is **FAILED, 6/8 selectors**: SQL, stateful Fetch and the
+new timeout scenarios each pass 4/4. Stateless Fetch is **3/8** on each backend;
+cold target-S3 calls, retained startup and sequence-conflict progress still
+exceed original budgets. Completed first replies pass the no-name-query oracle.
+All 354 failed voter directories remain; all owned jobs join and RustFS/VM stop.
+Selected passes do not qualify an entire primitive family.
 
 Deliver the next features in this order:
 
-1. Close cold selection/admission, Axum SQL readiness and named/source-S3
-   progress under the original deadlines. Atomic enrollment now goes first and
-   unknown births retain typed recoverable metadata, but the strict total-query
-   oracle still fails after successful first replies. Establish exact ownership
-   of remaining selections/refusals before removing work; necessary fresh quorum
-   reconciliation is mandatory. Preserve original creation/command identities,
-   current fences, independent minima and fresh consumed-other conflict proofs.
-   Complete EventStream activation/Consume/outbox progress and SQL/KV conformance,
-   including the independent target-S3 matrix. Finish buffered ingress and
-   streaming/leased-session ownership, archive outage and post-recovery progress;
+1. Close cold/restart and sequence-conflict business progress, Axum SQL
+   concurrency and named/source-S3 calls under the original budgets. Preserve
+   exact unknown identities, current fences, independent minima and fresh
+   consumed-other conflict proofs. Locate remaining preparation/selection costs
+   before changing ownership; hints cannot replace current execution or output
+   authority. Complete EventStream activation/Consume/outbox progress and SQL/KV
+   conformance, including independent target-S3 coverage. Finish buffered ingress
+   and streaming/leased-session ownership and autonomous interrupted-call recovery;
    never replay an entire multi-transaction callback after an unknown result.
-2. Complete Queue leases, acknowledgement, callback settlement and autonomous
-   drain, plus alarms/cron and Workflow lifecycle contracts. Qualify the combined
-   source, including retention/recreation, deployment changes and clock faults.
-3. Complete filesystem/payload closure, ordinary HTTP, WebSockets and container/
-   provider adapters with actual execution fencing and reconciliation. Complete
-   the reviewed public-symbol inventory and real matrix evidence for the existing
-   independent coverage validator.
-4. Close CG-13's managed recovery dependency and CG-17's movement, park/wake,
-   archive/reclamation and fresh-incarnation disaster cases. Run the required
-   independent-voter fault profiles, then CG-15 qualification and CG-16 cutover.
+2. Complete Queue lease/acknowledgement settlement and autonomous drain, alarms/
+   cron and Workflow lifecycle contracts. Qualify combined-source retention,
+   recreation, deployment changes and clock faults.
+3. Complete filesystem/payload closure, ordinary HTTP, WebSocket and container/
+   provider adapters with actual execution fencing and reconciliation. Finish
+   the reviewed public-symbol inventory and complete evidence for the independent
+   coverage validator. Its current 215-symbol inventory remains partial.
+4. Close CG-13 managed recovery and CG-17 movement, park/wake, archive/reclamation
+   and fresh-incarnation disaster cases. Run independent-voter fault profiles,
+   then CG-15 qualification and CG-16 cutover. All 32 CG-17 cases and existing
+   dependencies remain mandatory.
 
 The broader public cohort at `387f5a12c` remains FAILED, 3/10 selectors: all six
 EventStream paths fail and three of four RustFS named-binding configurations
-fail original-budget requests. Its 14 focused passes and earlier Workflow
-results remain separately pinned, not current full-family acceptance.
+fail original-budget requests. Earlier Workflow and other selected passes remain
+separately source-pinned, not current full-family acceptance.
 
-Build, strict affected Clippy, formatting, layout, dependencies and 30 runner
-checks pass at `82d40385c`. In-process RF3/local RustFS results do not replace the
-independent-voter gate. Acceptance remains **13/17 tasks, 147/195 cases**; the
-index is current and full validation still lacks historical CG-01 evidence.
+Locked optimized build, strict affected Clippy and formatting pass at
+`d20e50215`. In-process RF3/local RustFS checks do not replace independent-voter
+qualification. Acceptance remains **13/17 tasks, 147/195 cases**; full validation
+still lacks historical CG-01 evidence. See the current checkpoint for exact
+profiles, records and limits.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for
