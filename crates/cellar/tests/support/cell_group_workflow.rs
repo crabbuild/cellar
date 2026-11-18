@@ -7,9 +7,23 @@ use super::*;
 use cellar::sdk::workflow::{Event, Step, WaitOptions};
 use cellar_native::clone::StructuredValue;
 
+#[path = "cell_group_workflow_lifecycle.rs"]
+mod lifecycle;
+pub use lifecycle::qualify as lifecycle;
+#[path = "cell_group_workflow_deletion.rs"]
+mod deletion;
+
 fn application(
     signals: Arc<contract::Signals>,
     scheduled: bool,
+) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    application_with_sink(signals, scheduled, !scheduled)
+}
+
+fn application_with_sink(
+    signals: Arc<contract::Signals>,
+    scheduled: bool,
+    include_sink: bool,
 ) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
     let worker_signals = signals.clone();
     let workflow_signals = signals.clone();
@@ -42,7 +56,7 @@ fn application(
     );
     let mut options = configuration::options(contract::SCRIPT);
     options.do_classes = vec![cellar::deploy::workflow_class(contract::SCRIPT)];
-    if !scheduled {
+    if include_sink {
         options.do_classes.insert(0, "Sink".into());
     }
     options.vars = vec![("SETTING".into(), "native".into())];
@@ -222,6 +236,9 @@ async fn workflow(
     steps: Step,
     signals: Arc<contract::Signals>,
 ) -> Result<StructuredValue> {
+    if event.instance_id == "lifecycle" {
+        return lifecycle::workflow(ctx, steps, signals).await;
+    }
     if let Some(schedule) = event.schedule {
         let scheduled = signals.clone();
         let output = steps
@@ -295,6 +312,15 @@ async fn workflow(
 }
 
 async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_json::Value> {
+    call_at(cluster, 0, action, id).await
+}
+
+async fn call_at(
+    cluster: &ManagedCluster,
+    node: usize,
+    action: &str,
+    id: &str,
+) -> Result<serde_json::Value> {
     let started = cellar::asyncrt::mono_ms();
     let response = reqwest::Client::builder()
         .no_proxy()
@@ -302,7 +328,7 @@ async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_
         .build()?
         .get(format!(
             "http://{}/{action}/{id}",
-            cluster.nodes[0].info().public_address
+            cluster.nodes[node].info().public_address
         ))
         .send()
         .await?;
@@ -378,6 +404,7 @@ enum Scenario {
     Stream,
     Scheduled,
     Status,
+    Deletion,
 }
 
 pub async fn qualify(real: bool, external: bool) -> Result<()> {
@@ -391,6 +418,17 @@ pub async fn qualify(real: bool, external: bool) -> Result<()> {
 
 pub async fn stream_controls() -> Result<()> {
     Box::pin(case(false, false, false, Scenario::Stream)).await
+}
+
+pub async fn deletion_progress(real: bool, external: bool) -> Result<()> {
+    for extents in [false, true] {
+        Box::pin(case(real, external, extents, Scenario::Deletion))
+            .await
+            .with_context(|| {
+                format!("Workflow deletion RustFS={real} Axum={external} extents={extents}")
+            })?;
+    }
+    Ok(())
 }
 
 pub async fn schedules(real: bool, external: bool) -> Result<()> {
@@ -490,7 +528,13 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
     let backend = real
         .then(|| {
             rustfs::StoreConfig::load(
-                if matches!(scenario, Scenario::Status) {
+                if matches!(scenario, Scenario::Deletion) {
+                    if external {
+                        "workflow-deletion-axum"
+                    } else {
+                        "workflow-deletion"
+                    }
+                } else if matches!(scenario, Scenario::Status) {
                     "workflow-status-progress"
                 } else if external {
                     if scheduled {
@@ -572,6 +616,10 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
                 .context("Workflow initial quorum leader")?;
             if scheduled {
                 scheduled_case(&mut cluster, &signals).await?;
+                return Ok(());
+            }
+            if matches!(scenario, Scenario::Deletion) {
+                deletion::exercise(&mut cluster, &signals).await?;
                 return Ok(());
             }
             if matches!(scenario, Scenario::Status) {

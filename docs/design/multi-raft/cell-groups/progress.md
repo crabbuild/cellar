@@ -26,6 +26,9 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
+The latest [Workflow deletion checkpoint](#cg-17-workflow-committed-delete-settlement)
+records the causal fix, earlier Workflow-create/filesystem-write deadline failures
+and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
@@ -16252,3 +16255,162 @@ stays **13/17 tasks, 147/195 cases**. SQL-specific interruption, movement, wake,
 archive outage and disaster recovery, operator/CLI/Axum paths, KV and all remaining
 primitive families and combined release gates remain open. The separate ordinary
 S3-source binding deadline matrix was not rerun in this cohort.
+
+
+## CG-17 Workflow replacement and wake
+
+The `workflow-lifecycle` suite adds public native and Axum cases for a waiting
+Workflow with completed ordinary and streamed steps. It requires an S3-seeded
+replacement to fetch archive payloads, install RF3 membership and serve a local
+linearizable cell version covering the original image. It then fences the whole
+group in park, wakes it through a public stream read, performs retained restart,
+and completes the Workflow through a public event. Execution counters and exact
+stream bytes reject replay of completed work. One SQL worker per voter and the
+original three-second target/30-second callback budgets remain.
+
+At `884ca414e`, the native fixture passes both images in 62.10 seconds. The real
+RustFS campaign `cellar-workflow-lifecycle-rustfs-884ca414-01` remains **FAILED**:
+native passes both images in 62.83 seconds; Axum materialized fails during
+replacement's peer trust refresh, so Axum extents is unrun. The removed voter
+has no active groups, a closing SQL pool and zero transport tasks. Its physical
+disk remains. The failing record, logs, executable and all four voter disks are
+retained on the checkout-owned workspace volume.
+
+The new fixture establishes its initial serving quorum before issuing a new
+instance's first request, matching the existing Workflow fixture. Earlier
+pre-ready request controls at `379fc4e92` and their diagnostic overlay expire
+during enrollment/creation; preserve `workflow-lifecycle-native-red-01` and
+`workflow-lifecycle-native-diagnostic-01`. They do not qualify requests issued
+before initial group readiness. The unchanged ordinary Workflow baseline passes
+both images in 310.96 seconds. This does not attribute every earlier deadline
+failure to startup or accept a broader storage profile.
+
+The controller's late-event branch recognizes fully retired source groups but
+omits `ParkedRemoved` voters. A queued metadata event after member detachment
+can therefore fail the shared controller as an unregistered group and close its
+transport. `859230a77` adds a deterministic retirement-classification regression
+and preserves joined-close errors in the lifecycle fixture. The fatal late-apply
+guard must remain; active, unknown and still-retiring owners must not be treated
+as fully joined retired owners. Full Workflow and CG-17 acceptance remain open.
+
+
+At `4fe5d3bdd`, the correction recognizes fully joined removed voters alongside
+retired sources. The unchanged real RustFS lifecycle suite now passes both exact
+cases and all four image/ingress configurations: native 47.70 seconds, Axum
+43.25 seconds. Preserve `cellar-workflow-lifecycle-rustfs-fixed-01`, including its
+source inputs, seven-operation S3 probe, original command logs and frozen
+executable SHA-256 `fd6c7fdcba1e3edab3c5e8df5d4b32b4c82b6cfc21ef2f489b3240d5a9341c87`.
+The earlier Axum failure remains failed. This correction does not establish the
+cause of every previous managed trust-refresh failure.
+
+Voters share one native process with one SQL worker each. RustFS retains its
+one-CPU/two-GiB container limit in the dedicated four-CPU/eight-GiB VM; voter
+directories remain on the checkout-owned workspace volume. The backend and VM
+are stopped with objects retained. This closes the scoped waiting-Workflow
+replacement/wake gate, not in-flight provider effects, full-size/clock/deployment
+boundaries, independent voter crashes or fenced all-voter disk loss. No full
+primitive family, task acceptance count or release gate changes.
+
+
+The two focused registration units pass on the corrected runtime, including
+removed/retired/active/unknown-owner classification and scoped sizing inventory.
+Strict Clippy for the Cellar library and public primitive test target passes,
+as do canonical format/layout (2,279 Rust files), 27 suite-runner tests, 44 plan
+tests, documentation checks, the partial primitive catalogue and the all-feature
+native dependency check. No JavaScript engine enters the native dependency graph.
+The interrupted pre-fix unit build executed no tests and is not counted.
+Full-plan validation still refuses the missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`; no evidence or acceptance was waived.
+
+## CG-17 Workflow committed delete settlement
+
+The public `workflow-deletion` gate holds an active callback while deleting its
+Workflow. Eight cycles require the original delete request to settle, cancel the
+old callback, report linearizable absence and allow the same ID to be recreated.
+A waiting Workflow must also survive retained RF3 restart, delete, recreate and
+complete without replaying the deleted generation. Native and Axum ingress run
+with both image formats, one SQL worker per voter and the unchanged three-second
+target/30-second callback budgets.
+
+The older runtime at `530e35ca1` passes all four configurations, but that is not
+the integration regression. On committed integration base `c6e9f7e95`, the same
+gate at `9d962daec` fails the first native and Axum deletes in 243 ms and 190 ms:
+`Refused(Unavailable)` with an ambiguous mutation outcome. Dropping the completed
+delete handler retires its activation before asynchronous immutable image
+preparation checks its live producer. Both failed materialized runs retain their
+six voter disks; extent runs are unexecuted.
+
+Production fix `d05987085` records the retirement request when the handler drops
+and consumes it at the SQL owner's committed-result handoff. The old activation
+then closes before recreation. Activation, term, route, image, deadline and stop
+checks in preparation remain unchanged, as do the public fixtures and quotas.
+Abort and owner-loss paths keep their existing fences; lost replies keep their
+original ambiguity. This is a transient activation flag, not a new durable
+format, weakened admission or a retry of an uncertain business mutation.
+
+At `d05987085`, both exact real-RustFS deletion cases pass all four
+configurations: native 111.53 seconds, Axum 110.16 seconds. The isolated three-file
+fix is also backported as `883519e00` onto PR #175, without importing the main
+branch's unrelated runtime changes. The contract is in
+[Workflow durability](workflow-durability.md).
+At PR source `214497464`, the unchanged deletion gate also passes both exact
+RustFS cases and all four image/ingress configurations. Its record and verified
+frozen executable are retained in `cellar-workflow-delete-pr175-21449746-01`.
+The older-runtime control, integrated regression and backport are separate
+source-pinned campaigns rather than one mixed-source acceptance report.
+
+The broader same-source campaigns are deliberately **not** reported as green:
+
+| Gate at `d05987085` | Observed result |
+| --- | --- |
+| Workflow deletion | 4/4 image/ingress configurations pass |
+| Ordinary and scheduled Workflow | 4/5 exact cases pass; 9/10 image configurations complete |
+| Filesystem transactions and descriptors | Both image formats pass |
+| Filesystem outage/movement/wake | Materialized initial write to cell 1 times out before fault stages; extents unrun |
+| Declared Blob provider contract | Both image formats pass |
+
+The remaining ordinary Workflow failure is Axum extent `create/capped`, after
+retained restart/replay: an ambiguous `DeadlineExceeded` at 3,132 ms under the
+original three-second target budget. The filesystem failure is also an ambiguous
+initial-write deadline, before archive outage or movement begins. Neither is
+attributed to the delete ordering bug or an unproved storage cause. Their disks,
+commands and failures remain retained. Mutable Blob commits retain independent
+provider semantics; a cell archive does not back up its bucket.
+
+Evidence directories on the checkout-owned workspace volume are
+`cellar-workflow-delete-integrated-red-01`,
+`cellar-workflow-delete-integrated-green-01`,
+`cellar-workflow-ordinary-integrated-d0598708-01` and
+`cellar-primitives-fs-blob-d059-01`. Records pin source inputs, exact selectors,
+binary hashes and logs; frozen red/green deletion executables are retained.
+RF3 voters share one native process with separate workspace disks. RustFS has
+one CPU/two GiB in the dedicated four-CPU/eight-GiB VM. This is not independent
+voter crash/load qualification or a latency comparison. Complete primitive,
+provider, deployment/clock, recovery and release matrices remain open.
+Acceptance stays **13/17 tasks and 147/195 cases**.
+
+The coordinated main-thread successor `177c7f7f5` combines the same three-file
+retirement fix with direct final-receipt reuse. Its source-pinned real-RustFS
+records 1197, 1198 and 1199 pass deletion **4/4**, ordinary/scheduled Workflow
+**10/10** and replacement/wake **4/4** configurations on one source and binary.
+The production fix and five public test/tool files are byte-identical to the
+qualified integration candidate. This later scoped pass includes `create/capped`
+but does not establish its exclusive latency cause, timing stability or a
+speedup. The earlier failed outcomes remain unreconciled, and filesystem
+lifecycle was not requalified by those Workflow suites. Public reconciliation
+still reopens its image; EventStream, S3-source bindings, interrupted-call
+recovery/sequence sealing and complete primitive/provider matrices remain open.
+The independent records remain in the main checkout's ignored
+`.cellar/cg17-payload-01/` aggregate 1201; they are not relabeled as this PR's
+backport qualification.
+
+The backport passes both owning Workflow-turn units: cancellation releases its
+queued Context cycle, and a completed delete requests retirement without
+invalidating the producer. Strict library/public-primitive-target Clippy,
+canonical formatting and layout (2,280 Rust files), 27 runner tests, 44 plan
+tests, documentation links, the partial primitive catalogue and all-feature
+native dependency checks pass. The generated implementation index is current.
+Full CLI plan validation still refuses the missing historical CG-01 evidence
+record. All owned build/runtime handles are joined; the backend and dedicated
+VM are stopped with objects and failed disks retained. Delivery records and
+final check logs are retained in `cellar-workflow-delete-delivery-20261118-01`.
