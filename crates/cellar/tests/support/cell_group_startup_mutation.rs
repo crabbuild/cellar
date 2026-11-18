@@ -31,7 +31,7 @@ pub(crate) async fn retained_private_election(connected: bool) -> Result<()> {
         let cell = history(&route, "retained-private")?;
         // Reattach all three retained disks with automatic ticks disabled.
         let mut fixture = RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000).await?;
-        let result = async {
+        let result = futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
             assert!(matches!(
                 request(&fixture.runtimes[1], route.history, &cell, enrollment).await,
                 Err(RuntimeError::NotLeader | RuntimeError::NotReady)
@@ -101,10 +101,22 @@ pub(crate) async fn retained_private_election(connected: bool) -> Result<()> {
                 }
             }
             Ok::<_, anyhow::Error>(())
-        }
+        }))
         .await;
+        // Keep the actual voter disks until every owner has joined, including
+        // an assertion unwind. A failed regression must remain inspectable.
+        let root = std::mem::replace(&mut fixture.cluster._root, tempfile::tempdir()?);
         let closed = fixture.close().await;
-        result?;
+        if !matches!(&result, Ok(Ok(()))) || closed.is_err() {
+            let root = root.keep();
+            for voter in 1..=3 {
+                eprintln!("retained private startup disk: {}", root.join(format!("node-{voter}")).display());
+            }
+        }
+        match result {
+            Ok(result) => result?,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
         closed?;
     }
     Ok(())
