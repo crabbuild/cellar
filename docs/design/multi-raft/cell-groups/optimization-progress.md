@@ -5982,3 +5982,44 @@ open. P0 remains repeatable original-deadline SQL/KV/Queue, receipt/RPC and reco
 progress. Next are persistence/archive batching and shared-worker fairness,
 physical reclamation/movement, authority/read fault coverage and the complete
 source-matched constrained comparison.
+
+## Independent Queue image deadline verification
+
+Test-entry source `bbb93651` keeps production identical to
+`29a735c9` and includes `origin/main` `2f083f14`.
+Independent materialized and extent-backed Queue C4 entry points now run the
+same original load oracle. The original combined C4 and C2 tests remain required;
+the canonical load body, identities, assertions, deadlines, banks and one SQL
+worker are unchanged. RustFS variants are listed only.
+
+**Latest native qualification is FAILED.** Both independent C4 modes, the
+original combined C4 and original C2 control fail with ambiguous deadlines.
+Both independent modes observe four offered requests; C2 observes two. Each
+failure retains its original identities and data. 8/8 affected Clippy and
+repository checks pass. This run qualifies no sustained Queue progress and
+does not erase earlier full-run or hosted failures.
+
+The unmodified production baseline reproduces C4 failure. Two phase-triggered
+samples contain foreground apply/image persistence, private preview, archive
+replay and checkpoint verification; overlapping worker samples do not attribute
+exclusive request time. Healthy/outage/outage/healthy controls fail in both
+the write-only and refined write-plus-checkpoint-read outage experiments. The
+refined outage records actual denied reads/writes in both failed runs. Pausing
+archive I/O therefore does not resolve the deadline; in-flight work remains a
+limit of this control. All temporary probe code is removed. See the
+[source-bound Queue record](queue-image-progress-qualification-2026-11-18.json)
+for source/executable/profile identities, every outcome and retained manifests.
+
+The read-only original RustFS check at 2026-11-18T09:42:09.811621+00:00 finds
+10,035,200 available bytes, below the unchanged
+6,442,450,944-byte reserve. Identity and limits match with zero restarts;
+no constrained campaign is admitted. Test durations and samples establish no
+throughput or latency-percentile gain. Full OPT-01–08 and remaining CG/release
+gates remain open.
+
+P0 is repeatable original-deadline SQL/KV/Queue and receipt/RPC/recovery progress,
+including both Queue image modes and the C2 control. Foreground image preparation
+and persistence require causal measurement before another production change.
+Then qualify bounded persistence batching and shared-worker fairness, physical
+reclamation and movement, combined authority/recovery/SDK faults, and the full
+source-matched SQL/KV/Queue constrained comparison.
