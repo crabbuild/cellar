@@ -158,9 +158,35 @@ See [the read-deadline checkpoint](progress.md#cg-17-workflow-native-read-progre
 for the exact passing profile and failed controls. This closes the scoped MVP
 read-liveness qualification, not the complete Workflow family matrix.
 
+At `c6e9f7e95`, a dedicated lifecycle fixture passes all eight native/Axum and
+real-RustFS native/Axum image configurations. It preserves completed steps and
+exact stream bytes through S3-seeded voter replacement, verifies replacement-local
+image coverage and current RF3 membership, parks the whole group, wakes it with
+a public read, restarts retained disks and completes the owed event once. The
+repository's `workflow-lifecycle` command passes its four RustFS configurations
+at the same source and executable hash. Cold creation waits only for the initial
+physical group's quorum readiness; it does not pre-enroll or prewarm the cell.
+
+The removed-voter discovery regression selects the actual replaced member after
+restart. Its retained log cannot establish serving authority or suppress current
+router discovery. The first public name lookup returns the original history;
+the subsequent fresh query is served by a current member without local reattach.
+Native and real-RustFS selectors pass both images after a causal materialized
+baseline failure. Fully joined removed owners also classify late metadata as
+retired; the fatal retained-apply guard remains.
+
+The original RustFS/Axum ordinary Workflow case still fails at this source:
+materialized `delete/delete-held` refuses ambiguously with
+`Execution(Refused(Unavailable))` after 281 ms, before its three-second deadline.
+Its logs and voter disks remain. Do not retry this mutation as if it were known
+uncommitted or infer complete Workflow acceptance from the lifecycle passes.
+Close delete/cancellation and recreation settlement, then repeat the combined
+public matrix. See [the current checkpoint](progress.md#current-integration-checkpoint)
+for exact failures, red/green pins and resource limits.
+
 Full-size params/results, longer
 continuous callbacks, provider I/O, clock faults, deployment changes,
-movement/wake and fenced disk-loss recovery require their own qualifications.
+split/merge, placement and fenced disk-loss recovery require their own qualifications.
 The common callback budget is bounded to 300 seconds; long sleeps and event
 waits release that owner, but continuous callback work must fit its admitted
 budget. Full Workflow/CG-17 acceptance remains open until its complete public

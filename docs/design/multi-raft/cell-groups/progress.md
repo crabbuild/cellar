@@ -29,6 +29,78 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. Runtime `c6e9f7e95` closes two removed-voter
+correctness gaps. A fully joined `ParkedRemoved` owner is now retired for late
+metadata, while a late retained apply ticket remains fatal. A retained log whose
+local identity is absent from committed membership no longer prevents automatic
+name discovery from refreshing the current managed router. Last-vote preference
+remains a liveness hint; destinations still enforce current membership, fresh
+quorum, history and independent durability minima. No deadline or admission bank
+is increased, and no fallback to weaker durability is introduced.
+
+The actual roster regression fails at `4711222ea` because removed members are
+not retired, then passes with the inventory control at `31630b26a` (1158/1161).
+Those roster/worker bytes are unchanged at the current runtime. The new public
+name regression first completes S3 voter replacement, park/public-read wake and
+retained restart. It selects the actual removed member, requires its log still
+exists and its controller has detached, then performs the first cold name lookup.
+Baseline `7eef05f4c` fails with `Runtime(NotReady)` on native and real RustFS in
+the first materialized configuration. At `c6e9f7e95`, both selectors pass both
+image forms (1172), with identical fixture bytes. The exact history is returned;
+a fresh linearizable query covers the original image and is served by another
+member without reattaching the removed replica.
+
+**Current controls 1173 pass 4/4 selectors.** Ordinary name-resolution controls
+cover all eight native/RustFS image/minimum configurations, including explicit
+local routing and quorum refusal. Native and native/Axum Workflow lifecycle
+selectors pass both images. The repository's `workflow-lifecycle` command also
+passes native and Axum against real RustFS, both images (1174). All use the same
+source and executable hash. The lifecycle fixture checks cold public creation,
+exact stream bytes, S3-seeded replacement with local image coverage, RF3 membership,
+park/public-read wake, retained restart and event completion without replaying
+completed steps. It is a scoped lifecycle qualification, not complete Workflow
+acceptance.
+
+**Ordinary Workflow compatibility 1175 is FAILED, 0/1.** Real-RustFS Axum
+materialized `delete/delete-held` refuses after 281 ms with ambiguous
+`Execution(Refused(Unavailable))`, inside its original three-second request.
+This is not a timeout and must not be treated as proof that deletion did not
+commit. Three voter disks remain. Earlier 1162 fails the same operation after
+989 ms. Earlier lifecycle cohorts 1156/1163 are also retained: their waiting
+failure snapshots already contain the replacement (`controller.groups` is
+`[0,1,1,1]`). The label occurred both before and after movement; the earlier
+initial/pre-replacement attribution was incorrect. Diagnostic 1166 passes but
+does not establish an exclusive cause or stability.
+
+EventStream remains open. Original native and Axum selectors fail in 1151 with
+the owned VM stopped. Temporary fixture-only stage marks in 1154 show a completed
+materialized fetch/sync/ack sequence, while extent fetch and sync consume 1,376 ms
+and 436 ms before first acknowledgement expires under the original three-second
+budget. These observations do not identify an exclusive cause. All nine marks
+are removed; the fixture is byte-identical to published `60c8f7200`. Both failed
+cohorts and their 12 voter disks remain.
+
+Locked integration build 1171, strict library/affected-integration Clippy and
+canonical formatting pass at `c6e9f7e95`. All owned compiler/runtime handles joined
+before tracked edits. Test optimization 1, assertions, overflow checks and
+incremental=0 remain. RF3 voters share a process with separate workspace disks
+and one SQL worker per voter; RustFS has one CPU/two GiB on a four-CPU/eight-GiB
+VM. Independent compilation was observed, so these are not isolated timing or
+independent-voter release results. Aggregate 1176 under ignored
+`.cellar/cg17-payload-01/` verifies 15 executable copies, source/oracle/log hashes,
+34 new retained voter directories and the prior 141 directories. Owned backend
+and VM are stopped with objects retained.
+
+The reviewed source baseline now includes the bounded SQL apply/completion-lane
+owner and fallible payload-pool catalog binding; source-anchor checks retain full
+file hashes and exact excerpts. Full plan validation still stops at missing
+historical CG-01 evidence. The generated index remains current at **13/17 tasks,
+147/195 cases**; its count includes only accepted tasks. Next: Workflow delete
+settlement, EventStream Consume/activation, interrupted binding recovery and
+sequence sealing, then the complete primitive/provider and CG-13/15/16 gates.
+
+## Previous foreground archive checkpoint
+
 Latest main `16c45b266` is included. Runtime `d20c242ea` prioritizes S3 outputs
 waiting on the shared archive publication lane. Ready foreground groups retain
 FIFO order and receive at most two turns before a ready background group.
