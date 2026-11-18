@@ -313,8 +313,8 @@ pub struct CellGroupOwner {
     pending_park: Option<Box<PendingPark>>,
     parked: Option<ParkGeneration>,
     waking_after: Option<LogIndex>,
-    // One prior durable self-vote selects a restart candidate. This is only a
-    // bounded liveness hint; campaigning still needs PreVote and quorum votes.
+    // One prior self-vote or the unvoted genesis minimum selects a candidate.
+    // This is only a bounded hint; campaigning needs PreVote and quorum votes.
     startup_candidate: bool,
 }
 
@@ -369,13 +369,11 @@ impl CellGroupOwner {
                 current.marker().position().index <= *floor
                     || current.marker().position().term.get() != cache.hard_state.term
             });
-        let startup_candidate = cache.hard_state.term > 0
-            && cache.hard_state.vote == group.identity().member.get()
-            && (cache.conf_state.voters.contains(&cache.hard_state.vote)
-                || cache
-                    .conf_state
-                    .voters_outgoing
-                    .contains(&cache.hard_state.vote));
+        let startup_candidate = super::startup::candidate(
+            &cache.hard_state,
+            &cache.conf_state,
+            current.marker().position(),
+        ) == Some(group.identity().member);
         drop(cache);
         current
             .require_checkpoint(&group)
@@ -2295,7 +2293,7 @@ impl CellGroupOwner {
         self.begin_startup_election()
     }
 
-    /// A recovered voter that last voted for itself may try one ordinary
+    /// The selected genesis voter or retained self-voter may try one ordinary
     /// election when an admitted request arrives before any leader is known. Waiting
     /// for the full idle election timeout can consume the request deadline.
     /// The hint grants no authority: unchanged PreVote, durable vote admission,

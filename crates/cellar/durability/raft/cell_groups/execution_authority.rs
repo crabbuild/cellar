@@ -12,11 +12,11 @@ use std::sync::{
 };
 
 impl GroupLog<GroupHistory> {
-    /// A retained durable vote can locate a restart candidate before a leader
+    /// Applied startup metadata can locate a candidate before a leader
     /// is known. This is only a destination hint, never a leader observation or
     /// serving authority. The destination must run ordinary Raft and recheck all
     /// command/enrollment admission and output proofs.
-    pub(crate) fn retained_vote_hint(
+    pub(crate) fn startup_destination_hint(
         &self,
         route: &GroupRoute,
     ) -> Result<Option<cellar_logic::consensus::MemberId>, crate::raft::storage::LogError> {
@@ -36,7 +36,6 @@ impl GroupLog<GroupHistory> {
         let Some(manifest) = &cache.group_manifest else {
             return Ok(None);
         };
-        let vote = cache.hard_state.vote;
         if !manifest.is_active()
             || manifest.route() != route
             || cache.hard_state.term != manifest.position().term.get()
@@ -48,17 +47,14 @@ impl GroupLog<GroupHistory> {
                 .iter()
                 .chain(&cache.conf_state.voters_outgoing)
                 .any(|member| *member == self.identity.member.get())
-            || !cache
-                .conf_state
-                .voters
-                .iter()
-                .chain(&cache.conf_state.voters_outgoing)
-                .any(|member| *member == vote)
         {
             return Ok(None);
         }
-        // Invalid/unselected identities cannot supply even a routing hint.
-        Ok(cellar_logic::consensus::MemberId::new(vote).ok())
+        Ok(super::startup::candidate(
+            &cache.hard_state,
+            &cache.conf_state,
+            manifest.position(),
+        ))
     }
 
     /// A locator from a live local voter's fully applied tree. Callers must

@@ -110,6 +110,7 @@ pub(crate) mod log_retention;
 mod membership_observation;
 mod observation;
 mod owner;
+mod startup;
 pub use membership_observation::CellGroupQuorumMembership;
 pub use observation::{
     CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionContext,
