@@ -237,7 +237,12 @@ impl GroupRoster {
 
     pub(super) fn retired(&self, group: &GroupHistory) -> bool {
         self.groups.lock().is_ok_and(|groups| {
-            matches!(groups.entries.get(group), Some(GroupState::ParkedRetired))
+            // Both joined retirement paths can leave metadata in the event
+            // queue. Neither state admits new dispatch or late apply tickets.
+            matches!(
+                groups.entries.get(group),
+                Some(GroupState::ParkedRetired | GroupState::ParkedRemoved)
+            )
         })
     }
 
