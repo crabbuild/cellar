@@ -11,6 +11,8 @@ use cellar_native::clone::StructuredValue;
 mod lifecycle;
 pub use lifecycle::qualify as lifecycle;
 pub use lifecycle::qualify_removed_lookup as removed_lookup;
+#[path = "cell_group_workflow_deletion.rs"]
+mod deletion;
 
 fn application(
     signals: Arc<contract::Signals>,
@@ -403,6 +405,7 @@ enum Scenario {
     Stream,
     Scheduled,
     Status,
+    Deletion,
 }
 
 pub async fn qualify(real: bool, external: bool) -> Result<()> {
@@ -416,6 +419,17 @@ pub async fn qualify(real: bool, external: bool) -> Result<()> {
 
 pub async fn stream_controls() -> Result<()> {
     Box::pin(case(false, false, false, Scenario::Stream)).await
+}
+
+pub async fn deletion_progress(real: bool, external: bool) -> Result<()> {
+    for extents in [false, true] {
+        Box::pin(case(real, external, extents, Scenario::Deletion))
+            .await
+            .with_context(|| {
+                format!("Workflow deletion RustFS={real} Axum={external} extents={extents}")
+            })?;
+    }
+    Ok(())
 }
 
 pub async fn schedules(real: bool, external: bool) -> Result<()> {
@@ -515,7 +529,13 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
     let backend = real
         .then(|| {
             rustfs::StoreConfig::load(
-                if matches!(scenario, Scenario::Status) {
+                if matches!(scenario, Scenario::Deletion) {
+                    if external {
+                        "workflow-deletion-axum"
+                    } else {
+                        "workflow-deletion"
+                    }
+                } else if matches!(scenario, Scenario::Status) {
                     "workflow-status-progress"
                 } else if external {
                     if scheduled {
@@ -597,6 +617,10 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
                 .context("Workflow initial quorum leader")?;
             if scheduled {
                 scheduled_case(&mut cluster, &signals).await?;
+                return Ok(());
+            }
+            if matches!(scenario, Scenario::Deletion) {
+                deletion::exercise(&mut cluster, &signals).await?;
                 return Ok(());
             }
             if matches!(scenario, Scenario::Status) {

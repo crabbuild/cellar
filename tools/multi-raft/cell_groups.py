@@ -83,6 +83,19 @@ SUITES = {
         "RF3 voters share a host process. No operator CLI, full-size boundary, clock faults, movement/wake, "
         "independent voter limits or disk-loss recovery is qualified by this suite.",
     ),
+    "workflow-deletion": (
+        "native_cell_groups_primitives",
+        ("rustfs_workflow_deletion_cancels_callbacks_and_recreates",
+         "rustfs_axum_workflow_deletion_cancels_callbacks_and_recreates"),
+        "Workflow delete settlement, active callback cancellation and recreation",
+        "Both images, native and Axum ingress, original request/callback budgets "
+        "and one SQL worker per voter. Eight deletions must settle while an active "
+        "callback is held, cancel that generation, and report absence before "
+        "recreation. A waiting Workflow must also delete and recreate after RF3 "
+        "retained restart and complete without replaying deleted work. Voters "
+        "share a native process; no provider interruption, independent host "
+        "crash, clock/deployment change or all-voter disk loss is qualified.",
+    ),
     "workflow-lifecycle": (
         "native_cell_groups_primitives",
         ("rustfs_workflow_results_survive_s3_replacement_and_park_wake",
@@ -757,7 +770,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV, alarm, Workflow, filesystem or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -808,7 +821,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -826,7 +839,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")
