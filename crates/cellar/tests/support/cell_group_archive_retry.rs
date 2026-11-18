@@ -58,7 +58,11 @@ pub(crate) async fn archive_controller_payload_outage(
     fixture.runtimes[0].campaign(route.history).await?;
     fixture.drive(None).await?;
     let (mut config, _) = registration(&fixture, &route, rooted).await?;
-    config.io = config.io.with_payloads(payload_pool);
+    // Registration owns a separately wrapped verifier backend. Bind its pool
+    // there rather than rebinding the producer's existing host capability.
+    config.io = config
+        .io
+        .with_payloads(CellGroupPayloadPool::new(Default::default())?);
     let index = fixture.runtimes[0]
         .status(route.history)
         .await?
