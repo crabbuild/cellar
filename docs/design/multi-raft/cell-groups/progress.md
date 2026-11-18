@@ -71,6 +71,19 @@ Aggregate 1249 verifies six records, eleven executable copies and **30 retained
 failure directories**, including 15 from final-source campaigns. Owned jobs join;
 RustFS/VM are stopped with objects retained. No full-family acceptance is claimed.
 
+Phase-only source `a20548f11` leaves production unchanged: the failed native
+case passes in 1254, while RustFS extent campaign 1255 passes both Quorum cuts.
+Its S3 checkpoint case fails after the child completes and the source resumes;
+its S3 unused-sequence case fails the original parent before recovery. These
+six additional failed disks remain retained. Trace source `8b8c61e9b` passes all
+four extent/RustFS configurations in 1261, with original assertions and budgets.
+The next request's observed publication retries are `Uncertain`, awaiting the
+unchanged checkpoint for about 80–115 ms in that passing run; no authority-ready
+failure appears. This does not identify the earlier deadline cause or establish
+a fix. Aggregate 1263 verifies the added records and all **36 failure directories**.
+The catalog and independent validator rejection tests pass; the reviewed API
+inventory and real complete-matrix evidence remain open.
+
 The generated index remains current at **13/17 tasks, 147/195 accepted cases**.
 Full validation still lacks historical CG-01 evidence. Next: fix the first child
 request after recovery and cold startup/S3 enrollment progress, complete SQL/KV

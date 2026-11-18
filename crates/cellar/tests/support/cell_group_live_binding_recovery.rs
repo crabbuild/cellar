@@ -20,6 +20,7 @@ async fn run(
 ) -> Result<()> {
     let checkpoint = Arc::new(Notify::new());
     let observer = Arc::new(bindings::RecoveryObserver::default());
+    let observed_store = store.clone();
     let mut cluster = Box::pin(bindings::start_with_recovery_observer(
         rooted,
         store,
@@ -182,16 +183,32 @@ async fn run(
                 "recovery or parent replay redispatched the refusing target callback"
             );
             let before_next: Vec<_> = cluster.hosts.iter().map(RaftCells::performance).collect();
-            let next = source
+            let before_reads = store_reads(&observed_store);
+            let result = source
                 .command(
                     &source.contract(next_method)?,
                     b"{}".to_vec(),
                     bindings::options(sequence, minimum)?,
                 )
-                .await.with_context(|| format!(
+                .await;
+            // Existing store counters include concurrent owner work. This
+            // records I/O categories, not exclusive request cost or authority.
+            let read_delta: std::collections::BTreeMap<_, _> = store_reads(&observed_store)
+                .into_iter().zip(before_reads)
+                .map(|((name, after), (_, before))| (name, after.saturating_sub(before)))
+                .collect();
+            let observations = progress(&cluster.hosts, &before_next);
+            eprintln!("live_binding_request_observations {}", json!({
+                "cut": format!("{cut:?}"), "extents": rooted,
+                "minimum": format!("{minimum:?}"),
+                "callback_phase": observer.next_phase.load(Ordering::Acquire),
+                "succeeded": result.is_ok(), "store_reads": read_delta,
+                "owners": &observations,
+            }));
+            let next = result.with_context(|| format!(
                     "first {next_method} child after recovered lane, parent sequence {sequence}; callback phase={} (0=before source,1=source entered,2=child entered,3=child business finished,4=source resumed); observations={}",
                     observer.next_phase.load(Ordering::Acquire),
-                    progress(&cluster.hosts, &before_next),
+                    observations,
                 ))?;
             ensure!(
                 serde_json::from_slice::<serde_json::Value>(&next.result)?
@@ -238,7 +255,37 @@ async fn run(
     joined
 }
 
-// Failure-only diagnostics of this single request. Concurrent owner work can
+fn store_reads(store: &catalog_fault::Store) -> [(&'static str, usize); 7] {
+    [
+        (
+            "group_chunks",
+            store.group_payload_reads.load(Ordering::Acquire),
+        ),
+        (
+            "archive_payloads",
+            store.archive_payload_reads.load(Ordering::Acquire),
+        ),
+        (
+            "snapshot_parts",
+            store.snapshot_part_reads.load(Ordering::Acquire),
+        ),
+        (
+            "root_extents",
+            store.root_extent_reads.load(Ordering::Acquire),
+        ),
+        (
+            "root_extent_hits",
+            store.root_extent_hits.load(Ordering::Acquire),
+        ),
+        (
+            "cell_payloads",
+            store.cell_payload_get_calls.load(Ordering::Acquire),
+        ),
+        ("views", store.view_reads.load(Ordering::Acquire)),
+    ]
+}
+
+// Owner observations around one request. Concurrent owner work can
 // contribute to these deltas; they establish neither authority nor causality.
 fn progress(hosts: &[RaftCells], before: &[RaftPerformanceSnapshot]) -> serde_json::Value {
     json!(hosts

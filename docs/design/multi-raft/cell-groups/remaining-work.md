@@ -63,8 +63,9 @@ Deliver the next features in this order:
    drain, plus alarms/cron and Workflow lifecycle contracts. Qualify the combined
    source, including retention/recreation, deployment changes and clock faults.
 3. Complete filesystem/payload closure, ordinary HTTP, WebSockets and container/
-   provider adapters with actual execution fencing and reconciliation. Finish
-   the independent coverage validator and the complete public primitive matrix.
+   provider adapters with actual execution fencing and reconciliation. Complete
+   the reviewed public-symbol inventory and real matrix evidence for the existing
+   independent coverage validator.
 4. Close CG-13's managed recovery dependency and CG-17's movement, park/wake,
    archive/reclamation and fresh-incarnation disaster cases. Run the required
    independent-voter fault profiles, then CG-15 qualification and CG-16 cutover.
