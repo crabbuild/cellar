@@ -36,54 +36,48 @@ full disaster profile remain open.
 
 ## Primitive delivery priority
 
-Latest main `16c45b266` is included. Runtime `387f5a12c` closes public
-reconciliation's redundant image opens. An unchanged unfinished checkpoint stays
-uncertain; only the exact submitted result with retained committed entry proof
-can use the frozen writer. Changed/compacted images and independent S3 output
-proofs retain their existing checks. **14/14 focused selectors pass**, including
-four native/RustFS public image regressions, six reconciliation/identity safety
-controls, native/RustFS checkpoints and native/Axum Workflow deletion/recreation.
-See the [current checkpoint](progress.md#current-integration-checkpoint).
+**Prioritize full CG-17 closure.** All 32 cases, including public adapters,
+provider fencing, WebSockets, deployment/clock changes, retention and recovery,
+remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
+pins the actual results; selected passes do not close a primitive family.
 
-**The original public cohort remains FAILED, 3/10 selectors.** SDK source-proof
-checks pass all eight image/minimum configurations; native named bindings pass
-all four. RustFS named bindings pass materialized Quorum but fail the other three
-configurations under original five-second budgets, including extent Quorum. All
-six EventStream selectors fail startup, Consume command 2 or initial activation.
-Unknown outcomes, controller cleanup errors and failed disks remain recorded.
-These results do not establish complete primitive support or timing stability.
-The earlier 18-configuration Workflow cohort remains pinned to `177c7f7f5`;
-current-source deletion/recreation passes its four native/Axum image configurations.
+Latest main `16c45b266` is included. Runtime `82d40385c` adds bounded recovery
+observations and passive no-request tests around the existing binding protocol.
+All eight real-RustFS configurations observe autonomous source settlement and
+pass actual obligation/state checks. **The campaign still fails, 6/8 passing**:
+both extent S3 configurations exceed the original deadline on their first next
+child. Native live recovery passes 3/4; the materialized unused-sequence case has
+the same subsequent-child failure. SDK startup and materialized S3 enrollment
+controls also fail, leaving the native campaign at 3/6 selectors. Failed outcomes
+and disks remain retained. Target durability is declared Quorum; target-S3
+recovery is not qualified.
 
 Deliver the next features in this order:
 
-1. Close interrupted binding recovery and safe unused-sequence sealing against
-   original histories and receipts. Recover autonomously without replaying a
-   whole multi-transaction callback. Deliver and qualify normal SQL/KV bindings.
-   Resolve RustFS named-binding response progress and EventStream source/child/
-   final Consume settlement, startup, activation and outbox recovery under the
-   original absolute deadlines. Preserve fresh quorum and independent minima.
-2. Finish Queue claim/lease/callback settlement and autonomous drain, then qualify
-   the current source under load. Audit late events after physical member
-   reclamation and fresh-member return. Historical metrics/load passes do not
-   establish the complete Queue family gate.
-3. Complete ordinary HTTP, WebSocket, container/provider and remaining primitive
-   adapters with combined recovery. Cover alarms/cron, Workflow, filesystem,
-   payloads, deployment/clock changes, receipt retention, cancellation, movement,
-   wake and disk loss. Finish the independent API/scenario coverage validator;
-   selected passing tests cannot replace the complete public matrix.
-4. Close CG-13 current-source managed recovery and CG-15 independent-voter fault
-   qualification, then CG-16 hard cutover. Recover historical CG-01 evidence and
-   close remote-enrollment/startup deadline-control stability gaps.
+1. Fix original-deadline request progress after binding recovery, cold managed
+   startup and explicit S3 enrollment. Diagnose source entry, target execution,
+   writer resumption and final source proof separately; never relabel an unknown
+   mutation or replay a whole multi-transaction callback. Complete normal SQL/KV
+   bindings and EventStream startup, activation, Consume and outbox recovery.
+2. Complete Queue leases, acknowledgement, callback settlement and autonomous
+   drain, plus alarms/cron and Workflow lifecycle contracts. Qualify the combined
+   source, including retention/recreation, deployment changes and clock faults.
+3. Complete filesystem/payload closure, ordinary HTTP, WebSockets and container/
+   provider adapters with actual execution fencing and reconciliation. Finish
+   the independent coverage validator and the complete public primitive matrix.
+4. Close CG-13's managed recovery dependency and CG-17's movement, park/wake,
+   archive/reclamation and fresh-incarnation disaster cases. Run the required
+   independent-voter fault profiles, then CG-15 qualification and CG-16 cutover.
 
-Locked builds, strict affected Clippy, canonical formatting, layout and native
-dependency checks pass. RF3 uses one process with separate workspace disks and
-one SQL worker per public voter; RustFS has one CPU/two GiB. Independent compiler
-activity is recorded; no isolated timing, full-family or independent-voter release
-result is claimed. Aggregate 1221 verifies 42 retained failure directories from
-this run and all frozen cohort/log/binary identities. Owned RustFS/VM are stopped
-with objects retained. Acceptance remains **13/17 tasks, 147/195 cases**; the
-generated index is current and full validation still lacks historical CG-01 evidence.
+The broader public cohort at `387f5a12c` remains FAILED, 3/10 selectors: all six
+EventStream paths fail and three of four RustFS named-binding configurations
+fail original-budget requests. Its 14 focused passes and earlier Workflow
+results remain separately pinned, not current full-family acceptance.
+
+Build, strict affected Clippy, formatting, layout, dependencies and 30 runner
+checks pass at `82d40385c`. In-process RF3/local RustFS results do not replace the
+independent-voter gate. Acceptance remains **13/17 tasks, 147/195 cases**; the
+index is current and full validation still lacks historical CG-01 evidence.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for

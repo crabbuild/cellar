@@ -19,12 +19,12 @@ async fn run(
     cut: Cut,
 ) -> Result<()> {
     let checkpoint = Arc::new(Notify::new());
-    let rejected = Arc::new(AtomicUsize::new(0));
+    let observer = Arc::new(bindings::RecoveryObserver::default());
     let mut cluster = Box::pin(bindings::start_with_recovery_observer(
         rooted,
         store,
         checkpoint.clone(),
-        Some(rejected.clone()),
+        Some(observer.clone()),
     ))
     .await?;
     let domain = cluster.fixtures[0].domain.clone();
@@ -95,7 +95,7 @@ async fn run(
                         .command(&contract, b"{}".to_vec(), original.clone())
                         .await.context("unused-sequence parent before recovery")?;
                     ensure!(receipt.result == b"true");
-                    let rejected = rejected.load(Ordering::Acquire);
+                    let rejected = observer.rejected.load(Ordering::Acquire);
                     ensure!(
                         rejected != 0,
                         "unused-sequence cut must reach the refusing target"
@@ -178,16 +178,21 @@ async fn run(
                 ),
             }
             ensure!(
-                rejected.load(Ordering::Acquire) == rejected_before_recovery,
+                observer.rejected.load(Ordering::Acquire) == rejected_before_recovery,
                 "recovery or parent replay redispatched the refusing target callback"
             );
+            let before_next: Vec<_> = cluster.hosts.iter().map(RaftCells::performance).collect();
             let next = source
                 .command(
                     &source.contract(next_method)?,
                     b"{}".to_vec(),
                     bindings::options(sequence, minimum)?,
                 )
-                .await.with_context(|| format!("first {next_method} child after recovered lane, parent sequence {sequence}"))?;
+                .await.with_context(|| format!(
+                    "first {next_method} child after recovered lane, parent sequence {sequence}; callback phase={} (0=before source,1=source entered,2=child entered,3=child business finished,4=source resumed); observations={}",
+                    observer.next_phase.load(Ordering::Acquire),
+                    progress(&cluster.hosts, &before_next),
+                ))?;
             ensure!(
                 serde_json::from_slice::<serde_json::Value>(&next.result)?
                     == json!({"value": after, "name": target_name}),
@@ -231,6 +236,43 @@ async fn run(
     domain.shutdown().await;
     work?;
     joined
+}
+
+// Failure-only diagnostics of this single request. Concurrent owner work can
+// contribute to these deltas; they establish neither authority nor causality.
+fn progress(hosts: &[RaftCells], before: &[RaftPerformanceSnapshot]) -> serde_json::Value {
+    json!(hosts
+        .iter()
+        .zip(before)
+        .map(|(host, before)| {
+            let after = host.performance();
+            let counters: Vec<_> = after
+                .counters
+                .iter()
+                .zip(&before.counters)
+                .filter(|(after, before)| after.name == before.name && after.value > before.value)
+                .map(|(after, before)| json!({"name": after.name, "delta": after.value - before.value}))
+                .collect();
+            let operations: Vec<_> = after
+                .operations
+                .iter()
+                .zip(&before.operations)
+                .filter(|(after, before)| after.name == before.name && after.started > before.started)
+                .map(|(after, before)| {
+                        json!({"name": after.name,
+                    "started": after.started.saturating_sub(before.started),
+                    "succeeded": after.succeeded.saturating_sub(before.succeeded),
+                    "failed": after.failed.saturating_sub(before.failed),
+                    "abandoned": after.abandoned.saturating_sub(before.abandoned),
+                    "sum_us": after.sum_us.saturating_sub(before.sum_us)})
+                })
+                .collect();
+            json!({"same_source": before.source == after.source,
+            "available": before.available && after.available,
+            "saturated": before.saturated || after.saturated,
+            "counters": counters, "operations": operations})
+        })
+        .collect::<Vec<_>>())
 }
 
 pub(super) async fn qualify(rooted: bool, real_rustfs: bool, cut: Cut) -> Result<()> {

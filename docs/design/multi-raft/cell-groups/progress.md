@@ -29,6 +29,57 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+CG-17 closure is the delivery priority. Runtime `82d40385c` adds fixed,
+owner-lifetime binding recovery claim/settlement counters and a reproducible
+`live-binding-recovery` RustFS suite. The existing recovery/sealing protocol is
+unchanged. The new cases wait on synchronous host snapshots before sending any
+further application request, then check the committed obligation guard, exact
+child state, original parent replay, callback counts and next child sequence.
+A refusing child rolls back before commit; cancellation alone never proves an
+unused sequence. Metrics are historical observations, not serving authority,
+unique-operation counts or backlog. Original budgets and minima remain.
+
+**The combined qualification is FAILED.** Native campaign 1246 passes three of
+four live-recovery cases; materialized unused-sequence recovery reaches proven
+settlement and state checks, then the first `AgainRefused` child (parent sequence
+3) exceeds its original five-second deadline. The native SDK control fails
+managed startup with transport timeout and cleanup errors. Retained-restart
+recovery passes three of four configurations; materialized S3 source enrollment
+expires before its recovery scenario. These two controls keep the six-selector
+native campaign failed at **3/6**.
+
+Real-RustFS campaign 1247 runs the new official suite once with `--keep-going`:
+**1/2 selectors, 6/8 configurations pass**. Materialized checkpoint/unused cases
+pass both source minima. Both extent Quorum cases pass; both extent S3 cases
+observe settlement and pass the actual guard/state checks, then their first
+subsequent child exceeds its original deadline. All eight reach passive recovery
+observation, but that does not establish end-to-end request progress. The target
+retains its declared Quorum minimum; target-S3 recovery is a separate gate.
+
+Pre-feature native/RustFS probes and phase-only reruns (1228/1230/1235) are
+retained separately. Baseline 1238 fails both selected passive cases because the
+settlement observation is absent; this proves the new observation contract, not
+absence of the existing recovery algorithm. The passive fixture is byte-identical
+from that baseline to the feature. A later isolated pass never erases a failure
+or establishes a runtime cause or stability.
+
+Locked build, strict affected Clippy, canonical formatting, layout, native
+dependency checks and all 30 runner tests pass at `82d40385c`. RF3 voters share one
+process and separate workspace disks with one SQL worker each. RustFS retains
+one CPU/two GiB; independent machine work prevents isolated timing claims.
+Aggregate 1249 verifies six records, eleven executable copies and **30 retained
+failure directories**, including 15 from final-source campaigns. Owned jobs join;
+RustFS/VM are stopped with objects retained. No full-family acceptance is claimed.
+
+The generated index remains current at **13/17 tasks, 147/195 accepted cases**.
+Full validation still lacks historical CG-01 evidence. Next: fix the first child
+request after recovery and cold startup/S3 enrollment progress, complete SQL/KV
+bindings and EventStream, then the complete CG-17 primitive/lifecycle matrix and
+its managed recovery dependency. CG-15/16 release gates follow. All 32 CG-17
+cases remain required; correctness and independent durability proofs are unchanged.
+
+## Previous public reconciliation checkpoint
+
 Latest main `16c45b266` is included. Runtime `387f5a12c` closes the actual public
 `Action::Reconcile` image-reopen gap. An unchanged, already validated unfinished
 checkpoint remains `Uncertain` without rereading its image. Final receipt reuse
