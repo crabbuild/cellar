@@ -76,7 +76,7 @@ pub(super) async fn qualify(rooted: bool, real_rustfs: bool) -> Result<()> {
             let name = name.to_string_lossy();
             name.starts_with("e-")
                 || name.strip_suffix(".sqlite").is_some_and(|stem| {
-                    stem.len() == 64 && stem.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    stem.len() == 32 && stem.bytes().all(|byte| byte.is_ascii_hexdigit())
                 })
         });
         if immutable
