@@ -68,6 +68,12 @@ async fn rustfs_live_materialized_binding_recovery_and_unused_sequence() -> Resu
 async fn rustfs_live_extent_binding_recovery_and_unused_sequence() -> Result<()> {
     live_binding_recovery::qualify_rustfs(true).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only; requires its own isolated real RustFS campaign"]
+async fn rustfs_trace_extent_binding_recovery() -> Result<()> {
+    live_binding_recovery::trace_rustfs(true).await
+}
 #[path = "support/cell_group_binding_writer.rs"]
 mod binding_writer;
 #[path = "support/cell_group_bindings.rs"]

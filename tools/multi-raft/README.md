@@ -1281,3 +1281,7 @@ controller admission limits. In-process RF3 with local RustFS does not qualify
 independent voter crashes, all-voter disk loss, target S3 minima, providers or
 the complete binding/primitive family. `--keep-going` retains both case outcomes;
 any failed configuration keeps the campaign failed.
+
+The normal suite leaves verbose publication tracing disabled. The separate
+ignored `rustfs_trace_extent_binding_recovery` test enables it for diagnosis;
+run that test in its own isolated backend prefix, separately from qualification.
