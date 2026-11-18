@@ -36,6 +36,23 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Configured rooted previews and current priorities
+
+Implementation `070e6abe` includes `origin/main` `2f083f14`. Rooted preview verification now uses the node's actual committed-apply profile for enrollment, commands and reopened RPC writers. Previously it derived that profile from execution bounds; the exact-profile guard correctly refused reuse when those settings differed. The new path independently validates the captured LTX under the configured apply limits and binds the seal to that same profile. Execution/scratch/capture bounds, workers, deadlines, public APIs and exact engine/group/input/profile/store checks remain unchanged.
+
+The identical physical fixture and build profile fail the over-limit-preview oracle with the former selectors restored, then pass with the configured selectors. This control retains the new plumbing; it is not a pristine published-parent benchmark. Current compiler inputs `321cde1a365fac246e0796b98c390e8b6234feac76c92fd3b7194d43478fe914` pass the full library (**1,259 passed / 2 existing ignores**), full native effects (**10 passed / 1 existing ignore**), eleven selected execution controls, three RPC controls, ordinary KV and Queue, and disaster retry/old-token refusal. The remaining selected native case, ordinary SQL, **fails**: materialized mode has a deadline at another phase, and rooted mode times out during concurrent first-use ingress. `IngressRace` is that scenario's name. The original nine strict/repository checks pass after reviewing the changed SQL pool anchor and rerunning all 44 plan tests. The initial source-drift rejection remains recorded. An additional full plan CLI validation still fails on missing historical CG-01 evidence; that gate remains open. Native selection totals are **27 passed / 1 failed / 1 existing ignore**; combined application qualification remains **FAILED**.
+
+Failure diagnostics now have a separate retained directory/store handle and do not index erased source roots or recreate voter directories. The original erasure, fencing, retry, token and cleanup assertions remain. The prior hosted failure did not reproduce locally; a passing recovery case does not resolve its underlying production cause or full SDK qualification.
+
+Priorities remain:
+
+1. **SQL and Queue progress:** diagnose the current SQL deadlines and close original Queue C2/C4 delivery/drain bounds. Ordinary Queue passes here; the earlier C2/C4 failures remain open and were not rerun in this selection.
+2. **Shared-runtime performance:** measure configured rooted reuse, persistence batching, fairness and interference at the original limits. This change supplies no qualified throughput or latency gain.
+3. **Capacity and lifecycle:** qualify physical reclamation with retained owners, once-only credits, reserve-aware movement and the remaining recovery/SDK cases.
+4. **Original constrained comparison:** rerun SQL/KV/Queue across Quorum, Quorum+S3, Fleet and Bucket at the requested topology and resource limits. The read-only original RustFS observation at 2026-11-18T21:53:35.836264+00:00 still finds **0 available bytes**, below the unchanged **6 GiB** reserve, so no comparison is admitted.
+
+Full OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See the [source-bound qualification](rooted-apply-profile-qualification-2026-11-18.json) for source, executable/profile/log hashes, failed controls and retained-filesystem scope.
+
 ### Separate S3 output and mutation readiness
 
 Implementation `5546c388` includes `origin/main` `2f083f14`. A committed S3 response could leave while a later unrelated-cell mutation was held at the real group-manifest sync. The trace observes a successful S3 response at 1,243 ms within the original 5,000 ms budget. Mutation preparation intentionally tolerates a bounded unrelated-cell prefix; output had incorrectly reused that exception. Missing archive data or data loss was not established.
