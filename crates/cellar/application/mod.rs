@@ -1163,12 +1163,15 @@ impl Context {
     /// Move an incoming body into an owned, backpressured stream. Dropping the
     /// stream cancels the source through the ordinary host ownership claim.
     pub fn take_body(&self, body: RequestBody) -> Result<crate::engine_api::HttpChunkStream> {
-        self.check_turn()?;
+        self.check_binding_turn()?;
         match body {
             RequestBody::Bytes(bytes) => Ok(Box::pin(futures_util::stream::once(async move {
                 Ok(bytes.to_vec())
             }))),
-            RequestBody::Stream(id) => crate::native_worker::take_body(self, id),
+            RequestBody::Stream(id) => {
+                self.check_turn()?;
+                crate::native_worker::take_body(self, id)
+            }
         }
     }
 }

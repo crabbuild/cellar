@@ -5,6 +5,7 @@
 use super::*;
 use cellar::engine_api::RequestBody;
 use cellar::sdk::{http::Response, Request};
+use futures_util::StreamExt;
 
 const SCRIPT: &str = "cell-fetch-service";
 const BODY: &[u8] = &[0, 0xff, 0x80, 42];
@@ -27,10 +28,24 @@ impl Cell for FetchCell {
                                 ("x-request".into(), "second".into())
                             ]
                     );
-                    let RequestBody::Bytes(body) = request.body else {
-                        anyhow::bail!("owned request required")
-                    };
-                    ensure!(body.as_ref() == BODY);
+                    let mut reader = request.into_body_reader(&context)?;
+                    let body = reader.bytes(&context).await?;
+                    ensure!(body == BODY);
+                    let mut stream = context.take_body(RequestBody::Bytes(body.into()))?;
+                    ensure!(
+                        stream
+                            .next()
+                            .await
+                            .context("owned chunk")?
+                            .map_err(anyhow::Error::msg)?
+                            == BODY
+                    );
+                    ensure!(stream.next().await.is_none());
+                    let refused = context
+                        .take_body(RequestBody::Stream(1))
+                        .err()
+                        .context("host stream identity requires its session owner")?;
+                    ensure!(refused.is::<CommandFailure>());
                     ensure!(
                         context
                             .identity()
@@ -39,6 +54,12 @@ impl Cell for FetchCell {
                             .as_deref()
                             == Some("target")
                     );
+                    let refused =
+                        Response::streaming(200, Box::pin(futures_util::stream::empty()), vec![])
+                            .into_http(&context)
+                            .err()
+                            .context("streaming needs its own session owner")?;
+                    ensure!(refused.is::<CommandFailure>());
                     let value = self
                         .0
                         .get_json("value")?
@@ -96,6 +117,8 @@ impl Cell for FetchCell {
                             ]
                     );
                     let value: u64 = response.headers[0].1.parse()?;
+                    let mut owned = Response::from_http(response);
+                    ensure!(owned.bytes(&context).await? == BODY);
                     ensure!(self.0.get_json("before")? == Some(json!(true)));
                     // The original writer must resume after the independently
                     // proven child; these writes share the final parent proof.

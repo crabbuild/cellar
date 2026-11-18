@@ -48,6 +48,18 @@ impl CommandTransaction<'_> {
         self.frame.connection()
     }
 
+    /// The host's encoded response bound is available before native Storage
+    /// construction. Reading it never mints an asynchronous dispatch permit.
+    pub(crate) fn result_limit(&self) -> Result<usize> {
+        self.frame
+            .dispatch
+            .get()
+            .map(|context| context.result_limit)
+            .ok_or_else(|| {
+                crate::application::consensus::CommandFailure::UnsupportedCapability.into()
+            })
+    }
+
     pub fn inputs(&self) -> CommandInputs {
         self.inputs
     }

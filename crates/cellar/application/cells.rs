@@ -122,7 +122,11 @@ impl Stub {
         let stub = self.clone();
         Box::pin(async move {
             let response = call.await;
-            context.check_turn()?;
+            // A Raft reply owns its bytes and has already joined its target
+            // proof. Starting another call still needs current source authority.
+            if context.raft_storage.is_none() {
+                context.check_turn()?;
+            }
             stub.finish(response)
         })
     }

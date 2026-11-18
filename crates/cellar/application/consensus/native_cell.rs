@@ -411,9 +411,7 @@ impl NativeCellFactory {
                 cell.cell.as_str(),
                 name.as_deref(),
             )?;
-            let limit = crate::storage::capture_raft_dispatch()?
-                .ok_or(CommandFailure::UnsupportedCapability)?
-                .result_limit()?;
+            let limit = transaction.result_limit()?;
             Some((name, request, limit))
         } else {
             None
