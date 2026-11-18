@@ -5884,3 +5884,37 @@ Queue progress, combined hosted SDK/recovery, sustained fairness, physical
 reclamation/once-only credit, repeated reserve-aware movement, cross-ingress
 contention and the original complete constrained comparison remain open.
 No complete OPT package or remaining CG gate is accepted.
+
+## Typed pending command settlement
+
+At compiler input `6c280bdd`, a positively observed pending SQL producer can
+reuse its unchanged term and complete cell version within one live invocation.
+Each settlement attempt still fetches and checks current authority; changed
+terms or images force SQL reconciliation. Generic uncertain results retain the
+original resume/receipt path. Both image modes turn an intended-red work-count
+regression green: four pending checks use one reconciliation and no resume,
+then preserve exact commit or newer-term unchanged-image non-commit resolution,
+once-only callbacks and joined closure. Twelve focused native checks pass.
+
+Current-source qualification remains **failed**. Full native execution reports
+220 passed / 1 failed / 2 existing ignores. The ownership response-deadline
+case fails with an unlocalized elapsed deadline. Ordinary SQL fails its concurrent-ingress
+race under the original deadline. Original Queue four-in-flight still fails in
+the materialized iteration before extent coverage. KV, ordinary Queue, warm and
+fragmented KV, Queue proof sharing and the interrupted SQL recovery matrix pass.
+Full library: 1,253 passed / 0 failed / 2 existing ignores. All eight selected
+native S3 controls pass, including the previously unstable deadline control; this establishes no
+causal repair or stable full S3 acceptance. See the
+[pending settlement record](pending-command-settlement-qualification-2026-11-17.json) for every check,
+profile and failed control. Earlier [pipeline evidence](cell-sql-pipeline-qualification-2026-11-17.json)
+remains historical evidence at its own source, not current-source qualification.
+
+Frozen baseline/candidate runs in ABBA order pass both the response-deadline
+and ordinary-SQL cases. Those passes leave the broad failures unexplained
+and establish no causal repair.
+The instrumented failed Queue workload exercises 766 cached observations and
+retains 29 generic-uncertain resumes. Its remaining wakes match the existing
+five-millisecond controller retry timer. These are diagnostic observations,
+not throughput or latency percentiles. The recorded read-only original-backend
+check finds zero available bytes below the unchanged 6 GiB reserve; no constrained run is
+admitted. No complete OPT/CG, SDK/release or performance gate is closed.

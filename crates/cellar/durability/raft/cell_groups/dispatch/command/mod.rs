@@ -11,13 +11,14 @@ use output::PendingOutput;
 use super::*;
 use crate::application::consensus::command_request_digest;
 use crate::application::consensus::CommandAdmission;
-use crate::raft::host_sql::cell_groups::SqlCapacityWait;
+use crate::raft::host_sql::cell_groups::{CellSqlReconciliationObservation, SqlCapacityWait};
 use crate::raft::{
     cell_groups::CellSqlStageMode,
     execution::{CommandAttempt, CommandRequest},
 };
 use crate::storage::CommandInputs;
-use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
+use cellar_logic::cell_group::CellVersion;
+use cellar_logic::consensus::{CommandFailure, CommandId, Durability, Term};
 use cellar_ltx::generation::ImageId;
 
 #[derive(Clone)]
@@ -140,6 +141,9 @@ struct Origin {
     preview: ImageId,
     prepared: Option<CellSqlPrepared>,
     submitted: bool,
+    // Only a positive worker observation can populate this per-invocation
+    // hint. It retains no image pin or authority and never resolves a command.
+    pending_view: Option<(Term, CellVersion)>,
 }
 
 /// The controller retains this non-cloneable invocation across waiter cancellation.
@@ -626,6 +630,7 @@ impl CellCommandInvocation {
             preview,
             prepared: None,
             submitted: false,
+            pending_view: None,
         });
         let command = self.command_attempt(
             self.origin
@@ -894,7 +899,7 @@ impl CellCommandInvocation {
         }
         let origin = self
             .origin
-            .as_ref()
+            .as_mut()
             .ok_or(CellDispatchError::Invalid("missing origin"))?;
         if !origin.submitted {
             return Err(CellDispatchError::Invalid("command not submitted"));
@@ -907,16 +912,36 @@ impl CellCommandInvocation {
         if authority.route() != &origin.route {
             return Err(CellDispatchError::Invalid("origin route binding"));
         }
-        match origin.sql.reconcile(origin.proposal, authority).await {
-            Ok(CellSqlReconciliation::Committed(receipt)) => {
+        let view = (authority.term(), authority.cell().version.clone());
+        if origin.pending_view.as_ref() == Some(&view) {
+            // Fetch and check current route, membership, term and selected
+            // leaf even when unrelated group progress needs no SQL work.
+            authority.check().map_err(CellDispatchError::Runtime)?;
+            return Err(CellDispatchError::Execution(ExecutionError::Uncertain));
+        }
+        origin.pending_view = None;
+        match origin
+            .sql
+            .observe_reconciliation(origin.proposal, authority)
+            .await
+        {
+            Ok(CellSqlReconciliationObservation::Pending) => {
+                origin.pending_view = Some(view);
+                Err(CellDispatchError::Execution(ExecutionError::Uncertain))
+            }
+            Ok(CellSqlReconciliationObservation::Resolved(CellSqlReconciliation::Committed(
+                receipt,
+            ))) => {
                 let response = self.response(receipt).await?;
                 Ok(CellCommandSettlement::Committed(response))
             }
-            Ok(CellSqlReconciliation::NotCommitted) => {
+            Ok(CellSqlReconciliationObservation::Resolved(CellSqlReconciliation::NotCommitted)) => {
                 self.origin = None;
                 Ok(CellCommandSettlement::NotCommitted)
             }
-            Ok(CellSqlReconciliation::Refused(failure)) => {
+            Ok(CellSqlReconciliationObservation::Resolved(CellSqlReconciliation::Refused(
+                failure,
+            ))) => {
                 self.origin = None;
                 Ok(CellCommandSettlement::Refused(failure))
             }

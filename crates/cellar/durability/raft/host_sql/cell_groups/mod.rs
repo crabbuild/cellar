@@ -29,8 +29,8 @@ use crate::raft::completion::RuntimeError;
 use crate::raft::execution::{
     CellCommittedReceipt, CellEnrollmentAttempt, CellEnrollmentResolution, CellPreparedCommand,
     CellPrivateEnrollment, CellPrivateExecutor, CellProposalRejection, CellReconciliation,
-    CellStageOutcome, CellSubmissionOutcome, CommandAttempt, ExecutionError, ExecutionLimits,
-    PrivateOptions, RootPrivateOptions,
+    CellReconciliationObservation, CellStageOutcome, CellSubmissionOutcome, CommandAttempt,
+    ExecutionError, ExecutionLimits, PrivateOptions, RootPrivateOptions,
 };
 use crate::raft::runtime::Terminal;
 use crate::raft::storage::ReplicaLog;
@@ -370,6 +370,8 @@ pub enum CellSqlOutcome {
     Receipt(Box<CellSqlReceipt>),
     Submitted,
     Reconciled(CellSqlReconciliation),
+    /// The exact producer is retained, with no receipt or non-commit proof.
+    ReconciliationPending,
     Enrollment(Box<CellSqlEnrollment>),
     EnrollmentResolved(CellSqlEnrollmentResolution),
     Rejected,
@@ -382,6 +384,11 @@ pub enum CellSqlReconciliation {
     Committed(Box<CellSqlReceipt>),
     NotCommitted,
     Refused(CommandFailure),
+}
+
+pub(crate) enum CellSqlReconciliationObservation {
+    Pending,
+    Resolved(CellSqlReconciliation),
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
@@ -1235,6 +1242,17 @@ impl CellGroupSqlPool {
         proposal: ProposalId,
         authority: CellReconciliationAuthority,
     ) -> Result<CellSqlReconciliation, ExecutionError> {
+        match self.observe_reconciliation(proposal, authority).await? {
+            CellSqlReconciliationObservation::Pending => Err(ExecutionError::Uncertain),
+            CellSqlReconciliationObservation::Resolved(resolution) => Ok(resolution),
+        }
+    }
+
+    pub(crate) async fn observe_reconciliation(
+        &self,
+        proposal: ProposalId,
+        authority: CellReconciliationAuthority,
+    ) -> Result<CellSqlReconciliationObservation, ExecutionError> {
         if !authority.belongs_to_engine(&self.inner.engine_owner) {
             return Err(ExecutionError::Invalid("cell SQL engine owner"));
         }
@@ -1246,7 +1264,10 @@ impl CellGroupSqlPool {
             )
             .await?
         {
-            CellSqlOutcome::Reconciled(resolution) => Ok(resolution),
+            CellSqlOutcome::Reconciled(resolution) => {
+                Ok(CellSqlReconciliationObservation::Resolved(resolution))
+            }
+            CellSqlOutcome::ReconciliationPending => Ok(CellSqlReconciliationObservation::Pending),
             _ => Err(ExecutionError::Invalid("cell SQL reconciliation response")),
         }
     }

@@ -52,6 +52,13 @@ pub enum CellReconciliation {
     Refused(CommandFailure),
 }
 
+/// A pending observation retains the exact live producer and grants no output
+/// or non-commit authority. Only the checked immutable view may be reused.
+pub(crate) enum CellReconciliationObservation {
+    Pending,
+    Resolved(CellReconciliation),
+}
+
 struct PendingCell {
     prepared: CellPreparedCommand,
     request: CommandRequest,
@@ -524,6 +531,17 @@ impl CellPrivateExecutor {
         proposal: ProposalId,
         authority: CellReconciliationAuthority,
     ) -> Result<CellReconciliation, ExecutionError> {
+        match self.observe_reconciliation(proposal, authority)? {
+            CellReconciliationObservation::Pending => Err(ExecutionError::Uncertain),
+            CellReconciliationObservation::Resolved(resolution) => Ok(resolution),
+        }
+    }
+
+    pub(crate) fn observe_reconciliation(
+        &mut self,
+        proposal: ProposalId,
+        authority: CellReconciliationAuthority,
+    ) -> Result<CellReconciliationObservation, ExecutionError> {
         let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
         if pending.prepared.proposal() != proposal
             || !self.authority.accepts_reconciliation(&authority)
@@ -587,7 +605,10 @@ impl CellPrivateExecutor {
                 CellReconciliation::Refused(CommandFailure::Unavailable)
             }
             Err(error) => return Err(error),
-            Ok(None) => return Err(ExecutionError::Uncertain),
+            Ok(None) => {
+                check()?;
+                return Ok(CellReconciliationObservation::Pending);
+            }
         };
         check()?;
         // Only exact committed/reconciliation authority retires a private
@@ -602,7 +623,7 @@ impl CellPrivateExecutor {
             .map_err(authority_failure)?;
         self.pending = None;
         self.poisoned = true;
-        Ok(resolution)
+        Ok(CellReconciliationObservation::Resolved(resolution))
     }
 
     fn read_receipt(

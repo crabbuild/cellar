@@ -1045,6 +1045,7 @@ pub(super) use sql::registered_queries;
 
 pub(super) use sql::routed_queries;
 
+pub(super) use sql::pending_progress;
 pub(super) use sql::routed_commands;
 
 pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {

@@ -552,6 +552,9 @@ pub(crate) use dispatch::routed as routed_queries;
 #[path = "cell_group_sql_command_dispatch.rs"]
 mod command_dispatch;
 pub(crate) use command_dispatch::commands as routed_commands;
+#[path = "cell_group_sql_pending.rs"]
+mod pending;
+pub(crate) use pending::pending_progress;
 
 #[path = "cell_group_controller_archive.rs"]
 #[allow(dead_code, unused_imports)]

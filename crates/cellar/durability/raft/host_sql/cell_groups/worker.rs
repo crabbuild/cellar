@@ -205,7 +205,10 @@ impl Cells {
         };
         // A lost receiver drops only the delivery. Pending owns both the
         // private writer and per-cell reservation until exact settlement.
-        timer.finish(result.is_ok());
+        // Pending was historically Uncertain, not a completed publication.
+        timer.finish(
+            result.is_ok() && !matches!(&result, Ok(CellSqlOutcome::ReconciliationPending)),
+        );
         let _ = reply.send(result);
     }
 
@@ -446,10 +449,13 @@ impl Cells {
                     .get_mut(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
                 let expected = pending.producer.command()?.prepared_final_version();
-                let resolution = pending
+                let CellReconciliationObservation::Resolved(resolution) = pending
                     .producer
                     .command()?
-                    .reconcile(proposal, *authority)?;
+                    .observe_reconciliation(proposal, *authority)?
+                else {
+                    return Ok(CellSqlOutcome::ReconciliationPending);
+                };
                 let pending = self
                     .pending
                     .remove(&cell)

@@ -1381,6 +1381,16 @@ async fn rooted_catalog_routed_commands_preserve_producer_and_receipts() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn pending_command_progress_skips_redundant_sql() -> Result<()> {
+    Box::pin(runtime_fixture::pending_progress(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_pending_command_progress_skips_redundant_sql() -> Result<()> {
+    Box::pin(runtime_fixture::pending_progress(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn physical_group_transport_multiplexes_real_raft() -> Result<()> {
     Box::pin(runtime_fixture::physical_transport()).await
 }

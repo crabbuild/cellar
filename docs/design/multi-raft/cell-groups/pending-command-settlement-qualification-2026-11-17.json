@@ -1,0 +1,1144 @@
+{
+  "recorded_at_utc": "2026-11-18T02:31:19.203091+00:00",
+  "qualification_status": "FAILED",
+  "component_status": "PASSED: two intended-red work-count cases turn green; twelve focused native safety/progress cases pass",
+  "source": {
+    "compiler_input_sha256": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+    "parent_commit": "e5059da047bcf45e8b99e9c51266cca36e98e5ec",
+    "main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+    "test_fixture_same_between_red_and_green": true
+  },
+  "change": [
+    "Return a private typed pending observation only after matching the exact live producer and checking its immutable reconciliation view before and after receipt inspection.",
+    "Keep public executor and SQL-pool reconciliation pending behavior as ExecutionError::Uncertain.",
+    "Reuse one pending observation per live invocation, keyed by complete CellVersion and applied term; it retains no image pin or authority.",
+    "Fetch and check fresh route, membership, term and selected-leaf authority on every settlement attempt. Changed terms or images force fresh SQL reconciliation.",
+    "Known pending observations do not enqueue SQL resume. Generic uncertain outcomes retain the original resume and exact-receipt lookup path.",
+    "Retain the original producer, identity, captured inputs, callback, admission, deadline and exact Quorum/S3 output proofs. No new task, timer, global cache or capacity bank."
+  ],
+  "regressions": {
+    "before": {
+      "compiler_input_sha256": "85332b448e1ae2662261bfa192981973ccadc9593ff766729cec65071983917e",
+      "stages": [
+        {
+          "name": "compile-native_cell_groups_execution",
+          "status": "PASSED",
+          "elapsed_seconds": 51.40704504097812,
+          "footers": [],
+          "log_sha256": "4f7d32f5e886bb1bdb323a972a614910db13237b67410745cabccb65cc4b77a3",
+          "failed_cases": []
+        },
+        {
+          "name": "pending_command_progress_skips_redundant_sql",
+          "status": "FAILED",
+          "elapsed_seconds": 1.7373350000125356,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "1cf9c88ebc2b28739e1445a5a3c3b8b58e48713fcdf3bc44c7a74ac37e0ec140",
+          "failed_cases": [
+            "pending_command_progress_skips_redundant_sql"
+          ]
+        },
+        {
+          "name": "rooted_pending_command_progress_skips_redundant_sql",
+          "status": "FAILED",
+          "elapsed_seconds": 1.915398917015409,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "aa5d2ef1aeeb256c65c1d123e9677bed68cd38f284661a243f7df8c761ec5f79",
+          "failed_cases": [
+            "rooted_pending_command_progress_skips_redundant_sql"
+          ]
+        }
+      ],
+      "scope": "Both image modes fail at redundant reconciliation work after exact committed and newer-term unchanged-image NotCommitted results and joined fixture close."
+    },
+    "after": {
+      "compiler_input_sha256": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+      "stages": [
+        {
+          "name": "compile-native_cell_groups_execution",
+          "status": "PASSED",
+          "elapsed_seconds": 551.106575999991,
+          "footers": [],
+          "log_sha256": "8aef601260abb8fc364c3f509e4e640a0f512dc2e21d71a312ab7c1d262b3750",
+          "failed_cases": []
+        },
+        {
+          "name": "pending_command_progress_skips_redundant_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 1.6989455420116428,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "114c3c795304fa765a7f47a96e406c7ae3f8976d9f11496dcc8845dbac30a0bb",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_pending_command_progress_skips_redundant_sql",
+          "status": "PASSED",
+          "elapsed_seconds": 1.7510124580003321,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "4f3e39e8a88a2cf33027ad13e2cc4a216dba90351b08130b0bac45d18891a8b7",
+          "failed_cases": []
+        },
+        {
+          "name": "catalog_routed_commands_preserve_producer_and_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 2.2689155419939198,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "7745c73e39baa7bc4a135cbb28c3f30d247aecabfdbf909ffafc8ac24a6da893",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_catalog_routed_commands_preserve_producer_and_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 2.4047325839928817,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "6c7d67f773383ac12ab169e18d48b32742fdf066cff9a172a437f304de4f6b4e",
+          "failed_cases": []
+        },
+        {
+          "name": "cell_sql_reconciles_after_leadership_change",
+          "status": "PASSED",
+          "elapsed_seconds": 2.738562832993921,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "7ab547eabb292dafa84758622653848fa270aa17a4b1f3985a95c24ae7d79eb8",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_cell_sql_reconciles_after_leadership_change",
+          "status": "PASSED",
+          "elapsed_seconds": 3.5227197089989204,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "93c45c631f895582456676f714be235eefc2d72e24eb3797c36ef8809483c295",
+          "failed_cases": []
+        },
+        {
+          "name": "cell_sql_reconciles_expired_and_conflicting_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 3.324978958000429,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "8be20c1f74b9845aa910adb4dbf50003b8d1eafa07e8fce998f5bc22685e4262",
+          "failed_cases": []
+        },
+        {
+          "name": "rooted_cell_sql_reconciles_expired_and_conflicting_receipts",
+          "status": "PASSED",
+          "elapsed_seconds": 4.163835000013933,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "140bdad80b0f84df54c6f2ffec7ddd063dc00598da4129b03883c5951ec93b80",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_remote_command_receipt_reconciles_unknown_reply",
+          "status": "PASSED",
+          "elapsed_seconds": 2.8938595000072382,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "b3e4268778d61d64e8e01be0ab2ac3f3812bf281faff2ca54a13ae480da77738",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_remote_command_receipt_absence_stays_unknown",
+          "status": "PASSED",
+          "elapsed_seconds": 5.729764374991646,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "3cb74e3347ffe7451947a647c6f78d28984f33180ecdc43873a6bbffd02456fb",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+          "status": "PASSED",
+          "elapsed_seconds": 3.353366958996048,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "f6defad3ae5c2ae941b8d56e253b0a6967b9453baa58fb271ea01b3aed64ed73",
+          "failed_cases": []
+        },
+        {
+          "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
+          "status": "PASSED",
+          "elapsed_seconds": 4.06808554098825,
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "log_sha256": "5a5a828b233ccbca5b687b440d02351be594d289600c59481b96811f82e230e7",
+          "failed_cases": []
+        },
+        {
+          "name": "compile-native_cell_groups_primitives",
+          "status": "PASSED",
+          "elapsed_seconds": 56.43279170800815,
+          "footers": [],
+          "log_sha256": "c77b99ef29317c5d2a25432e715b2fc903459d05d7741997c7c645fd2eb642b8",
+          "failed_cases": []
+        },
+        {
+          "name": "queue_four_in_flight_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "elapsed_seconds": 50.89820854199934,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "cb452f71c682f312869631792ac627a0fb5132ab22b02dd9980ba7c3c77af799",
+          "failed_cases": [
+            "queue_four_in_flight_preserves_acknowledged_messages"
+          ]
+        }
+      ],
+      "scope": "Four pending checks use exactly one SQL publication operation and no SQL resume. Both real RF3 outcomes and once-only callbacks pass; original Queue C4 still fails."
+    },
+    "initial_fixture_failure": "A plain campaign did not obtain the intended transfer. That failed cohort is retained; it is not an intended-red performance result. The corrected fixture uses the existing authenticated TimeoutNow transfer trigger."
+  },
+  "response_deadline_controls": {
+    "scope": "ABBA frozen-executable controls for the existing response-deadline ownership case. Original 400-ms request, held physical apply, callbacks, receipt replay, producer retention and closure assertions remain unchanged. No causal repair or full-suite qualification is inferred from an isolated pass.",
+    "stages": [
+      {
+        "name": "01-baseline",
+        "status": "PASSED",
+        "elapsed_seconds": 3.5274044169927947,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "564cfe5c54a788d512c9e84b5394ad3c229c97c81a68c3c894527f258e6eb6cb",
+        "failed_cases": []
+      },
+      {
+        "name": "02-candidate",
+        "status": "PASSED",
+        "elapsed_seconds": 4.167899749998469,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "d541289ce9230ca522899351888b3a0150461ddd84940bde878485c902bafe1b",
+        "failed_cases": []
+      },
+      {
+        "name": "03-candidate",
+        "status": "PASSED",
+        "elapsed_seconds": 3.5702506670495495,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "eeab2234a8a9186aca33b3891dd6cbf23ac28f94a93ab485d56b8ef0abb136c0",
+        "failed_cases": []
+      },
+      {
+        "name": "04-baseline",
+        "status": "PASSED",
+        "elapsed_seconds": 3.5520675830193795,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "e84adf453f4cc9ed12a53d349790fb76f9fff87d7fb35722294f6a16faad157e",
+        "failed_cases": []
+      }
+    ],
+    "frozen_pins": {
+      "baseline": {
+        "source_digest": "54f68d4aed69603a35d9394295be851836b887dbfd3459e8e67a19b67b3e46d8",
+        "executable": {
+          "sha256": "c1ed68cc473e1937ac5debc2e30c077209a089056e92416c800cafad222c8de7",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "candidate": {
+        "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+        "executable": {
+          "sha256": "3b3b3dec0e16e48e66c6584f8669aac66a972f4d5020f91596d2942a1ffa320b",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      }
+    },
+    "unchanged_owning_fixture": true,
+    "limits": "An isolated pass does not erase the retained failed full-native run or establish a causal repair."
+  },
+  "sql_binding_controls": {
+    "scope": "ABBA frozen-executable controls for the original ordinary SQL managed binding workload, including concurrent ingress, both image modes and all original deadlines, banks, callbacks, receipts and closure assertions. No causal repair, performance gain or full-suite qualification is inferred from an isolated pass.",
+    "stages": [
+      {
+        "name": "01-baseline",
+        "status": "PASSED",
+        "elapsed_seconds": 167.46318937500473,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "dae622f4479021cf00a72e52e022bcc4f1c7fe656efa811a85dd2400d071e17b",
+        "failed_cases": []
+      },
+      {
+        "name": "02-candidate",
+        "status": "PASSED",
+        "elapsed_seconds": 156.0312195000006,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "2f34b7b83618d2cf6346a9c6f3c1b97c3b40798fbf6571656276787edeb2904f",
+        "failed_cases": []
+      },
+      {
+        "name": "03-candidate",
+        "status": "PASSED",
+        "elapsed_seconds": 156.57241808302933,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "601b68d16cdd917be897a38104611ab4551d687b7d477f77f88225e825e4b91a",
+        "failed_cases": []
+      },
+      {
+        "name": "04-baseline",
+        "status": "PASSED",
+        "elapsed_seconds": 156.97661016701022,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b160a698843ad486c3af880e3662c466f97a8f2fdd3876b54b5948f53022e38b",
+        "failed_cases": []
+      }
+    ],
+    "frozen_pins": {
+      "baseline": {
+        "source_digest": "54f68d4aed69603a35d9394295be851836b887dbfd3459e8e67a19b67b3e46d8",
+        "executable": {
+          "sha256": "79695cace7c473993be3e66d50305695540e4e075e6bb5b065e11e9678f31aa0",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "candidate": {
+        "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+        "executable": {
+          "sha256": "297d3289e1a841dab81f663543833c842b34b179aa3d61ed10d623e7c789efc1",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      }
+    },
+    "unchanged_owning_fixture": true,
+    "limits": "The initial ordinary SQL failure remains part of the failed qualification; no causal repair or throughput gain follows from these controls."
+  },
+  "current_source_qualification": {
+    "stages": [
+      {
+        "name": "compile-native_cell_groups_execution",
+        "status": "PASSED",
+        "elapsed_seconds": 294.40613266601576,
+        "footers": [],
+        "log_sha256": "0d89c6dba89c39c23b8f11e229d45ca4fb81edb4034b045ab2b5d02b1a25cbdb",
+        "failed_cases": []
+      },
+      {
+        "name": "full-native-execution",
+        "status": "FAILED",
+        "elapsed_seconds": 918.2405615000171,
+        "footers": [
+          [
+            "FAILED",
+            "220",
+            "1",
+            "2"
+          ]
+        ],
+        "log_sha256": "64c94412d8397365bb39dfd372ecde83fa9b7dbc718aeb818725454d6be3fecc",
+        "failed_cases": [
+          "controller_owned_commands_resolve_after_response_deadline"
+        ]
+      },
+      {
+        "name": "compile-native_cell_groups_primitives",
+        "status": "PASSED",
+        "elapsed_seconds": 55.362041791988304,
+        "footers": [],
+        "log_sha256": "4c6f8f21d093ebf34718fe55f7edaa60c3d38190cf76dde14fe02e411c59275b",
+        "failed_cases": []
+      },
+      {
+        "name": "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+        "status": "PASSED",
+        "elapsed_seconds": 87.95059233301436,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b03a7f0d39ba77be3890f7f5d1d12c9f8c85a743d7be37c4c933484223e73327",
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "FAILED",
+        "elapsed_seconds": 110.43591108298278,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "5445fd8162e0a2ed656ff978ad1d2f6f51e6722bab202e64889901dbe3510838",
+        "failed_cases": [
+          "ordinary_sql_bindings_use_managed_shared_groups"
+        ]
+      },
+      {
+        "name": "ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "elapsed_seconds": 351.0828075829777,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c476457f82bab058ae10de252d13705c56cf4138d714b75f474497c861adeb56",
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_queue_callbacks_use_shared_quorum",
+        "status": "PASSED",
+        "elapsed_seconds": 203.77860808296828,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c27ff7208ec09d3a21be8c99021ea7e43529ab4e4b81d840ff10a79bb2b4d59d",
+        "failed_cases": []
+      },
+      {
+        "name": "warm_kv_payloads_preserve_source_proof_and_cold_enrollment",
+        "status": "PASSED",
+        "elapsed_seconds": 48.353700582985766,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "f21b44c7d25b5449127a10c6c338d1694cc852ac092e76a6906efdc425c81000",
+        "failed_cases": []
+      },
+      {
+        "name": "fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk",
+        "status": "PASSED",
+        "elapsed_seconds": 72.02720204199431,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b8620c13d6770d742aacf1f28c4fb39abc9512b92bbdfb64f988a89697da41d3",
+        "failed_cases": []
+      },
+      {
+        "name": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+        "status": "PASSED",
+        "elapsed_seconds": 366.65464212500956,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "bcf8c62c1b2ca216f51ff600b05d7872d193e7dcd6af83994ca3b9df81e421d8",
+        "failed_cases": []
+      },
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "elapsed_seconds": 602.9411658750032,
+        "footers": [],
+        "log_sha256": "e228a4affc6533ec9dfde5d6816e4f7f7f38fcc0f7ca4b54b56c456360416e06",
+        "failed_cases": []
+      },
+      {
+        "name": "full-library",
+        "status": "PASSED",
+        "elapsed_seconds": 251.4157556249993,
+        "footers": [
+          [
+            "ok",
+            "1253",
+            "0",
+            "2"
+          ]
+        ],
+        "log_sha256": "a89772d82451a81f7eb5fc220c4fe14dfda74c415b8dffa2f0639a1f84e6bc59",
+        "failed_cases": []
+      },
+      {
+        "name": "compile-native_cell_groups_archive_controller",
+        "status": "PASSED",
+        "elapsed_seconds": 37.90964595897822,
+        "footers": [],
+        "log_sha256": "052299ca3814e73a8309b5c0b59558d678d6771bc021a4ad817bc7cc92061ba4",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_unknown_reply_requires_exact_s3_receipt",
+        "status": "PASSED",
+        "elapsed_seconds": 4.088591167004779,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "637d0d7fcbe118e8c06033e053417eb3075e97487591ee53075041a61173b023",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_outputs_preserve_durability_and_creation",
+        "status": "PASSED",
+        "elapsed_seconds": 18.51857408299111,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0daa6395ff2abfd0cd31dc4c29739dfa83892d0e747ee782357a12c7eaeecdc6",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_deadlines_preserve_ambiguity_and_callbacks",
+        "status": "PASSED",
+        "elapsed_seconds": 32.87674600002356,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "095f8f1b38b11fb3f4152ed0f56241155b6154452c7206e9758141f86eecb8dd",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_remote_slow_delivery_retains_proofs_and_bounds",
+        "status": "PASSED",
+        "elapsed_seconds": 67.59748875000514,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "a1c91a37f772587357e42bae21f71ad24c129c59a280554ecd72913e89c93513",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_receipt_lookup_tracks_archived_observations",
+        "status": "PASSED",
+        "elapsed_seconds": 5.473234040953685,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "e991a4ddc33bf4ca1abd64800f7dba77b056843fedc3a4cfb9b64b899f040dac",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_receipt_lookup_honors_namespace_and_stored_minimums",
+        "status": "PASSED",
+        "elapsed_seconds": 7.466814125014935,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "f000a0aa147ec0deee20b716579808fa3ff74730a7266880b9caf0393ba8fcca",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_receipt_lookup_preserves_typed_failures_and_result_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 14.537795040989295,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "d14087cbc7f4e3139457217cae57efe501e115e05070a85ab83698de2f1efed5",
+        "failed_cases": []
+      },
+      {
+        "name": "s3_receipt_lookup_deadlines_refund_read_admission",
+        "status": "PASSED",
+        "elapsed_seconds": 9.307747709040996,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "2fc0429e67f7782f6b38a09e294c8853dbea41512034dbdc1be9db801304b826",
+        "failed_cases": []
+      },
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 698.1355195840006,
+        "footers": [],
+        "log_sha256": "6b20dd472b3739388eaa0a5b5819e7c55c44b113b9ff1d18ac5df980c9dc80b9",
+        "failed_cases": []
+      },
+      {
+        "name": "recovery-consumer-clippy",
+        "status": "PASSED",
+        "elapsed_seconds": 5.375319791026413,
+        "footers": [],
+        "log_sha256": "20f0aee2f72381393e10e570448eeff564894a0ec3ffb93b2b902925d3bd4183",
+        "failed_cases": []
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "elapsed_seconds": 115.65432954096468,
+        "footers": [],
+        "log_sha256": "54536c14adaec71fe0ad232d08fe5332c32b37a88b299b8ecd556ecde82ebe9c",
+        "failed_cases": []
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "elapsed_seconds": 0.3087473329505883,
+        "footers": [],
+        "log_sha256": "71b41daf02d64f6d696b855015ebf5b0f40ad827717daf5730dac18b05810c33",
+        "failed_cases": []
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "elapsed_seconds": 0.47460124996723607,
+        "footers": [],
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+        "failed_cases": []
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "elapsed_seconds": 0.9104017909849063,
+        "footers": [],
+        "log_sha256": "d5c3873d3526b53e199c13445619a0e9013584747f36e3e25a5666178e4bacb6",
+        "failed_cases": []
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "elapsed_seconds": 2.5593613749952056,
+        "footers": [],
+        "log_sha256": "97044d172b2333129a02037f065df2073bd67df55871a6cbc507e293fa8fc8aa",
+        "failed_cases": []
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "elapsed_seconds": 0.022338832961395383,
+        "footers": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "failed_cases": []
+      }
+    ],
+    "reused_original_queue_result": [
+      {
+        "name": "queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "elapsed_seconds": 50.89820854199934,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "cb452f71c682f312869631792ac627a0fb5132ab22b02dd9980ba7c3c77af799"
+      }
+    ],
+    "source_inputs_unchanged": true,
+    "executables": {
+      "native_cell_groups_execution": {
+        "sha256": "3b3b3dec0e16e48e66c6584f8669aac66a972f4d5020f91596d2942a1ffa320b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "297d3289e1a841dab81f663543833c842b34b179aa3d61ed10d623e7c789efc1",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar": {
+        "sha256": "45a03fa8e6d948354a0804194345251289e9a1261bfecbf1a24a76badad2fe62",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_archive_controller": {
+        "sha256": "76775202ccb76bbd7c16c4f54a2c1cf42db65fcb6c010be8fda12e92399a90da",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "queue_phase_diagnostic": {
+    "source_digest": "79680118513771d610034ad6cdde94e329a24a63ea1a9aa7562585f55d693f0b",
+    "candidate_lines": 1080,
+    "unparsed_lines": 0,
+    "ingress_requests": 16,
+    "owner_command_keys": 22,
+    "parsed_reconcile_pairs": 62,
+    "parsed_resume_pairs": 29,
+    "cached_pending_observations": 766,
+    "reconcile_outcomes": {
+      "pending": 14,
+      "resolved": 19,
+      "uncertain": 29
+    },
+    "positive_resume_results": 29,
+    "failed_requests": [
+      {
+        "request_ordinal": 13,
+        "sequence": 6,
+        "failed": true,
+        "inherited": "true",
+        "owner_starts": 1,
+        "lane_wait_ms": 917,
+        "sequence_phase_ms": 0,
+        "remaining_at_sequence_ms": 2083,
+        "client_elapsed_ms": 3001,
+        "owner_preparation_ms": 369,
+        "prepared_success": "true",
+        "prepare_to_submit_ms": 114,
+        "reconcile_calls": 2,
+        "reconcile_total_ms": 160,
+        "uncertain_reconciles": 0,
+        "same_term_sequence_rechecks": 0,
+        "pending_reconciles": 1,
+        "cached_pending_observations": 329,
+        "resume_calls": 0,
+        "resume_total_ms": 0,
+        "positive_resumes": 0
+      },
+      {
+        "request_ordinal": 14,
+        "sequence": 7,
+        "failed": true,
+        "inherited": "true",
+        "owner_starts": 2,
+        "lane_wait_ms": 691,
+        "sequence_phase_ms": 0,
+        "remaining_at_sequence_ms": 2309,
+        "client_elapsed_ms": 3001,
+        "owner_preparation_ms": 717,
+        "prepared_success": "false",
+        "prepare_to_submit_ms": null,
+        "reconcile_calls": 0,
+        "reconcile_total_ms": 0,
+        "uncertain_reconciles": 0,
+        "same_term_sequence_rechecks": 0,
+        "pending_reconciles": 0,
+        "cached_pending_observations": 0,
+        "resume_calls": 0,
+        "resume_total_ms": 0,
+        "positive_resumes": 0
+      },
+      {
+        "request_ordinal": 15,
+        "sequence": 7,
+        "failed": true,
+        "inherited": "false",
+        "owner_starts": 1,
+        "lane_wait_ms": 1897,
+        "sequence_phase_ms": 371,
+        "remaining_at_sequence_ms": 732,
+        "client_elapsed_ms": 3001,
+        "owner_preparation_ms": 733,
+        "prepared_success": "false",
+        "prepare_to_submit_ms": null,
+        "reconcile_calls": 0,
+        "reconcile_total_ms": 0,
+        "uncertain_reconciles": 0,
+        "same_term_sequence_rechecks": 0,
+        "pending_reconciles": 0,
+        "cached_pending_observations": 0,
+        "resume_calls": 0,
+        "resume_total_ms": 0,
+        "positive_resumes": 0
+      },
+      {
+        "request_ordinal": 16,
+        "sequence": 7,
+        "failed": true,
+        "inherited": "false",
+        "owner_starts": 2,
+        "lane_wait_ms": 2167,
+        "sequence_phase_ms": 314,
+        "remaining_at_sequence_ms": 519,
+        "client_elapsed_ms": 3001,
+        "owner_preparation_ms": 717,
+        "prepared_success": "false",
+        "prepare_to_submit_ms": null,
+        "reconcile_calls": 0,
+        "reconcile_total_ms": 0,
+        "uncertain_reconciles": 0,
+        "same_term_sequence_rechecks": 0,
+        "pending_reconciles": 0,
+        "cached_pending_observations": 0,
+        "resume_calls": 0,
+        "resume_total_ms": 0,
+        "positive_resumes": 0
+      }
+    ],
+    "limits": "Per-command phase observations from an instrumented failed native workload. Term/sequence equality is diagnostic only, not proof of absence or authority; aggregate times overlap and are not throughput or percentiles."
+  },
+  "diagnostic_limits": [
+    "Instrumented failed native workload, not the constrained Colima/RustFS comparison. Cumulative queue/SQL times overlap and include setup; runs reached different amounts of progress and different leaders.",
+    "Where owner_starts exceeds one, command identity alone does not uniquely correlate a single attempt; those per-request timings are not causal evidence.",
+    "The 766 cached observations demonstrate the optimized branch is exercised. Remaining wakes match the existing five-millisecond controller retry timer; code inspection rules out read-only authority requests notifying controller progress.",
+    "Generic uncertain outcomes still caused twenty-nine successful resumes. No claim that all settlement overhead, Queue deadlines or physical apply cost is resolved."
+  ],
+  "constrained_backend": {
+    "observed_at_utc": "2026-11-18T00:50:08.838869+00:00",
+    "reserve_bytes": 6442450944,
+    "available_bytes": 0,
+    "same_original_backend_and_limits": true,
+    "restarts": 0,
+    "actions": [
+      "read-only exact-context inspect",
+      "read-only engine identity",
+      "read-only original mounted filesystem df"
+    ],
+    "admissible": false
+  },
+  "release_and_optimization_gates": "OPEN: no OPT-01 through OPT-08, CG release, full SDK, disaster/recovery, fairness, reclamation/placement or performance acceptance gate is closed by this component record.",
+  "remaining": [
+    "Original Queue four-in-flight materialized iteration still expires before extent coverage, including FIFO/preparation and apply/settlement delay. Preserve all original budgets and unknown mutation identities.",
+    "Resolve the current-source ordinary SQL concurrent-ingress deadline failure under its original identity, callback, receipt and capacity bounds.",
+    "Resolve the current-source full-native response-deadline ownership failure without increasing its original deadline or weakening retained-producer, callback and receipt assertions.",
+    "Deterministic S3-wait admission coverage and stable original SQL recovery setup; existing failed controls remain failed until a causal repair is proved.",
+    "Current-source hosted Linux/native/SDK and broader authority, partition, restart and fenced recovery matrices.",
+    "Shared-worker fairness, competing ingress nodes, physical shared-file/segment credit return and reserve-aware repeated placement/movement.",
+    "Matched SQL, KV and Queue Quorum, Quorum+S3, Fleet and Bucket comparisons at C1/4/16, RF3, three groups and three 1-vCPU/2-GiB nodes using the original RustFS and workload bounds. Backend capacity is below the unchanged reserve; no run is admitted and no throughput/percentile gain is claimed."
+  ],
+  "retained_cohorts": {
+    "pending-reconciliation-before-01": {
+      "files": 91,
+      "bytes": 350715,
+      "manifest_sha256": "61fa54911f04b17486aeae578635d044226ac22781decfbfe26678ae1a2550fa"
+    },
+    "pending-reconciliation-before-02": {
+      "files": 91,
+      "bytes": 416566,
+      "manifest_sha256": "26a0a49f46a02fae99add8abcf4599061f1f9d4f0dbb8ff1bee57b736fa63ef5"
+    },
+    "pending-reconciliation-after-01": {
+      "files": 1294,
+      "bytes": 11510438,
+      "manifest_sha256": "b7b108167adba08b57e81e3c3cbfbed6849f1230bb3df23b9276f5c402abdcad"
+    },
+    "pending-reconciliation-qualified-01": {
+      "files": 22529,
+      "bytes": 825887801,
+      "manifest_sha256": "0a8e559d246787fdbc9faf1761150d1893bcd037ff529c23299f290bb31f93fd"
+    },
+    "queue-critical-path-probe-02": {
+      "files": 243,
+      "bytes": 5220631,
+      "manifest_sha256": "d16390520c092fbfae7d32edd73e285a37ced6ecfed6522412d83e7663b6b4f6"
+    },
+    "pending-deadline-controls-01": {
+      "files": 396,
+      "bytes": 1739895,
+      "manifest_sha256": "78bb364c476c1fc1e867b740e862bc48a14873f9f4d7cc95d2a4f3ea63098c2a"
+    },
+    "pending-sql-controls-01": {
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    }
+  },
+  "retained_copies": {
+    "pending-reconciliation-retention-01": {
+      "cohort": "pending-reconciliation-before-01",
+      "fixture_error": "Plain campaign failed to obtain the intended newer-term transfer; no intended-red or performance repair claim.",
+      "originals_double_hashed": true,
+      "copies_verified": true,
+      "files": 91,
+      "bytes": 350715,
+      "manifest_sha256": "61fa54911f04b17486aeae578635d044226ac22781decfbfe26678ae1a2550fa"
+    },
+    "pending-reconciliation-retention-02": {
+      "cohort": "pending-reconciliation-before-02",
+      "expected_red": "Both new cases fail the redundant SQL work-count assertion after exact committed and newer-term NotCommitted outcomes and joined fixture shutdown.",
+      "originals_double_hashed": true,
+      "copies_verified": true,
+      "files": 91,
+      "bytes": 416566,
+      "manifest_sha256": "26a0a49f46a02fae99add8abcf4599061f1f9d4f0dbb8ff1bee57b736fa63ef5"
+    },
+    "pending-reconciliation-retention-03": {
+      "cohort": "pending-reconciliation-after-01",
+      "originals_double_hashed": true,
+      "copies_verified": true,
+      "files": 1294,
+      "bytes": 11510438,
+      "manifest_sha256": "b7b108167adba08b57e81e3c3cbfbed6849f1230bb3df23b9276f5c402abdcad"
+    },
+    "pending-reconciliation-retention-04": {
+      "source_restored": true,
+      "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+      "cohort": "queue-critical-path-probe-02",
+      "originals_double_hashed": true,
+      "copies_verified": true,
+      "files": 243,
+      "bytes": 5220631,
+      "manifest_sha256": "d16390520c092fbfae7d32edd73e285a37ced6ecfed6522412d83e7663b6b4f6"
+    },
+    "pending-reconciliation-retention-05": {
+      "cohorts": {
+        "pending-reconciliation-qualified-01": {
+          "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+          "originals_double_hashed": true,
+          "copies_verified": true,
+          "files": 22529,
+          "bytes": 825887801,
+          "manifest_sha256": "0a8e559d246787fdbc9faf1761150d1893bcd037ff529c23299f290bb31f93fd"
+        },
+        "pending-deadline-controls-01": {
+          "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+          "originals_double_hashed": true,
+          "copies_verified": true,
+          "files": 396,
+          "bytes": 1739895,
+          "manifest_sha256": "78bb364c476c1fc1e867b740e862bc48a14873f9f4d7cc95d2a4f3ea63098c2a"
+        },
+        "pending-sql-controls-01": {
+          "source_digest": "6c280bdda22257105a5cceca57e82e8058a53212c039b9e4c42f6f9445294a2d",
+          "originals_double_hashed": true,
+          "copies_verified": true,
+          "files": 0,
+          "bytes": 0,
+          "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+        }
+      }
+    }
+  },
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "matches": 0
+  }
+}

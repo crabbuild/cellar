@@ -10,7 +10,8 @@ use super::receipts;
 mod cell;
 mod submission;
 pub(crate) use cell::{
-    authority_failure, CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn,
+    authority_failure, CellReconciliationObservation, CellRpcDispatch, CellRpcEnvironment,
+    CellRpcStart, CellRpcTurn,
 };
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
 pub(crate) mod binding_seal;
