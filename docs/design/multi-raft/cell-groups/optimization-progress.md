@@ -5948,3 +5948,37 @@ The original RustFS has 0 available bytes at the read-only 2026-11-18 06:19 UTC 
 below its unchanged 6 GiB reserve. No constrained campaign is admitted. No
 throughput/percentile gain, complete OPT-01–08 package or remaining CG/release
 acceptance follows from this component result.
+
+
+## Disposable shared-cell materialized scratch
+
+Committed source `9c4f830b` includes fetched `origin/main`
+`2f083f14`. Shared-cell materialized enrollment and commands
+create disposable scratch without syncing its ancestor directories. Fresh
+initial-state/image authority, path bounds, private locks, workspace lifetime and
+sealed-image/engine persistence barriers remain required. The legacy group
+executor retains its original directory policy.
+
+The early corrected regression is intended-red against production `0da514a4`
+and green on the candidate with identical fixture and profile. It commits an
+initialization and command, checks every replica's version/witness and exact
+value through engine-bound readers, and joins the owners. Only three production
+files differ in that comparison. The earlier absent-applier-map fixture panic,
+its stopped qualification and all failed data remain explicit in the [source-bound scratch record](cell-scratch-sync-qualification-2026-11-18.json).
+
+Selected owning qualification is **FAILED**: 37/38 Rust selections
+and 9/9 Clippy/repository checks pass. Failed selections: `queue_four_in_flight_preserves_acknowledged_messages`.
+A selected pass does not establish sustained progress or repair earlier full-run
+or hosted SDK failures. Ordinary SQL, KV, Queue and fragmented KV pass; native
+SQL recovery passes all eight configurations with an in-memory object store.
+Queue C4 fails two producers in the materialized run at four offered requests;
+the extent iteration is not reached. Original deadlines and admission bounds
+remain unchanged.
+
+The original RustFS read-only check at 2026-11-18T08:27:31.405819+00:00 finds 8,589,312 available bytes, below the unchanged 6,442,450,944-byte reserve. No constrained campaign is admitted.
+Native work counts, stack samples and test durations establish no throughput or
+latency-percentile gain. Complete OPT-01–08 and remaining CG/release gates stay
+open. P0 remains repeatable original-deadline SQL/KV/Queue, receipt/RPC and recovery
+progress. Next are persistence/archive batching and shared-worker fairness,
+physical reclamation/movement, authority/read fault coverage and the complete
+source-matched constrained comparison.
