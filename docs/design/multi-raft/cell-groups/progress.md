@@ -16307,3 +16307,14 @@ are stopped with objects retained. This closes the scoped waiting-Workflow
 replacement/wake gate, not in-flight provider effects, full-size/clock/deployment
 boundaries, independent voter crashes or fenced all-voter disk loss. No full
 primitive family, task acceptance count or release gate changes.
+
+
+The two focused registration units pass on the corrected runtime, including
+removed/retired/active/unknown-owner classification and scoped sizing inventory.
+Strict Clippy for the Cellar library and public primitive test target passes,
+as do canonical format/layout (2,279 Rust files), 27 suite-runner tests, 44 plan
+tests, documentation checks, the partial primitive catalogue and the all-feature
+native dependency check. No JavaScript engine enters the native dependency graph.
+The interrupted pre-fix unit build executed no tests and is not counted.
+Full-plan validation still refuses the missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`; no evidence or acceptance was waived.
