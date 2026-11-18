@@ -70,9 +70,9 @@ pub(crate) async fn archive_controller_payload_outage(
         // Dropping a response never cancels the admitted archive owner.
         drop(controllers[0].archive(config.clone())?);
         controller::wait_for(async || {
-            let status = controllers[0]
-                .archive_status(route.history)?
-                .context("archive status")?;
+            let Some(status) = controllers[0].archive_status(route.history)? else {
+                return Ok(false);
+            };
             match status.error.as_deref() {
                 Some(CellGroupArchiveControlError::Archive(CellGroupArchiveError::Payload(
                     CellGroupPayloadError::Storage(_),
