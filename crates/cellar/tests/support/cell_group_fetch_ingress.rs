@@ -128,6 +128,9 @@ async fn run(
     let domain = cluster.fixtures[0].domain.clone();
     let work = domain
         .run(async {
+            // Namespace origins authorize application RPCs independently of
+            // RF3 membership, after this boot's peer endpoints are verified.
+            named_service::grant(&cluster).await?;
             ensure!(request(&cluster, 0).await.context("cold stateless Fetch")? == 2);
             ensure!(
                 request(&cluster, 1)
@@ -146,7 +149,7 @@ async fn run(
                 "identical concurrent requests lost an operation: {values:?}"
             );
             ensure!(callbacks.load(Ordering::Acquire) == 4);
-            Box::pin(bindings::restart(&mut cluster)).await?;
+            Box::pin(named_service::restart(&mut cluster)).await?;
             ensure!(
                 request(&cluster, 2)
                     .await

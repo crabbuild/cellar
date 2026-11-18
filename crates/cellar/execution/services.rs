@@ -430,7 +430,8 @@ impl HostServices {
             .admit_fetch(scope, name, request)
     }
 
-    /// SDK submission reservations, sampled independently. Counts include
+    /// Shared cell RPC and buffered Fetch reservations, sampled independently.
+    /// Counts include
     /// gate/queue/routing waits, retained local native drivers and undelivered
     /// replies and aliases of dense structured inputs. Bytes cover normalized
     /// request/copy/control allowances, not allocator usable size, guest heaps,

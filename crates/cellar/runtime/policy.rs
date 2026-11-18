@@ -24,12 +24,12 @@ pub struct RuntimePolicy {
     pub max_cells_per_worker: usize,
     /// Maximum concurrent fetches and RPC calls admitted to one cell.
     pub max_cell_requests: usize,
-    /// Maximum SDK namespace RPCs awaiting a gate, queued, routed, executing or
-    /// awaiting reply consumption or retaining structured input byte aliases in
-    /// this host, across application generations.
+    /// Maximum SDK cell RPC and buffered Fetch submissions awaiting a gate,
+    /// queued, routed, executing, awaiting reply consumption or retaining dense
+    /// input byte aliases in this host, across application generations.
     /// Trusted direct host control calls use separate admission.
     pub max_outbound_rpc_requests: usize,
-    /// Reserved SDK RPC request/copy/control allowance across this host, computed
+    /// Reserved SDK cell RPC/Fetch request/copy/control allowance, computed
     /// from dense encoded lengths. SDK inputs/routing strings are normalized
     /// before gates/queues; byte aliases retain admission. This does not measure
     /// allocator usable size or replace receiving-peer, response, adapter or

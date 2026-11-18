@@ -2003,7 +2003,7 @@ impl RaftClass {
             .values()
             .any(|c| matches!(c.handler, CommandHandler::NativeFetch))
         {
-            hash.update(b"native-cell-buffered-http-1");
+            hash.update(b"native-cell-buffered-http-ingress-1");
         }
         if self.has_binding_maintenance() {
             hash.update(b"binding-sequence-seal-1");
