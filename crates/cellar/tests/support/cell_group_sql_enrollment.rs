@@ -630,20 +630,27 @@ pub(super) async fn materialized_scratch_barriers() -> Result<()> {
             let authority =
                 super::reads::selected(&mut fixture, node, &cell, CellReadConsistency::Stale)
                     .await?;
-            let output = fixture.appliers[&(node, route.history)]
-                .0
-                .query(
-                    fixture.cell_options_at(&cell, node).await?,
-                    authority,
-                    |db, version| {
-                        anyhow::ensure!(version.sequence.get() == 2);
-                        let value: i64 =
-                            db.query_row("SELECT n FROM value", [], |row| row.get(0))?;
-                        Ok(value.to_le_bytes().to_vec())
-                    },
-                )
-                .await?;
-            anyhow::ensure!(output.result() == 8_i64.to_le_bytes());
+            let options = fixture.cell_options_at(&cell, node).await?;
+            // This fixture applies directly, without installed SQL appliers.
+            // Read each replica on its engine-bound pool after the commit;
+            // reuse the leader's pool and join each remote reader in turn.
+            let reader = if node == 0 {
+                pool.clone()
+            } else {
+                CellGroupSqlPool::start(&fixture.cluster.voters[node].log, limits(2))?
+            };
+            let output = reader
+                .query(options, authority, |db, version| {
+                    anyhow::ensure!(version.sequence.get() == 2);
+                    let value: i64 = db.query_row("SELECT n FROM value", [], |row| row.get(0))?;
+                    Ok(value.to_le_bytes().to_vec())
+                })
+                .await
+                .map(|output| output.result().to_vec());
+            if node != 0 {
+                reader.close().await?;
+            }
+            anyhow::ensure!(output? == 8_i64.to_le_bytes());
         }
         anyhow::ensure!(gate.mode.load(Ordering::Acquire) == fault::FAIL_PARENT_SYNC);
         anyhow::ensure!(pool.usage()?.active_cells == 0 && pool.usage()?.retained_bytes == 0);
