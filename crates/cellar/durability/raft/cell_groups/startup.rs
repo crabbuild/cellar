@@ -2,7 +2,7 @@
 
 //! Deterministic startup destinations, never election or serving authority.
 use ::raft::prelude::{ConfState, HardState};
-use cellar_logic::{cell_group::LogPosition, consensus::MemberId};
+use cellar_logic::consensus::{LogPosition, MemberId};
 
 pub(super) fn candidate(
     hard: &HardState,

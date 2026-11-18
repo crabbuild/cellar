@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use cellar_logic::{cell_group::LogIndex, consensus::Term};
+use cellar_logic::consensus::{LogIndex, Term};
 
 fn genesis() -> (HardState, ConfState, LogPosition) {
     (
