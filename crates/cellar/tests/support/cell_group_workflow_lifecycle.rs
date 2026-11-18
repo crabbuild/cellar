@@ -9,6 +9,12 @@ use managed_fixture::movement;
 
 const STREAM_BYTES: usize = 128 * 1024 + 17;
 
+#[derive(Clone, Copy)]
+enum Scenario {
+    Lifecycle,
+    RemovedMemberLookup,
+}
+
 pub(super) async fn workflow(
     context: Context,
     steps: Step,
@@ -80,7 +86,7 @@ async fn replace(
     cluster: &ManagedCluster,
     history: &CellHistory,
     minimum: &CellVersion,
-) -> Result<()> {
+) -> Result<usize> {
     let source = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
     let obsolete = (source + 1) % 3;
     movement::discover(cluster).await?;
@@ -151,7 +157,7 @@ async fn replace(
         "S3 replacement lost the committed Workflow image"
     );
     ensure!(call_at(cluster, 3, "read-stream", "lifecycle").await? == json!(STREAM_BYTES));
-    Ok(())
+    Ok(obsolete)
 }
 
 async fn park_and_wake(cluster: &ManagedCluster) -> Result<()> {
@@ -209,7 +215,7 @@ async fn park_and_wake(cluster: &ManagedCluster) -> Result<()> {
 
 pub async fn qualify(real: bool, external: bool) -> Result<()> {
     for extents in [false, true] {
-        Box::pin(case(real, external, extents))
+        Box::pin(case(real, external, extents, Scenario::Lifecycle))
             .await
             .with_context(|| {
                 format!("Workflow lifecycle RustFS={real} Axum={external} extents={extents}")
@@ -218,11 +224,24 @@ pub async fn qualify(real: bool, external: bool) -> Result<()> {
     Ok(())
 }
 
-async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
+pub async fn qualify_removed_lookup(real: bool) -> Result<()> {
+    for extents in [false, true] {
+        Box::pin(case(real, false, extents, Scenario::RemovedMemberLookup))
+            .await
+            .with_context(|| {
+                format!("Removed-voter name lookup RustFS={real} extents={extents}")
+            })?;
+    }
+    Ok(())
+}
+
+async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> Result<()> {
     let backend = real
         .then(|| {
             rustfs::StoreConfig::load(
-                if external {
+                if matches!(scenario, Scenario::RemovedMemberLookup) {
+                    "workflow-removed-name"
+                } else if external {
                     "workflow-lifecycle-axum"
                 } else {
                     "workflow-lifecycle"
@@ -304,7 +323,7 @@ async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
                 .await?
                 .context("Workflow lifecycle cell history")?;
             let minimum = local_version(&cluster, leader, &history, 193).await?;
-            replace(&cluster, &history, &minimum)
+            let obsolete = replace(&cluster, &history, &minimum)
                 .await
                 .context("Workflow replacement phase")?;
             park_and_wake(&cluster)
@@ -313,6 +332,53 @@ async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
             named_service::restart(&mut cluster)
                 .await
                 .context("Workflow retained replacement restart")?;
+            if matches!(scenario, Scenario::RemovedMemberLookup) {
+                let removed = &cluster.hosts[obsolete];
+                // Local telemetry does not populate a managed router. Keep the
+                // old log copy while waiting for its physical dispatch to join.
+                cellar::asyncrt::timeout(TIMEOUT, async {
+                    while removed.resource_usage().host.controller.groups != 0 {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await?;
+                removed
+                    .group(cluster.history)
+                    .context("removed member still retains its log")?;
+                let found = removed
+                    .resolve_cell_history(
+                        history.cluster,
+                        history.namespace,
+                        history.cell.clone(),
+                        QueryOptions::default(),
+                    )
+                    .await
+                    .context("cold name discovery from retained removed member")?;
+                ensure!(
+                    found.as_ref() == Some(&history),
+                    "removed-member lookup lost the current cell history"
+                );
+                let cell = removed.cell(history.clone())?;
+                let observed = cell
+                    .query(
+                        ProposalId::new([194; 16])?,
+                        &cell.contract("__sqlIngressSequence")?,
+                        0_u64.to_be_bytes().to_vec(),
+                        QueryOptions::default(),
+                    )
+                    .await?;
+                ensure!(matches!(observed.version.covers(&minimum), Ok(true)));
+                ensure!(
+                    observed.served_by != MemberId::new(u64::try_from(obsolete)? + 1)?,
+                    "removed member served the fresh quorum read"
+                );
+                ensure!(
+                    removed.resource_usage().host.controller.groups == 0,
+                    "name discovery reattached the removed replica"
+                );
+                eprintln!("Removed-voter name lookup RustFS={real} extents={extents}: PASS");
+                return Ok(());
+            }
             state(&cluster, "lifecycle", "waiting")
                 .await
                 .context("Workflow waiting phase after retained restart")?;
@@ -367,6 +433,8 @@ async fn case(real: bool, external: bool, extents: bool) -> Result<()> {
     domain.shutdown().await;
     work?;
     closed?;
-    eprintln!("Workflow lifecycle RustFS={real} Axum={external} extents={extents}: PASS");
+    if matches!(scenario, Scenario::Lifecycle) {
+        eprintln!("Workflow lifecycle RustFS={real} Axum={external} extents={extents}: PASS");
+    }
     Ok(())
 }

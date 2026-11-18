@@ -401,6 +401,17 @@ async fn rustfs_axum_workflow_results_survive_s3_replacement_and_park_wake() -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removed_voter_name_discovery_restores_routing_after_restart() -> Result<()> {
+    workflows::removed_lookup(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_removed_voter_name_discovery_restores_routing_after_restart() -> Result<()> {
+    workflows::removed_lookup(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scheduled_workflows_use_shared_quorum() -> Result<()> {
     workflows::schedules(false, false).await
 }

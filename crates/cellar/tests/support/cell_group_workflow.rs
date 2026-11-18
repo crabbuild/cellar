@@ -10,6 +10,7 @@ use cellar_native::clone::StructuredValue;
 #[path = "cell_group_workflow_lifecycle.rs"]
 mod lifecycle;
 pub use lifecycle::qualify as lifecycle;
+pub use lifecycle::qualify_removed_lookup as removed_lookup;
 
 fn application(
     signals: Arc<contract::Signals>,
