@@ -232,7 +232,13 @@ pub(crate) async fn start(
         ))
         .await?;
         registration::refresh_routes(&mut prepared, &log, options.managed.is_some())?;
-        let sql = CellGroupSqlPool::start(&log, limits.sql)?;
+        // Every namespace applier below uses this same node profile. Preview
+        // verification must use it too; execution/capture bounds stay separate.
+        let sql = CellGroupSqlPool::start_with_apply_limits(
+            &log,
+            limits.sql,
+            Some(options.images.apply),
+        )?;
         startup.sql = Some(sql.clone());
         let checkpoint = limits
             .checkpoints

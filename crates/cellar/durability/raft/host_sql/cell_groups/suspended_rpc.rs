@@ -29,6 +29,7 @@ pub(super) struct Suspended {
     turn: Box<CellRpcTurn>,
     executor: Option<CellPrivateExecutor>,
     options: CellSqlOptions,
+    root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     class: Arc<crate::application::consensus::RaftClass>,
     resuming: Option<BoxFuture<'static, Result<CellExecutionAuthority, ExecutionError>>>,
     mode: CellSqlStageMode,
@@ -318,7 +319,10 @@ impl Cells {
             let commits = commits.map(|context| *context);
             let max_result = options.limits().max_result_bytes;
             let mut activation = self.activations.take(&cell, &authority, &class, now)?;
-            let mut executor = options.clone().open(authority, &self.performance)?;
+            let mut executor =
+                options
+                    .clone()
+                    .open(authority, &self.performance, self.root_apply_limits)?;
             let permit = &mut activation.permit;
             let mut admitted = false;
             let mut reserve = || {
@@ -386,6 +390,7 @@ impl Cells {
                             turn,
                             executor: Some(executor),
                             options,
+                            root_apply_limits: self.root_apply_limits,
                             class,
                             resuming: None,
                             mode,

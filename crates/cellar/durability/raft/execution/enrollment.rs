@@ -53,7 +53,15 @@ impl CellPrivateEnrollment {
         options: RootPrivateOptions,
         authority: CellEnrollmentAuthority,
     ) -> Result<Self, ExecutionError> {
-        Self::open_image(options.into(), authority)
+        Self::open_rooted_with_apply_limits(options, authority, None)
+    }
+
+    pub(crate) fn open_rooted_with_apply_limits(
+        options: RootPrivateOptions,
+        authority: CellEnrollmentAuthority,
+        limits: Option<cellar_ltx::apply::ApplyLimits>,
+    ) -> Result<Self, ExecutionError> {
+        Self::open_image(Options::rooted(options, limits), authority)
     }
 
     fn open_image(

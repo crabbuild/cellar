@@ -131,6 +131,7 @@ pub(in crate::raft::host_sql) struct Cells {
     activations: Arc<RpcCache>,
     wake: Arc<crate::raft::host_sql::WorkerWake>,
     performance: Arc<crate::raft::performance::Registry>,
+    root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
 }
 
 impl Cells {
@@ -138,6 +139,7 @@ impl Cells {
         activations: Arc<RpcCache>,
         wake: Arc<crate::raft::host_sql::WorkerWake>,
         performance: Arc<crate::raft::performance::Registry>,
+        root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Self {
         Self {
             pending: BTreeMap::new(),
@@ -145,6 +147,7 @@ impl Cells {
             activations,
             wake,
             performance,
+            root_apply_limits,
         }
     }
 
@@ -255,7 +258,8 @@ impl Cells {
                 }
                 let allow_new = mode.allows_new();
                 let max_result = options.limits().max_result_bytes;
-                let mut executor = options.open(authority, &self.performance)?;
+                let mut executor =
+                    options.open(authority, &self.performance, self.root_apply_limits)?;
                 let result = match callback {
                     Callback::Verification(callback) => {
                         executor.stage(attempt, allow_new, callback)
@@ -319,7 +323,7 @@ impl Cells {
                         s3: None,
                     })));
                 }
-                let mut executor = options.open_enrollment(authority)?;
+                let mut executor = options.open_enrollment(authority, self.root_apply_limits)?;
                 let prepared = match executor.prepare(attempt, callback) {
                     Ok(prepared) => prepared,
                     Err(error) => {

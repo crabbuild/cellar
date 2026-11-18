@@ -239,6 +239,7 @@ impl Pool {
         queue: usize,
         max_cells: usize,
         performance: Arc<Performance>,
+        root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Result<Self, ExecutionError> {
         let stopped = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicUsize::new(0));
@@ -275,8 +276,12 @@ impl Pool {
                     worker_wake.0.set(std::thread::current()).map_err(|_| {
                         ExecutionError::Invalid("SQL worker wake already installed")
                     })?;
-                    let mut shared =
-                        cell_groups::Cells::new(activations, worker_wake, performance.clone());
+                    let mut shared = cell_groups::Cells::new(
+                        activations,
+                        worker_wake,
+                        performance.clone(),
+                        root_apply_limits,
+                    );
                     let mut requests = RequestQueue::new(receiver, capacity);
                     loop {
                         if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {

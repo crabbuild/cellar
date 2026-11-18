@@ -60,6 +60,8 @@ pub(super) struct Options {
     pub query_services: ReadServices,
     pub application_digest: [u8; 32],
     pub limits: ExecutionLimits,
+    /// The node's committed-apply profile, separate from writer/capture bounds.
+    root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
 }
 
 #[derive(Clone)]
@@ -84,6 +86,7 @@ impl From<PrivateOptions> for Options {
             query_services: options.query_services,
             application_digest: options.application_digest,
             limits: options.limits,
+            root_apply_limits: None,
         }
     }
 }
@@ -104,11 +107,22 @@ impl From<RootPrivateOptions> for Options {
             query_services: options.query_services,
             application_digest: options.application_digest,
             limits: options.limits,
+            root_apply_limits: None,
         }
     }
 }
 
 impl Options {
+    pub(super) fn rooted(
+        options: RootPrivateOptions,
+        limits: Option<cellar_ltx::apply::ApplyLimits>,
+    ) -> Self {
+        Self {
+            root_apply_limits: limits,
+            ..options.into()
+        }
+    }
+
     pub(super) fn prepare_directory(&self) -> Result<(), ExecutionError> {
         let filesystem = self.host.filesystem();
         if let Some(workspace) = self.images.workspace() {
@@ -509,7 +523,10 @@ impl Images {
     ) -> anyhow::Result<cellar_ltx::apply::ApplyLimits> {
         match self {
             Self::Materialized(store) => Ok(store.apply_limits()),
-            Self::Extents { .. } => apply_limits(options.limits),
+            Self::Extents { .. } => options
+                .root_apply_limits
+                .map(Ok)
+                .unwrap_or_else(|| apply_limits(options.limits)),
         }
     }
 
@@ -735,7 +752,7 @@ impl Images {
                         )?,
                         segments,
                     },
-                    &apply_limits(options.limits)?,
+                    &self.preparation_limits(options)?,
                     &mut vec![0; cellar_ltx::internal::EXTENT_BYTES as usize],
                 )?;
                 Ok(Preview::Rooted(Arc::new(prepared.image)))

@@ -112,12 +112,15 @@ impl CellSqlOptions {
     fn open_enrollment(
         self,
         authority: CellEnrollmentAuthority,
+        root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Result<CellPrivateEnrollment, ExecutionError> {
         match self {
             Self::Materialized(o) => CellPrivateEnrollment::open(o, authority),
-            Self::Extents(o) => {
-                CellPrivateEnrollment::open_rooted(o.prepare(authority.state().cell())?, authority)
-            }
+            Self::Extents(o) => CellPrivateEnrollment::open_rooted_with_apply_limits(
+                o.prepare(authority.state().cell())?,
+                authority,
+                root_apply_limits,
+            ),
         }
     }
 
@@ -125,12 +128,14 @@ impl CellSqlOptions {
         self,
         authority: CellExecutionAuthority,
         performance: &crate::raft::performance::Registry,
+        root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Result<CellPrivateExecutor, ExecutionError> {
         let result = (|| match self {
             Self::Materialized(o) => CellPrivateExecutor::open_cursor_image(o, authority),
-            Self::Extents(o) => CellPrivateExecutor::open_rooted(
+            Self::Extents(o) => CellPrivateExecutor::open_rooted_with_apply_limits(
                 o.prepare(&authority.cell().version.history)?,
                 authority,
+                root_apply_limits,
             ),
         })();
         if matches!(
@@ -505,7 +510,20 @@ impl CellGroupSqlPool {
     }
 
     pub fn start(log: &ReplicaLog, limits: CellSqlLimits) -> Result<Self, ExecutionError> {
+        Self::start_with_apply_limits(log, limits, None)
+    }
+
+    pub(crate) fn start_with_apply_limits(
+        log: &ReplicaLog,
+        limits: CellSqlLimits,
+        root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
+    ) -> Result<Self, ExecutionError> {
         limits.validate()?;
+        if let Some(profile) = root_apply_limits {
+            profile
+                .validate()
+                .map_err(crate::raft::execution::storage)?;
+        }
         log.cell_groups().map_err(crate::raft::execution::storage)?;
         let lease = log
             .claim_sql_pool()
@@ -517,6 +535,7 @@ impl CellGroupSqlPool {
             limits.queue_per_worker,
             limits.max_pending_cells,
             log.performance(),
+            root_apply_limits,
         )?;
         let workers = (0..limits.workers)
             .map(|n| pool.worker(n))

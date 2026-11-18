@@ -83,7 +83,10 @@ impl Suspended {
             return Poll::Ready(Err(unavailable()));
         }
         self.activation = Some(activation);
-        let executor = self.options.clone().open(authority, performance)?;
+        let executor = self
+            .options
+            .clone()
+            .open(authority, performance, self.root_apply_limits)?;
         self.executor = Some(executor);
         // Recheck the original unfinished receipt in the latest image. Neither
         // another client's commit nor a new leader authorizes handler replay.
