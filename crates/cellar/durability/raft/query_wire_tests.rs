@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::application::consensus::VersionSigningKey;
-use crate::raft::cell_groups::CellQueryConsistency;
+use crate::raft::cell_groups::{CellDispatchError, CellEnrollmentError, CellQueryConsistency};
+use crate::raft::completion::RuntimeError;
+use crate::raft::execution::ExecutionError;
 use cellar_logic::cell_group::{CellHistory, CellId, GroupHistory};
 use cellar_logic::consensus::*;
 use std::time::Duration;
@@ -1515,7 +1517,8 @@ fn shared_enrollment_purpose_cannot_be_reinterpreted_as_command_or_read() {
         };
         assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
     }
-    let bytes = enrollment::encode_result(&Err(CommandFailure::CommandConflict), 4096).unwrap();
+    let failure = enrollment_refusal(CommandFailure::CommandConflict, false);
+    let bytes = enrollment::encode_result(&Err(&failure), 4096).unwrap();
     let response = response_head(&auth, &[3; 32], &request, &head.tag, &bytes, &options).unwrap();
     for route in [read.clone(), read.for_command().unwrap()] {
         let other = RequestHead::new(route, 4, &body);
@@ -1605,20 +1608,124 @@ fn shared_enrollment_reply_binds_creation_cell_schema_and_initial_image() {
         },
         CommandFailure::Overloaded,
     ] {
-        let bytes = enrollment::encode_result(&Err(failure.clone()), 4096).unwrap();
-        assert_eq!(
-            enrollment::decode_result(
+        let original = enrollment_refusal(failure.clone(), false);
+        let bytes = enrollment::encode_result(&Err(&original), 4096).unwrap();
+        let decoded = enrollment::decode_result(
+            &bytes,
+            (call.request.creation, Durability::Quorum),
+            &cell,
+            [9; 32],
+            4096,
+        )
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(decoded.creation, original.creation);
+        assert!(!decoded.ambiguous);
+        assert!(matches!(decoded.cause.as_ref(),
+            CellDispatchError::Execution(ExecutionError::Refused(actual)) if actual == &failure));
+    }
+}
+
+fn enrollment_refusal(failure: CommandFailure, ambiguous: bool) -> CellEnrollmentError {
+    CellEnrollmentError {
+        creation: enrollment_call().request.creation,
+        ambiguous,
+        cause: Box::new(CellDispatchError::Execution(ExecutionError::Refused(
+            failure,
+        ))),
+    }
+}
+
+#[test]
+fn enrollment_reply_preserves_typed_runtime_cause_and_entry_disposition() {
+    let call = enrollment_call();
+    let cell = cell_observation().version.history;
+    for ambiguous in [false, true] {
+        for reason in [
+            RuntimeError::NotReady,
+            RuntimeError::NotFound,
+            RuntimeError::NotLeader,
+            RuntimeError::Overloaded,
+            RuntimeError::DeadlineExceeded,
+            RuntimeError::Closed,
+            RuntimeError::StaleCompletion,
+        ] {
+            let expected = std::mem::discriminant(&reason);
+            let original = CellEnrollmentError {
+                creation: call.request.creation,
+                ambiguous,
+                cause: Box::new(CellDispatchError::Runtime(reason)),
+            };
+            let bytes = enrollment::encode_result(&Err(&original), 4096).unwrap();
+            let decoded = enrollment::decode_result(
                 &bytes,
-                (call.request.creation, Durability::Quorum),
+                (call.request.creation, Durability::S3),
                 &cell,
                 [9; 32],
-                4096
+                4096,
             )
             .unwrap()
-            .unwrap_err(),
-            failure
-        );
+            .unwrap_err();
+            assert_eq!(decoded.creation, original.creation);
+            assert_eq!(decoded.ambiguous, ambiguous);
+            let CellDispatchError::Runtime(actual) = decoded.cause.as_ref() else {
+                panic!("runtime enrollment failure changed its domain");
+            };
+            assert_eq!(std::mem::discriminant(actual), expected);
+        }
     }
+}
+
+#[test]
+fn enrollment_non_entry_reply_rejects_foreign_creation_and_malformed_disposition() {
+    let call = enrollment_call();
+    let cell = cell_observation().version.history;
+    let failure = CellEnrollmentError {
+        creation: call.request.creation,
+        ambiguous: false,
+        cause: Box::new(CellDispatchError::Runtime(RuntimeError::NotReady)),
+    };
+    let bytes = enrollment::encode_result(&Err(&failure), 4096).unwrap();
+    let decode = |body: &[u8]| {
+        enrollment::decode_result(
+            body,
+            (call.request.creation, Durability::S3),
+            &cell,
+            [9; 32],
+            4096,
+        )
+    };
+    assert!(matches!(
+        enrollment::decode_result(
+            &bytes,
+            (ProposalId::new([231; 16]).unwrap(), Durability::S3),
+            &cell,
+            [9; 32],
+            4096
+        ),
+        Err(TransportError::Authentication)
+    ));
+    for end in 0..bytes.len() {
+        assert!(decode(&bytes[..end]).is_err());
+    }
+    let mut extra = bytes.clone();
+    extra.push(0);
+    assert!(matches!(decode(&extra), Err(TransportError::Protocol)));
+    // Every field that could claim non-entry must reject unknown encodings.
+    for offset in [25, 26, 27] {
+        let mut changed = bytes.clone();
+        changed[offset] = 255;
+        assert!(matches!(decode(&changed), Err(TransportError::Protocol)));
+    }
+    assert!(enrollment::decode_result(
+        &bytes,
+        (call.request.creation, Durability::S3),
+        &cell,
+        [9; 32],
+        bytes.len() - 1
+    )
+    .is_err());
+    assert!(enrollment::encode_result(&Err(&failure), bytes.len() - 1).is_err());
 }
 
 fn receipt_call() -> receipt::CellReceiptCall {
