@@ -78,6 +78,8 @@ async fn run(
     let initialized = initializers.clone();
     let class = RaftClass::new("FetchCell", 1, [201; 32])?
         .initializer([202; 32], move |_, tx| {
+            // DEBUG-cg17-init-entry-1400: passive timestamp, no extra request.
+            tracing::debug!(target: "cellar::raft::sql_ingress", phase = "DEBUG-cg17-init-entry-1400", rooted, ?minimum);
             initialized.fetch_add(1, Ordering::AcqRel);
             tx.storage()?.put_json("value", &json!(0))
         })?

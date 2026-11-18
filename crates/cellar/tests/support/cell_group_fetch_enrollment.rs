@@ -16,7 +16,10 @@ pub(super) fn reply(context: &Context, error: anyhow::Error) -> Result<Output> {
     let birth = error
         .downcast_ref::<cellar::sdk::CellBindingEnrollmentError>()
         .with_context(|| format!("missing typed birth identity: {error:#}"))?;
-    ensure!(birth.ambiguous && birth.minimum == Durability::S3);
+    ensure!(
+        birth.ambiguous && birth.minimum == Durability::S3,
+        "birth must be pending at S3: {birth:?}"
+    );
     let metadata = json!({
         "kind":"enrollment",
         "creation":hex::encode(birth.creation.bytes()),
@@ -183,6 +186,11 @@ pub(super) async fn work(
 }
 
 pub(crate) async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
+    // DEBUG-cg17-init-entry-1400: correlate receiver refusal and initializer entry.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug")
+        .with_test_writer()
+        .try_init();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         let result = async {
