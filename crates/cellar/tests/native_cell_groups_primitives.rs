@@ -91,6 +91,31 @@ mod resume_progress;
 #[path = "support/cell_group_rpc_progress.rs"]
 mod rpc_progress;
 
+#[path = "support/cell_group_public_receipt.rs"]
+mod public_receipt;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_final_materialized_receipt_uses_frozen_writer() -> Result<()> {
+    public_receipt::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_final_extent_receipt_uses_frozen_writer() -> Result<()> {
+    public_receipt::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_public_final_materialized_receipt_uses_frozen_writer() -> Result<()> {
+    public_receipt::qualify(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_public_final_extent_receipt_uses_frozen_writer() -> Result<()> {
+    public_receipt::qualify(true, true).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
     for rooted in [false, true] {
