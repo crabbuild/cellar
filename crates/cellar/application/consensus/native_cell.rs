@@ -769,9 +769,10 @@ impl NativeCellFactory {
 }
 
 /// Own even unpolled continuations through cancellation and callback panics.
-/// A successful delete also retires after the executor checked the invocation
-/// result: retiring inside the handler would invalidate its own final proof.
-/// Recreation then requires a fresh activation and resource identity.
+/// A successful delete requests retirement after its captured image commits.
+/// Retiring when the future drops would invalidate its own physical preparation.
+/// The SQL owner's committed-result handoff closes the old activation before
+/// returning its receipt; recreation requires a fresh resource identity.
 struct WorkflowTurn {
     future: HandlerFuture<Vec<u8>>,
     resources: Arc<crate::application::storage::Resources>,
@@ -808,7 +809,7 @@ impl Drop for WorkflowTurn {
             .load(std::sync::atomic::Ordering::Acquire)
         {
             self.resources
-                .retired
+                .retire_after_commit
                 .store(true, std::sync::atomic::Ordering::Release);
         }
     }
@@ -840,10 +841,13 @@ mod tests {
             "cancelled callback retained its Context cycle"
         );
         assert!(!resources.retired.load(std::sync::atomic::Ordering::Acquire));
+        assert!(!resources
+            .retire_after_commit
+            .load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]
-    fn workflow_turn_retires_only_after_a_valid_delete() {
+    fn workflow_turn_defers_retirement_until_committed() {
         let state = Arc::new(EventState::default());
         state
             .raft_retire_after_turn
@@ -854,6 +858,9 @@ mod tests {
             resources: resources.clone(),
             future: Box::pin(std::future::pending()),
         });
-        assert!(resources.retired.load(std::sync::atomic::Ordering::Acquire));
+        assert!(!resources.retired.load(std::sync::atomic::Ordering::Acquire));
+        assert!(resources
+            .retire_after_commit
+            .load(std::sync::atomic::Ordering::Acquire));
     }
 }
