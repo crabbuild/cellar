@@ -416,6 +416,20 @@ impl HostServices {
             .admit(scope, name, method, args)
     }
 
+    pub(crate) fn admit_outbound_fetch(
+        &self,
+        scope: &str,
+        name: Option<&str>,
+        request: &crate::application::Request,
+    ) -> Option<crate::outbound_rpc::AdmittedFetch> {
+        if !self.accepts_work() {
+            return None;
+        }
+        self.outbound_rpc
+            .get_or_init(|| crate::outbound_rpc::Budget::new(self.runtime_policy()))
+            .admit_fetch(scope, name, request)
+    }
+
     /// SDK submission reservations, sampled independently. Counts include
     /// gate/queue/routing waits, retained local native drivers and undelivered
     /// replies and aliases of dense structured inputs. Bytes cover normalized

@@ -22,6 +22,33 @@ enum Origin {
     Event(Box<super::super::native_event_rpc::Authority>),
 }
 
+enum Input {
+    Rpc(RpcData),
+    Fetch(crate::application::Request),
+}
+
+struct Submission {
+    reservation: crate::rpc_reservation::Reservation,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    input: Input,
+}
+
+enum Reply {
+    Rpc(RpcData),
+    Fetch(crate::engine_api::HttpResponse),
+}
+
+impl Input {
+    fn rpc(&self) -> anyhow::Result<&RpcData> {
+        match self {
+            Self::Rpc(args) => Ok(args),
+            Self::Fetch(_) => Err(super::super::CommandFailure::UnsupportedCapability.into()),
+        }
+    }
+}
+
 impl RaftCells {
     pub(crate) fn event_ingress(
         &self,
@@ -51,6 +78,39 @@ impl RaftCells {
             deadline,
             Origin::Native { configuration },
         )
+    }
+
+    pub(crate) fn native_fetch(
+        &self,
+        admitted: crate::outbound_rpc::AdmittedFetch,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        configuration: [u8; 32],
+    ) -> HandlerFuture<crate::engine_api::HttpResponse> {
+        let crate::outbound_rpc::AdmittedFetch {
+            reservation,
+            scope,
+            name,
+            request,
+        } = admitted;
+        let call = self.submit_command(
+            Submission {
+                reservation,
+                scope,
+                name,
+                method: super::super::native_fetch::OPERATION.into(),
+                input: Input::Fetch(request),
+            },
+            call_scope,
+            deadline,
+            Origin::Native { configuration },
+        );
+        Box::pin(async move {
+            match call.await? {
+                Reply::Fetch(response) => Ok(response),
+                Reply::Rpc(_) => Err(super::super::CommandFailure::CorruptState.into()),
+            }
+        })
     }
 
     /// Stateless ingress may durably enroll an unknown target, then construct
@@ -189,6 +249,41 @@ impl RaftCells {
             method,
             args,
         } = admitted;
+        let call = self.submit_command(
+            Submission {
+                reservation,
+                scope,
+                name,
+                method,
+                input: Input::Rpc(args),
+            },
+            call_scope,
+            deadline,
+            origin,
+        );
+        Box::pin(async move {
+            match call.await? {
+                Reply::Rpc(response) => Ok(response),
+                Reply::Fetch(_) => Err(super::super::CommandFailure::CorruptState.into()),
+            }
+        })
+    }
+
+    fn submit_command(
+        &self,
+        submission: Submission,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        origin: Origin,
+    ) -> HandlerFuture<Reply> {
+        let Submission {
+            reservation,
+            scope,
+            name,
+            method,
+            input: payload,
+        } = submission;
+        let fetch = matches!(payload, Input::Fetch(_));
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
             let route = match &origin {
@@ -302,19 +397,34 @@ impl RaftCells {
             rng.fill_bytes(&mut incarnation);
             creation[0] |= 1;
             incarnation[0] |= 1;
-            let input = match &origin {
-                Origin::Event(authority) => super::super::native_event_rpc::encode_ingress(
+            let input = match (&payload, &origin) {
+                (Input::Fetch(request), Origin::Native { .. }) => {
+                    anyhow::ensure!(
+                        method == super::super::native_fetch::OPERATION,
+                        super::super::CommandFailure::UnsupportedCapability
+                    );
+                    super::super::native_fetch::encode_ingress_request(
+                        name.as_deref(),
+                        request,
+                        route.max_input_bytes,
+                        nonce,
+                    )?
+                }
+                (Input::Fetch(_), _) => {
+                    anyhow::bail!(super::super::CommandFailure::UnsupportedCapability)
+                }
+                (_, Origin::Event(authority)) => super::super::native_event_rpc::encode_ingress(
                     &scope,
                     name.as_deref(),
                     &method,
                     authority.as_ref().clone(),
-                    &args,
+                    payload.rpc()?,
                     route.max_input_bytes,
                     nonce,
                 )?,
-                _ => native_rpc::encode_ingress_request(
+                (_, _) => native_rpc::encode_ingress_request(
                     name.as_deref(),
-                    &args,
+                    payload.rpc()?,
                     nonce,
                     route.max_input_bytes,
                 )?,
@@ -468,7 +578,7 @@ impl RaftCells {
                             );
                         }
                         remaining()?;
-                        return Ok(response);
+                        return Ok(Reply::Rpc(response));
                     }
                 }
                 // Updates and other primitives need the same bounded SQL/image
@@ -496,7 +606,7 @@ impl RaftCells {
                         crate::raft::performance::Counter::CellKvResolvedPayloadPreparations,
                         1,
                     );
-                    return Ok(response);
+                    return Ok(Reply::Rpc(response));
                 }
                 let cell = owner.cell(history.clone())?;
                 // The runtime-owned initializer creates an empty stream. This
@@ -581,6 +691,11 @@ impl RaftCells {
                         && receipt.durability >= durability,
                     super::super::CommandFailure::CorruptState
                 );
+                if fetch {
+                    let response = super::super::native_fetch::decode_response(&receipt.result)?;
+                    remaining()?;
+                    return Ok(Reply::Fetch(response));
+                }
                 let response = native_rpc::decode_response(&receipt.result)?;
                 if let Some(limit) = reservation.reply_limit() {
                     anyhow::ensure!(
@@ -591,7 +706,7 @@ impl RaftCells {
                     );
                 }
                 remaining()?;
-                Ok(response)
+                Ok(Reply::Rpc(response))
             };
             let timed = async {
                 let timer = owner.handle.domain.sleep_until(deadline)?;

@@ -1392,8 +1392,14 @@ impl RaftClass {
     ) -> anyhow::Result<()> {
         let ingress = id.client == super::sql_ingress_identity::client();
         let event = self.event_contract().as_ref() == Some(contract);
+        let fetch = self
+            .commands
+            .get(&contract.operation)
+            .is_some_and(|command| matches!(command.handler, CommandHandler::NativeFetch));
         let nonce = if event {
             super::native_event_rpc::has_ingress_nonce(input)
+        } else if fetch {
+            super::native_fetch::has_ingress_nonce(input)
         } else {
             super::native_rpc::has_ingress_nonce(input)
         };
@@ -1416,6 +1422,8 @@ impl RaftClass {
             );
             if event {
                 super::native_event_rpc::decode(scope.cell.as_str(), input)?;
+            } else if fetch {
+                super::native_fetch::decode_request(input)?;
             } else {
                 super::native_rpc::decode_request(input)?;
             }

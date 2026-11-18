@@ -2026,11 +2026,7 @@ pub(crate) fn fetch_cell(
                 .is_some_and(|classes| classes.contains_key(class))
         })
     {
-        // Stateless HTTP ingress needs its own admission and retained-identity
-        // adapter. Never send a declared Raft target to the Fleet proxy.
-        return Box::pin(async {
-            Err(crate::application::consensus::CommandFailure::UnsupportedCapability.into())
-        });
+        return crate::application::consensus::native_ingress::fetch(context, scope, name, request);
     }
     if let Err(error) = context
         .check_turn()

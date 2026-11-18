@@ -7,10 +7,10 @@ use cellar::engine_api::RequestBody;
 use cellar::sdk::{http::Response, Request};
 use futures_util::StreamExt;
 
-const SCRIPT: &str = "cell-fetch-service";
-const BODY: &[u8] = &[0, 0xff, 0x80, 42];
+pub(super) const SCRIPT: &str = "cell-fetch-service";
+pub(super) const BODY: &[u8] = &[0, 0xff, 0x80, 42];
 
-struct FetchCell(Storage, Arc<AtomicUsize>);
+pub(super) struct FetchCell(pub(super) Storage, pub(super) Arc<AtomicUsize>);
 
 impl Cell for FetchCell {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
@@ -131,7 +131,7 @@ impl Cell for FetchCell {
     }
 }
 
-fn identity(name: &str) -> Result<CellId> {
+pub(super) fn identity(name: &str) -> Result<CellId> {
     let namespace = cellar_native::cell_id::Namespace::new(
         "FetchCell",
         format!("cells:v1:{}:{SCRIPT}:FetchCell", SCRIPT.len()),

@@ -10,6 +10,7 @@ use anyhow::{ensure, Context as _, Result};
 
 pub(crate) const OPERATION: &str = "__cellar_fetch";
 const REQUEST: &[u8] = b"CHTP\x01\x01";
+const INGRESS: &[u8] = b"CHTP\x01\x03";
 const RESPONSE: &[u8] = b"CHTP\x01\x02";
 
 pub(crate) fn encode_request(
@@ -41,8 +42,33 @@ pub(crate) fn encode_request(
     Ok(writer.output)
 }
 
+pub(crate) fn has_ingress_nonce(input: &[u8]) -> bool {
+    input.starts_with(INGRESS)
+}
+
+pub(super) fn encode_ingress_request(
+    name: Option<&str>,
+    request: &Request,
+    limit: usize,
+    nonce: [u8; 16],
+) -> Result<Vec<u8>> {
+    let limit = limit.checked_sub(16).ok_or(CommandFailure::Overloaded)?;
+    let request = encode_request(name, request, limit)?;
+    let mut output = Vec::with_capacity(request.len() + 16);
+    output.extend_from_slice(INGRESS);
+    output.extend_from_slice(&nonce);
+    output.extend_from_slice(&request[REQUEST.len()..]);
+    Ok(output)
+}
+
 pub(super) fn decode_request(input: &[u8]) -> Result<(Option<String>, Request)> {
-    let mut reader = Reader::new(input, REQUEST)?;
+    let mut reader = if has_ingress_nonce(input) {
+        let mut reader = Reader::new(input, INGRESS)?;
+        reader.take(16)?;
+        reader
+    } else {
+        Reader::new(input, REQUEST)?
+    };
     let name = match reader.take(1)?[0] {
         0 => None,
         1 => {
@@ -243,6 +269,30 @@ mod tests {
             write_position: None,
             observed_position: None,
         }
+    }
+
+    #[test]
+    fn ingress_nonce_distinguishes_identical_calls_and_stays_bounded() -> Result<()> {
+        let request = request();
+        let first = encode_ingress_request(Some("target"), &request, 4096, [1; 16])?;
+        let second = encode_ingress_request(Some("target"), &request, 4096, [2; 16])?;
+        assert_ne!(first, second);
+        assert!(has_ingress_nonce(&first));
+        assert!(!has_ingress_nonce(&encode_request(None, &request, 4096)?));
+        assert!(
+            encode_ingress_request(Some("target"), &request, first.len() - 1, [1; 16]).is_err()
+        );
+        assert_eq!(
+            encode_ingress_request(Some("target"), &request, first.len(), [1; 16])?,
+            first
+        );
+        let (name, decoded) = decode_request(&first)?;
+        assert_eq!(name.as_deref(), Some("target"));
+        assert_eq!(decoded.headers, request.headers);
+        for end in 0..first.len() {
+            assert!(decode_request(&first[..end]).is_err());
+        }
+        Ok(())
     }
 
     #[test]

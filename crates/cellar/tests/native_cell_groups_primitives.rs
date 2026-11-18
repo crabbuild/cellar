@@ -107,6 +107,31 @@ async fn uncontended_binding_preserves_its_proven_source_writer() -> Result<()> 
 async fn rustfs_uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
     binding_writer::qualify(true).await
 }
+#[path = "support/cell_group_fetch_ingress.rs"]
+mod fetch_ingress;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_stateless_cell_fetch_uses_shared_group_ingress() -> Result<()> {
+    fetch_ingress::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_stateless_cell_fetch_uses_shared_group_ingress() -> Result<()> {
+    fetch_ingress::qualify(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_native_stateless_cell_fetch_uses_shared_group_ingress() -> Result<()> {
+    fetch_ingress::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_axum_stateless_cell_fetch_uses_shared_group_ingress() -> Result<()> {
+    fetch_ingress::qualify(true, true).await
+}
+
 #[path = "support/cell_group_fetch.rs"]
 mod fetch_bindings;
 

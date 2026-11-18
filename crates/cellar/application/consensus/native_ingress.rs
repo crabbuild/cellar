@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Stateless native and built-in RPCs retain the node's admitted group owner.
+//! Stateless native requests retain the node's admitted group owner.
 
 use super::CommandFailure;
 use crate::application::{Context, HandlerFuture};
@@ -56,6 +56,64 @@ pub(crate) fn event_rpc(
         } else {
             owner.event_ingress(admitted, call_scope, deadline, authority)
         })
+    })();
+    Box::pin(async move { prepared?.await })
+}
+
+pub(crate) fn fetch(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    request: crate::application::Request,
+) -> HandlerFuture<crate::engine_api::HttpResponse> {
+    let prepared = (|| -> Result<_> {
+        context.check_turn()?;
+        anyhow::ensure!(
+            context.identity().is_none()
+                && request.entrypoint.is_none()
+                && matches!(request.body, crate::engine_api::RequestBody::Bytes(_)),
+            CommandFailure::UnsupportedCapability
+        );
+        let (class, _) = scope
+            .split_once(':')
+            .ok_or(CommandFailure::UnsupportedCapability)?;
+        let configuration = context
+            .state
+            .raft_cell_classes
+            .as_ref()
+            .and_then(|classes| classes.get(class))
+            .copied()
+            .ok_or(CommandFailure::UnsupportedCapability)?;
+        super::native_rpc::validate_identity(
+            &context.worker_config.script_name,
+            class,
+            &scope,
+            name.as_deref(),
+        )?;
+        context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
+        let call_scope =
+            CallScope::in_context(context, context.io.rpc_deadline_ms.get().copied(), None);
+        let services = crate::asyncrt::services();
+        let now = crate::asyncrt::mono_ms();
+        let deadline = now
+            .checked_add(services.operation_deadline_ms()?)
+            .ok_or(CommandFailure::Unavailable)?;
+        let deadline = call_scope
+            .deadline_ms
+            .map_or(deadline, |parent| parent.min(deadline));
+        anyhow::ensure!(deadline > now, super::RuntimeError::DeadlineExceeded);
+        let owner = services.raft_lifecycle().application_service()?;
+        let admitted = services
+            .admit_outbound_fetch(&scope, name.as_deref(), &request)
+            .ok_or_else(|| {
+                if services.accepts_work() {
+                    CommandFailure::Overloaded
+                } else {
+                    CommandFailure::Unavailable
+                }
+            })?;
+        drop((scope, name, request));
+        Ok(owner.native_fetch(admitted, call_scope, deadline, configuration))
     })();
     Box::pin(async move { prepared?.await })
 }

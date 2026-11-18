@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Ordinary cell construction and JSON RPC on the private Raft worker.
+//! Ordinary cell construction, RPC and buffered HTTP on the private Raft worker.
 
 use super::{
     native_configuration::AdmittedCellConfiguration, CellHistory, CommandFailure,
