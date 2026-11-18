@@ -102,10 +102,16 @@ pub(in crate::raft::cell_groups) async fn mutation_peer(
                 // waiting for idle election ticks. This is not leader advice:
                 // the receiver still needs ordinary election/admission, and
                 // every unknown outcome retains the original identity.
-                return group
-                    .retained_vote_hint(route)
-                    .map(|member| member.filter(|member| *member != group.identity().member))
-                    .map_err(|error| CellDispatchError::Runtime(error.into()));
+                let member = match transport.cell_command_leader(route) {
+                    Ok(LeaderLookup::Known(member)) => Some(member),
+                    Ok(LeaderLookup::Unknown) => group
+                        .retained_vote_hint(route)
+                        .map_err(|error| CellDispatchError::Runtime(error.into()))?,
+                    Ok(LeaderLookup::Unverified | LeaderLookup::Membership)
+                    | Err(TransportError::UnknownGroup) => None,
+                    Err(error) => return Err(CellDispatchError::Transport(error)),
+                };
+                return Ok(member.filter(|member| *member != group.identity().member));
             };
             let local = runtime
                 .log()
