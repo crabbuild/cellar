@@ -32,6 +32,90 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+Source `85dcdda6c` includes latest fetched origin/main `2f083f148`. Unhinted
+stateless SQL, RPC and buffered Fetch now submit their original candidate and
+creation directly to the existing atomic enrollment authority. Current route,
+leader/applied readiness, schema, grants and foreign-creator checks remain on
+the server. After a failure, adopting a canonical history still requires fresh
+quorum name selection; absence never proves a pending birth cannot commit.
+Only a typed, unambiguous pre-entry runtime refusal permits retry of that same
+creation under its original deadline. Entered or ambiguous work is not replayed
+on absence. The existing receipt candidate and fresh conflict proofs remain.
+
+A pending creation interrupted before a business command exists returns
+`sdk::CellBindingEnrollmentError`: exact candidate history, original creation,
+independent minimum durability, ambiguity and typed cause. It identifies the
+birth only. `sdk::CellBindingCallError` aliases the existing `cells::CallError`
+for admitted business commands. Neither error authorizes business replay or a
+new incarnation to conceal an uncertain outcome.
+
+Qualification at this source:
+
+- Fourteen owning units and five original remote-enrollment safety controls
+  pass, covering typed identity/cause, pre-entry retry rules, independent grants,
+  exact competing creators, writer contention, disconnect, revocation and
+  publication deadlines. Locked optimized build and strict affected Clippy pass.
+- New public creation-timeout cases pass **8/8 configurations**: memory-store
+  and real RustFS, native/Axum ingress and both image modes. An adapter gate holds
+  admitted archive PUTs until the original three-second SDK operation expires.
+  The five-second HTTP client receives typed S3 birth metadata with zero business
+  callbacks. Release is unconditional; subsequent exact-ID enrollment verifies
+  the S3 response proof, one initializer and no business replay, followed by
+  fresh business progress and retained RF3 restart. Passive call-retirement
+  snapshots supply no serving/archive proof; recovery obtains its own proof.
+- Native core campaign 1338 remains **FAILED, 6/10 selectors passing**.
+  Native SQL passes both images. Axum SQL fails materialized mode with
+  `NotReady`; its extent mode is not reached. Named RPC passes only materialized
+  Quorum (**1/4**). Stateful Fetch passes **4/4**; SDK source-proof,
+  missing/ambiguous namespace refusal and both Fleet HTTP controls pass.
+  Stateless Fetch is **0/8 qualified**: six first responses reach the strict
+  no-name-query oracle and fail it; two cold calls exceed their original
+  deadlines. Remaining assertions after the failed oracle are not executed.
+- Real-RustFS campaign 1340 remains **FAILED, 5/7 selectors passing**, including
+  the two new timeout selectors. Original SQL and stateful Fetch each pass
+  **4/4** configurations. Stateless Fetch is **0/8 qualified**: three first
+  responses fail the name-query oracle and five cold calls expire. Including
+  four new timeout configurations, **12/20 configurations** fully pass. Target
+  Quorum/S3 minima are explicit for stateless Fetch; stateful Fetch retains a
+  Quorum target with Quorum/S3 sources. Independent target-S3 SQL qualification
+  remains required. No exclusive deadline cause or stability is established.
+
+The pre-feature real-RustFS baseline 1331 uses unchanged published production at
+`9de75d0f` plus the strict cold oracle: three first responses fail that oracle,
+and one cold call expires. All four failures and twelve voter disks remain.
+The client now enters atomic enrollment first, but the current total name-query
+observations do not establish whether remaining selections follow refusals or
+other work. Close this gap with owning evidence; do not remove required fresh
+quorum reconciliation to satisfy an efficiency counter.
+
+Stateless operations retain three seconds, HTTP clients and stateful bindings
+five seconds, and recovery observation sixty seconds. Controller admission stays
+at two commands/64 KiB, one SQL worker per voter and cache eight cells/512 MiB.
+All target minima, ambiguity, fencing, conflict and data assertions remain.
+Voters share one process with separate workspace disks; RustFS retains one
+CPU/two GiB. Independent compiler activity is recorded. These are scoped
+functional checks, not isolated timing or independent-voter release acceptance.
+
+Canonical formatting, layout, native dependency, documentation, source/index,
+partial inventory and all thirteen coverage-validator checks pass. The reviewed
+inventory lists 215 symbols in eighteen entries; its status remains partial.
+
+Aggregate 1342 verifies five frozen records, 25 executable copies, linked
+prior evidence and all 219 retained failed voter directories. Signed RustFS
+resume first returns 503; the warm probe passes before qualification. Both
+records remain. Every owned job joins; the backend and VM are stopped, with
+objects and failed disks retained.
+
+CG-17 stays **IN_PROGRESS** with all **32 cases** required. The generated index
+remains **13/17 tasks, 147/195 accepted cases**; full validation still lacks
+historical CG-01 evidence. Next close the remaining cold selection/admission,
+Axum SQL readiness and named/source-S3 progress gaps, then EventStream, SQL/KV
+conformance and the full primitive/provider, retention, deployment, clock and
+recovery matrix. CG-13 and CG-15/16 dependencies remain. No complete primitive
+family or hard cutover is accepted.
+
+## Previous receipt-candidate checkpoint
+
 Source `f0b607d40` includes latest fetched origin/main `2f083f148`. Stateless
 native SQL, Fetch/RPC and event commands can consume one sequence candidate
 from a previous verified successful receipt in the same invocation. It skips a

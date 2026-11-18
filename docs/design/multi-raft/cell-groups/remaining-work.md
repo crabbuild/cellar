@@ -41,35 +41,38 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Latest main `2f083f148` is included. Source `f0b607d40` adds one disposable
-sequence candidate from a verified receipt per stateless invocation, preserving
-current command admission, independent minimum proofs, fresh quorum conflict
-proofs and original ambiguous identities. Twelve owning units pass. Native SQL
-passes both images and Axum SQL materialized mode, including actual candidate
-use, but Axum extent concurrency still expires (**3/4 SQL configurations**).
-The native campaign remains **FAILED, 5/10 selectors**: stateless Fetch passes
-only 1/8 configurations due cold deadlines, named RPC 2/4 and stateful Fetch 3/4.
-Real RustFS remains **FAILED, 3/5 selectors**: SQL 4/4, stateful Fetch 4/4 and
-stateless Fetch 3/8 configurations pass (**11/16 total**). Preserve
-all prior/current failures and disks; no exclusive deadline cause, stability or
-complete-family acceptance is established. See the current checkpoint for exact
-source, proof, budget and target-minimum coverage boundaries.
+Latest main `2f083f148` is included. Source `85dcdda6c` implements atomic
+creation first for unhinted stateless bindings, plus a typed creation error that
+preserves the original history, proposal, minimum durability and ambiguity before
+a business command exists. Fourteen units and five remote enrollment safety
+controls pass. New interrupted-creation recovery passes **8/8 configurations**
+across memory/real RustFS, native/Axum and both images, with original deadlines,
+verified S3 proof, one initializer, no business replay and retained restart.
+
+**CG-17 remains open.** Native core qualification is **FAILED, 6/10 selectors**:
+native SQL 2/2 and stateful Fetch 4/4 pass; Axum SQL materialized fails `NotReady`
+and extents are not reached, while named RPC passes 1/4. Stateless Fetch is 0/8
+qualified: six successful first responses fail the strict name-query oracle and
+two cold requests expire. RustFS is **FAILED, 5/7 selectors**, including the two
+new timeout selectors: SQL 4/4, stateful Fetch 4/4 and timeout recovery 4/4 pass;
+stateless Fetch is 0/8, with three query-oracle failures and five cold deadlines.
+The total query counter cannot identify a selection's position or caller; keep
+required fresh post-refusal quorum reconciliation while finding the remaining
+admission/selection work. Preserve all failures and unknown identities.
 
 Deliver the next features in this order:
 
-1. Close cold history/enrollment and shared-stream contention under the original
-   deadlines, then named/source-S3 progress. The observed first-command budget
-   can be only 6 ms; an invocation-local candidate cannot repair that first call.
-   Admit unhinted cold enrollment through the existing server authority before
-   redundant origin name lookup. Preserve foreign-creator refusal before the
-   initializer, original creation identity, current readiness and all minimum
-   proofs; adopt another creator only after fresh quorum selection. Qualify
-   unknown births, typed conflicts and restart. Preserve fresh consumed-other
-   proofs and unknown mutation identities. Complete EventStream activation/
-   Consume/outbox progress and SQL/KV conformance, including the independent
-   target-S3 matrix. Finish buffered ingress and streaming/leased-session
-   ownership, archive outage and post-recovery progress; never replay an entire
-   multi-transaction callback after an unknown result.
+1. Close cold selection/admission, Axum SQL readiness and named/source-S3
+   progress under the original deadlines. Atomic enrollment now goes first and
+   unknown births retain typed recoverable metadata, but the strict total-query
+   oracle still fails after successful first replies. Establish exact ownership
+   of remaining selections/refusals before removing work; necessary fresh quorum
+   reconciliation is mandatory. Preserve original creation/command identities,
+   current fences, independent minima and fresh consumed-other conflict proofs.
+   Complete EventStream activation/Consume/outbox progress and SQL/KV conformance,
+   including the independent target-S3 matrix. Finish buffered ingress and
+   streaming/leased-session ownership, archive outage and post-recovery progress;
+   never replay an entire multi-transaction callback after an unknown result.
 2. Complete Queue leases, acknowledgement, callback settlement and autonomous
    drain, plus alarms/cron and Workflow lifecycle contracts. Qualify the combined
    source, including retention/recreation, deployment changes and clock faults.

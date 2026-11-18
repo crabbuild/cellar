@@ -111,8 +111,8 @@ without SQL payloads. See the [qualification record](progress.md#cg-17-authentic
 SQL calls from Raft cells use the durable binding protocol below, including the
 target namespace's independent minimum durability, original caller deadline,
 interrupted-call recovery and private sequence retirement. Queries use durable
-commands too; a SQL binding query does not use the stale-query default. Sessions
-retain the existing primary bookmark behavior.
+commands too, with the target namespace minimum. Sessions retain the existing
+primary bookmark behavior.
 
 The service runs each request in an owned savepoint inside its Raft command.
 Batch, exec and migration failures roll back their partial changes before the
@@ -131,13 +131,32 @@ qualification is recorded in the
 
 ## Stateless SQL ownership boundary
 
-Stateless native calls have no source cell transaction. Name lookup, one creation
-attempt and one independently durable SQL command share the original absolute
-node/caller deadline. When another first creator wins, reconciliation waits for
-the committed canonical name without repeating enrollment or SQL. After business
-submission, the selected history, input and command identity remain fixed.
-Cancellation or timeout does not establish non-commit, and a new application
-request is a separate mutation rather than an automatic retry.
+Stateless native calls have no source cell transaction. Creation, any required
+fresh name reconciliation and the independently durable command share the
+original absolute node/caller deadline. After business submission, the selected
+history, input and command identity remain fixed. Cancellation or timeout does
+not establish non-commit; a new application request is a separate mutation.
+
+Unhinted stateless SQL, RPC and buffered Fetch submit their original candidate
+and creation ID to the existing atomic enrollment authority first. The server
+checks current route, leader/applied readiness, compiled schema, grants and
+foreign creation records before running initialization. A name absence read is
+not admission authority. Retained local history remains a locator only.
+
+After an enrollment failure, adopting a committed name still requires a fresh
+quorum selection. An absent name never proves a pending creation cannot commit.
+Only a typed, unambiguous pre-entry Runtime refusal (Overloaded, NotReady,
+NotFound or NotLeader) permits retrying that same candidate and creation under
+the original deadline; entered, execution-refused and ambiguous calls are not
+resubmitted on absence. Original cancellation and target minimum proofs remain.
+
+Before a business command identity exists, an interrupted pending creation
+returns `sdk::CellBindingEnrollmentError` with its original candidate history,
+creation proposal, independent minimum durability, ambiguity and typed cause.
+Reconcile only that exact creation at that minimum. This error does not identify
+an admitted business command or authorize replay of business input. Once a
+business command exists, `sdk::CellBindingCallError` keeps its existing
+command/history/ambiguity contract. It aliases the existing `cells::CallError`.
 
 Stateless SQL uses one reserved client stream per database history. A fresh
 128-bit nonce in the owned request envelope distinguishes independent calls even
@@ -158,10 +177,11 @@ attempt keeps the same nonce, input, target history, expiry and absolute deadlin
 A proven competing request permits a new sequence, not a retry of an unknown
 mutation. Partial committed receipts also fix their request fingerprint.
 
-Only the reserved SQL service's native RPC contracts admit the nonce envelope
-with the fixed stream identity. Ordinary clients and classes cannot use it. The
-SQL service schema digest changes; use fresh compatible SQL namespaces and
-matching voters for this prototype hard cutover. Format markers remain at 1.
+Only host-compiled native ingress contracts admit the nonce envelope with the
+fixed stream identity, including the SQL service and declared native RPC/Fetch
+classes. Ordinary clients cannot manufacture this authority. Use fresh compatible
+namespaces and matching voters for this prototype hard cutover; format markers
+remain at 1.
 
 The adapter uses normal outbound RPC admission and dense request normalization,
 plus the existing Raft control budget. The SDK ticket transfers with the pending

@@ -2,7 +2,7 @@
   "format": 1,
   "status": "partial",
   "sdk_roots": {
-    "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
+    "crates/cellar/sdk.rs": "d2035d064488d581fc7993ba89754a5230a10b024eed83c41f9d8738e7d5ec09",
     "crates/cellar/application/mod.rs": "3e7b4ef529c5ff279f7660b2dd25766aabf10806bdac0380469a8e229997c6af"
   },
   "entries": [
@@ -585,12 +585,16 @@
         "cellar::sdk::cells::Stub::rpc",
         "cellar::sdk::cells::Stub::rpc_with_signal",
         "cellar::sdk::cells::Stub::call",
-        "cellar::sdk::cells::CallError"
+        "cellar::sdk::cells::CallError",
+        "cellar::sdk::CellBindingCallError",
+        "cellar::sdk::CellBindingEnrollmentError"
       ],
       "owners": [
         "crates/cellar/application/cell_bindings.rs",
         "crates/cellar/application/consensus/native_rpc.rs",
-        "crates/cellar/storage/sqlite/raft_bindings.rs"
+        "crates/cellar/storage/sqlite/raft_bindings.rs",
+        "crates/cellar/application/consensus/group_client/sql_ingress.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/enrollment.rs"
       ],
       "schemas": [
         "Protected business names, source call intents, global lane serials and per-destination command sequences"
@@ -608,7 +612,7 @@
       "permission": "Same configured cluster/application, declared target class, operation, incarnation and original deadline",
       "proof": "Durable source intent before target admission; independent target policy and verified receipt before parent proof",
       "ordering": "Exclusive source lanes and contiguous per-target-history command identities; unresolved outcomes retain reservations",
-      "recovery": "Restore exact target/input/identity/policy/expiry; reconcile without replaying refused business input or weakening fences",
+      "recovery": "Restore exact target/input/identity/policy/expiry; reconcile without replaying refused business input or weakening fences. Stateless interrupted births expose exact original creation/history/minimum and typed cause before business command assignment; fresh canonical selection never treats absence as non-commit.",
       "case": "primitives_http_rpc_and_cross_cell_effects",
       "refusals": {}
     },
