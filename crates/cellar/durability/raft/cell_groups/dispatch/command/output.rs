@@ -105,7 +105,7 @@ impl CellCommandInvocation {
         // never reconcile again or rerun SQL to reconstruct the response.
         let authority = output
             .runtime
-            .execution_authority(output.route.history, self.cell.clone())
+            .output_authority(output.route.history, self.cell.clone())
             .await
             .map_err(CellDispatchError::Runtime)?;
         if authority.route() != &output.route {

@@ -12,7 +12,9 @@ pub(crate) async fn output_during_apply(rooted: bool) -> Result<()> {
 }
 
 async fn run(rooted: bool, duplicate: bool) -> Result<()> {
-    let root = tempfile::tempdir()?;
+    let mut root = tempfile::tempdir()?;
+    root.disable_cleanup(true);
+    eprintln!("retained S3 output disk: {}", root.path().display());
     let faults = apply_faults::physical::Faults::new(root.path().join("node-1/pages"), None);
     let filesystem = Arc::new(apply_faults::physical::FaultFileSystem {
         faults: faults.clone(),
@@ -142,6 +144,14 @@ async fn run(rooted: bool, duplicate: bool) -> Result<()> {
                 && status.applied.index < accepted.position.index)
         })
         .await?;
+        // Preparation may pass this unrelated mutation, but releasing an S3
+        // output still requires the whole committed prefix to finish applying.
+        let mutation_authority = h.fixture.runtimes[0]
+            .execution_authority(h.route.history, h.cell.clone())
+            .await
+            .context("unrelated mutation must retain preparation authority")?;
+        mutation_authority.check()?;
+        drop(mutation_authority);
         drop(publication_release);
         archive_controller::published(&h.controllers[0], h.route.history, original.index).await?;
         let mut response = Box::pin(call.response());

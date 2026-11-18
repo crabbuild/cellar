@@ -869,6 +869,10 @@ impl Worker {
                                     .owner
                                     .execution_authority(&cell)
                                     .map(|authority| Response::Execution(Box::new(authority))),
+                                Command::OutputAuthority(cell) => group
+                                    .owner
+                                    .output_authority(&cell)
+                                    .map(|authority| Response::Execution(Box::new(authority))),
                                 Command::NextEffect { now, after } => group
                                     .owner
                                     .next_effect(now, after.as_ref())

@@ -36,6 +36,11 @@ use std::{
     },
 };
 
+enum ExecutionPurpose {
+    Mutation,
+    Output,
+}
+
 struct Lease(Arc<AtomicBool>);
 
 impl Drop for Lease {
@@ -531,13 +536,35 @@ impl CellGroupOwner {
         &self,
         cell: &CellHistory,
     ) -> Result<super::CellExecutionAuthority, RuntimeError> {
+        self.execution_authority_for(cell, ExecutionPurpose::Mutation)
+    }
+
+    /// Releasing committed output requires the entire committed prefix applied.
+    /// Preparation's unrelated-cell exception does not establish this fence.
+    pub(super) fn output_authority(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<super::CellExecutionAuthority, RuntimeError> {
+        self.execution_authority_for(cell, ExecutionPurpose::Output)
+    }
+
+    fn execution_authority_for(
+        &self,
+        cell: &CellHistory,
+        purpose: ExecutionPurpose,
+    ) -> Result<super::CellExecutionAuthority, RuntimeError> {
         let status = self.status()?;
         // Role refusal is distinct from a leader still awaiting durable apply.
         // Remote callers must not retry a follower as generic unavailability.
         if self.node.raft.state != StateRole::Leader {
             return Err(RuntimeError::NotLeader);
         }
-        if !status.ready || !self.cell_applied_through(cell, status.committed) {
+        let applied = status.ready
+            && match purpose {
+                ExecutionPurpose::Mutation => self.cell_applied_through(cell, status.committed),
+                ExecutionPurpose::Output => status.applied.index == status.committed,
+            };
+        if !applied {
             return Err(RuntimeError::NotReady);
         }
         super::CellExecutionAuthority::new(

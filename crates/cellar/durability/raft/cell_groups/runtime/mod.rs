@@ -171,6 +171,7 @@ enum Command {
     },
     RetireSource(Box<CellGroupSourceRetirementPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
+    OutputAuthority(cellar_logic::cell_group::CellHistory),
     NextEffect {
         now: u64,
         after: Option<cellar_logic::cell_group::CellId>,
@@ -720,6 +721,21 @@ impl CellGroupRuntime {
         {
             Response::Execution(authority) => Ok(*authority),
             _ => Err(RuntimeError::Protocol("execution authority reply".into())),
+        }
+    }
+
+    pub(crate) async fn output_authority(
+        &self,
+        history: GroupHistory,
+        cell: cellar_logic::cell_group::CellHistory,
+    ) -> Result<CellExecutionAuthority, RuntimeError> {
+        let bytes = cell.cell.as_str().len() + 4096;
+        match self
+            .call(Some(history), Command::OutputAuthority(cell), bytes)
+            .await?
+        {
+            Response::Execution(authority) => Ok(*authority),
+            _ => Err(RuntimeError::Protocol("output authority reply".into())),
         }
     }
 
