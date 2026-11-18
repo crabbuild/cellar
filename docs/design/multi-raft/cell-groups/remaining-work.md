@@ -36,56 +36,64 @@ full disaster profile remain open.
 
 ## Primitive delivery priority
 
-Latest main `16c45b266` is included. Runtime `c6e9f7e95` closes removed-voter
-late-metadata classification and cold name discovery from a retained, detached
-log. Actual red/green regressions preserve the same assertions, deadlines and
-admission. Current native/RustFS name discovery passes both images; eight
-ordinary history/minimum controls and all eight native/Axum/RustFS Workflow
-lifecycle configurations pass. The latter cover S3-seeded voter replacement,
-exact stream bytes, park/public-read wake and retained restart without completed
-step replay. See the [current checkpoint](progress.md#current-integration-checkpoint)
-for exact pins, commands and earlier failures.
+Latest main `16c45b266` is included. Runtime `177c7f7f5` closes Workflow
+self-retirement before committed deletion. The old activation stays live through
+its immutable preparation, then retires while the producer still owns the writer
+lease. All three combined-source RustFS Workflow suites pass: ordinary execution
+**5/5 selectors, ten image configurations**; deletion/recreation **2/2, four
+configurations**; replacement/park/wake **2/2, four configurations**. These are
+18 scoped scenario configurations on one source and executable, not complete
+Workflow or CG-17 family acceptance. See the
+[current checkpoint](progress.md#current-integration-checkpoint) for exact pins.
 
-**Full primitive compatibility remains incomplete.** The original RustFS/Axum
-Workflow case still fails materialized `delete/delete-held` after 281 ms with
-ambiguous `Execution(Refused(Unavailable))`; this is not deadline exhaustion.
-Original EventStream native/Axum cases still fail. Stage diagnostics locate
-cumulative extent fetch/sync cost before the first acknowledgement, but do not
-prove an exclusive cause; all temporary marks are removed. Fresh successful
-histories do not settle these earlier ambiguous commands.
+Direct final receipt settlement also reuses its exact frozen private SQLite
+state after committed-entry and authority checks. A physical read-denial baseline
+fails both images; the final source passes both regressions, ten existing safety
+controls and the native SDK source-proof selector (**13/13 selectors**). Public
+settlement also uses `Action::Reconcile`, which still reopens the selected image.
+The direct-finish optimization does not remove that public-path cost.
+
+**Other primitive qualification remains incomplete.** At pre-integration
+`bb4213dae`, public cohort 1192 is **FAILED, 2/10 selectors**. SDK source-proof
+checks pass all eight native/RustFS image/minimum configurations. Named bindings
+pass all four Quorum configurations but fail all four S3 source configurations
+under their original five-second budgets. All six selected EventStream paths
+fail activation, ambiguous Consume command 2, or reads after outbox recovery.
+These failures and unknown outcomes remain retained. The new Workflow passes do
+not settle those mutations or qualify the other families.
 
 Deliver the next features in this order:
 
-1. Make Workflow delete/cancellation and recreation settle under the original
-   ownership fence. Preserve exact command ambiguity and completed-step/stream
-   history. Close EventStream Consume's source checkpoint, child acknowledgement
-   and final settlement, then cold/retained/outbox activation under the original
-   absolute deadlines. Fresh quorum and independent target S3 minima remain
-   mandatory. Audit late events after physical member reclamation separately;
-   the joined `ParkedRemoved` fix does not qualify forgotten-member generations.
+1. Close public request progress under the original absolute deadlines. Add an
+   owning public reconciliation regression before extending frozen-receipt reuse;
+   require exact retained-entry evidence and preserve ordinary reads for changed
+   or compacted images and ambiguous results. Finish EventStream source/child/final
+   Consume settlement and cold/retained/outbox activation, plus S3 binding response
+   progress. Preserve fresh quorum and independent source/target S3 minima.
 2. Qualify interrupted binding recovery and unused-sequence sealing against
    original histories and receipts. Close native extent Queue producer **15**,
-   exact claim/lease/callback settlement and autonomous drain. The 24 SDK Queue
-   metrics configurations passed at historical `d20c242ea`; that is not a
-   current-source full Queue family qualification.
-3. Complete alarm/cron, Workflow, filesystem/payload and WebSocket/provider
-   compatibility and combined recovery. Include deployment and clock changes,
-   receipt retention, cancellation, movement/wake and disk loss. Complete the
-   independent API/scenario coverage validator required by CG17-01/08; a list
-   of selected passing tests cannot replace the complete matrix.
+   exact claim/lease/callback settlement and autonomous drain. Audit late events
+   after physical member reclamation and fresh-member return separately from the
+   joined `ParkedRemoved` fix. Historical SDK Queue metrics and load passes do not
+   establish a current-source complete Queue family gate.
+3. Complete ordinary HTTP, WebSocket, container/provider and remaining primitive
+   adapters and combined recovery. Include SQL/KV, alarm/cron, Workflow,
+   filesystem/payload, deployment/clock changes, receipt retention, cancellation,
+   movement/wake and disk loss. Finish the independent API/scenario coverage
+   validator required by CG17-01/08; selected passing tests cannot replace the
+   complete public matrix or omit supported primitives.
 4. Close CG-13 current-source managed recovery and CG-15 independent-voter fault
    qualification, then CG-16 hard cutover. Recover the missing historical CG-01
    evidence and close the remote-enrollment deadline-control stability gap.
 
-Locked integration build, strict library/affected-integration Clippy and
-formatting pass at the current runtime. The generated index remains current;
-full plan validation stops at missing historical CG-01 evidence. RF3 voters
-share one process with separate workspace disks and one SQL worker per voter;
-RustFS is limited to one CPU/two GiB. This is scoped correctness/lifecycle
-coverage, not isolated timing, full-family or independent-voter release
-qualification. Aggregate 1176 verifies 34 new and 141 prior retained voter
-directories. Owned RustFS/VM are stopped with objects retained. Acceptance
-remains **13/17 tasks, 147/195 cases**; counts include only DONE tasks.
+Locked combined build, strict library/affected-integration Clippy, canonical
+formatting and all 27 runner tests pass. RF3 voters share one process with
+separate workspace disks and one SQL worker per voter; RustFS has one CPU/two GiB.
+This is scoped functional coverage, not isolated latency, full-family or
+independent-voter release qualification. Aggregate 1201 verifies 225 retained
+fixture/voter directories. Owned RustFS/VM are stopped with objects retained.
+The generated index remains current at **13/17 tasks, 147/195 cases**, counting
+only DONE tasks; full plan validation still lacks historical CG-01 evidence.
 
 Previously, runtime `6c876b46` retained proven uncontended source writers
 across owned binding I/O; scoped synchronous-wait guards still force yielding for

@@ -521,6 +521,16 @@ image closure, sync changed manifest pages, then atomically persist the group ro
 and applied=N in the engine. Publish and acknowledge only after the marker succeeds.
 Old roots remain pinned until no recovery/reader/transfer owner needs them.
 
+For direct final settlement, `CellPrivateExecutor::finish` may read the receipt
+from its frozen private SQLite state after proving the exact committed entry and
+cell version. It requires autocommit and rechecks current authority around the
+receipt lookup; this producer remains frozen through settlement. Independent
+replay and reconciliation still read the selected committed image. The public
+client also uses reconciliation, so direct-finish reuse alone does not remove
+that path's image reopen. Any future reuse there must retain exact entry evidence
+and the ordinary ambiguous-outcome rules, including compacted or changed images.
+Explicit S3 output still requires its independent archive proof.
+
 A leader may combine commit-only hard-state metadata with that atomic root
 publication when every entry in the newly committed prefix has an exact live
 retained SQL preparation. Inspection is bounded by the existing owner event

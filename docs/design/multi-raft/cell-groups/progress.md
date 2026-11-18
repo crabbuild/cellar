@@ -29,6 +29,84 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Latest main `16c45b266` is included. Runtime `177c7f7f5` combines deferred
+Workflow retirement with exact direct-final-receipt reuse. Successful deletion
+keeps its private producer live through immutable preparation and committed
+receipt settlement. The committed-result handoff then retires the old activation
+while its writer lease remains owned. Recreation receives fresh native resources.
+Stop, term, route, image, admission and deadline checks remain unchanged.
+
+The earlier implementation retired its resources when the successful delete
+future dropped. That invalidated its own preparation and returned ambiguous
+`Unavailable` before the request deadline. Focused baseline `9d962daec` fails
+native and Axum materialized deletion cycle 0 after 243/190 ms. Candidate
+`d05987085` changes only three production files; those files and all five public
+test/tool sources are byte-identical in the combined runtime. Its standalone
+passes are retained separately from the combined-source qualification.
+
+**All three combined-source RustFS Workflow suites pass:**
+
+| Suite | Selectors | Image configurations | Coverage |
+| --- | ---: | ---: | --- |
+| `workflow-deletion` (1197) | 2/2 | 4/4 | Eight held-callback delete/recreate cycles per image, joined cancellation, linearizable absence and waiting-instance deletion/recreation after retained restart. |
+| `ordinary-workflows` (1198) | 5/5 | 10/10 | Native/Axum execution, step reuse, retries, compensation, streams, schedules, concurrent status/delete/recreate, archive refusal and quorum refusal. |
+| `workflow-lifecycle` (1199) | 2/2 | 4/4 | S3-seeded voter replacement, local image coverage, exact stream bytes, park/public-read wake, retained restart and event completion without completed-step replay. |
+
+These **18 scenario configurations** use the same source and executable hash.
+They close the scoped Workflow deletion and ordinary/lifecycle qualification,
+not the complete Workflow or CG-17 family matrix. Earlier ambiguous deletion
+outcomes remain recorded; fresh successful histories do not reconcile them.
+Candidate `d05987085` separately failed Axum extent `create/capped` after
+3,132 ms. The combined suite passes that configuration; this does not establish
+an exclusive cause, timing stability or a speedup.
+
+Direct `CellPrivateExecutor::finish` now reads its final receipt from the frozen
+SQLite state that produced the exact applied image, after the unchanged
+committed-entry check and current-authority checks. It requires autocommit;
+independent replay and reconciliation keep their committed-image readers.
+Baseline `b04e826d1` fails both image forms when the production filesystem refuses
+the post-apply image reopen. Runtime `bb4213dae` passes both regressions with zero
+reopens and exact independent receipt replay, plus ten existing live, corrupt,
+expired, transferred and cell-identity controls. Combined runtime `177c7f7f5`
+passes those twelve controls and the native SDK source-proof selector: **13/13**
+selectors, including all four native image/source-minimum configurations (1196).
+The public client also settles through `Action::Reconcile`; that path still
+reopens the selected image. Extending exact retained-proof reuse there remains
+an implementation priority; the direct-finish result does not close that cost.
+
+**Other public primitives remain incomplete.** Before Workflow integration,
+`bb4213dae` cohort 1192 is FAILED, **2/10 selectors**. Native/RustFS SDK
+source-proof selectors pass all eight configurations. Named bindings pass all
+four Quorum configurations but fail all four S3 source configurations under
+their original five-second deadlines. All six selected EventStream paths fail
+activation, ambiguous Consume command 2, or a read after outbox recovery.
+At `5b3a9d06c`, ordinary native/Axum EventStream passes both images in 1180,
+while real-RustFS and explicit-resource paths fail in 1182. Diagnostic 1185
+shows Axum materialized Consume completing all callback phases in 2,284 ms,
+then missing final settlement; native materialized Consume completes before
+extent startup fails. These are distinct failure boundaries, not an exclusive
+cause. All temporary marks and the added archive filter are removed exactly.
+
+Locked combined build, strict library/affected-integration Clippy and canonical
+formatting pass at `177c7f7f5`. All 27 runner tests pass. All owned compiler and
+runtime handles joined before tracked edits. Original optimization 1, assertions,
+overflow checks, incremental=0, request/callback deadlines and resource banks
+remain. RF3 voters share a process with separate workspace disks and one SQL
+worker per voter; RustFS has one CPU/two GiB on a four-CPU/eight-GiB VM. Independent
+compilation and a read-only artifact audit were observed during qualification;
+no isolated performance or independent-voter release result is claimed.
+
+Aggregate 1201 under ignored `.cellar/cg17-payload-01/` verifies ten cohort
+records, thirteen executable copies, source/oracle/log hashes and **225 retained
+directories**, including two complete RF3 fixture roots. Owned RustFS/VM are
+stopped with objects retained. The generated plan index remains current at
+**13/17 accepted tasks, 147/195 cases**; full plan validation still lacks the
+historical CG-01 record. Public reconciliation/request progress, interrupted
+binding recovery and sequence sealing, complete primitive/provider coverage,
+CG-13/15/16 recovery and release gates remain open. The full goal stays active.
+
+## Previous removed-voter checkpoint
+
 Latest main `16c45b266` is included. Runtime `c6e9f7e95` closes two removed-voter
 correctness gaps. A fully joined `ParkedRemoved` owner is now retired for late
 metadata, while a late retained apply ticket remains fatal. A retained log whose
