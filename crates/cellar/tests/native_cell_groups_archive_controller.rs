@@ -23,6 +23,31 @@ mod rustfs;
 
 include!("support/cell_group_engine_fixture.rs");
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn payload_get_outage_recovers_without_application_requests() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_payload_outage(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_payload_get_outage_recovers_without_application_requests() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_payload_outage(
+            rooted,
+            rustfs::store("payload-get-outage-retry", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
     Box::pin(runtime_fixture::archived_groups_reclaim_independently(

@@ -7,6 +7,8 @@ mod journal;
 pub(super) mod late;
 mod provision;
 mod queue;
+#[cfg(test)]
+mod retry_tests;
 pub(in crate::raft::cell_groups::controller) mod seed;
 pub(crate) use provision::Provisioning;
 pub(crate) use seed::{Client as ArchiveSeedClient, Descriptor as ArchiveSeedDescriptor};

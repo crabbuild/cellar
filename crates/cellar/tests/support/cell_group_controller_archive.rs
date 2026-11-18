@@ -4,6 +4,9 @@
 #[path = "cell_group_archive_fairness.rs"]
 mod fairness;
 pub(crate) use fairness::archived_groups_reclaim_independently;
+#[path = "cell_group_archive_retry.rs"]
+mod payload_retry;
+pub(crate) use payload_retry::archive_controller_payload_outage;
 
 use super::*;
 use cellar_logic::consensus::OperationId;

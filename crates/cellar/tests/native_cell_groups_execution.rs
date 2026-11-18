@@ -49,6 +49,16 @@ async fn initial_private_requests_start_one_normal_election_without_idle_ticks()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn initial_private_startup_respects_newer_vote() -> Result<()> {
+    runtime_fixture::startup_vote_change(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_private_startup_respects_newer_vote() -> Result<()> {
+    runtime_fixture::startup_vote_change(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn initial_private_requests_without_quorum_never_grant_authority_or_recampaign() -> Result<()>
 {
     runtime_fixture::initial_private_election(false).await

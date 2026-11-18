@@ -69,6 +69,8 @@ pub struct Store {
     pub immutable_creates: AtomicUsize,
     pub immutable_create_conflicts: AtomicUsize,
     pub payload_gets: AtomicUsize,
+    pub deny_payload_reads: AtomicBool,
+    pub denied_payload_reads: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub lose_immutable_put_response: AtomicBool,
     pub lose_directory_head_and_reads: AtomicBool,
@@ -102,6 +104,8 @@ impl Store {
             immutable_creates: AtomicUsize::new(0),
             immutable_create_conflicts: AtomicUsize::new(0),
             payload_gets: AtomicUsize::new(0),
+            deny_payload_reads: AtomicBool::new(false),
+            denied_payload_reads: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             lose_immutable_put_response: AtomicBool::new(false),
             lose_directory_head_and_reads: AtomicBool::new(false),
@@ -362,6 +366,13 @@ impl ObjectStore for Store {
             && !path.as_ref().contains("/ownership/")
         {
             self.payload_gets.fetch_add(1, Ordering::AcqRel);
+            if self.deny_payload_reads.load(Ordering::Acquire) {
+                self.denied_payload_reads.fetch_add(1, Ordering::AcqRel);
+                return Err(Error::Generic {
+                    store: "payload GET outage",
+                    source: "injected temporary dependency read failure".into(),
+                });
+            }
         }
         self.available()?;
         let entries = self.entry_reads.lock().unwrap().clone();

@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 
 #[path = "cell_group_startup_mutation.rs"]
 mod startup_mutation;
-pub(super) use startup_mutation::{initial_private_election, retained_private_election};
+pub(super) use startup_mutation::{
+    initial_private_election, retained_private_election, startup_vote_change,
+};
 
 #[path = "raft_catalog_fault.rs"]
 #[allow(dead_code)]
@@ -918,7 +920,10 @@ pub(super) use sql::{
     archive_controller_tail_rollover, archived_groups_reclaim_independently,
 };
 #[allow(unused_imports)]
-pub(super) use sql::{archive_controller_publish_store, archive_controller_reconcile_store};
+pub(super) use sql::{
+    archive_controller_payload_outage, archive_controller_publish_store,
+    archive_controller_reconcile_store,
+};
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
