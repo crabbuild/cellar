@@ -7,7 +7,7 @@ use cellar::sdk::clone::{Object, StructuredValue, Value};
 
 const SCRIPT: &str = "named-binding-service";
 
-struct BoundCounter(Storage, Arc<Notify>);
+struct BoundCounter(Storage, Arc<Notify>, Option<Arc<AtomicUsize>>);
 
 fn graph() -> StructuredValue {
     StructuredValue {
@@ -53,10 +53,36 @@ impl Cell for BoundCounter {
                         .await?;
                     anyhow::bail!("held target must never return a business response")
                 }
-                "Again" => {
+                "Reject" => {
+                    self.2
+                        .as_ref()
+                        .context("rejection observer")?
+                        .fetch_add(1, Ordering::AcqRel);
+                    update(&self.0, 1000)?;
+                    anyhow::bail!(CommandFailure::UnsupportedCapability);
+                }
+                "Refused" => {
+                    let error = context
+                        .namespace("COUNTERS")?
+                        .get_by_name("refused-target")
+                        .rpc(&context, "Reject", RpcData::Json("{}".into()))
+                        .await
+                        .err()
+                        .context("target must refuse before committing a root")?;
+                    let error = error
+                        .downcast_ref::<cellar::sdk::cells::CallError>()
+                        .context("typed refused binding")?;
+                    ensure!(error.command.sequence() > 0);
+                    json!(true)
+                }
+                "Again" | "AgainRefused" => {
                     let reply = context
                         .namespace("COUNTERS")?
-                        .get_by_name("held-target")
+                        .get_by_name(if method == "AgainRefused" {
+                            "refused-target"
+                        } else {
+                            "held-target"
+                        })
                         .rpc(&context, "Add", RpcData::Json("2".into()))
                         .await?;
                     return Ok(Output::Rpc(reply));
@@ -263,7 +289,16 @@ pub(super) async fn start_with_checkpoint(
     store: Arc<catalog_fault::Store>,
     checkpoint: Arc<Notify>,
 ) -> Result<ManagedCluster> {
-    let class = RaftClass::new("Counter", 1, [111; 32])?
+    start_with_recovery_observer(rooted, store, checkpoint, None).await
+}
+
+pub(super) async fn start_with_recovery_observer(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    checkpoint: Arc<Notify>,
+    rejected: Option<Arc<AtomicUsize>>,
+) -> Result<ManagedCluster> {
+    let mut class = RaftClass::new("Counter", 1, [111; 32])?
         .initializer([112; 32], |_, tx| {
             tx.execute_batch(
                 "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0);",
@@ -283,6 +318,12 @@ pub(super) async fn start_with_checkpoint(
         .query("Get", [118; 32], |context, _| {
             Ok(serde_json::to_vec(&context.storage().get_json("value")?)?)
         })?;
+    if rejected.is_some() {
+        class = class
+            .json_cell_rpc("Reject", [129; 32])?
+            .json_cell_rpc("Refused", [130; 32])?
+            .json_cell_rpc("AgainRefused", [131; 32])?;
+    }
     let application = Arc::new(
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
             class,
@@ -290,6 +331,7 @@ pub(super) async fn start_with_checkpoint(
                 Ok(Arc::new(BoundCounter(
                     context.storage()?,
                     checkpoint.clone(),
+                    rejected.clone(),
                 )))
             },
         )?,

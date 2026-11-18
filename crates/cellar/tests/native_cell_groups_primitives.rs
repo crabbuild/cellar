@@ -34,6 +34,40 @@ mod binding_enrollment;
 mod binding_reads;
 #[path = "support/cell_group_binding_recovery.rs"]
 mod binding_recovery;
+#[path = "support/cell_group_live_binding_recovery.rs"]
+mod live_binding_recovery;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_materialized_binding_recovers_without_host_restart() -> Result<()> {
+    live_binding_recovery::qualify(false, false, live_binding_recovery::Cut::Checkpoint).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_extent_binding_recovers_without_host_restart() -> Result<()> {
+    live_binding_recovery::qualify(true, false, live_binding_recovery::Cut::Checkpoint).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_materialized_refused_binding_seals_unused_sequence() -> Result<()> {
+    live_binding_recovery::qualify(false, false, live_binding_recovery::Cut::Unused).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_extent_refused_binding_seals_unused_sequence() -> Result<()> {
+    live_binding_recovery::qualify(true, false, live_binding_recovery::Cut::Unused).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_live_materialized_binding_recovery_and_unused_sequence() -> Result<()> {
+    live_binding_recovery::qualify_rustfs(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_live_extent_binding_recovery_and_unused_sequence() -> Result<()> {
+    live_binding_recovery::qualify_rustfs(true).await
+}
 #[path = "support/cell_group_binding_writer.rs"]
 mod binding_writer;
 #[path = "support/cell_group_bindings.rs"]
