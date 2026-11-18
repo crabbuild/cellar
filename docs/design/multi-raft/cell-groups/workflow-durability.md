@@ -158,10 +158,25 @@ See [the read-deadline checkpoint](progress.md#cg-17-workflow-native-read-progre
 for the exact passing profile and failed controls. This closes the scoped MVP
 read-liveness qualification, not the complete Workflow family matrix.
 
-Full-size params/results, longer
-continuous callbacks, provider I/O, clock faults, deployment changes,
-movement/wake and fenced disk-loss recovery require their own qualifications.
-The common callback budget is bounded to 300 seconds; long sleeps and event
+Full-size params/results, longer continuous callbacks, provider I/O, clock faults,
+deployment changes,
+remaining movement/wake fault combinations and fenced disk-loss recovery require
+their own qualifications. The common callback budget is bounded to 300 seconds;
+long sleeps and event
 waits release that owner, but continuous callback work must fit its admitted
 budget. Full Workflow/CG-17 acceptance remains open until its complete public
 contract and independent scenario matrix pass.
+
+The scoped `workflow-lifecycle` gate exercises completed results and stream
+bytes across S3-seeded RF3 voter replacement, whole-group park/public-read wake,
+and retained restart before event completion. It establishes an initial serving
+quorum, then creates the new instance through the public SDK within its original
+request budget. Local version/image coverage on the replacement, actual archive
+payload reads and execution counters are required. See the
+[replacement/wake checkpoint](progress.md#cg-17-workflow-replacement-and-wake)
+for passing configurations, failures and the controller retirement correction.
+At `4fe5d3bdd`, both exact real RustFS cases pass all four native/Axum image
+configurations under the original request/callback budgets. The earlier Axum
+retirement failure remains recorded. This scenario alone does not accept requests
+before initial quorum readiness, in-flight provider effects, independent voter
+crashes or all-voter disk loss.

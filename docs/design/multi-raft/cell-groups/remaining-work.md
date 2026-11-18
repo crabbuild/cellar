@@ -127,6 +127,12 @@ stability, full primitive acceptance or latency improvement is established.
    creation/enrollment controls and keep their cause open; independent-voter,
    full-size, long-callback and combined lifecycle/recovery gates remain. Reuse
    bounded shared owners rather than per-idle-cell tasks.
+   The [Workflow replacement/wake gate](progress.md#cg-17-workflow-replacement-and-wake)
+   passes native and all four real-RustFS native/Axum image configurations at
+   `4fe5d3bdd`, after correcting late-event classification for fully removed
+   voters. It covers committed waiting steps/streams, S3 replacement, public-read
+   wake and retained restart. Keep the earlier Axum failure and initial-readiness
+   controls; in-flight effects and the full family fault matrix remain open.
 4. **Extend payload and provider lifecycle qualification.** The
    [filesystem/Blob/payload checkpoint](progress.md#cg-17-filesystem-blob-and-retained-payload-roots)
    passes scoped real-store movement/wake, archive outage, fenced disk-loss

@@ -16252,3 +16252,58 @@ stays **13/17 tasks, 147/195 cases**. SQL-specific interruption, movement, wake,
 archive outage and disaster recovery, operator/CLI/Axum paths, KV and all remaining
 primitive families and combined release gates remain open. The separate ordinary
 S3-source binding deadline matrix was not rerun in this cohort.
+
+
+## CG-17 Workflow replacement and wake
+
+The `workflow-lifecycle` suite adds public native and Axum cases for a waiting
+Workflow with completed ordinary and streamed steps. It requires an S3-seeded
+replacement to fetch archive payloads, install RF3 membership and serve a local
+linearizable cell version covering the original image. It then fences the whole
+group in park, wakes it through a public stream read, performs retained restart,
+and completes the Workflow through a public event. Execution counters and exact
+stream bytes reject replay of completed work. One SQL worker per voter and the
+original three-second target/30-second callback budgets remain.
+
+At `884ca414e`, the native fixture passes both images in 62.10 seconds. The real
+RustFS campaign `cellar-workflow-lifecycle-rustfs-884ca414-01` remains **FAILED**:
+native passes both images in 62.83 seconds; Axum materialized fails during
+replacement's peer trust refresh, so Axum extents is unrun. The removed voter
+has no active groups, a closing SQL pool and zero transport tasks. Its physical
+disk remains. The failing record, logs, executable and all four voter disks are
+retained on the checkout-owned workspace volume.
+
+The new fixture establishes its initial serving quorum before issuing a new
+instance's first request, matching the existing Workflow fixture. Earlier
+pre-ready request controls at `379fc4e92` and their diagnostic overlay expire
+during enrollment/creation; preserve `workflow-lifecycle-native-red-01` and
+`workflow-lifecycle-native-diagnostic-01`. They do not qualify requests issued
+before initial group readiness. The unchanged ordinary Workflow baseline passes
+both images in 310.96 seconds. This does not attribute every earlier deadline
+failure to startup or accept a broader storage profile.
+
+The controller's late-event branch recognizes fully retired source groups but
+omits `ParkedRemoved` voters. A queued metadata event after member detachment
+can therefore fail the shared controller as an unregistered group and close its
+transport. `859230a77` adds a deterministic retirement-classification regression
+and preserves joined-close errors in the lifecycle fixture. The fatal late-apply
+guard must remain; active, unknown and still-retiring owners must not be treated
+as fully joined retired owners. Full Workflow and CG-17 acceptance remain open.
+
+
+At `4fe5d3bdd`, the correction recognizes fully joined removed voters alongside
+retired sources. The unchanged real RustFS lifecycle suite now passes both exact
+cases and all four image/ingress configurations: native 47.70 seconds, Axum
+43.25 seconds. Preserve `cellar-workflow-lifecycle-rustfs-fixed-01`, including its
+source inputs, seven-operation S3 probe, original command logs and frozen
+executable SHA-256 `fd6c7fdcba1e3edab3c5e8df5d4b32b4c82b6cfc21ef2f489b3240d5a9341c87`.
+The earlier Axum failure remains failed. This correction does not establish the
+cause of every previous managed trust-refresh failure.
+
+Voters share one native process with one SQL worker each. RustFS retains its
+one-CPU/two-GiB container limit in the dedicated four-CPU/eight-GiB VM; voter
+directories remain on the checkout-owned workspace volume. The backend and VM
+are stopped with objects retained. This closes the scoped waiting-Workflow
+replacement/wake gate, not in-flight provider effects, full-size/clock/deployment
+boundaries, independent voter crashes or fenced all-voter disk loss. No full
+primitive family, task acceptance count or release gate changes.
