@@ -7,6 +7,22 @@ use super::*;
 use cellar::engine_api::RequestBody;
 use cellar::sdk::{http::Response, Request};
 
+fn name_selections(cluster: &ManagedCluster) -> Result<u64> {
+    cluster.hosts.iter().try_fold(0u64, |total, host| {
+        let sample = host.performance();
+        ensure!(sample.available && !sample.saturated);
+        let value = sample
+            .counters
+            .iter()
+            .find(|counter| counter.name == "cell_name_quorum_selections")
+            .context("missing name selection observations")?
+            .value;
+        total
+            .checked_add(value)
+            .context("name selection count overflow")
+    })
+}
+
 async fn request(cluster: &ManagedCluster, node: usize) -> Result<u64> {
     let response = reqwest::Client::builder()
         .no_proxy()
@@ -47,8 +63,11 @@ async fn run(
     store: Arc<catalog_fault::Store>,
 ) -> Result<()> {
     let callbacks = Arc::new(AtomicUsize::new(0));
+    let initializers = Arc::new(AtomicUsize::new(0));
+    let initialized = initializers.clone();
     let class = RaftClass::new("FetchCell", 1, [201; 32])?
-        .initializer([202; 32], |_, tx| {
+        .initializer([202; 32], move |_, tx| {
+            initialized.fetch_add(1, Ordering::AcqRel);
             tx.storage()?.put_json("value", &json!(0))
         })?
         .cell_fetch([204; 32])?
@@ -131,7 +150,17 @@ async fn run(
             // Namespace origins authorize application RPCs independently of
             // RF3 membership, after this boot's peer endpoints are verified.
             named_service::grant(&cluster).await?;
+            let selections = name_selections(&cluster)?;
+            let initialized = initializers.load(Ordering::Acquire);
             ensure!(request(&cluster, 0).await.context("cold stateless Fetch")? == 2);
+            ensure!(
+                name_selections(&cluster)? == selections,
+                "cold Fetch performed a redundant name selection before atomic enrollment"
+            );
+            ensure!(
+                initializers.load(Ordering::Acquire) == initialized + 1,
+                "cold target must initialize exactly once"
+            );
             ensure!(
                 request(&cluster, 1)
                     .await
@@ -157,6 +186,10 @@ async fn run(
                     == 10
             );
             ensure!(callbacks.load(Ordering::Acquire) == 5);
+            ensure!(
+                initializers.load(Ordering::Acquire) == initialized + 1,
+                "retained target was initialized again"
+            );
             let group = cluster.history;
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
             let history = cluster.hosts[leader]
