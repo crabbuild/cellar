@@ -46,10 +46,7 @@ use tokio::sync::Notify;
 const ALARM_DELAY_MS: u64 = 10_000;
 const WAKE_TIMEOUT: Duration = Duration::from_secs(20);
 
-async fn close(
-    cluster: ManagedCluster,
-    result: std::thread::Result<Result<()>>,
-) -> Result<()> {
+async fn close(cluster: ManagedCluster, result: std::thread::Result<Result<()>>) -> Result<()> {
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
     if !matches!(&result, Ok(Ok(()))) || joined.is_err() {
@@ -106,9 +103,10 @@ async fn alarm_and_peer_wake_no_client() -> Result<()> {
             FirstGroupSetup::Normal,
         ))
         .await?;
-        let result = std::panic::AssertUnwindSafe(Box::pin(exercise_wakes(&mut cluster, fired, calls)))
-            .catch_unwind()
-            .await;
+        let result =
+            std::panic::AssertUnwindSafe(Box::pin(exercise_wakes(&mut cluster, fired, calls)))
+                .catch_unwind()
+                .await;
         close(cluster, result)
             .await
             .with_context(|| format!("parked wake with extent-backed images={rooted}"))?;
@@ -487,9 +485,10 @@ async fn partial_park_and_stale_certificate() -> Result<()> {
             ArchiveSetup::Disabled,
         ))
         .await?;
-        let result = std::panic::AssertUnwindSafe(Box::pin(exercise_interrupted_park(&mut cluster)))
-            .catch_unwind()
-            .await;
+        let result =
+            std::panic::AssertUnwindSafe(Box::pin(exercise_interrupted_park(&mut cluster)))
+                .catch_unwind()
+                .await;
         close(cluster, result)
             .await
             .with_context(|| format!("interrupted park with extent-backed images={rooted}"))?;
@@ -806,12 +805,13 @@ async fn park_requires_all_voters_and_no_pending_work() -> Result<()> {
             .with_context(|| format!("park admission with extent-backed images={rooted}"))?;
 
         let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;
-        let result = std::panic::AssertUnwindSafe(Box::pin(exercise_topology_park_admission(&mut cluster)))
-            .catch_unwind()
-            .await;
-        close(cluster, result)
-            .await
-            .with_context(|| format!("topology park admission with extent-backed images={rooted}"))?;
+        let result =
+            std::panic::AssertUnwindSafe(Box::pin(exercise_topology_park_admission(&mut cluster)))
+                .catch_unwind()
+                .await;
+        close(cluster, result).await.with_context(|| {
+            format!("topology park admission with extent-backed images={rooted}")
+        })?;
     }
     Ok(())
 }

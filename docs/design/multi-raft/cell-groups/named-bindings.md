@@ -30,6 +30,23 @@ A cross-class target must have exactly one matching namespace; missing and
 ambiguous targets refuse startup. The current class uses its source namespace.
 Binding dispatch has no Fleet or weaker-durability fallback.
 
+Initial and retained groups can start one ordinary election when a strong read,
+private execution/enrollment request or active mutation probe arrives before a
+leader is known. Only the exact unvoted genesis cut selects its minimum voter;
+retained startup uses an existing vote for a current or outgoing voter. Applied
+local metadata supplies a destination hint, never leader or execution authority.
+PreVote, durable votes, current membership, quorum and applied readiness still
+decide admission. Stale advisory refreshes and parked groups cannot spend this
+hint; wake retains its separate fresh-quorum barrier.
+
+An initial namespace authorization denial uses an authenticated, empty transport
+reply after the bounded request body is verified. Its kind, channel exporter,
+route, purpose, sequence and request tag are bound by the response MAC. It
+preserves `TransportError::Refused`; opaque read disconnections remain
+`Unavailable`. The denial supplies no mutation disposition and never clears an
+earlier unknown outcome. This response-header change is an internal format-1
+hard cutover requiring matching binaries, with no legacy reader.
+
 ## SQL database bindings
 
 Shared native cells may declare `sql_bindings`, obtain a database with

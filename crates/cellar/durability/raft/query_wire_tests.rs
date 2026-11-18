@@ -919,6 +919,122 @@ fn queue_metrics_queries_keep_a_distinct_authenticated_purpose_and_minimum() {
 }
 
 #[test]
+fn authenticated_transport_refusal_binds_request_channel_and_purpose() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = cell_call(CellQueryConsistency::Linearizable)
+        .encode(4096)
+        .unwrap();
+    let request = RequestHead::new(route(), 7, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    let refusal = refusal_head(&auth, &[3; 32], &request, &head.tag, &options).unwrap();
+    assert_eq!(
+        read_response(&refusal, &auth, &[3; 32], &request, &head.tag, &options),
+        Err(TransportError::Refused)
+    );
+    for exporter in [[4; 32], [0; 32]] {
+        assert_eq!(
+            read_response(&refusal, &auth, &exporter, &request, &head.tag, &options),
+            Err(TransportError::Authentication)
+        );
+    }
+    assert_eq!(
+        read_response(&refusal, &auth, &[3; 32], &request, &[5; 32], &options),
+        Err(TransportError::Authentication)
+    );
+    for changed in [
+        RequestHead::new(route(), 8, &body),
+        RequestHead::new(route().for_command().unwrap(), 7, &body),
+        RequestHead::new(route().for_enrollment().unwrap(), 7, &body),
+        RequestHead::new(
+            Route::new_shared(
+                identity(1).node_identity(),
+                "node-1",
+                &identity(3),
+                "node-3",
+                &cell_history(),
+                [9; 32],
+            )
+            .unwrap(),
+            7,
+            &body,
+        ),
+    ] {
+        assert_eq!(
+            read_response(&refusal, &auth, &[3; 32], &changed, &head.tag, &options),
+            Err(TransportError::Authentication)
+        );
+    }
+    for index in 0..refusal.header.len() {
+        let mut header = refusal.header.clone();
+        header[index] ^= 1;
+        let changed = FrameHead {
+            prefix: refusal.prefix,
+            header,
+            tag: refusal.tag,
+            payload_len: 0,
+        };
+        assert_eq!(
+            read_response(&changed, &auth, &[3; 32], &request, &head.tag, &options),
+            Err(TransportError::Authentication)
+        );
+    }
+    let result = response_head(&auth, &[3; 32], &request, &head.tag, &[], &options).unwrap();
+    assert_eq!(
+        read_response(&result, &auth, &[3; 32], &request, &head.tag, &options).unwrap(),
+        <[u8; 32]>::from(Sha256::digest([]))
+    );
+}
+
+#[test]
+fn authenticated_transport_refusal_rejects_payloads_and_unknown_kinds() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let request = RequestHead::new(route(), 7, &[]);
+    let head = request_head(&auth, &[3; 32], &request, &[], &options).unwrap();
+    for (digest, payload_len) in [(Sha256::digest(b"not empty"), 0), (Sha256::digest([]), 1)] {
+        let header = ResponseHead {
+            route: request.route.reversed(),
+            sequence: request.sequence.clone(),
+            request: head.tag,
+            kind: ResponseKind::Refused,
+            digest: digest.into(),
+        };
+        let malformed = make_head(
+            &auth,
+            &[3; 32],
+            Some(&head.tag),
+            b"CLQA",
+            &serde_json::to_vec(&header).unwrap(),
+            payload_len,
+            &options,
+        )
+        .unwrap();
+        assert_eq!(
+            read_response(&malformed, &auth, &[3; 32], &request, &head.tag, &options),
+            Err(TransportError::Protocol)
+        );
+    }
+    let refusal = refusal_head(&auth, &[3; 32], &request, &head.tag, &options).unwrap();
+    let mut unknown: serde_json::Value = serde_json::from_slice(&refusal.header).unwrap();
+    unknown["kind"] = serde_json::json!("Unknown");
+    let unknown = make_head(
+        &auth,
+        &[3; 32],
+        Some(&head.tag),
+        b"CLQA",
+        &serde_json::to_vec(&unknown).unwrap(),
+        0,
+        &options,
+    )
+    .unwrap();
+    assert_eq!(
+        read_response(&unknown, &auth, &[3; 32], &request, &head.tag, &options),
+        Err(TransportError::Protocol)
+    );
+}
+
+#[test]
 fn read_transport_unavailability_preserves_security_and_mutation_failures() {
     assert_eq!(
         TransportError::Io("offline".into()).for_read(),
@@ -928,6 +1044,7 @@ fn read_transport_unavailability_preserves_security_and_mutation_failures() {
         TransportError::Authentication,
         TransportError::Identity,
         TransportError::Protocol,
+        TransportError::Refused,
         TransportError::CommandRejected(CommandFailure::Unavailable),
         TransportError::Timeout,
     ] {

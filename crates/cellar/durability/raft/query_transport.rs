@@ -398,7 +398,45 @@ impl State {
             }
             source_host = Some(host);
             last_sequence = header.sequence()?;
-            let (pool, permission) = self.authorize_query_route(&header.route)?;
+            let (pool, permission) = match self.authorize_query_route(&header.route) {
+                Ok(admission) => admission,
+                Err(TransportError::Refused) => {
+                    // The header MAC and replay checks have passed, but no
+                    // namespace grant or application admission exists. Charge
+                    // and authenticate the body before denying it. Draining it
+                    // also avoids losing the reply to a TCP reset on close with
+                    // unread request bytes. No peer/SQL work is admitted.
+                    let _node = self
+                        .incoming
+                        .query
+                        .acquire(reservation(head.payload_len, &self.options)?)
+                        .ok_or(TransportError::Overloaded)?;
+                    let mut body = vec![0; head.payload_len];
+                    self.bounded(None, async {
+                        stream.read_exact(&mut body).await?;
+                        Ok(())
+                    })
+                    .await?;
+                    header.verify_body(&body)?;
+                    drop(body);
+                    // The empty denial never settles an uncertain mutation.
+                    let response = wire::refusal_head(
+                        &self.auth,
+                        &exporter,
+                        &header,
+                        &head.tag,
+                        &self.options,
+                    )?;
+                    self.bounded(None, async {
+                        write_head(&mut stream, &response).await?;
+                        stream.flush().await?;
+                        Ok(())
+                    })
+                    .await?;
+                    return Err(TransportError::Refused);
+                }
+                Err(error) => return Err(error),
+            };
             let charge = reservation(head.payload_len, &self.options)?;
             let _node = self
                 .incoming

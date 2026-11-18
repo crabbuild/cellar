@@ -85,10 +85,22 @@ pub(crate) async fn remote_enrollment() -> Result<()> {
             .is_err());
         router.grant(&fixture, 1)?;
         call.retry().await?;
-        assert!(call
+        let denied = call
             .execute_remote(&router.transport, MemberId::new(1)?)
             .await
-            .is_err());
+            .err()
+            .context("missing write grant must refuse")?;
+        assert!(
+            matches!(
+                denied.cause.as_ref(),
+                CellDispatchError::Transport(TransportError::Refused)
+            ),
+            "{denied:?}"
+        );
+        assert!(
+            denied.ambiguous,
+            "transport denial must not clear earlier uncertainty"
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         let mut voter = invocation(&dispatch, &cell, 215, Duration::from_secs(15)).await?;
         assert!(voter
