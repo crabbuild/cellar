@@ -456,12 +456,17 @@ impl CellPrivateExecutor {
                 receipts::lookup_identity(connection, &pending.request, &self.options.limits)
             }
         };
-        // Staging already established absence in this exact immutable base.
-        // In particular an enrollment image need not yet have receipt tables.
-        let receipt = if authority.cell().version == self.authority.cell().version
-            && pending.rpc_prior_steps == 0
-        {
-            Ok(None)
+        let receipt = if authority.cell().version == self.authority.cell().version {
+            if pending.rpc_prior_steps == 0 {
+                // Staging established absence in this exact immutable base;
+                // an enrollment image need not yet have receipt tables.
+                Ok(None)
+            } else {
+                // Continuing this RPC already validated its unfinished receipt
+                // in this exact base. The final private receipt proves neither
+                // completion nor absence until its own result image applies.
+                Err(ExecutionError::Uncertain)
+            }
         } else if pending.submitted
             && authority.cell().version == pending.result
             && authority
