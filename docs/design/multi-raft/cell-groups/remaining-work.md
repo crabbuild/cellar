@@ -41,27 +41,31 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `f899e5d35` waits for settled catalog state without archiving intermediate
-pending observations. It retains one invocation, its original deadline/attempt
-budget and exact-history quorum checks; settled success still requires the full
-target S3 proof. All 27 selected owning protocol/metadata/authority tests pass.
-Native public publication/subscriptions/outbox and retained activation each pass
-both image modes. Real RustFS public materialized mode passes its entire owning
-case; extent mode fails initial activation. RustFS retained activation and both
-Axum public cases fail initial materialized activation, leaving their extents
-unrun. This is **5/12 configurations**, with the combined campaign still FAILED.
+Runtime `31ac1dec4` preserves original enrollment uncertainty and separately typed
+fresh-name lookup failures in all four owning paths. All 37 owning tests and
+strict Cellar library/test Clippy, format/layout and initial docs/dependency
+checks pass. The unchanged public campaign remains **FAILED, 1/8 whole functions**:
+native named bindings pass; native/Axum EventStream Consume, RustFS bindings and
+stronger-target-S3 activation remain failing. Continuing foreign compilation load
+is recorded, so no clean-machine timing or exclusive causal claim follows. See
+the [current checkpoint](progress.md#current-integration-checkpoint).
 
-The immediate feature blocker is **cold catalog enrollment plus source/final S3
-proof latency under the original activation deadline**. Investigate a typed,
-exact-base S3 proof for an unchanged read source, retaining actual physical
-coverage and invalidating it on dirty writes, rebase, route/term change or new
-history. Do not turn the existing Quorum clean-read flag into an S3 proof.
-Next complete original S3-source binding reads/Consume and autonomous interrupted
-call settlement. Rerun the full original public RPC/EventStream cohort, then
-finish every primitive family and the unchanged 32-case matrix. Preserve all
-failed identities and original budgets. The unqualified empty-archive experiment
-was withdrawn; its failed evidence remains. See the
-[current checkpoint](progress.md#current-integration-checkpoint).
+The next feature priority is original-budget **source/target S3 completion and
+Consume/Ack settlement**, including cold activation. The fresh baseline already
+passes native named bindings and basic native/Axum RustFS EventStream functions;
+do not keep treating the older native retained sequence-7 failure as the current
+reproduction. A new exact-base S3 read-source proof must originate from physical
+archive verification, bind actual history/version/fence and invalidate on dirty
+writes, rebase or authority changes. Do not reinterpret the Quorum watermark.
+Strong-target-S3 Consume has a Quorum Counter source, so source proof reuse alone
+cannot be assumed to resolve its Ack/archive critical path. Implement against an
+owning causal regression before repeating broad timing matrices.
+
+Then complete autonomous interrupted binding recovery and safe sequence sealing,
+real per-family acceptance drivers/ledgers and every primitive/provider/feature/
+lifecycle case. All 32 formal cases remain required. Existing failures, unknown
+identities, original budgets and complete source/target proofs remain mandatory.
+The new error context is a correctness delivery, not full public closure.
 
 Earlier runtime `ee2452a94` bounds incomplete primitive operator uploads with the
 original deadline and closes their connection before dispatch. The old runtime
@@ -113,8 +117,8 @@ remain required work.
 
 Deliver next in this order:
 
-1. Close cold catalog enrollment and final S3 proof completion within the
-   original activation deadline. Measure apply, publication and verification on
+1. Close source/target S3 completion, Consume/Ack and cold activation within their
+   original request deadlines. Measure apply, publication and verification on
    the actual accepted proposal; share only exact independently verified work
    under the existing admission limits. Then close original-deadline S3-source
    `Read`/`Consume` and autonomous interrupted bindings with safe sequence sealing.
@@ -412,7 +416,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. At `9b4fdf132`, 29 LTX tests and 25 native/RustFS archive selectors pass; the original public RPC/EventStream cohort remains FAILED, 1/12. Native materialized source-S3 retained RPC and all ten EventStream selectors remain open. See the [current checkpoint](progress.md#current-integration-checkpoint). | Deliver activation/Consume and retained RPC completion under original budgets, then independent SQL/KV minima, remaining primitive/provider adapters and every unchanged case in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
+| CG-17 | In progress. Runtime `31ac1dec4` preserves typed enrollment/reconciliation causes; 37 owning tests pass. The unchanged public campaign remains FAILED, 1/8 whole functions under recorded foreign compilation load. | Implement original-budget S3 completion and Consume/Ack settlement, then complete interrupted bindings and every unchanged family/provider/feature/lifecycle case. See the [current checkpoint](progress.md#current-integration-checkpoint). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 

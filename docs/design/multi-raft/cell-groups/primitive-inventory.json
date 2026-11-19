@@ -2,7 +2,7 @@
   "format": 1,
   "status": "partial",
   "sdk_roots": {
-    "crates/cellar/sdk.rs": "d2035d064488d581fc7993ba89754a5230a10b024eed83c41f9d8738e7d5ec09",
+    "crates/cellar/sdk.rs": "9685b5153b15258bccb04bd47b466a68545e2d178e25f93feade7d3c083b3ecb",
     "crates/cellar/application/mod.rs": "3e7b4ef529c5ff279f7660b2dd25766aabf10806bdac0380469a8e229997c6af"
   },
   "entries": [
@@ -597,7 +597,8 @@
         "cellar::sdk::cells::Stub::call",
         "cellar::sdk::cells::CallError",
         "cellar::sdk::CellBindingCallError",
-        "cellar::sdk::CellBindingEnrollmentError"
+        "cellar::sdk::CellBindingEnrollmentError",
+        "cellar::sdk::CellBindingEnrollmentReconciliationError"
       ],
       "owners": [
         "crates/cellar/application/cell_bindings.rs",
@@ -622,7 +623,7 @@
       "permission": "Same configured cluster/application, declared target class, operation, incarnation and original deadline",
       "proof": "Durable source intent before target admission; independent target policy and verified receipt before parent proof",
       "ordering": "Exclusive source lanes and contiguous per-target-history command identities; unresolved outcomes retain reservations",
-      "recovery": "Restore exact target/input/identity/policy/expiry; reconcile without replaying refused business input or weakening fences. Stateless interrupted births expose exact original creation/history/minimum and typed cause before business command assignment; fresh canonical selection never treats absence as non-commit.",
+      "recovery": "Restore exact target/input/identity/policy/expiry; reconcile without replaying refused business input or weakening fences. Stateless interrupted births expose exact original creation/history/minimum and typed cause before business command assignment; fresh canonical selection never treats absence as non-commit. Failed fresh-name reconciliation retains the original typed enrollment and separately typed lookup cause without authorizing replay.",
       "case": "primitives_http_rpc_and_cross_cell_effects",
       "refusals": {}
     },

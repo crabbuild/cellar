@@ -4,7 +4,43 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current primitive activation correctness delivery
+## Current binding reconciliation correctness delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `31ac1dec4`
+retains original typed enrollment identity/ambiguity and separate typed name-lookup
+failure in stateless ingress, stateful bindings, resource genesis and broker
+preparation. Local context is exposed as
+`sdk::CellBindingEnrollmentReconciliationError`. No lookup refusal authorizes
+mutation replay. The original proofs, deadlines, quotas and oracles are unchanged.
+
+Canonical build, 37 owning units, strict Cellar library/test Clippy, format/layout
+and initial docs/dependency checks pass. The public campaign is **FAILED, 1/8 whole
+functions**. Native named bindings pass all four configurations with restart.
+Both native EventStream variants and both basic RustFS variants fail Consume.
+RustFS named bindings pass only materialized/Quorum; stronger-target-S3 native/Axum
+cases fail initial materialized activation. Foreign compilation load is recorded;
+these are functional observations, not clean-machine timing or release evidence.
+Public EventStream does not reach the final quorum-refusal oracle on this source.
+
+Next implement original-budget S3 completion on actual cold-activation and
+Consume/Ack critical paths, then autonomous interrupted binding settlement and all
+remaining primitive/provider/feature/lifecycle drivers. A source-S3 read proof
+must originate from physical verification and bind exact history/version/fence;
+never widen the Quorum boolean or retain a one-slot verifier across target I/O.
+The fresh stronger-target-S3 failure has a Quorum Counter source, so investigate
+Ack/archive work independently. Do not repeat broad campaigns without a causal
+feature/regression. All 32 formal cases remain mandatory.
+
+Evidence `CG-17-enrollment-reconciliation-31ac1dec4-1760/record.json` retains 39
+baseline/fix voter roots, four frozen binaries and source/log backups. The rejected
+zero-selector driver attempt remains unrun; its original snapshot is retained.
+Owned runtime/backend/VM are stopped; foreign user processes are untouched.
+Inventory stays partial (18 entries/223 symbols); full historical validation still
+lacks CG-01 evidence. Acceptance stays 13/17 tasks, 147/195 cases and 0/32 formal
+CG-17 entry points. See the [current checkpoint](progress.md#current-integration-checkpoint).
+Executor state: `.cellar/cg17-payload-01/enrollment-reconciliation-state-1756.json`.
+
+## Previous settled-catalog activation delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `f899e5d35`
 adds a private settled-catalog query: pending state releases its SQL selection

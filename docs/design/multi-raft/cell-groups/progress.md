@@ -32,6 +32,71 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+**CG-17 remains open.** Runtime `31ac1dec4` preserves failed fresh-name
+reconciliation alongside its original typed enrollment error. Stateless SDK
+bindings, stateful bindings, resource genesis and broker preparation retain the
+lookup cause without clearing creation identity, independent minimum or ambiguity.
+`sdk::CellBindingEnrollmentReconciliationError` exposes the local lookup cause;
+reader-admission and missing-target classifiers cannot turn it into mutation
+replay authority. The original refusal assertions and all deadlines remain.
+
+The canonical optimized build and **37 owning tests pass**, including the new
+five-cause reconciliation/admission regression, original creation identity and
+retry rules, recovery/sequence sealing, activation, private event RPC and current
+authority checks. Strict Cellar library/test Clippy, format/layout and initial
+docs/dependency checks pass. Previously recorded dependency warnings remain.
+
+The unchanged public campaign is **FAILED, 1/8 whole functions passed**:
+
+| Owning public function | Result |
+| --- | --- |
+| Native named bindings | Passed all four image/source-minimum configurations, including restart |
+| Native basic EventStream | Failed Consume |
+| Native Axum basic EventStream | Failed Consume |
+| RustFS named bindings | Materialized/Quorum passed; other three configurations failed |
+| RustFS basic EventStream | Failed Consume |
+| RustFS Axum basic EventStream | Failed Consume |
+| RustFS independent-target-S3 EventStream | Failed initial materialized activation |
+| RustFS Axum independent-target-S3 EventStream | Failed initial materialized activation |
+
+These serial functional runs recorded continuing compilation in other checkouts;
+owned compilation/formatting had stopped. They do not establish clean-machine
+latency, stability or an exclusive cause of the changed results. Failed functions
+do not qualify their remaining image configurations. The earlier native final
+quorum-refusal failure is fixed at the typed error boundary, but these public
+EventStream runs fail earlier and do not close that end-to-end gate.
+
+The fresh `f899e5d35` baseline passes native named bindings, native Axum basic
+EventStream and both basic RustFS EventStream functions. Native EventStream fails
+its final quorum-loss classification after business/restart checks. RustFS named
+bindings pass three configurations and fail extent/S3 source parent sequence 2;
+the stronger target-S3 cases fail Consume or activation. These observations
+replace assumptions based on the older native retained sequence-7 failure; they
+do not erase earlier failed controls. One nonexistent RustFS selector was rejected
+before execution and is retained as unrun; the four actual selectors were then
+preflighted and recorded separately. No zero-selected test is accepted.
+
+Next implement original-budget S3 source/target completion, including the actual
+Consume/Ack and cold-activation critical paths. A typed exact-base source proof
+must come from physical S3 verification and invalidate on dirty state, rebase,
+history/route/term changes; broadening the Quorum flag supplies no S3 authority.
+Then close autonomous interrupted binding settlement and the complete public
+primitive/provider/feature/lifecycle matrix. Avoid another broad timing campaign
+without an owning causal feature or regression.
+
+Evidence `CG-17-enrollment-reconciliation-31ac1dec4-1760/record.json` remains
+**FAILED**, retaining 39 baseline/fix voter roots, four frozen executables and
+source/log backups. RF3 voters share one process; RustFS has one CPU, two GiB and
+no additional swap. Independent voter cgroups and release qualification remain
+open. Owned runtime/backend/VM are stopped. The partial inventory now includes
+223 public symbols; its coverage requirements remain unchanged.
+
+Acceptance stays **13/17 tasks, 147/195 cases and 0/32 planned CG-17 entry-point
+functions**. Full historical validation still lacks the CG-01 record. No full
+primitive family, CG-17 closure or default-backend cutover is accepted.
+
+### Previous settled-catalog checkpoint
+
 **CG-17 remains open.** Runtime `f899e5d35` adds a private settled-catalog read.
 Pending configuration returns typed `NotReady` before successful output or archive
 settlement. The same invocation releases its SQL selection, waits for that exact
