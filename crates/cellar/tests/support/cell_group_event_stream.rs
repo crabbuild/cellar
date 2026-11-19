@@ -589,7 +589,7 @@ fn report_progress(cluster: &ManagedCluster, before: &[RaftPerformanceSnapshot],
 
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug")
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug,cellar::raft::sql_publish=trace,cellar::raft::execution_publish=trace")
         .try_init();
     for rooted in [false, true] {
         eprintln!("EventStream RustFS={real_rustfs} extents={rooted} Axum={external}: START");
