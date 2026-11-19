@@ -120,7 +120,12 @@ impl RaftCells {
                 {
                     Ok(Some(history)) => return Ok(history),
                     Ok(None) => (),
-                    Err(_) => return Err(error.into()),
+                    Err(resolution) => {
+                        return Err(crate::application::cell_bindings::EnrollmentReconciliationError::context(
+                            error.into(),
+                            resolution,
+                        ));
+                    }
                 }
                 let delay = (remaining()?.as_millis() as u64)
                     .min(self.handle.core.controller.limits().retry_interval_ms);

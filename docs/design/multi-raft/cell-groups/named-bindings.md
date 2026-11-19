@@ -210,6 +210,16 @@ an admitted business command or authorize replay of business input. Once a
 business command exists, `sdk::CellBindingCallError` keeps its existing
 command/history/ambiguity contract. It aliases the existing `cells::CallError`.
 
+If fresh name reconciliation fails after enrollment, the error retains both
+causes. Its local context downcasts to
+`sdk::CellBindingEnrollmentReconciliationError`; `resolution` contains the typed
+lookup failure, and the original typed enrollment cause remains in the outer
+error's context chain. Quorum loss during discovery therefore cannot disappear
+behind an earlier creation conflict. This context never changes the original
+creation identity, minimum or ambiguity and never permits another mutation.
+Only the original enrollment disposition can establish non-entry. Serialized
+error text does not transport or authenticate these local typed causes.
+
 Stateless SQL uses one reserved client stream per database history. A fresh
 128-bit nonce in the owned request envelope distinguishes independent calls even
 when their SQL and parameters are identical. A linearizable metadata query reads

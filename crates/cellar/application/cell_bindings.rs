@@ -311,6 +311,39 @@ impl std::error::Error for EnrollmentCallError {
     }
 }
 
+/// A fresh name lookup failed while reconciling an original creation.
+///
+/// This is additional context on the enrollment error, which remains available
+/// through `anyhow::Error::downcast_ref`. The lookup's refusal describes only
+/// discovery: it never clears the original creation's ambiguity or authorizes
+/// replay. Inspect `resolution` separately to retain that distinction.
+#[derive(Debug)]
+pub struct EnrollmentReconciliationError {
+    pub resolution: anyhow::Error,
+}
+
+impl EnrollmentReconciliationError {
+    pub(crate) fn context(enrollment: anyhow::Error, resolution: anyhow::Error) -> anyhow::Error {
+        enrollment.context(Self { resolution })
+    }
+}
+
+impl std::fmt::Display for EnrollmentReconciliationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "cell enrollment reconciliation failed: {:#}",
+            self.resolution
+        )
+    }
+}
+
+impl std::error::Error for EnrollmentReconciliationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.resolution.as_ref())
+    }
+}
+
 /// An admitted ordinary call can outlive its response. Preserve this identity
 /// when reconciling; a source failure may leave a durable, unfinished intent.
 #[derive(Debug)]
@@ -924,7 +957,10 @@ async fn run(
                 .await
             {
                 Ok(Some(history)) => history,
-                _ => return Err(error),
+                Ok(None) => return Err(error),
+                Err(resolution) => {
+                    return Err(EnrollmentReconciliationError::context(error, resolution));
+                }
             },
         }
     };

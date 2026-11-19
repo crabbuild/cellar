@@ -5,7 +5,7 @@
 use super::super::sql_ingress_identity::{self, Observation};
 use super::*;
 use crate::application::{
-    cell_bindings::{CallError, EnrollmentCallError},
+    cell_bindings::{CallError, EnrollmentCallError, EnrollmentReconciliationError},
     consensus::native_rpc,
     HandlerFuture,
 };
@@ -523,7 +523,14 @@ impl RaftCells {
                                                 break 'enrollment (history, None);
                                             }
                                             Ok(None) => (),
-                                            Err(_) => return Err(error.into()),
+                                            Err(resolution) => {
+                                                return Err(
+                                                    EnrollmentReconciliationError::context(
+                                                        error.into(),
+                                                        resolution,
+                                                    ),
+                                                );
+                                            }
                                         }
                                     }
                                     let delay = (remaining()?.as_millis() as u64).min(
@@ -1020,6 +1027,58 @@ mod tests {
             contextual.downcast_ref::<Arc<CellCommandError>>().unwrap(),
             &original
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn enrollment_reconciliation_keeps_both_causes_without_granting_replay() -> anyhow::Result<()> {
+        use crate::sdk::CellBindingEnrollmentReconciliationError;
+
+        let original = Arc::new(CellEnrollmentError {
+            creation: ProposalId::new([1; 16])?,
+            ambiguous: true,
+            cause: Box::new(CellDispatchError::Execution(
+                crate::raft::execution::ExecutionError::Refused(
+                    super::super::super::CommandFailure::CommandConflict,
+                ),
+            )),
+        });
+        for reason in [
+            RuntimeError::NotReady,
+            RuntimeError::Overloaded,
+            RuntimeError::NotFound,
+            RuntimeError::DeadlineExceeded,
+            RuntimeError::Closed,
+        ] {
+            let resolution = Arc::new(CellDispatchError::Runtime(reason));
+            let error = EnrollmentReconciliationError::context(
+                original.clone().into(),
+                anyhow::Error::from(resolution.clone()).context("fresh quorum name lookup"),
+            );
+            let stored = error
+                .downcast_ref::<CellBindingEnrollmentReconciliationError>()
+                .unwrap();
+            assert!(Arc::ptr_eq(
+                stored
+                    .resolution
+                    .downcast_ref::<Arc<CellDispatchError>>()
+                    .unwrap(),
+                &resolution
+            ));
+            assert!(Arc::ptr_eq(
+                error.downcast_ref::<Arc<CellEnrollmentError>>().unwrap(),
+                &original
+            ));
+            let description = format!("{error:#}");
+            assert!(description.contains(&format!("{resolution}")));
+            assert!(description.contains("CommandConflict"));
+            assert!(description.contains("ambiguous=true"));
+            // Discovery admission cannot make the original unknown mutation a
+            // missing-target or read-admission retry, even through context.
+            assert!(!retry_unsubmitted_enrollment(&original));
+            assert!(!super::super::read_admission::retryable(&error));
+            assert!(!super::super::super::native_event_query::configuration_target_missing(&error));
+        }
         Ok(())
     }
 }

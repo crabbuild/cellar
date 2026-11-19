@@ -302,7 +302,12 @@ impl RaftCells {
                         match super::sql_ingress::ready_name(&owner, &candidate, deadline).await {
                             Ok(Some(_)) => return Ok(()),
                             Ok(None) => (),
-                            Err(_) => return Err(error.into()),
+                            Err(resolution) => {
+                                return Err(crate::application::cell_bindings::EnrollmentReconciliationError::context(
+                                    error.into(),
+                                    resolution,
+                                ));
+                            }
                         }
                         let now = owner.handle.domain.mono_ms()?;
                         let next = now
