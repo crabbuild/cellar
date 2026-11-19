@@ -2589,6 +2589,12 @@ async fn warm_kv_payloads_preserve_source_proof_and_cold_enrollment() -> Result<
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS and the matching frozen CLI"]
+async fn rustfs_cli_publishes_maximum_kv_value_with_original_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_cli_publication()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk() -> Result<()> {
     Box::pin(kv_bindings::qualify_streaming()).await
 }

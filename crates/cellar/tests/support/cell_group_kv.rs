@@ -471,6 +471,10 @@ pub async fn qualify_preparation() -> Result<()> {
     qualify_case(false, false, Coverage::Preparation).await
 }
 
+pub async fn qualify_cli_publication() -> Result<()> {
+    qualify_case(true, false, Coverage::Preparation).await
+}
+
 pub async fn qualify_streaming() -> Result<()> {
     qualify_case(false, false, Coverage::Streaming).await
 }
@@ -746,6 +750,7 @@ async fn run(
             }
             if let Some(backend) = backend.filter(|_| coverage != Coverage::PayloadRecovery) {
                 let before = local_preparations(&cluster)?;
+                let _observation = StoreFault::enable(&cluster.fixtures[0].store.observe_cell_payloads);
                 cli::large(&cluster, backend).await?;
                 ensure!(local_preparations(&cluster)? == before + 1,
                     "warm operator value still required a preparation command");

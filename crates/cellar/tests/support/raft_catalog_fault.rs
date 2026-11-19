@@ -8,6 +8,43 @@ use object_store::{
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+/// Observe complete payload bodies, including cancellation, without buffering or
+/// changing the real store's stream, conditional requests or error delivery.
+struct PayloadObservation {
+    started: std::time::Instant,
+    operation: &'static str,
+    ownership: bool,
+    bytes: usize,
+    outcome: &'static str,
+}
+
+impl PayloadObservation {
+    fn start(store: &Store, path: &Path, operation: &'static str) -> Option<Self> {
+        (store.observe_cell_payloads.load(Ordering::Acquire)
+            && path.as_ref().contains("/cell-payloads-1/"))
+        .then(|| Self {
+            started: cellar::asyncrt::instant(),
+            operation,
+            ownership: path.as_ref().contains("/ownership/"),
+            bytes: 0,
+            outcome: "cancelled",
+        })
+    }
+}
+
+impl Drop for PayloadObservation {
+    fn drop(&mut self) {
+        eprintln!(
+            "payload observation op={} ownership={} bytes={} outcome={} elapsed_us={}",
+            self.operation,
+            self.ownership,
+            self.bytes,
+            self.outcome,
+            self.started.elapsed().as_micros()
+        );
+    }
+}
+
 fn is_managed_recovery_record(path: &Path) -> bool {
     path.as_ref()
         .contains("/fleet/managed-transition-recovery/")
@@ -246,6 +283,7 @@ pub struct Store {
     pub cell_payload_put_bytes: AtomicUsize,
     pub cell_payload_get_calls: AtomicUsize,
     pub cell_payload_chunk_bytes: AtomicUsize,
+    pub observe_cell_payloads: AtomicBool,
     pub deny_cell_payload_reads: AtomicBool,
     pub denied_cell_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
@@ -468,6 +506,10 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        let mut observation = PayloadObservation::start(self, path, "put");
+        if let Some(observation) = &mut observation {
+            observation.bytes = payload.iter().map(|bytes| bytes.len()).sum();
+        }
         if path.as_ref().contains("/cell-payloads-1/")
             && !path.as_ref().contains("/cell-payloads-1/ownership/")
         {
@@ -650,7 +692,12 @@ impl ObjectStore for Store {
             path.as_ref().ends_with("/cell-groups/head") && matches!(options.mode, PutMode::Create);
         let group_birth = path.as_ref().contains("/cell-groups/births/")
             && matches!(options.mode, PutMode::Create);
-        let result = self.backend().put_opts(path, payload, options).await?;
+        let result = self.backend().put_opts(path, payload, options).await;
+        if let Some(observation) = &mut observation {
+            observation.outcome = if result.is_ok() { "complete" } else { "error" };
+        }
+        drop(observation);
+        let result = result?;
         if directory_cas {
             let _ = DIRECTORY_CONFIRMATION.try_with(|state| {
                 if state.get() == DirectoryConfirmation::WaitingForWrite {
@@ -793,6 +840,7 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        let mut observation = PayloadObservation::start(self, path, "get");
         if path.as_ref().ends_with("/cell-groups/head") {
             self.group_head_read.pause().await;
         }
@@ -1172,7 +1220,11 @@ impl ObjectStore for Store {
         if self.fail_read.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
-        let mut result = self.backend().get_opts(path, options).await?;
+        let result = self.backend().get_opts(path, options).await;
+        if let Some(observation) = &mut observation {
+            observation.outcome = if result.is_ok() { "cancelled" } else { "error" };
+        }
+        let mut result = result?;
         let chunk_bytes = self.cell_payload_chunk_bytes.load(Ordering::Acquire);
         if path.as_ref().contains("/cell-payloads-1/")
             && !path.as_ref().contains("/cell-payloads-1/ownership/")
@@ -1246,6 +1298,33 @@ impl ObjectStore for Store {
                         chunks.fetch_add(1, Ordering::AcqRel);
                     })
                     .boxed(),
+            );
+        }
+        if let Some(observation) = observation {
+            let GetResultPayload::Stream(stream) = result.payload;
+            result.payload = GetResultPayload::Stream(
+                futures_util::stream::unfold(
+                    (stream, observation),
+                    |(mut stream, mut observation)| async move {
+                        match stream.next().await {
+                            Some(item) => {
+                                match &item {
+                                    Ok(bytes) => observation.bytes += bytes.len(),
+                                    Err(_) => observation.outcome = "error",
+                                }
+                                Some((item, (stream, observation)))
+                            }
+                            None => {
+                                if observation.outcome != "error" {
+                                    observation.outcome = "complete";
+                                }
+                                drop(observation);
+                                None
+                            }
+                        }
+                    },
+                )
+                .boxed(),
             );
         }
         Ok(result)
