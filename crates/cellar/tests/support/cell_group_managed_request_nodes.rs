@@ -2,9 +2,7 @@
 
 //! Managed node owners and physical inventory for the public request drill.
 use super::*;
-use cellar::application::consensus::{
-    verification::cell_groups::cell_routing_key, NamespaceQueryOrigin,
-};
+use cellar::application::consensus::verification::cell_groups::cell_routing_key;
 
 pub(super) const INGRESS: usize = 3;
 

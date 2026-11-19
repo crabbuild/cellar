@@ -364,6 +364,9 @@ voter. The shared image pool keeps its original bound. Placement conservatively
 reserves that bound for each group, within the unchanged one-CPU/3-GiB voter limit.
 The shared KV payload pool admits two operations and 600 MiB of retained bytes,
 with the complete 64-MiB external-wire bound required by the public adapter.
+Startup explicitly grants namespace reads and writes to the three configured
+nodes using their accepted managed-directory views. The transport preserves
+the existing process-refresh and permission-revocation fences.
 
 The runner selects both image forms and both namespace durability minima.
 Native handlers and `AxumApplication` handlers execute on the native daemon's

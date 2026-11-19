@@ -132,8 +132,7 @@ async fn start(root: &Path, index: usize, mode: &str) -> Result<Process> {
         &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()],
         false,
     )?;
-    let retained = retained_index(mode).is_some();
-    let marker = root.join(format!("primitives-boot-{retained}-{index}"));
+    let marker = root.join(format!("primitives-boot-{mode}"));
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         ensure!(

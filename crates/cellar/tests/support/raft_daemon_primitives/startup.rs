@@ -159,6 +159,7 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
             .collect::<Result<Vec<_>>>()?;
         let primary = operators[0].clone();
         let prepared_root = root.clone();
+        let boot_mode = mode.to_owned();
         let prepared = primary.clone();
         let store = Arc::new(archive::Gate::new(
             primary.bucket.raft_store(),
@@ -183,7 +184,7 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
             move |service| async move {
                 persist(
                     &prepared_root,
-                    &format!("primitives-boot-{retained}-{index}"),
+                    &format!("primitives-boot-{boot_mode}"),
                     std::process::id().to_string().as_bytes(),
                 )?;
                 if index == 0 && !retained {
@@ -229,7 +230,7 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
                 service.observe_node(TIMEOUT).await?;
                 persist(
                     &prepared_root,
-                    &format!("primitives-ready-{retained}-{index}"),
+                    &format!("primitives-ready-{boot_mode}"),
                     std::process::id().to_string().as_bytes(),
                 )?;
                 *api.cells
