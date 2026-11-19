@@ -9,6 +9,7 @@ mod broker;
 mod configuration;
 pub(crate) mod message;
 pub(crate) mod metadata;
+mod transfer;
 mod wire;
 
 pub(crate) fn provision_storage(storage: &super::Storage) -> anyhow::Result<()> {

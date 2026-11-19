@@ -543,26 +543,45 @@ impl Broker {
                 && transfers.len() <= usize::from(self.config.limits.max_batch_messages),
             "QUEUE_ERROR: a Queue transfer batch has an invalid size"
         );
-        for transfer in &transfers {
-            let entry = wire::field(graph, transfer, "entry");
-            let body = wire::bytes(graph, wire::field(graph, entry, "body"))?;
-            ensure!(
-                body.len() <= self.config.limits.max_message_bytes,
-                "QUEUE_ERROR: transferred message body exceeds the host limit"
-            );
-            ensure!(
-                usize::try_from(wire::number(wire::field(graph, entry, "size"))?)? == body.len(),
-                "QUEUE_ERROR: transferred message size does not match its body"
-            );
-        }
+        let transfers = transfers
+            .iter()
+            .map(|value| {
+                super::transfer::Transfer::decode(
+                    graph,
+                    value,
+                    self.config.limits.max_message_bytes,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
         let at = now();
         self.open()?;
-        self.storage.transaction_sync(|_| {for transfer in &transfers {
-            let field=|name|wire::field(graph,transfer,name);let transfer_id=wire::string(field("transferId"))?;ensure!(matches!(field("deadLetterSource"),CloneValue::Null|CloneValue::String(_)),"QUEUE_ERROR: a Queue transfer has an invalid dead-letter source");let source=wire::optional_string(field("deadLetterSource"))?;let entry=field("entry");let field=|name|wire::field(graph,entry,name);let id=wire::string(field("id"))?;
-            if let Some(receipt)=self.exec("SELECT message_id,dead_letter_source FROM __sys_queue_transfer_receipts WHERE transfer_id=?",&[transfer_id.clone().into()])?.first() {ensure!(text(receipt,"message_id")?==id && optional_text(receipt,"dead_letter_source")?==source,"QUEUE_ERROR: a DLQ transfer collided with another message identity");continue;}
-            self.exec("INSERT INTO __sys_queue_transfer_receipts(transfer_id,message_id,dead_letter_source,expires_at) VALUES (?,?,?,?)",&[transfer_id.clone().into(),id.clone().into(),sql_text(source.clone()),self.config.limits.retention_ms.map_or(i64::MAX, |ms| at.saturating_add(ms)).into()])?;
-            self.exec("INSERT INTO __sys_queue_messages(id,body,content_type,size,enqueued_at,visible_at,attempts,dlq_transfer_id,dead_letter_source) VALUES (?,?,?,?,?,?,0,?,?)",&[id.into(),SqlValue::Blob(wire::bytes(graph,field("body"))?),wire::string(field("contentType"))?.into(),wire::number(field("size"))?.into(),at.into(),at.into(),transfer_id.into(),sql_text(source)])?;
-        }Ok(())})?;
+        self.storage.transaction_sync(|_| {
+            for transfer in transfers {
+                if let Some(receipt) = self.exec(
+                    "SELECT message_id,dead_letter_source,payload_fingerprint FROM __sys_queue_transfer_receipts WHERE transfer_id=?",
+                    &[transfer.id.clone().into()],
+                )?.first() {
+                    ensure!(text(receipt, "message_id")? == transfer.message
+                        && optional_text(receipt, "dead_letter_source")? == transfer.source
+                        && blob(receipt, "payload_fingerprint")?.as_slice() == transfer.fingerprint.as_slice(),
+                        "QUEUE_ERROR: a DLQ transfer collided with another message payload or identity");
+                    continue;
+                }
+                self.exec(
+                    "INSERT INTO __sys_queue_transfer_receipts(transfer_id,message_id,dead_letter_source,payload_fingerprint,expires_at) VALUES (?,?,?,?,?)",
+                    &[transfer.id.clone().into(), transfer.message.clone().into(), sql_text(transfer.source.clone()),
+                      SqlValue::Blob(transfer.fingerprint.to_vec()),
+                      self.config.limits.retention_ms.map_or(i64::MAX, |ms| at.saturating_add(ms)).into()],
+                )?;
+                let size = i64::try_from(transfer.body.len())?;
+                self.exec(
+                    "INSERT INTO __sys_queue_messages(id,body,content_type,size,enqueued_at,visible_at,attempts,dlq_transfer_id,dead_letter_source) VALUES (?,?,?,?,?,?,0,?,?)",
+                    &[transfer.message.into(), SqlValue::Blob(transfer.body), transfer.content_type.into(),
+                      size.into(), at.into(), at.into(), transfer.id.into(), sql_text(transfer.source)],
+                )?;
+            }
+            Ok(())
+        })?;
         self.rearm(context, at, false).await?;
         self.metrics(at, false)
     }
