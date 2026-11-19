@@ -138,7 +138,11 @@ pub(crate) async fn configure(
                 "__catalogStatus",
                 json!([{}]),
             );
-            let partitions = resolve_declared_partitions(host, script, definition, declarations);
+            let partitions = async {
+                let bindings = declared_partitions(host, script, definition, declarations)?;
+                prove_partitions(host, &bindings).await?;
+                Ok::<_, anyhow::Error>(bindings)
+            };
             // At most two owner calls overlap. Read-only speculation is safe
             // even if a retained catalog needs reconciliation: discard it in
             // that case and use the ordinary post-configuration binding path.
@@ -172,13 +176,16 @@ pub(crate) async fn configure(
             // window for an independent current broker proof. Neither the birth
             // nor this proof alone admits a binding. A speculative read failure
             // falls back to fresh adoption after successful reconciliation.
-            Ok::<_, anyhow::Error>(if prepared {
-                resolve_declared_partitions(host, script, definition, declarations)
-                    .await
-                    .ok()
-            } else {
-                None
-            })
+            if !prepared {
+                return Ok::<_, anyhow::Error>(None);
+            }
+            // Invalid declared capabilities cannot be repaired by retrying an
+            // older broker. Only independent read failures get the fallback.
+            let bindings = declared_partitions(host, script, definition, declarations)?;
+            Ok(prove_partitions(host, &bindings)
+                .await
+                .ok()
+                .map(|()| bindings))
         };
         let reconciliation = async {
             let configured = rpc(host, script, authority.clone(), event_stream::catalog_scope(&definition.resource)?, event_stream::catalog_name(&definition.resource)?,
@@ -293,7 +300,7 @@ pub(crate) async fn configure(
     Ok(activated)
 }
 
-async fn resolve_declared_partitions(
+fn declared_partitions(
     host: &impl Host,
     principal: &str,
     definition: &Definition,
@@ -313,11 +320,17 @@ async fn resolve_declared_partitions(
         // The exact current catalog digest must separately prove this
         // definition before these locally checked grants can authorize adoption.
         let caller = Authority::resolution(&binding)?;
-        super::store::authorize(definition, &caller, super::authority::Action::Resolve, None)?;
-        resolve_partition(host, &binding).await?;
+        super::store::authorize_binding(definition, &caller, &binding)?;
         resolved.push((index, binding));
     }
     Ok(resolved)
+}
+
+async fn prove_partitions(host: &impl Host, bindings: &[(usize, Binding)]) -> Result<()> {
+    for (_, binding) in bindings {
+        resolve_partition(host, binding).await?;
+    }
+    Ok(())
 }
 
 async fn resolve_partition(host: &impl Host, binding: &Binding) -> Result<()> {

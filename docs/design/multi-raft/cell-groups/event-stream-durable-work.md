@@ -119,7 +119,8 @@ After shared-group birth preparation completes, its side of that two-operation
 window can check explicit broker bindings while catalog reconciliation continues.
 These are real current broker reads with independent target minima. They can be
 adopted only after a fresh active catalog read proves the exact compiled
-definition and its resolution grants. Preparation alone and historical receipts
+definition and every requested binding capability. The broker and catalog proof
+paths use the same grant validation. Preparation alone and historical receipts
 grant no readiness. Catalog proof reuse is limited to principals that route to
 the same backend; Raft proof cannot authorize a separately routed Fleet catalog.
 If an early broker read fails, normal adoption obtains both

@@ -186,23 +186,7 @@ pub(crate) fn resolve_read(db: &Storage, caller: &Authority, body: &Value) -> Re
     let binding: super::Binding = serde_json::from_slice(&bytes)?;
     binding.validate()?;
     let (definition, _) = load(db)?;
-    let grant = authorize(&definition, caller, Action::Resolve, None)?;
-    if binding.principal != caller.principal
-        || binding.grant != caller.grant
-        || binding.resource != definition.resource
-        || (binding.publish && !grant.publish)
-        || (binding.read && !grant.read)
-        || (binding.administer && !grant.administer)
-        || binding
-            .subscriptions
-            .iter()
-            .any(|name| !grant.subscriptions.contains(name))
-    {
-        return Err(error(
-            ErrorCode::Forbidden,
-            "binding does not match current resource identity or grants",
-        ));
-    }
+    authorize_binding(&definition, caller, &binding)?;
     for name in &binding.subscriptions {
         if db
             .system_sql_read(
@@ -220,6 +204,34 @@ pub(crate) fn resolve_read(db: &Storage, caller: &Authority, body: &Value) -> Re
     Ok(
         json!({"resource":definition.resource,"state":"active","revision":definition.revision.to_string()}),
     )
+}
+
+/// Check all captured capabilities against one definition. Activation may use
+/// this only when an independent current catalog proof binds that exact data;
+/// the broker still separately checks its own current grants and subscriptions.
+pub(super) fn authorize_binding(
+    definition: &Definition,
+    caller: &Authority,
+    binding: &super::Binding,
+) -> Result<()> {
+    let grant = authorize(definition, caller, Action::Resolve, None)?;
+    if binding.principal != caller.principal
+        || binding.grant != caller.grant
+        || binding.resource != definition.resource
+        || (binding.publish && !grant.publish)
+        || (binding.read && !grant.read)
+        || (binding.administer && !grant.administer)
+        || binding
+            .subscriptions
+            .iter()
+            .any(|name| !grant.subscriptions.contains(name))
+    {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "binding does not match current resource identity or grants",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn load_state(db: &Storage) -> Result<(Definition, SqlRow)> {

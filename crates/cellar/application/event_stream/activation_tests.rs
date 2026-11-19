@@ -479,6 +479,77 @@ async fn unproven_brokers_and_other_backends_require_current_adoption() -> Resul
     Ok(())
 }
 
+#[tokio::test]
+async fn proved_catalog_rejects_revoked_binding_capabilities() -> Result<()> {
+    struct Proved(Host);
+
+    impl super::Host for Proved {
+        fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
+            Ok(self.0.known)
+        }
+
+        fn prepare_broker(&self, _: &str, _: &Definition) -> HandlerFuture<bool> {
+            Box::pin(async { Ok(true) })
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            args: Value,
+        ) -> HandlerFuture<Value> {
+            super::Host::rpc(&self.0, principal, authority, scope, name, method, args)
+        }
+    }
+    for known in [false, true] {
+        for capability in ["read", "publish", "administer", "subscription"] {
+            let mut declared = definition();
+            declared.grants[0].read = true;
+            let (mut binding, _) = binding_declaration(false);
+            match capability {
+                "read" => declared.grants[0].read = false,
+                "publish" => binding.publish = true,
+                "administer" => {
+                    let mut provisioner = declared.grants[0].clone();
+                    provisioner.id = "provisioner".into();
+                    declared.grants[0].administer = false;
+                    declared.grants.push(provisioner);
+                    binding.administer = true;
+                }
+                "subscription" => binding.subscriptions.push("removed".into()),
+                _ => unreachable!(),
+            }
+            let current = json!({"state":"active","resource":declared.resource.id,
+                "operation":super::super::raft::operation("app", &declared)?,
+                "accepted_revision":declared.revision.to_string(),
+                "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+            let mut replies = Vec::new();
+            if !known {
+                replies.push(("__catalogConfigure", current.clone()));
+            }
+            replies.push(("__catalogStatus", current));
+            let host = Proved(Host {
+                known,
+                replies: std::sync::Mutex::new(replies.into()),
+            });
+            let error = configure(&host, &[("app".into(), declared)], &[binding.into()])
+                .await
+                .expect_err("revoked binding capability granted readiness");
+            assert!(
+                error
+                    .downcast_ref::<super::super::DeliveryError>()
+                    .is_some_and(|error| error.code == super::super::ErrorCode::Forbidden),
+                "{error:?}"
+            );
+            assert!(host.0.replies.lock().unwrap().is_empty());
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn speculative_partition_proof_is_discarded_when_catalog_needs_reconciliation() -> Result<()> {
     use std::{
