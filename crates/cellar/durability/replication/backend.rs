@@ -873,6 +873,9 @@ struct Cell {
     paged_vfs: Option<String>,
     hydration: Option<Arc<CellHydration>>,
     replica: Mutex<Option<Replica<SharedObjectStoreClient>>>,
+    // A checkpoint can stage another LTX after a final capture releases the
+    // replica mutex for upload. Reload must retain only that uploaded position.
+    checkpoint_gate: Arc<tokio::sync::Mutex<()>>,
     /// The same epoch-prefix client the replica holds, for uploads that run
     /// off the replica mutex.
     client: SharedObjectStoreClient,
@@ -2715,6 +2718,7 @@ impl LtxRepl {
             paged_vfs: paged_vfs_name.clone(),
             hydration: hydration.clone(),
             replica: Mutex::new(Some(replica)),
+            checkpoint_gate: Arc::new(tokio::sync::Mutex::new(())),
             client: client.clone(),
             req_seq: AtomicU64::new(0),
             synced_seq: AtomicU64::new(0),
@@ -4101,6 +4105,14 @@ impl LtxRepl {
     /// Prove the stopped database position durable, then close the replicator
     /// while retaining the live database and WAL at their encoded path.
     pub async fn close_for_reload(&self, cell: &str, epoch: u64) -> anyhow::Result<()> {
+        let handle = self
+            .cells
+            .lock()
+            .unwrap()
+            .get(&(cell.to_string(), epoch))
+            .cloned()
+            .ok_or_else(|| anyhow!("reload replica is not resident: {cell} e{epoch}"))?;
+        let _checkpoint = handle.checkpoint_gate.lock().await;
         // Admission is already stopped, so this capture covers the exact
         // position that a clean reload preserves. Closing first can let the
         // next activation trust a local position that the bucket cannot
@@ -4856,7 +4868,10 @@ async fn maintenance_loop(cells: Arc<Mutex<BTreeMap<(String, u64), CellHandle>>>
         // Removal takes this same mutex and takes the database out of the
         // slot. A retained handle cannot maintain a closed/replaced epoch.
         // This task neither reads proof tickets nor advances watermarks.
+        // The blocking job owns the gate even if its waiting future is cancelled.
+        let checkpoint = handle.checkpoint_gate.clone().lock_owned().await;
         let result = asyncrt::blocking(move || {
+            let _checkpoint = checkpoint;
             let mut replica = handle.replica.lock().unwrap();
             if let Some(db) = managed_db_mut(&mut replica) {
                 db.checkpoint_if_due()?;
