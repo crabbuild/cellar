@@ -360,8 +360,8 @@ Add `--primitives` to select a separate SQL/KV campaign. It provisions two
 managed RF3 namespaces through the compiled application CLI, then creates two
 named resources per namespace through ordinary `Context.sql` and `Context.kv`
 calls. Inspection must find four logical cells in two physical groups on every
-voter. Each group retains its image reservation; the host image budget is the
-sum of both reservations, within the unchanged one-CPU/3-GiB voter limit.
+voter. The shared image pool keeps its original bound. Placement conservatively
+reserves that bound for each group, within the unchanged one-CPU/3-GiB voter limit.
 
 The runner selects both image forms and both namespace durability minima.
 Native handlers and `AxumApplication` handlers execute on the native daemon's

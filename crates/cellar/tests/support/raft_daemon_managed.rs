@@ -731,10 +731,10 @@ impl Operator {
             host.extents = Some(Default::default());
         }
         let bytes_per_group = host.images.max_bytes;
-        host.images.max_bytes = bytes_per_group
+        let reserved_bytes = bytes_per_group
             .checked_mul(u64::try_from(declarations.len())?)
-            .context("managed namespace image capacity overflow")?;
-        let byte_capacity = host.images.max_bytes
+            .context("managed namespace placement capacity overflow")?;
+        let byte_capacity = reserved_bytes
             + if index == standby::INDEX {
                 repair::STANDBY_DURABLE_HEADROOM
             } else {
