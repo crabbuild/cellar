@@ -32,6 +32,59 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+**CG-17 remains open.** Runtime `41ff9551a` pipelines fresh and retained explicit
+broker binding checks with catalog reconciliation. Readiness still requires an
+independent current broker proof and an exact active catalog definition proof.
+Proof reuse checks every captured capability using the broker's existing grant
+validation and is confined to the same backend; a Raft catalog cannot authorize
+adoption through a separately routed Fleet catalog. Invalid declared capabilities
+remain typed `Forbidden` errors. Only speculative immutable read failures can
+use normal post-configuration adoption. No deadline or durability gate changes.
+
+The locked optimized build passes, with assertions and overflow checks enabled.
+All **11 owning activation tests pass**, including held independent proofs,
+fresh/retained capability revocation, backend isolation, stale receipts and
+cancellation of speculative reads before reconciliation.
+
+The unchanged owning qualification is **FAILED**:
+
+- Native retained metadata: **1/2**. Materialized mode passes cold activation,
+  retained restart, fresh quorum, the name-selection cost oracle and refusal
+  without quorum. Extent mode fails initial catalog enrollment with an ambiguous
+  creation identity, before reaching its restart checks.
+- Full public EventStream: native and real RustFS both fail initial materialized
+  activation at node 0. Their extent configurations are unrun.
+- Real RustFS retained metadata also fails initial materialized activation;
+  its extent configuration is unrun. No complete primitive family is accepted.
+
+The `14271ad5e` native control distinguishes normal uncertainty from submission
+failure: the final catalog proposal is accepted at term 2/index 5, and fresh
+catalog status reaches the binding-adoption path with only **8 ms** remaining.
+The original broker proof starts too late and expires. On `41ff9551a`, the early
+broker proof completes within budget, but the current catalog status/S3 proof
+still exceeds the public activation window. This does not explain every older
+timeout or establish a complete deadline repair. Same-term absence remains
+uncertain; original identities, oracles and budgets are retained.
+
+The immediate feature gap is **cold catalog enrollment and final S3 proof
+completion within the original activation deadline**, followed by the earlier
+S3-source binding `Read`/`Consume` and autonomous interrupted-call recovery gaps.
+All public families and the full 32-case inventory/feature/provider/lifecycle
+matrix remain mandatory before cutover.
+
+Evidence `CG-17-event-binding-grant-41ff9551a-1734/record.json` remains **FAILED**.
+It verifies 42 retained failed voter roots, 1,718 files and eight frozen
+executables, with a verified backup of source/log/evidence metadata. RF3 TLS
+voters share one process with separate disks; real RustFS has one CPU, two GiB
+and no additional swap. Independent voter cgroups and release qualification
+are not established. Owned runtime processes, backend and VM are stopped.
+Acceptance remains **13/17 tasks and 147/195 cases**; **0/32 planned CG-17
+entry-point functions** are present. Historical CG-01 evidence is still missing.
+Strict library/all-test Clippy passes after a test-only clone-to-borrow cleanup.
+Runtime code and qualification oracles are unchanged after `41ff9551a`.
+
+### Earlier operator intake qualification
+
 **CG-17 remains open.** Runtime `ee2452a94` closes an unbounded request-body
 wait at the common primitive operator entrance. Collection now consumes the
 original node deadline and expiry closes the incomplete HTTP connection before

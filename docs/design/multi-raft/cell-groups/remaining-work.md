@@ -41,16 +41,32 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `ee2452a94` bounds incomplete primitive operator uploads with the
+Runtime `41ff9551a` pipelines fresh/retained explicit broker proofs with catalog
+reconciliation and validates all captured capabilities against the exact current
+catalog definition. Raft and Fleet catalog proofs cannot be interchanged.
+Eleven owning activation tests pass. **The original owning campaigns remain
+FAILED:** native retained metadata passes materialized restart/quorum/refusal
+checks, then fails extent's initial catalog enrollment. Native and real RustFS
+public EventStream fail initial materialized activation; their extents are unrun.
+Real RustFS retained metadata also fails initial materialized activation.
+
+The immediate feature blockers are **cold catalog enrollment and final S3 proof
+completion within the original activation deadline**, then S3-source binding
+`Read`/`Consume` and autonomous interrupted-call settlement. The native public
+control at `14271ad5e` proves final catalog acceptance before binding adoption begins with only
+8 ms remaining. The new early broker proof completes, but catalog admission/S3
+proof still blocks the full public path. Preserve every older failure and its
+identity; these scoped passes close no primitive family or planned CG-17 case.
+See the [current checkpoint](progress.md#current-integration-checkpoint).
+
+Earlier runtime `ee2452a94` bounds incomplete primitive operator uploads with the
 original deadline and closes their connection before dispatch. The old runtime
 fails both image forms; the fix passes native 2/2 and real RustFS 2/2, including
 stream release, no mutation and healthy follow-up requests. Isolated 25-MiB CLI
 and unchanged full public KV checks each pass real RustFS 2/2. Earlier publication
 failures remain retained and unexplained; successful timings do not prove a fix.
 
-The immediate feature blockers are **EventStream activation and S3-source read
-admission, then complete durable binding/consumer settlement**. Current unchanged
-controls at test-only `73f41e2b0` fail native extent's initial activation and the
+Earlier unchanged controls at test-only `73f41e2b0` fail native extent's initial activation and the
 RustFS materialized S3-source delivery `Read` before `Consume`; native materialized
 passes, RustFS extent is unrun. Preserve original budgets and typed ambiguous
 outcomes. Complete every primitive family and the 32 planned evidence gates;
@@ -93,16 +109,15 @@ remain required work.
 
 Deliver next in this order:
 
-1. Minimize the real RustFS materialized 25-MiB CLI publication failure and
-   measure preparation, upload and verification against the original budget.
-   Optimize the measured path without trusting unverified publication or
-   refreshing deadlines. Isolate original-deadline S3 operator and post-outage large-read failures;
-   preserve original ambiguous identities and resolve or safely seal their
-   sequences. Close actual managed startup/restart failures and isolate the
-   lease-expiry observation before claiming reliable recovery. Then close original-deadline
-   source-S3/Consume settlement and autonomous interrupted bindings with safe
-   sequence sealing. Preserve original identities, budgets,
-   exact source/target proof gates and unknown outcomes; use causal regressions.
+1. Close cold catalog enrollment and final S3 proof completion within the
+   original activation deadline. Measure apply, publication and verification on
+   the actual accepted proposal; share only exact independently verified work
+   under the existing admission limits. Then close original-deadline S3-source
+   `Read`/`Consume` and autonomous interrupted bindings with safe sequence sealing.
+   Preserve original identities, full source/target proof gates and unknown
+   outcomes. Earlier managed startup/lease, CLI publication and post-outage
+   large-read failures still require recovery/regression closure; newer scoped
+   passes do not establish an exclusive cause or waive those controls.
 2. Deliver real public-family acceptance drivers and complete per-API ledgers as
    each family closes. The declared target currently has **0/32 planned acceptance
    entry-point functions**. Do not replace full case oracles with aliases of

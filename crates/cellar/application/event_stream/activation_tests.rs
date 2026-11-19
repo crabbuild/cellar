@@ -465,7 +465,7 @@ async fn unproven_brokers_and_other_backends_require_current_adoption() -> Resul
             configure(
                 &host,
                 &[("app".into(), declared.clone())],
-                &[declaration.clone()]
+                std::slice::from_ref(&declaration)
             )
             .await?,
             vec![binding.clone()]

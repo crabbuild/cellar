@@ -22,7 +22,7 @@ Named adoption uses its fresh authorized name-resolution response as the catalog
 proof: it already validates active lifecycle, complete resource identity and all
 captured grant capabilities. Explicit UUIDs require current catalog proof. A
 fresh active status proving the exact compiled definition's revision and digest
-can supply that proof after checking the binding's resolution grant against the
+can supply that proof after checking every requested binding capability against the
 proven definition. Otherwise, adoption reads current catalog resolution separately.
 Both forms independently check the current broker lifecycle and identity;
 neither a name/configuration hint nor a historical receipt supplies readiness.

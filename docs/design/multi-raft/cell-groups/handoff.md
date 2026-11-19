@@ -4,7 +4,32 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current streamed-KV correctness delivery
+## Current primitive activation correctness delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
+`41ff9551a` pipelines fresh/retained explicit broker proofs, validates every
+captured capability against the exact current catalog definition and keeps
+proof reuse inside one backend. Eleven owning activation tests pass. The full
+public EventStream case still fails initial materialized activation on native
+storage and real RustFS; their extent forms are unrun. Native retained metadata
+passes materialized restart/quorum/refusal checks, then fails extent's initial
+catalog enrollment. Real RustFS retained metadata also fails initial activation.
+
+Next close cold catalog enrollment and final S3 proof latency within the
+original deadline; then complete original S3-source `Read`/`Consume` and
+autonomous binding recovery. Do not weaken same-term uncertainty, independent
+target minima or grant checks. The final proposal was accepted in the
+`14271ad5e` control; do not diagnose it as an unsubmitted command.
+
+Evidence `CG-17-event-binding-grant-41ff9551a-1734/record.json` remains FAILED:
+42 failed voter roots/1,718 files and eight frozen executables are verified;
+source/log/evidence metadata is backed up. Owned runtime/backend/VM are stopped.
+All 32 planned entry points, complete family/provider/feature/lifecycle coverage
+and remaining CG-13/15/16 gates are mandatory. Counts stay 13/17 tasks, 147/195
+cases. See the [current checkpoint](progress.md#current-integration-checkpoint).
+Executor state: `.cellar/cg17-payload-01/event-binding-grant-state-1730.json`.
+
+## Previous streamed-KV correctness delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Production
 `bb09d155c` captures the Raft KV operation deadline before input/encoding and
