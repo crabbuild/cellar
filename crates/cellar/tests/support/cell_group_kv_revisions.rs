@@ -14,7 +14,23 @@ fn edit(revision: serde_json::Value, value: &str) -> serde_json::Value {
 }
 
 async fn get(cluster: &ManagedCluster, namespace: &str) -> Result<serde_json::Value> {
-    admin_at(cluster, namespace, json!({"op":"get","key":KEY})).await
+    request(cluster, namespace, json!({"op":"get","key":KEY})).await
+}
+
+async fn request(
+    cluster: &ManagedCluster,
+    namespace: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let op = body["op"].as_str().unwrap_or("invalid").to_owned();
+    let started = cellar::asyncrt::mono_ms();
+    let result = admin_at(cluster, namespace, body).await;
+    eprintln!(
+        "KV revision operation namespace={namespace} op={op} elapsed_ms={} success={}",
+        cellar::asyncrt::mono_ms() - started,
+        result.is_ok()
+    );
+    result.with_context(|| format!("KV revision {namespace} {op}"))
 }
 
 async fn foreign_refuses(
@@ -22,16 +38,21 @@ async fn foreign_refuses(
     from: &serde_json::Value,
     to: &serde_json::Value,
 ) -> Result<()> {
-    let outcome = admin_at(cluster, OTHER, edit(from["revision"].clone(), "cG9pc29u")).await?;
+    let outcome = request(cluster, OTHER, edit(from["revision"].clone(), "cG9pc29u")).await?;
     let observed = get(cluster, OTHER).await?;
     ensure!(
         outcome["conflict"] == true && observed == *to,
-        "foreign KV revision authorized another cell: outcome={outcome}, before={to}, after={observed}"
+        "foreign KV revision satisfied another cell's condition: outcome={outcome}, before={to}, after={observed}"
     );
     Ok(())
 }
 
 pub(super) async fn qualify(real_rustfs: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("warn,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::sql_ingress=debug")
+        .with_test_writer()
+        .try_init();
+    let mut failures = Vec::new();
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
             let store = if real_rustfs {
@@ -42,12 +63,22 @@ pub(super) async fn qualify(real_rustfs: bool) -> Result<()> {
             } else {
                 Arc::new(catalog_fault::Store::default())
             };
-            Box::pin(run(rooted, minimum, store)).await?;
-            eprintln!(
-                "KV revision scope RustFS={real_rustfs} extents={rooted} minimum={minimum:?}: PASS"
-            );
+            match Box::pin(run(rooted, minimum, store)).await {
+                Ok(()) => eprintln!(
+                    "KV revision scope RustFS={real_rustfs} extents={rooted} minimum={minimum:?}: PASS"
+                ),
+                Err(error) => {
+                    eprintln!("KV revision scope RustFS={real_rustfs} extents={rooted} minimum={minimum:?}: FAILED: {error:#}");
+                    failures.push(format!("extents={rooted} minimum={minimum:?}: {error:#}"));
+                }
+            }
         }
     }
+    ensure!(
+        failures.is_empty(),
+        "KV revision qualification: {}",
+        failures.join("; ")
+    );
     Ok(())
 }
 
@@ -98,7 +129,9 @@ async fn run(rooted: bool, minimum: Durability, store: Arc<catalog_fault::Store>
     };
     let work = domain
         .run(async {
-            let group = named_service::activate(&cluster, "kv-revision-archive").await?;
+            let group = named_service::activate(&cluster, "kv-revision-archive")
+                .await
+                .context("activate KV revision group")?;
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
             let incarnation = IncarnationId::new([93; 16])?;
             for (namespace, tag) in [(NAMESPACE, 94), (OTHER, 95)] {
@@ -117,11 +150,12 @@ async fn run(rooted: bool, minimum: Durability, store: Arc<catalog_fault::Store>
                         },
                         TIMEOUT,
                     )
-                    .await?;
+                    .await
+                    .with_context(|| format!("enroll KV revision {namespace}"))?;
                 ensure!(enrolled.durability() >= minimum);
             }
-            ensure!(admin_at(&cluster, NAMESPACE, edit(json!(null), "QQ==")).await?["ok"] == true);
-            ensure!(admin_at(&cluster, OTHER, edit(json!(null), "Qg==")).await?["ok"] == true);
+            ensure!(request(&cluster, NAMESPACE, edit(json!(null), "QQ==")).await?["ok"] == true);
+            ensure!(request(&cluster, OTHER, edit(json!(null), "Qg==")).await?["ok"] == true);
             let a = get(&cluster, NAMESPACE).await?;
             let b = get(&cluster, OTHER).await?;
             ensure!(
@@ -142,7 +176,7 @@ async fn run(rooted: bool, minimum: Durability, store: Arc<catalog_fault::Store>
             foreign_refuses(&cluster, &a, &b).await?;
             for (namespace, original) in [(NAMESPACE, &a), (OTHER, &b)] {
                 ensure!(
-                    admin_at(
+                    request(
                         &cluster,
                         namespace,
                         edit(original["revision"].clone(), "b3du")
@@ -151,7 +185,7 @@ async fn run(rooted: bool, minimum: Durability, store: Arc<catalog_fault::Store>
                         == true
                 );
                 ensure!(
-                    admin_at(
+                    request(
                         &cluster,
                         namespace,
                         edit(original["revision"].clone(), "c3RhbGU=")
@@ -192,7 +226,9 @@ async fn run(rooted: bool, minimum: Durability, store: Arc<catalog_fault::Store>
                 get(&cluster, NAMESPACE).await? == a && get(&cluster, OTHER).await? == b,
                 "leadership change invalidated logical KV revisions"
             );
-            named_service::restart(&mut cluster).await?;
+            named_service::restart(&mut cluster)
+                .await
+                .context("KV revision retained restart")?;
             managed_fixture::leader(&cluster.hosts, group).await?;
             ensure!(
                 get(&cluster, NAMESPACE).await? == a && get(&cluster, OTHER).await? == b,
@@ -200,7 +236,7 @@ async fn run(rooted: bool, minimum: Durability, store: Arc<catalog_fault::Store>
             );
             foreign_refuses(&cluster, &a, &b).await?;
             ensure!(
-                admin_at(&cluster, OTHER, edit(b["revision"].clone(), "cmVzdGFydGVk")).await?["ok"]
+                request(&cluster, OTHER, edit(b["revision"].clone(), "cmVzdGFydGVk")).await?["ok"]
                     == true
             );
             Ok::<_, anyhow::Error>(())
