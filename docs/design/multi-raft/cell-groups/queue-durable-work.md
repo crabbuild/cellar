@@ -262,3 +262,21 @@ Clippy. The final Queue rerun refuses at its activity precheck because another
 checkout is compiling. No Queue case executes and the harness record stays
 failed. The `e716fb93` runtime results retain their original source identity;
 the cleanup correction remains without a new full Queue runtime result.
+
+
+## Checkpoint reply continuation — 2026-11-19
+
+A completed durable checkpoint relays its framework reply through one bounded
+owned-work pass before the dependent handler polls. Fresh original admission
+and full authority checks surround this continuation. Query contention and
+safe-root FIFO writer handoff remain; reply wakes survive park.
+
+The real RF3 public fixture reduces each command from three handler polls to two
+across materialized/extents and Quorum/S3, preserving exact receipts, fresh values/
+witnesses, replay deduplication and joined shutdown. This is an avoided-work
+result. The broader candidate still fails ordinary Queue, C2 and C4 delivery/
+drain cases. No throughput or latency gain is qualified.
+
+See [current priorities](remaining-work.md#checkpoint-reply-progress-and-current-priorities)
+and [source-bound qualification](checkpoint-reply-qualification-2026-11-19.json)
+for source/executable bindings, outcomes and the unchanged performance gates.

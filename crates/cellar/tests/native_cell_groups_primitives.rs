@@ -36,6 +36,8 @@ mod bindings;
 mod blob_contract;
 #[path = "support/cell_group_blob.rs"]
 mod blobs;
+#[path = "support/cell_group_checkpoint_polls.rs"]
+mod checkpoint_polls;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
 #[path = "support/cell_group_cron.rs"]
@@ -2367,4 +2369,9 @@ async fn rustfs_materialized_queue_four_in_flight_preserves_acknowledged_message
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_rooted_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
     Box::pin(queues::qualify_load_mode(true, 2, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn completed_checkpoints_advance_ready_reply_bridges() -> Result<()> {
+    checkpoint_polls::qualify().await
 }

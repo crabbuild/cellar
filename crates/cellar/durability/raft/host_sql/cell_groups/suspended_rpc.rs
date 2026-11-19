@@ -245,6 +245,18 @@ impl Suspended {
         Poll::Ready(Ok(()))
     }
 
+    fn check_poll(
+        &self,
+        domain: &crate::asyncrt::DomainToken,
+        stopped: &AtomicBool,
+    ) -> Result<(), ExecutionError> {
+        if stopped.load(Ordering::Acquire) {
+            return Err(unavailable());
+        }
+        self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
+        self.executor.as_ref().ok_or_else(unavailable)?.check_rpc()
+    }
+
     fn check(&self, now: u64) -> Result<(), ExecutionError> {
         check_waiter(self.mode, &self.reply, now)?;
         if !self.executor.as_ref().map_or_else(
@@ -571,15 +583,57 @@ impl Cells {
             }
             if rpc.checkpoint.is_some() {
                 match rpc.poll_checkpoint(&mut cx, domain) {
-                    Poll::Pending | Poll::Ready(Ok(())) => {
+                    Poll::Pending => {
                         self.suspended.push_back(rpc);
                         timer.finish(true);
+                        return true;
                     }
                     Poll::Ready(Err(error)) => {
                         timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
+                        return true;
+                    }
+                    Poll::Ready(Ok(()))
+                        if rpc.retention.lease.contended() && rpc.turn.waiting_on_queries() =>
+                    {
+                        // Keep the existing source-query handoff before its VM
+                        // resumes when another writer is already waiting.
+                        self.suspended.push_back(rpc);
+                        timer.finish(true);
+                        return true;
+                    }
+                    Poll::Ready(Ok(())) => {
+                        // The completed proof permits one dependent poll in
+                        // this worker turn. Refresh the same checks that the
+                        // next turn would have performed after queued I/O.
+                        if let Err(error) = rpc.check_poll(domain, stopped) {
+                            timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
+                            return true;
+                        }
+                        // Consume the checkpoint's ready notification before
+                        // polling. A new wake during that poll stays pending.
+                        let _ = rpc.ready.0.swap(false, Ordering::AcqRel);
+                        // Settle the framework's checkpoint reply bridge before
+                        // the handler observes it. Pending application I/O still
+                        // takes the ordinary checkpoint/park path below.
+                        if let Err(error) = rpc.turn.poll_checkpoint_work(&mut cx) {
+                            timer.finish(self.finish_suspended(rpc, Err(error), now));
+                            return true;
+                        }
+                        if rpc.retention.lease.contended() {
+                            // Keep the existing FIFO handoff at a proven root.
+                            // A reply made ready above stays ready across park.
+                            if let Err(error) = rpc.try_park(&self.activations, now) {
+                                timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
+                                return true;
+                            }
+                            if rpc.executor.is_none() {
+                                self.suspended.push_back(rpc);
+                                timer.finish(true);
+                                return true;
+                            }
+                        }
                     }
                 }
-                return true;
             }
             if rpc.executor.is_none() && rpc.turn.can_poll_parked_io() {
                 match rpc.turn.poll_parked_io(&mut cx) {
@@ -609,12 +663,7 @@ impl Cells {
                     Poll::Ready(Ok(())) => (),
                 }
             }
-            let outcome = match rpc
-                .executor
-                .as_ref()
-                .ok_or_else(unavailable)
-                .and_then(CellPrivateExecutor::check_rpc)
-            {
+            let outcome = match rpc.check_poll(domain, stopped) {
                 Ok(()) => rpc.turn.poll(&mut cx),
                 Err(error) => Poll::Ready(Err(error.into())),
             };

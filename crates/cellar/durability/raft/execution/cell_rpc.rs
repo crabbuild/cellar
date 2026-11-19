@@ -89,6 +89,14 @@ impl CellRpcTurn {
         self.transaction.take_checkpoint()
     }
 
+    /// Drive the owned waiter notified by a proven checkpoint before its
+    /// dependent handler. Otherwise the handler observes its reply bridge as
+    /// pending and can park even though the checkpoint has already completed.
+    /// The SQL owner rechecks admission and authority around this bounded poll.
+    pub(crate) fn poll_checkpoint_work(&self, cx: &mut Context<'_>) -> anyhow::Result<()> {
+        self.transaction.poll_work(cx).map(|_| ())
+    }
+
     pub(crate) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<anyhow::Result<Vec<u8>>> {
         if self.output.is_none() {
             match self

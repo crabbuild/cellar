@@ -36,6 +36,63 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Checkpoint reply progress and current priorities
+
+Compiler inputs 98eba6ce include main 2f083f14. After the existing checkpoint
+proof, the SQL owner drives one bounded owned-work pass to relay its reply before
+polling the dependent handler. Fresh shutdown, original deadline, closed reply,
+activation, term and full executor authority checks surround that continuation.
+Contended query and safe-root FIFO writer handoffs remain; reply wakes survive
+park. Workers, banks, identities, deadlines, fsync and durability requirements
+remain unchanged.
+
+The byte-identical public RF3 test runs three commands in each materialized/
+extents × Quorum/S3 configuration. Baseline commands need **3 handler polls**;
+candidate commands need **2**. Exact receipts, fresh linearizable values/version/
+witness, replay without re-invocation and joined shutdown pass on both sides.
+This establishes one avoided poll per checkpoint, not a throughput or latency
+gain.
+
+The broader candidate has identical production inputs; final source adds only
+the independently compiled regression and root declarations. The full library
+passes **1,261 cases / 2 existing ignores** using the exact same executable under
+a fresh short temporary root. Initial 13 mock Docker socket failures exceeded
+SUN_LEN under a longer root; both attempts remain recorded. Native Queue passes.
+Shared application selection remains **6 passed / 5 failed**: signed-read
+controls, proof sharing, SQL, KV and RPC continuation pass; ordinary Queue, C2,
+both independent C4 images and combined C4 fail their original progress oracles.
+Available failed fixtures match verified closed copies. All nine strict/
+repository checks pass.
+
+Current priorities:
+
+1. **P0 — Queue progress:** close original producer/source-RPC/consumer deadlines
+   and acknowledged-message drain in both image modes. Diagnostic enqueue SQL
+   body cost is small relative to writer admission, checkpoint waits, image work
+   and durable settlement. Preserve ambiguous command IDs and exact receipts.
+2. **P0 — Recovery and lifecycle:** close retained local recovery failures.
+   At preceding head 04f728d4, hosted SDK native 3.14 fails both group replacement/
+   joined-restart cases with Raft runtime NotFound. Native 3.14t fails the rooted
+   replica-routing refusal assertion; separate disaster diagnostics
+   fails transfer recovery-slot release. Full 3.14t RPC shutdown also fails.
+   These preceding-source observations do not qualify the new source.
+3. **P1 — Complete OPT-01–07:** finish routing/read refusal and partition coverage,
+   measured persistence/ReadIndex/archive batching and fairness, physical shared
+   file release with once-only capacity credit, repeated reserve-aware movement,
+   and optimized wake/interrupted-transition/recovery qualification.
+4. **P1 — Combined release and performance:** finish current-source primitive,
+   SDK/Axum/daemon/feature/backend-fault/crash and historical CG evidence (OPT-08),
+   then the original constrained SQL/KV/Queue comparison.
+
+The latest retained original RustFS observation has zero available bytes
+against the unchanged 6 GiB reserve. No original Colima performance case is
+admitted. Keep three original 1-vCPU/2-GiB nodes, RF3/three groups/shared RustFS,
+Quorum/Quorum+S3/Fleet/Bucket, C1/4/16, 256-byte values, Queue batch eight and
+reversed repetitions. Complete OPT-01–08 and remaining CG/SDK/release/performance
+gates remain open. See [source-bound qualification](checkpoint-reply-qualification-2026-11-19.json)
+for exact inputs, separate executable/profile/log hashes, setup exclusions and
+retention/reuse limits.
+
 ### Signed Queue operator reads and current priorities
 
 Compiler inputs `7595d14b9c18bb6efd222f0dd19e192a0424958870d966fd40be58079fe081a4` include `origin/main` `2f083f14`. When local history and initialized Queue schema are available, signed `info` and `peek` use the existing fresh linearizable pinned reader after the original operator authorization. The target namespace's S3 minimum still requires current archive proof of the selected image. Stale consistency refuses. The broker and query share metrics/peek SQL, response shaping, configured retention, limits and console byte budget. Missing local history or Queue schema/statistics uses the existing authorized initialization command with the original admission, arguments and deadline; other read errors do not authorize a mutation retry. Pause, resume, purge and redrive keep ordinary mutation execution.
