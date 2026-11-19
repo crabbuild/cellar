@@ -21,6 +21,13 @@ pub(crate) fn read(
             store::validate_authority(scope, caller, Action::Configure)?;
             catalog::configuration_status_read(db, caller)
         }
+        (
+            crate::application::consensus::native_event_query::CATALOG_READY,
+            Authority::Event(caller),
+        ) => {
+            store::validate_authority(scope, caller, Action::Configure)?;
+            catalog::configuration_ready_read(db, caller)
+        }
         ("__catalogConfigureReceipt", Authority::Event(caller)) => {
             store::validate_authority(scope, caller, Action::Configure)?;
             catalog::configuration_receipt_read(db, caller, body)

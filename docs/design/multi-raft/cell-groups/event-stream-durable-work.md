@@ -40,6 +40,16 @@ mutation identities or initialize target cells. Typed temporary reader admission
 target authorization and coverage checks. Fencing, malformed input, quota and
 mutation failures remain refusals.
 
+Shared activation's private `__catalogReady` read requires provisioning authority
+and current catalog authorization. A creating or updating selection returns typed
+`NotReady` before any successful output or S3 settlement. The same invocation
+parks until that exact cell advances, releases its SQL selection, and obtains
+fresh quorum authority within the original deadline and attempt budget. Once reconciliation
+settles, its selected status follows the ordinary quorum and independent S3 proof
+path before activation checks the exact revision and digest. Retirement,
+revocation and other failures cannot become readiness. Ordinary `__catalogStatus`
+reads continue to return pending state under their configured durability minimum.
+
 After immutable SQL capture joins and releases its selected-image pin, an S3
 metadata result transfers its SQL reservation to an independently acquired
 archive reservation. Queued and buffered results retain that archive byte/item

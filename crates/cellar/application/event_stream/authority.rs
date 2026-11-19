@@ -191,7 +191,10 @@ impl Authority {
                 (scope == super::catalog_scope(&self.resource)?
                     && matches!(
                         method,
-                        "__catalogConfigure" | "__catalogStatus" | "__catalogConfigureReceipt"
+                        "__catalogConfigure"
+                            | "__catalogStatus"
+                            | "__catalogConfigureReceipt"
+                            | crate::application::consensus::native_event_query::CATALOG_READY
                     ))
                     || (scope == super::cell_scope(&self.resource)?
                         && matches!(method, "__streamConfigure" | "__streamConfigureReceipt")),
@@ -339,6 +342,10 @@ mod tests {
         let stream = super::super::cell_scope(&definition.resource)?;
         provision.validate_operator_target(&catalog, "__catalogConfigure")?;
         provision.validate_operator_target(&catalog, "__catalogStatus")?;
+        provision.validate_operator_target(
+            &catalog,
+            crate::application::consensus::native_event_query::CATALOG_READY,
+        )?;
         provision.validate_operator_target(&stream, "__streamConfigure")?;
         assert!(provision
             .validate_operator_target(&stream, "__streamAppend")

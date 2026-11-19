@@ -340,7 +340,12 @@ impl RaftCells {
                 &cellar_native::clone::StructuredValue::from_json(serde_json::json!([{}]))?,
             )?;
             let admitted = crate::asyncrt::services()
-                .admit_outbound_rpc(&scope, Some(&name), "__catalogStatus", &args)
+                .admit_outbound_rpc(
+                    &scope,
+                    Some(&name),
+                    super::super::native_event_query::CATALOG_READY,
+                    &args,
+                )
                 .ok_or(super::super::CommandFailure::Overloaded)?;
             Ok(self.event_read_observed(
                 admitted,

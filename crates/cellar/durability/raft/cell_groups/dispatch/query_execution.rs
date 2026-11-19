@@ -247,45 +247,70 @@ impl CellQueryExecution {
         } else {
             None
         };
-        let authority = runtime
-            .read_authority(
-                attempt.route().history,
-                cell.clone(),
-                consistency,
-                attempt.deadline_ms(),
-            )
-            .await
-            .map_err(CellDispatchError::Runtime)?;
-        if authority.route() != attempt.route() || authority.cell().version.history != *cell {
-            return Err(CellDispatchError::Invalid("destination route binding"));
-        }
-        let mut selected = sql
-            .query_registered_retained(
-                options,
-                authority,
-                crate::raft::host_sql::cell_groups::RegisteredQuery {
-                    class: self.dispatcher.class.clone(),
-                    contract: self.request.contract.clone(),
-                    input: self.request.input.clone(),
-                    admission: self.admission,
-                },
-                Some(crate::raft::host_sql::cell_groups::ReadRetention::new(
-                    Arc::new((retention, self._admission.clone())),
-                )),
-            )
-            .await
-            .map_err(|error| {
-                // The SQL waiter uses the shared execution error envelope. Its
-                // exact deadline must have the same routing meaning as this
-                // invocation's outer timer; ordinary storage failures stay fatal.
-                if matches!(&error, ExecutionError::Storage(cause)
-                    if matches!(cause.downcast_ref::<RuntimeError>(), Some(RuntimeError::DeadlineExceeded)))
+        let may_wait =
+            matches!(self.admission, QueryAdmission::Event(_)) && consistency.is_linearizable();
+        let retention = Arc::new((retention, self._admission.clone()));
+        let mut consistency = consistency;
+        let mut selected = loop {
+            let authority = runtime
+                .read_authority(
+                    attempt.route().history,
+                    cell.clone(),
+                    consistency,
+                    attempt.deadline_ms(),
+                )
+                .await
+                .map_err(CellDispatchError::Runtime)?;
+            if authority.route() != attempt.route() || authority.cell().version.history != *cell {
+                return Err(CellDispatchError::Invalid("destination route binding"));
+            }
+            let observed = authority.cell().version.clone();
+            let selected = sql
+                .query_registered_retained(
+                    options.clone(),
+                    authority,
+                    crate::raft::host_sql::cell_groups::RegisteredQuery {
+                        class: self.dispatcher.class.clone(),
+                        contract: self.request.contract.clone(),
+                        input: self.request.input.clone(),
+                        admission: self.admission,
+                    },
+                    Some(crate::raft::host_sql::cell_groups::ReadRetention::new(
+                        retention.clone(),
+                    )),
+                )
+                .await;
+            match selected {
+                Err(ExecutionError::Storage(cause))
+                    if may_wait
+                        && matches!(
+                            cause.downcast_ref::<RuntimeError>(),
+                            Some(RuntimeError::NotReady)
+                        ) =>
                 {
-                    CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
-                } else {
-                    CellDispatchError::Execution(error)
+                    // Only the private event reader can defer its selected
+                    // output. SQL has joined without a result or archive hold.
+                    // Park this same invocation until this exact cell advances,
+                    // then obtain fresh quorum authority before inspecting it.
+                    // Neither unrelated group progress nor an old token wakes
+                    // it; the attempt, fence and absolute deadline are retained.
+                    consistency = CellReadConsistency::LinearizableAfter(observed);
                 }
-            })?;
+                result => {
+                    break result.map_err(|error| {
+                        // The SQL waiter's deadline has the same routing meaning
+                        // as the outer timer; ordinary storage failures stay fatal.
+                        if matches!(&error, ExecutionError::Storage(cause)
+                            if matches!(cause.downcast_ref::<RuntimeError>(), Some(RuntimeError::DeadlineExceeded)))
+                        {
+                            CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
+                        } else {
+                            CellDispatchError::Execution(error)
+                        }
+                    })?;
+                }
+            }
+        };
         if let Some(term) = queue_term {
             let observation = runtime
                 .observe(attempt.route().history)

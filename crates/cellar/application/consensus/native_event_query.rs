@@ -9,10 +9,15 @@ use sha2::{Digest, Sha256};
 
 const OPERATION: &str = "__sys_raft_event_query";
 
+/// Activation waits without archiving intermediate reconciliation states. Only
+/// a successful selection enters the ordinary target-minimum proof path.
+pub(crate) const CATALOG_READY: &str = "__catalogReady";
+
 pub(crate) fn is_metadata(method: &str) -> bool {
     matches!(
         method,
         "__catalogStatus"
+            | CATALOG_READY
             | "__catalogConfigureReceipt"
             | "__catalogResolveName"
             | "__catalogResolve"
@@ -112,6 +117,21 @@ pub(crate) fn invoke(context: &QueryContext<'_>, input: &[u8]) -> anyhow::Result
             context.result_limit(),
         )
     });
+    // A pending activation has no successful output to prove. Keep this typed
+    // refusal outside the application response envelope so the destination can
+    // park this invocation for cell progress within its original deadline.
+    let result = match result {
+        Err(error)
+            if request.method == CATALOG_READY
+                && matches!(
+                    error.downcast_ref::<crate::raft::completion::RuntimeError>(),
+                    Some(crate::raft::completion::RuntimeError::NotReady)
+                ) =>
+        {
+            return Err(error)
+        }
+        result => result,
+    };
     let Output::Rpc(result) = event_stream::broker::reply(result)? else {
         anyhow::bail!("invalid event metadata response");
     };

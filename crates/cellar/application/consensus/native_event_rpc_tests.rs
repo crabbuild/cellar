@@ -238,6 +238,31 @@ async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result
             )?;
             assert_eq!(observed["state"], "creating");
             assert_eq!(observed["operation"], body["operation"]);
+            let ready = |caller: event_stream::Authority| {
+                event_stream::metadata::read(
+                    &storage, cell.cell.as_str(),
+                    super::super::native_event_query::CATALOG_READY,
+                    &Authority::Event(caller), &serde_json::json!({}), usize::MAX,
+                )
+            };
+            let pending = ready(caller.clone()).unwrap_err();
+            assert!(matches!(pending.downcast_ref::<crate::raft::completion::RuntimeError>(),
+                Some(crate::raft::completion::RuntimeError::NotReady)));
+            assert_eq!(event_stream::metadata::read(
+                &storage, cell.cell.as_str(), "__catalogStatus",
+                &Authority::Event(caller.clone()), &serde_json::json!({}), usize::MAX,
+            )?["state"], "creating", "ordinary status must retain its successful pending response");
+            let mut foreign = caller.clone();
+            foreign.principal = "another-application".into();
+            let refused = ready(foreign).unwrap_err();
+            assert_eq!(refused.downcast_ref::<event_stream::DeliveryError>().unwrap().code,
+                event_stream::ErrorCode::Forbidden, "authorization must precede pending retry");
+            let ordinary: event_stream::Authority = serde_json::from_value(serde_json::json!({
+                "resource":definition.resource,"principal":"shop","grant":"owner","action":"Configure",
+            }))?;
+            let refused = ready(ordinary).unwrap_err();
+            assert_eq!(refused.downcast_ref::<event_stream::DeliveryError>().unwrap().code,
+                event_stream::ErrorCode::Forbidden, "ordinary grants cannot mint activation waits");
             let args = crate::application::encode_rpc(
                 &cellar_native::clone::StructuredValue::from_json(serde_json::json!([body.clone()]))?,
             )?;
@@ -257,6 +282,34 @@ async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result
         database.transaction(crate::storage::CommandInputs {now_unix_millis:2234, ..inputs}, |tx| {
             class.invoke_initializer(&cell, tx)?;
             assert_eq!(tx.storage()?.work_installation(cellar_logic::work::Reason::ResourceReconciliation)?, Some(work));
+            Ok(())
+        })?;
+        database.transaction(inputs, |tx| {
+            let storage = tx.storage()?;
+            storage.system_sql("UPDATE __sys_event_catalog SET definition=pending_definition,accepted_revision=desired_revision,pending_definition=NULL,pending_authority=NULL,desired_revision=NULL,lifecycle='active' WHERE id=?", &[definition.resource.id.clone().into()])?;
+            let ready = || event_stream::metadata::read(
+                &storage, cell.cell.as_str(), super::super::native_event_query::CATALOG_READY,
+                &Authority::Event(caller.clone()), &serde_json::json!({}), usize::MAX,
+            );
+            let current = ready()?;
+            assert_eq!(current["state"], "active");
+            assert_eq!(current["resource"], definition.resource.id);
+            assert_eq!(current["accepted_revision"], "1");
+            use sha2::{Digest, Sha256};
+            assert_eq!(current["accepted_digest"], hex::encode(Sha256::digest(serde_json::to_vec(&definition)?)));
+            storage.system_sql("UPDATE __sys_event_catalog SET lifecycle='updating' WHERE id=?", &[definition.resource.id.clone().into()])?;
+            assert!(matches!(ready().unwrap_err().downcast_ref::<crate::raft::completion::RuntimeError>(),
+                Some(crate::raft::completion::RuntimeError::NotReady)));
+            for state in ["retiring", "deleted"] {
+                storage.system_sql("UPDATE __sys_event_catalog SET lifecycle=? WHERE id=?", &[state.into(), definition.resource.id.clone().into()])?;
+                assert_eq!(ready()?["state"], state, "terminal lifecycle must not be retried as pending");
+            }
+            let mut revoked = definition.clone();
+            revoked.grants[0].administer = false;
+            storage.system_sql("UPDATE __sys_event_catalog SET definition=?,lifecycle='updating' WHERE id=?", &[serde_json::to_string(&revoked)?.into(), definition.resource.id.clone().into()])?;
+            let refused = ready().unwrap_err();
+            assert_eq!(refused.downcast_ref::<event_stream::DeliveryError>().unwrap().code,
+                event_stream::ErrorCode::Forbidden, "a pending update must still enforce current revocation");
             Ok(())
         })?;
         Ok(())
@@ -512,6 +565,7 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
     use super::super::native_event_query::is_metadata;
     for method in [
         "__catalogStatus",
+        super::super::native_event_query::CATALOG_READY,
         "__catalogConfigureReceipt",
         "__catalogResolveName",
         "__catalogResolve",
