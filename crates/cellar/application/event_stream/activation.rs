@@ -210,45 +210,53 @@ pub(crate) async fn configure(
             declaration.resolve(serde_json::from_value(resolved["resource"].clone())?)?
         };
         let authority = Authority::resolution(&binding)?;
-        // Name resolution already checked the current catalog lifecycle and
-        // every captured grant capability. An explicit UUID has no such proof.
-        // Both paths still check the independently authorized partition below;
-        // neither a name hint nor an active partition can replace catalog proof.
-        if declaration.resource.id.is_some() {
-            let catalog = rpc(
+        // Name resolution already checked the catalog and captured grants. An
+        // explicit UUID requires both independent current proofs. Start its
+        // two reads together so one cold group cannot defer the other's quorum
+        // work until the activation deadline is nearly spent. The host retains
+        // the original deadline and admission; neither proof alone pins a bind.
+        let catalog = async {
+            if declaration.resource.id.is_some() {
+                let catalog = rpc(
+                    host,
+                    script,
+                    authority.clone(),
+                    event_stream::catalog_scope(&binding.resource)?,
+                    event_stream::catalog_name(&binding.resource)?,
+                    "__catalogResolve",
+                    json!([{}]),
+                )
+                .await?;
+                let resource: event_stream::Resource =
+                    serde_json::from_value(catalog["resource"].clone())?;
+                anyhow::ensure!(
+                    catalog["state"].as_str() == Some("active") && resource == binding.resource,
+                    "catalog binding identity differs from the deployment"
+                );
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        let partition = async {
+            let encoded = event_stream::encoding::json(&binding, 64 << 10)?;
+            let resolved = rpc(
                 host,
                 script,
                 authority.clone(),
-                event_stream::catalog_scope(&binding.resource)?,
-                event_stream::catalog_name(&binding.resource)?,
-                "__catalogResolve",
-                json!([{}]),
+                event_stream::cell_scope(&binding.resource)?,
+                event_stream::cell_name(&binding.resource)?,
+                "__streamResolve",
+                json!([{"binding":base64::engine::general_purpose::STANDARD.encode(encoded)}]),
             )
             .await?;
             let resource: event_stream::Resource =
-                serde_json::from_value(catalog["resource"].clone())?;
+                serde_json::from_value(resolved["resource"].clone())?;
             anyhow::ensure!(
-                catalog["state"].as_str() == Some("active") && resource == binding.resource,
-                "catalog binding identity differs from the deployment"
+                resolved["state"].as_str() == Some("active") && resource == binding.resource,
+                "resolved event binding identity differs from the deployment"
             );
-        }
-        let encoded = event_stream::encoding::json(&binding, 64 << 10)?;
-        let resolved = rpc(
-            host,
-            script,
-            authority,
-            event_stream::cell_scope(&binding.resource)?,
-            event_stream::cell_name(&binding.resource)?,
-            "__streamResolve",
-            json!([{"binding":base64::engine::general_purpose::STANDARD.encode(encoded)}]),
-        )
-        .await?;
-        let resource: event_stream::Resource =
-            serde_json::from_value(resolved["resource"].clone())?;
-        anyhow::ensure!(
-            resolved["state"].as_str() == Some("active") && resource == binding.resource,
-            "resolved event binding identity differs from the deployment"
-        );
+            Ok::<_, anyhow::Error>(())
+        };
+        futures_util::try_join!(catalog, partition)?;
         activated.push(binding);
     }
     Ok(activated)
