@@ -812,6 +812,9 @@ fn admitted<T: Send + 'static>(
                 Ok((identity, call))
             },
         )?;
+        tracing::debug!(target: "cellar::raft::binding", phase = "prepared",
+            source = ?source.history, parent = ?source.parent, ordinal, child = ?identity, method = %method,
+            at_ms = crate::asyncrt::mono_ms());
         Ok((identity, selected, command, call))
     })();
     Box::pin(async move {
@@ -854,6 +857,7 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
 ) -> Result<Vec<u8>> {
+    log_phase("source-proven", &intent);
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -924,6 +928,7 @@ async fn run(
             },
         }
     };
+    log_phase("target-resolved", &intent);
     if history != intent.candidate {
         // A different existing creator needs its own durable selection before
         // any business callback. Never retarget an unknown dispatched command.
@@ -931,9 +936,11 @@ async fn run(
         crate::storage::raft_bindings::select(&mut intent, &history)?;
         *command.lock().unwrap() = Some(intent.child);
         storage.sync().await?;
+        log_phase("selection-proven", &intent);
     }
     io.begin_io()?;
     *selected.lock().unwrap() = Some(history.clone());
+    log_phase("target-submitting", &intent);
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
     options.durability = intent.route.durability;
@@ -967,10 +974,21 @@ async fn run(
         if !not_admitted {
             break result;
         }
+        tracing::trace!(target: "cellar::raft::binding", phase = "target-not-admitted",
+            parent = ?intent.parent, ordinal = intent.ordinal, child = ?intent.child,
+            at_ms = crate::asyncrt::mono_ms());
         // Only a refusal before admission may retry. Preserve the complete
         // child identity and input and consume the original deadline.
         dispatch.wait_admission().await?;
     };
+    log_phase(
+        if result.is_ok() {
+            "target-returned"
+        } else {
+            "target-error"
+        },
+        &intent,
+    );
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -980,7 +998,9 @@ async fn run(
                 CommandFailure::CorruptState
             );
             io.resume_writer().await?;
+            log_phase("writer-resumed", &intent);
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
+            log_phase("completed-private", &intent);
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
             // A crash before either retains the original unresolved intent.
@@ -1013,4 +1033,12 @@ async fn run(
             .into())
         }
     }
+}
+
+/// Diagnostic phases carry identities, never input, result bytes or authority.
+/// The logging macros evaluate the clock only when their target is enabled.
+fn log_phase(phase: &'static str, intent: &Intent) {
+    tracing::debug!(target: "cellar::raft::binding", phase,
+        parent = ?intent.parent, ordinal = intent.ordinal, child = ?intent.child,
+        enroll = intent.enroll, at_ms = crate::asyncrt::mono_ms());
 }

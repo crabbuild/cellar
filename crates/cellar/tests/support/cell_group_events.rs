@@ -282,7 +282,7 @@ async fn qualify_host(
     enrollment_only: bool,
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_groups::controller::effects=debug")
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::cell_groups::controller::effects=debug")
         .with_test_writer()
         .try_init();
     for rooted in [false, true] {

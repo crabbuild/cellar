@@ -632,6 +632,23 @@ The generic physical capture includes shared histories, while the group-native
 accessor refuses a legacy application engine.
 
 
+## Shared primitive invocation diagnostics
+
+Enable the `cellar::raft::binding` and `cellar::raft::checkpoint` tracing targets
+at debug level to locate a suspended primitive call. Binding events correlate the
+parent command, invocation ordinal and child command across private preparation,
+source proof, target resolution/submission, target response and source-writer
+resumption. Trace level additionally records known target admission refusals.
+Checkpoint events distinguish capture, prepared proposal, applied version and
+continuation after the required proof. Monotonic timestamps are diagnostic samples;
+the events do not supply authority or establish a mutation's outcome.
+
+The targets log identities and phases without request or result bytes. Disabled
+targets evaluate no additional clocks and create no task, timer, reservation or
+retained per-cell state. `completed-private` describes a private binding result;
+another effect or final response still waits for its normal durability proof.
+Use the original command identities and deadlines when investigating a lost reply.
+
 ## Invocation-bounded route confirmation
 
 `RangeDirectory::routing_session` captures an explicit execution domain, original

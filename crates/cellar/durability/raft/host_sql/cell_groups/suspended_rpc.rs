@@ -114,6 +114,8 @@ impl Suspended {
         ))?;
         let executor = self.executor.as_mut().ok_or_else(unavailable)?;
         let captured = executor.stage_rpc_checkpoint(&mut self.turn)?;
+        tracing::debug!(target: "cellar::raft::checkpoint", phase = "captured",
+            history = ?self.cell, at_ms = ?domain.mono_ms().ok());
         self.checkpoint = Some(Checkpoint::Preparing {
             reply,
             task: Preparation::new(
@@ -159,6 +161,9 @@ impl Suspended {
                     )));
                 };
                 let expected = executor.rpc_checkpoint_version()?;
+                tracing::debug!(target: "cellar::raft::checkpoint", phase = "prepared",
+                    history = ?self.cell, sequence = expected.sequence.get(),
+                    proposal = ?prepared.proposal(), at_ms = ?domain.mono_ms().ok());
                 executor.mark_submitted(prepared.proposal())?;
                 let phase = self.applying(&prepared, &expected, domain)?;
                 SubmittedCheckpoint {
@@ -198,6 +203,9 @@ impl Suspended {
                         .finish_rpc_checkpoint(*execution, *proof)
                     {
                         Ok(receipt) => {
+                            tracing::debug!(target: "cellar::raft::checkpoint", phase = "applied",
+                                history = ?self.cell, sequence = checkpoint.expected.sequence.get(),
+                                at_ms = ?domain.mono_ms().ok());
                             self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
                             if receipt.receipt.minimum_durability()
                                 == cellar_logic::consensus::Durability::S3
@@ -273,6 +281,9 @@ impl Suspended {
             .as_mut()
             .ok_or_else(unavailable)?
             .continue_rpc_checkpoint(&mut self.turn)?;
+        tracing::debug!(target: "cellar::raft::checkpoint", phase = "continued",
+            history = ?self.cell, sequence = checkpoint.expected.sequence.get(),
+            at_ms = ?domain.mono_ms().ok());
         let _ = checkpoint.reply.send(Ok(()));
         self.ready.0.store(true, Ordering::Release);
         Poll::Ready(Ok(()))
