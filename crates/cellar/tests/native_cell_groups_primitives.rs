@@ -2594,6 +2594,17 @@ async fn fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk() ->
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_payload_reads_resume_after_outage_and_retained_restart() -> Result<()> {
+    Box::pin(kv_bindings::qualify_payload_recovery(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_kv_payload_reads_resume_after_outage_and_retained_restart() -> Result<()> {
+    Box::pin(kv_bindings::qualify_payload_recovery(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn axum_kv_bindings_use_managed_shared_groups() -> Result<()> {
     Box::pin(kv_bindings::qualify(false, true)).await
 }

@@ -43,11 +43,15 @@ enum Coverage {
     Chained,
     Preparation,
     Streaming,
+    PayloadRecovery,
 }
 
 impl Coverage {
     fn focused(self) -> bool {
-        matches!(self, Self::Preparation | Self::Streaming)
+        matches!(
+            self,
+            Self::Preparation | Self::Streaming | Self::PayloadRecovery
+        )
     }
 }
 
@@ -464,14 +468,41 @@ pub async fn qualify_streaming() -> Result<()> {
     qualify_case(false, false, Coverage::Streaming).await
 }
 
+pub async fn qualify_payload_recovery(real_rustfs: bool, external: bool) -> Result<()> {
+    qualify_case(real_rustfs, external, Coverage::PayloadRecovery).await
+}
+
+fn payload_recovery_usage(cluster: &ManagedCluster, stage: &str) -> Result<()> {
+    for (node, host) in cluster.hosts.iter().enumerate() {
+        let usage = host
+            .resource_usage()
+            .host
+            .payloads
+            .context("installed KV pool")?;
+        eprintln!("KV payload recovery stage={stage} node={node} usage={usage:?}");
+    }
+    Ok(())
+}
+
 async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> Result<()> {
     let mut failures = Vec::new();
+    let kind = match coverage {
+        Coverage::Preparation => "preparation",
+        Coverage::PayloadRecovery => "payload recovery",
+        _ => "binding",
+    };
     for rooted in [false, true] {
         let result = async {
             let backend = real_rustfs
                 .then(|| {
                     rustfs::StoreConfig::load(
-                        if external {
+                        if coverage == Coverage::PayloadRecovery {
+                            if external {
+                                "kv-payload-recovery-axum"
+                            } else {
+                                "kv-payload-recovery"
+                            }
+                        } else if external {
                             "kv-bindings-axum"
                         } else {
                             "kv-bindings"
@@ -495,19 +526,9 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
         .await;
         match result {
             Ok(()) => {
-                let kind = if coverage == Coverage::Preparation {
-                    "preparation"
-                } else {
-                    "binding"
-                };
                 eprintln!("KV {kind} RustFS={real_rustfs} extents={rooted} Axum={external}: PASS")
             }
             Err(error) => {
-                let kind = if coverage == Coverage::Preparation {
-                    "preparation"
-                } else {
-                    "binding"
-                };
                 eprintln!("KV {kind} RustFS={real_rustfs} extents={rooted} Axum={external}: FAILED: {error:#}");
                 failures.push(format!("extents={rooted}: {error:#}"));
             }
@@ -693,7 +714,7 @@ async fn run(
                 }
                 sequence += 1;
             }
-            if let Some(backend) = backend {
+            if let Some(backend) = backend.filter(|_| coverage != Coverage::PayloadRecovery) {
                 let before = local_preparations(&cluster)?;
                 cli::large(&cluster, backend).await?;
                 ensure!(local_preparations(&cluster)? == before + 1,
@@ -740,7 +761,7 @@ async fn run(
             ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == puts_before + 1,
                 "expired source upload started after restoring its archive provider");
             }
-            if coverage.focused() {
+            if coverage.focused() && coverage != Coverage::PayloadRecovery {
                 return Ok(());
             }
             let duplicate_options = bindings::options(sequence, Durability::Quorum)?;
@@ -770,13 +791,23 @@ async fn run(
             );
             ensure!(admin(&cluster, json!({"op":"get","key":"warm"})).await?["revision"] == token);
             public_ok(&cluster, 2, "ReadLarge").await?;
+            if coverage == Coverage::PayloadRecovery {
+                payload_recovery_usage(&cluster, "before-outage")?;
+            }
             let denied_payload = cluster.fixtures[0].store.denied_cell_payload_reads.load(Ordering::Acquire);
             let payload_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_cell_payload_reads);
             let (status, body) = public(&cluster, 0, "ReadLarge").await?;
             drop(payload_outage);
             ensure!(status == 503 && body.contains("payload"), "unavailable external value became a miss/success: {status}: {body}");
             ensure!(cluster.fixtures[0].store.denied_cell_payload_reads.load(Ordering::Acquire) > denied_payload);
+            if coverage == Coverage::PayloadRecovery {
+                payload_recovery_usage(&cluster, "after-denial")?;
+            }
             public_ok(&cluster, 2, "ReadLarge").await?;
+            if coverage == Coverage::PayloadRecovery {
+                payload_recovery_usage(&cluster, "restored")?;
+                return Ok(());
+            }
             public_ok(&cluster, 1, "Read").await?;
             let denied = cluster.fixtures[0]
                 .store
