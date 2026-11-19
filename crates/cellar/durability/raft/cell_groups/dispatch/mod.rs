@@ -389,6 +389,11 @@ impl CellGroupDispatcher {
                 "Queue operator read consistency",
             ));
         }
+        if self.class.kv_inline_read_contract().as_ref() == Some(&request.contract)
+            && !matches!(request.consistency, CellQueryConsistency::Linearizable)
+        {
+            return Err(CellDispatchError::Invalid("KV inline read consistency"));
+        }
         if let QueryAdmission::Event(minimum) = admission {
             if !matches!(request.consistency, CellQueryConsistency::Linearizable)
                 || minimum < self.host_binding()?.0.minimum_durability
@@ -801,16 +806,18 @@ impl CellQueryInvocation {
                     CellDispatchError::Execution(error)
                 }
             })?;
-        let queue_archive = self
+        let archived_observation = (self
             .dispatcher
             .class
             .queue_operator_read_contract()
             .as_ref()
             == Some(&self.request.contract)
+            || self.dispatcher.class.kv_inline_read_contract().as_ref()
+                == Some(&self.request.contract))
             && self.dispatcher.host_binding()?.0.minimum_durability
                 == cellar_logic::consensus::Durability::S3;
         if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3)
-            || queue_archive
+            || archived_observation
         {
             let client = self
                 .dispatcher

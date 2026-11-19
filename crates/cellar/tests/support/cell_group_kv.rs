@@ -7,6 +7,9 @@ use cellar::sdk::kv::{PutOptions, ReadType, ReadValue};
 #[path = "cell_group_kv_cli.rs"]
 mod cli;
 
+#[path = "cell_group_kv_inline_read.rs"]
+mod inline_read;
+
 const SCRIPT: &str = "kv-binding-service";
 const NAMESPACE: &str = "shared/cache";
 
@@ -16,11 +19,16 @@ enum Coverage {
     Chained,
     Preparation,
     Streaming,
+    InlineRead,
+    InlineReadBoundaries,
 }
 
 impl Coverage {
     fn focused(self) -> bool {
-        matches!(self, Self::Preparation | Self::Streaming)
+        matches!(
+            self,
+            Self::Preparation | Self::Streaming | Self::InlineRead | Self::InlineReadBoundaries
+        )
     }
 }
 
@@ -429,6 +437,14 @@ pub async fn qualify_streaming() -> Result<()> {
     qualify_case(false, false, Coverage::Streaming).await
 }
 
+pub async fn qualify_inline_reads() -> Result<()> {
+    qualify_case(false, true, Coverage::InlineRead).await
+}
+
+pub async fn qualify_inline_read_boundaries() -> Result<()> {
+    qualify_case(false, true, Coverage::InlineReadBoundaries).await
+}
+
 async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
@@ -495,13 +511,32 @@ async fn run(
 ) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let (application, declared) = application(calls.clone())?;
-    let mut fixture = Fixture::with_namespaces(
-        rooted,
-        &["Counter", cellar::deploy::KV_CLASS],
-        application,
-        store,
-    )
-    .await?;
+    let mut fixture = if coverage == Coverage::InlineReadBoundaries {
+        Fixture::with_definition_policies(
+            rooted,
+            vec![
+                (
+                    application.resolve_raft_class("Counter")?,
+                    Durability::Quorum,
+                ),
+                (
+                    application.resolve_raft_class(cellar::deploy::KV_CLASS)?,
+                    Durability::S3,
+                ),
+            ],
+            application,
+            store,
+        )
+        .await?
+    } else {
+        Fixture::with_namespaces(
+            rooted,
+            &["Counter", cellar::deploy::KV_CLASS],
+            application,
+            store,
+        )
+        .await?
+    };
     fixture.configuration = Some(declared);
     let http = external.then(|| Arc::new(managed_fixture::http::Owner::default()));
     fixture.external_http = http.clone();
@@ -572,6 +607,12 @@ async fn run(
             }
             } else {
                 public_ok(&cluster, leader, "Write").await?;
+            }
+            if coverage == Coverage::InlineRead {
+                return inline_read::qualify(&mut cluster, kv_group).await;
+            }
+            if coverage == Coverage::InlineReadBoundaries {
+                return inline_read::qualify_boundaries(&mut cluster, kv_group).await;
             }
             let token = operator_contract(&cluster).await?;
             let namespace = cellar_native::cell_id::Namespace::new(
@@ -841,7 +882,14 @@ async fn run(
         }
         Ok(())
     })();
-    if work.is_err() || joined.is_err() || http_joined.is_err() || payloads_joined.is_err() {
+    // The successful archive-fault case still owns an ambiguous write history.
+    // Keep its exact original disks for receipt/media verification as well.
+    if work.is_err()
+        || joined.is_err()
+        || http_joined.is_err()
+        || payloads_joined.is_err()
+        || coverage == Coverage::InlineReadBoundaries
+    {
         for root in std::mem::take(&mut cluster.roots) {
             eprintln!("retained KV binding disk: {}", root.keep().display());
         }

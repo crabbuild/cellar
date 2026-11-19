@@ -1016,6 +1016,12 @@ impl RaftClass {
             .flatten()
     }
 
+    pub(crate) fn kv_inline_read_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::KV_CLASS)
+            .then(|| self.contract(crate::application::kv::read::OPERATION))
+            .flatten()
+    }
+
     pub(crate) fn workflow_operator_contract(&self) -> Option<OperationContract> {
         crate::deploy::is_workflow_class(&self.name)
             .then(|| self.contract(crate::application::workflow::OPERATOR))

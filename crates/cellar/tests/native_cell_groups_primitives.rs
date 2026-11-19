@@ -2212,6 +2212,16 @@ async fn axum_kv_bindings_use_managed_shared_groups() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_inline_reads_do_not_append_mutations() -> Result<()> {
+    Box::pin(kv_bindings::qualify_inline_reads()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_inline_reads_require_current_archive_and_quorum() -> Result<()> {
+    Box::pin(kv_bindings::qualify_inline_read_boundaries()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_ordinary_kv_bindings_use_managed_shared_groups() -> Result<()> {
     Box::pin(kv_bindings::qualify(true, false)).await

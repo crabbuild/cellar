@@ -34,6 +34,25 @@ pub(in crate::application) fn kv_service() -> Result<RaftClass, RegistrationErro
         Sha256::digest(b"cellar-kv-ingress-sequence-1").into(),
         |query, input| query.sql_ingress_sequence(input),
     )?;
+    class = class.query(
+        crate::application::kv::read::OPERATION,
+        Sha256::digest(b"cellar-kv-inline-pinned-read-1").into(),
+        |query, input| {
+            let request = super::native_rpc::decode_request(input)?;
+            super::native_rpc::validate_identity(
+                "cellar-kv-service",
+                crate::deploy::KV_CLASS,
+                query.identity().cell.as_str(),
+                request.name.as_deref(),
+            )?;
+            crate::application::kv::read::query(
+                &query.storage(),
+                query.identity(),
+                request.args,
+                query.result_limit(),
+            )
+        },
+    )?;
     class = class.with_cell_factory(Arc::new(|context, _| {
         crate::application::kv::create_cell(&context)
     }))?;

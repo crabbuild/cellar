@@ -454,6 +454,33 @@ impl CellGroupHost {
         )
     }
 
+    /// Reuse a stateless get's already authorized route without consuming a
+    /// second request. The caller still performs ordinary history selection
+    /// before using this query route; this metadata grants no serving authority.
+    pub(crate) fn kv_inline_read_route(
+        &self,
+        selected: &Route,
+    ) -> Result<Option<Route>, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let target = self
+            .inner
+            .namespaces
+            .get(&(selected.cluster, selected.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if target.class.binding_contract("__kvGet").as_ref() != Some(&selected.contract) {
+            return Ok(None);
+        }
+        let Some(contract) = target.class.kv_inline_read_contract() else {
+            return Ok(None);
+        };
+        if contract.kind != crate::application::consensus::OperationKind::Query {
+            return Err(CellDispatchError::Invalid("KV inline query contract"));
+        }
+        let mut read = selected.clone();
+        read.contract = contract;
+        Ok(Some(read))
+    }
+
     /// Select a pure observation only after the ordinary operator authorization.
     pub(crate) fn queue_operator_read_route(
         &self,

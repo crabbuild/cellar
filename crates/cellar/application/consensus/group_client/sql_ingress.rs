@@ -268,6 +268,13 @@ impl RaftCells {
                         .sql_operator_route(&scope, &self.handle.core.log)?
                 }
             };
+            let inline_read = if method == "__kvGet"
+                && matches!(&origin, Origin::Binding | Origin::Native { .. })
+            {
+                self.handle.core.host.kv_inline_read_route(&route)?
+            } else {
+                None
+            };
             if route.history_hint.is_some() {
                 self.handle.core.log.performance().increment(
                     crate::raft::performance::Counter::CellBindingAppliedHistoryHints,
@@ -334,6 +341,7 @@ impl RaftCells {
                 route.contract,
                 route.durability,
                 route.history_hint,
+                inline_read,
                 candidate,
                 creation,
                 retry_until_ms,
@@ -350,6 +358,7 @@ impl RaftCells {
                 contract,
                 durability,
                 history_hint,
+                inline_read,
                 candidate,
                 creation,
                 retry_until_ms,
@@ -431,6 +440,30 @@ impl RaftCells {
                         }
                     }
                 };
+                // Reuse ordinary discovery/enrollment. This history is only a
+                // locator; the read still needs current quorum authority. A
+                // freshly enrolled cell needs the original schema command.
+                if let Some(mut route) = inline_read.filter(|_| !newly_enrolled) {
+                    route.history_hint = Some(history.clone());
+                    let response = owner
+                        .query_resource(route, input.clone(), remaining()?, false)
+                        .await?;
+                    if !crate::application::kv::read::is_fallback(&response)? {
+                        if let Some(limit) = reservation.reply_limit() {
+                            anyhow::ensure!(
+                                matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
+                                crate::application::rpc::Failure::new(
+                                    crate::application::rpc::Code::InvalidResponse
+                                )
+                            );
+                        }
+                        remaining()?;
+                        return Ok(response);
+                    }
+                    // Only the private callback's eligibility sentinel may
+                    // enter the original command. Errors retain their cause;
+                    // input, identity and deadline remain fixed.
+                }
                 *selected.lock().unwrap() = Some(history.clone());
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
                     phase="history", newly_enrolled, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));

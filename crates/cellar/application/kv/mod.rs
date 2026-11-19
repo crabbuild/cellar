@@ -9,6 +9,7 @@ mod options;
 pub(crate) mod raft_blob;
 mod raft_value;
 pub(crate) mod raft_wire;
+pub(crate) mod read;
 mod validation;
 mod wire;
 pub use options::{
@@ -659,13 +660,13 @@ impl NamespaceCell {
             };
             let reference = optional_text(&row, "blob_id")?;
             let inline = reference.is_none();
-            let mut entry = json!({"key":key,"found":true,"tag":text(&row,"tag")?,"value":null,"revision":self.revision(integer(&row,"revision")?)?});
-            if options.metadata {
-                entry["metadata"] = json!(optional_text(&row, "metadata")?);
-            }
-            if options.expiration {
-                entry["expiration"] = json!(optional_integer(&row, "expires_at")?);
-            }
+            let mut entry = read::entry(
+                key,
+                &row,
+                self.revision(integer(&row, "revision")?)?,
+                options.metadata,
+                options.expiration,
+            )?;
             if options.references && self.storage.is_raft() {
                 if let Some(reference) = reference.as_deref() {
                     let (reference, length) = raft_wire::published_value(reference).await?;
@@ -709,18 +710,7 @@ impl NamespaceCell {
             rows.push(entry);
             bytes.push(Some((value, inline)));
         }
-        let mut graph = StructuredValue::from_json(Value::Array(rows))?;
-        let rows = wire::array(&graph, &graph.root)?.to_vec();
-        for (row, bytes) in rows.iter().zip(bytes) {
-            if let Some((bytes, inline)) = bytes {
-                if inline {
-                    wire::set_buffer(&mut graph, row, "value", bytes)?;
-                } else {
-                    wire::set_bytes(&mut graph, row, "value", bytes)?;
-                }
-            }
-        }
-        Ok(graph)
+        read::graph(rows, bytes)
     }
 
     async fn put(&self, context: &Context, entries: Vec<Entry>) -> Result<()> {
