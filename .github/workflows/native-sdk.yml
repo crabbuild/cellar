@@ -14,7 +14,6 @@ jobs:
       matrix:
         revision: [95f860bcddb1f49dc72453f100154c4eeeb7bfbd, 590640c7ce49ef3fd391bdae9540ba23081cd74b]
     env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/cellar-fleet-control-target
       CARGO_BUILD_JOBS: "1"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
@@ -42,6 +41,7 @@ jobs:
           TMPDIR: ${{ runner.temp }}/native-failure-fixtures
         run: |
           set -euo pipefail
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/cellar-fleet-control-target"
           failed=0
           for repetition in 1 2 3; do
             set +e
