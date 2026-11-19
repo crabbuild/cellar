@@ -50,6 +50,13 @@ path before activation checks the exact revision and digest. Retirement,
 revocation and other failures cannot become readiness. Ordinary `__catalogStatus`
 reads continue to return pending state under their configured durability minimum.
 
+An empty group with no selected image, archive head, pending intent or retirement
+debt parks its background archiver until apply or an admitted output wakes it.
+This local scheduling observation supplies no published marker, archive coverage
+or compaction permission. A notification racing with the idle turn remains
+pending even when it names the same applied index. Existing journal debt always
+follows ordinary remote fencing and reconciliation before any new allocation.
+
 After immutable SQL capture joins and releases its selected-image pin, an S3
 metadata result transfers its SQL reservation to an independently acquired
 archive reservation. Queued and buffered results retain that archive byte/item

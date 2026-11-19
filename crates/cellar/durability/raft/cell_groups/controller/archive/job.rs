@@ -140,6 +140,9 @@ pub(super) enum Outcome {
     /// Retirement finished and the previously verified head still covers local
     /// apply. No new physical proof is created by this maintenance result.
     Maintenance(GroupManifest),
+    /// No image or journal debt exists at this local applied position. This
+    /// schedules no remote polling and supplies no coverage or serving proof.
+    Idle(LogIndex),
 }
 
 /// Reuse only a still-live admitted verification. The weak index does not keep
@@ -257,12 +260,38 @@ pub(super) async fn drive(
     let node = runtime.log().limits().node;
     let group = registration.birth.route().history.group;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "drive");
+    let mut record = load(context, execution).await?;
+    if !demand.outputs
+        && record.head.is_none()
+        && record.retire.is_none()
+        && matches!(record.pending, Pending::None)
+    {
+        let local = runtime
+            .log()
+            .cell_group(&registration.birth.route().history)
+            .map_err(|error| Error::Runtime(error.into()))?;
+        let idle = {
+            let cache = local.read().map_err(|error| Error::Runtime(error.into()))?;
+            cache
+                .group_manifest
+                .is_none()
+                .then_some(cache.applied.position.index)
+        };
+        if let Some(applied) = idle {
+            // Only a negative scheduling observation. Every pending intent and
+            // every real output still follows current birth fencing below.
+            // Reading position and manifest under one lock lets completion
+            // detect an apply racing with this idle turn without losing wakeup.
+            tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group,
+                stage = "idle", index = applied.get());
+            return Ok(Outcome::Idle(applied));
+        }
+    }
     registration
         .directory
         .require_current_group_birth(&registration.birth)
         .await
         .map_err(CellGroupArchiveBindingError::from)?;
-    let mut record = load(context, execution).await?;
     let allocation_ready = retire(context, execution, &mut record).await?;
     // Quiet maintenance can finish predecessor cleanup without discarding the
     // node's one physical proof. This is the exact journaled head, independently
