@@ -172,6 +172,12 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
                     .prepare_declarations(native, index, retained, false, store, declarations)
                     .await?;
                 cells.config.shared.sql.workers = 1;
+                cells.config.shared.payloads = Some(CellGroupPayloadLimits {
+                    max_operations: 2,
+                    max_retained_bytes: 600 * 1024 * 1024,
+                    max_payload_bytes: 64 * 1024 * 1024 + 4096,
+                    io_timeout: Duration::from_secs(10),
+                });
                 Ok(cells)
             },
             move |service| async move {
