@@ -188,9 +188,16 @@ pub async fn qualify(rooted: bool, real: bool, end: End) -> Result<()> {
         ensure!(calls.load(Ordering::Acquire) == 1 && continued.load(Ordering::Acquire) == 0);
         ensure!(host.resource_usage().host.controller.archive_settlement.items == 2);
         eprintln!("checkpoint admission: partial root committed, callback_calls=1 continued=0");
+        ensure!(
+            cellar::asyncrt::timeout(Duration::from_millis(50), pending.as_mut()).await.is_err(),
+            "admitted checkpoint completed while both S3 proofs were held"
+        );
         match end {
             End::Release => {
                 drop(first);
+                // Both observations share the prior verification lease. Its
+                // last consumer must release before a new cut can be verified.
+                drop(second);
                 let result = pending.await.context("held checkpoint after S3 capacity release")?;
                 ensure!(result.result == b"1" && result.durability == Durability::S3);
                 drop(result);
@@ -198,6 +205,7 @@ pub async fn qualify(rooted: bool, real: bool, end: End) -> Result<()> {
                 ensure!(replay.result == b"1" && replay.durability == Durability::S3);
                 ensure!(calls.load(Ordering::Acquire) == 1 && continued.load(Ordering::Acquire) == 1, "checkpoint retry replayed native code");
                 drop(replay);
+                return Ok(());
             }
             End::Deadline => {
                 let error = pending.await.expect_err("checkpoint escaped its original deadline");
