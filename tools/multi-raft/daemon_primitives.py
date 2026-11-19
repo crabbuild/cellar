@@ -81,6 +81,7 @@ def verify(events):
             groups = voter['groups']
             require(voter['hosted_groups'] == len(groups) == 2
                     and len({g['namespace'] for g in groups}) == 2
+                    and len({g['group'] for g in groups}) == 2
                     and all(g['ready'] is True and g['cells'] in (0, 2) for g in groups),
                     'shared group proof missing')
     expected_calls = []

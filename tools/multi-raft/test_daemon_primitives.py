@@ -17,7 +17,7 @@ def campaign(minimum):
         events.append(dict(phase=phase, **values))
 
     def voter(member, term=1, cells=2):
-        return {'hosted_groups': 2, 'groups': [dict(namespace=namespace, ready=True,
+        return {'hosted_groups': 2, 'groups': [dict(namespace=namespace, group=namespace, ready=True,
                 cells=cells, term=term, member=member) for namespace in ('sql', 'kv')]}
 
     def observed(members, term=1, cells=2):
@@ -121,6 +121,11 @@ class PrimitiveOracleTests(unittest.TestCase):
                 verify(events)
         events = campaign('quorum')
         next(e for e in events if e['phase'] == 'primitive_reply' and e['route'].endswith('/read'))['body'] = '[]'
+        with self.assertRaises(ValueError):
+            verify(events)
+        events = campaign('quorum')
+        groups = next(e for e in events if e['phase'] == 'primitive_observed')['voters'][0]['groups']
+        groups[1]['group'] = groups[0]['group']
         with self.assertRaises(ValueError):
             verify(events)
 

@@ -25,8 +25,10 @@ fn minimum() -> Result<Durability> {
 
 fn group(index: usize) -> Result<GroupHistory> {
     ensure!(index < 2, "primitive group index");
-    configuration::group(
+    let mut history = configuration::group(
         ClusterId::new([1; 16])?,
         NamespaceId::new([u8::try_from(index)? + 2; 16])?,
-    )
+    )?;
+    history.group = GroupId::new([u8::try_from(index)? + 5; 16])?;
+    Ok(history)
 }
