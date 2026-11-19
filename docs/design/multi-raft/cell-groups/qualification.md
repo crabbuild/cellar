@@ -443,6 +443,8 @@ group while producing dependent checkpoints. The first original absolute deadlin
 bounds a cohort; later arrivals may shorten it. Expiry opens the normal background
 lane until that cohort drains. A fresh final S3 receipt can finish an idle cohort
 after all output gates pass; older receipt replays cannot renew it. Foreground S3
+completion consumes its scheduling guard before response delivery, so a queued
+completed invocation cannot extend the next call's cohort. Foreground S3
 proofs and other groups continue through the existing scheduler. Physical archive
 verification, current authority and request deadlines remain required. Mixed
 Quorum/S3 release qualification must measure the resulting asynchronous archive

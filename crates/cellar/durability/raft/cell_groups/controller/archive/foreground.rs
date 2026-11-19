@@ -136,7 +136,7 @@ impl Invocation {
     /// Only the normal final S3 output and authority gates call this. Replaying
     /// a receipt at/before admission grants no new group progress and cannot
     /// renew a deferral window under continuous retry traffic.
-    pub(crate) fn completed(&self, index: LogIndex) {
+    pub(crate) fn completed(self, index: LogIndex) {
         if index <= self.entered {
             return;
         }
@@ -224,7 +224,6 @@ mod tests {
         drop(owner.admit(group(3), 50, 10, index(5)).unwrap());
         let replay = owner.admit(group(3), 100, 20, index(5)).unwrap();
         replay.completed(index(5));
-        drop(replay);
         let later = owner.admit(group(3), 200, 60, index(6)).unwrap();
         assert!(!owner.blocks(group(3), 61));
         drop(later);
@@ -237,11 +236,9 @@ mod tests {
         let owner = owner(1, &[3]);
         let a = owner.admit(group(3), 50, 10, index(5)).unwrap();
         a.completed(index(6));
-        drop(a);
         let b = owner.admit(group(3), 100, 40, index(6)).unwrap();
         assert!(owner.blocks(group(3), 60));
         b.completed(index(7));
-        drop(b);
         assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
     }
 
@@ -251,7 +248,6 @@ mod tests {
         let a = owner.admit(group(3), 50, 10, index(5)).unwrap();
         let b = owner.admit(group(3), 100, 20, index(5)).unwrap();
         a.completed(index(6));
-        drop(a);
         assert!(!owner.blocks(group(3), 50));
         drop(b);
     }
@@ -302,7 +298,6 @@ mod tests {
         owner.register(group(3)).unwrap();
         let current = owner.admit(group(3), 100, 20, index(2)).unwrap();
         old.completed(index(99));
-        drop(old);
         assert!(owner.blocks(group(3), 60));
         let groups = owner.groups.lock().unwrap();
         let window = groups[&group(3)].window.as_ref().unwrap();
@@ -310,7 +305,17 @@ mod tests {
         assert!(!window.progressed);
         drop(groups);
         current.completed(index(3));
-        drop(current);
         assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
+    }
+
+    #[test]
+    fn final_proof_releases_the_guard_before_response_delivery() {
+        let owner = owner(1, &[3]);
+        let invocation = owner.admit(group(3), 50, 10, index(5)).unwrap();
+        invocation.completed(index(6));
+        assert!(!owner.blocks(group(3), 20));
+        let next = owner.admit(group(3), 100, 20, index(6)).unwrap();
+        assert!(owner.blocks(group(3), 60));
+        next.completed(index(7));
     }
 }
