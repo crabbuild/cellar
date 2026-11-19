@@ -2,6 +2,7 @@
 
 //! One bounded, fair archive lane on the existing node controller. Published
 //! markers are observations, never S3 command settlement or serving authority.
+pub(super) mod foreground;
 mod job;
 mod journal;
 pub(super) mod late;
@@ -338,11 +339,14 @@ impl Manager {
             ))));
             return;
         }
-        shared
-            .archives
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(group, CellGroupArchiveStatus::default());
+        {
+            let mut statuses = shared.archives.lock().unwrap_or_else(|e| e.into_inner());
+            if let Err(error) = shared.foregrounds.register(group) {
+                request.reply.send(Err(Arc::new(Error::Runtime(error))));
+                return;
+            }
+            statuses.insert(group, CellGroupArchiveStatus::default());
+        }
         self.entries.insert(
             group,
             Entry {
@@ -386,11 +390,14 @@ impl Manager {
             .archive_compaction
             .begin_activation()
             .map_err(RuntimeError::from)?;
-        shared
-            .archives
-            .lock()
-            .map_err(|_| CellGroupControllerError::Closed)?
-            .insert(group, CellGroupArchiveStatus::default());
+        {
+            let mut statuses = shared
+                .archives
+                .lock()
+                .map_err(|_| CellGroupControllerError::Closed)?;
+            shared.foregrounds.register(group)?;
+            statuses.insert(group, CellGroupArchiveStatus::default());
+        }
         // The physical group/preparation already holds bounded admission. This
         // internal handoff consumes no second ordinary command slot or waiter.
         self.entries.insert(
@@ -645,7 +652,11 @@ impl Manager {
             if entry.retry_at > now {
                 Eligibility::Blocked
             } else if entry.waiters.is_empty() && proof_group != Some(group) {
-                Eligibility::Background
+                if shared.foregrounds.blocks(group, now) {
+                    Eligibility::Blocked
+                } else {
+                    Eligibility::Background
+                }
             } else {
                 Eligibility::Foreground
             }
@@ -653,6 +664,9 @@ impl Manager {
             return;
         };
         let entry = self.entries.get_mut(&group).expect("archive roster entry");
+        if entry.waiters.is_empty() && proof_group != Some(group) {
+            shared.foregrounds.background_started(group);
+        }
         entry.queued = false;
         entry.foreground_wake = false;
         entry.dirty = false;
@@ -936,6 +950,7 @@ impl Manager {
     }
 
     pub(super) fn retire(&mut self, group: GroupHistory, shared: &Shared) -> bool {
+        shared.foregrounds.forget(group);
         if self
             .handoff
             .as_ref()
@@ -1030,6 +1045,7 @@ impl Manager {
             }
         }
         self.entries.clear();
+        shared.foregrounds.clear();
         for status in shared
             .archives
             .lock()

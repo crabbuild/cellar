@@ -54,6 +54,16 @@ fn options(sequence: u64, durability: Durability) -> Result<CommandOptions> {
     Ok(options)
 }
 
+fn expired(error: &CellDispatchError) -> bool {
+    match error {
+        CellDispatchError::Runtime(RuntimeError::DeadlineExceeded) => true,
+        CellDispatchError::Execution(ExecutionError::Storage(error)) => error
+            .downcast_ref::<CellDispatchError>()
+            .is_some_and(expired),
+        _ => false,
+    }
+}
+
 pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
     let control = Arc::new(Control::default());
     let class = RaftClass::new("Counter", 1, [240; 32])?
@@ -77,7 +87,7 @@ pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
             })?,
     );
     let store = Arc::new(if real {
-        catalog_fault::Store::around(rustfs::store("s3-foreground", rooted)?)
+        catalog_fault::Store::around(rustfs::store(&format!("s3-foreground-{expire}"), rooted)?)
     } else {
         catalog_fault::Store::default()
     });
@@ -147,6 +157,7 @@ pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
         if expire {
             let error = result.expect_err("parked S3 invocation escaped its original deadline");
             ensure!(error.ambiguous, "committed checkpoint became known non-commit");
+            ensure!(expired(error.cause.as_ref()), "original typed deadline was lost: {error}");
         } else {
             let result = result?;
             ensure!(result.result == b"2" && result.durability == Durability::S3);
@@ -155,7 +166,11 @@ pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
         }
         // Drop or original deadline expiry must unblock existing dirty work.
         // The observer performs no mutation or S3 read to create demand.
-        let changed = changed.context("neighbor did not commit")?;
+        let changed = if expire {
+            changed.context("neighbor did not commit")?
+        } else {
+            neighbor.command(&neighbor.contract("Touch")?, b"{}".to_vec(), options(2, Durability::Quorum)?).await?.witness.position.index
+        };
         cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
                 if group.archive_status()?.and_then(|s| s.published)

@@ -438,6 +438,16 @@ The ordinary RPC adapter uses these identities and transitions:
   checkpoint's pending receipt from recovered archive bytes before continuation.
   Background archival for Quorum requests retains its documented RPO.
 
+Native asynchronous S3 invocations coalesce background archive attempts for their
+group while producing dependent checkpoints. The first original absolute deadline
+bounds a cohort; later arrivals may shorten it. Expiry opens the normal background
+lane until that cohort drains. A fresh final S3 receipt can finish an idle cohort
+after all output gates pass; older receipt replays cannot renew it. Foreground S3
+proofs and other groups continue through the existing scheduler. Physical archive
+verification, current authority and request deadlines remain required. Mixed
+Quorum/S3 release qualification must measure the resulting asynchronous archive
+lag against the selected profile's existing bounds.
+
 Ordinary RPC `Storage::sync()` reserves an owned boundary in the same call-order
 queue as root transactions. It checkpoints preceding private SQL/KV writes and
 waits for the invocation's exact quorum/S3 proof before completing. Dropping its

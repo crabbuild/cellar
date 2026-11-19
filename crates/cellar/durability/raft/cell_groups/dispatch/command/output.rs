@@ -114,6 +114,9 @@ impl CellCommandInvocation {
             .output
             .take()
             .ok_or(CellDispatchError::Invalid("consumed committed output"))?;
+        if let Some(invocation) = &self.archive_invocation {
+            invocation.completed(output.receipt.receipt().position.index);
+        }
         Ok(CellCommandResponse {
             output: CommandOutput::Local {
                 receipt: output.receipt,

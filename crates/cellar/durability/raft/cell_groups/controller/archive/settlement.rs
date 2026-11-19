@@ -171,6 +171,31 @@ impl CellGroupController {
 }
 
 impl Client {
+    /// Coalesce background cuts while one admitted native S3 callback creates
+    /// its dependent checkpoints. This hint owns no proof, timer or I/O work.
+    pub(crate) fn invocation(
+        &self,
+        runtime: &CellGroupRuntime,
+        route: &GroupRoute,
+        deadline: u64,
+        entered: cellar_logic::consensus::LogIndex,
+    ) -> std::result::Result<super::foreground::Invocation, CellDispatchError> {
+        self.require_runtime(runtime)?;
+        self.require_group(route)?;
+        let shared = self
+            .0
+            .upgrade()
+            .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?;
+        let now = shared
+            .domain
+            .mono_ms()
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+        shared
+            .foregrounds
+            .admit(route.history, deadline, now, entered)
+            .map_err(CellDispatchError::Runtime)
+    }
+
     pub(crate) async fn query(
         &self,
         runtime: &CellGroupRuntime,
