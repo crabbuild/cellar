@@ -8,6 +8,8 @@ use cellar::sdk::kv::{PutOptions, ReadType, ReadValue};
 mod cli;
 #[path = "cell_group_kv_revisions.rs"]
 mod revisions;
+#[path = "cell_group_kv_stream.rs"]
+mod streams;
 
 pub(super) async fn revision_scope(real_rustfs: bool) -> Result<()> {
     revisions::qualify(real_rustfs).await
@@ -44,13 +46,14 @@ enum Coverage {
     Preparation,
     Streaming,
     PayloadRecovery,
+    StreamDeadline,
 }
 
 impl Coverage {
     fn focused(self) -> bool {
         matches!(
             self,
-            Self::Preparation | Self::Streaming | Self::PayloadRecovery
+            Self::Preparation | Self::Streaming | Self::PayloadRecovery | Self::StreamDeadline
         )
     }
 }
@@ -82,6 +85,7 @@ async fn operation(context: &Context, method: &str) -> Result<serde_json::Value>
         "Contract" => kv_contract::basic(context, &namespace).await?,
         "Large" => kv_contract::large(context, &namespace).await?,
         "PublicLarge" => kv_contract::large(context, &context.kv("SIDE")?).await?,
+        "StreamDeadline" => streams::deadline(context).await?,
         "ReadLarge" => {
             let Some(ReadValue::Bytes(value)) =
                 namespace.get(context, "large", ReadType::Bytes).await?
@@ -472,6 +476,10 @@ pub async fn qualify_payload_recovery(real_rustfs: bool, external: bool) -> Resu
     qualify_case(real_rustfs, external, Coverage::PayloadRecovery).await
 }
 
+pub async fn qualify_stream_deadline(real_rustfs: bool) -> Result<()> {
+    qualify_case(real_rustfs, false, Coverage::StreamDeadline).await
+}
+
 fn payload_recovery_usage(cluster: &ManagedCluster, stage: &str) -> Result<()> {
     for (node, host) in cluster.hosts.iter().enumerate() {
         let usage = host
@@ -489,6 +497,7 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
     let kind = match coverage {
         Coverage::Preparation => "preparation",
         Coverage::PayloadRecovery => "payload recovery",
+        Coverage::StreamDeadline => "stream deadline",
         _ => "binding",
     };
     for rooted in [false, true] {
@@ -496,7 +505,9 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
             let backend = real_rustfs
                 .then(|| {
                     rustfs::StoreConfig::load(
-                        if coverage == Coverage::PayloadRecovery {
+                        if coverage == Coverage::StreamDeadline {
+                            "kv-stream-deadline"
+                        } else if coverage == Coverage::PayloadRecovery {
                             if external {
                                 "kv-payload-recovery-axum"
                             } else {
@@ -633,6 +644,10 @@ async fn run(
                     // reads after the payload provider has returned.
                     public_ok(&cluster, 0, "Unconfirmed").await?;
                 }
+            }
+            if coverage == Coverage::StreamDeadline {
+                public_ok(&cluster, 0, "StreamDeadline").await?;
+                return Ok(());
             }
             let token = operator_contract(&cluster).await?;
             let namespace = cellar_native::cell_id::Namespace::new(

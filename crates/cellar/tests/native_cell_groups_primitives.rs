@@ -2599,6 +2599,17 @@ async fn kv_payload_reads_resume_after_outage_and_retained_restart() -> Result<(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_stream_intake_obeys_its_original_operation_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_stream_deadline(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_kv_stream_intake_obeys_its_original_operation_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_stream_deadline(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_kv_payload_reads_resume_after_outage_and_retained_restart() -> Result<()> {
     Box::pin(kv_bindings::qualify_payload_recovery(true, false)).await
