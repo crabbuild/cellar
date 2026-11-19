@@ -109,6 +109,111 @@ fn binding_declaration(named: bool) -> (super::super::Binding, BindingConfig) {
     (binding, declaration)
 }
 
+#[test]
+fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result<()> {
+    use std::{
+        future::Future,
+        sync::{
+            atomic::{AtomicU8, Ordering},
+            Arc, Mutex,
+        },
+        task::{Context, Poll},
+    };
+
+    struct Gated {
+        replies: [Mutex<Option<tokio::sync::oneshot::Receiver<Result<Value>>>>; 2],
+        polled: Arc<AtomicU8>,
+    }
+
+    impl super::Host for Gated {
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            _args: Value,
+        ) -> HandlerFuture<Value> {
+            let admitted = (|| -> Result<_> {
+                anyhow::ensure!(principal == "app");
+                authority.validate_target(&scope, Some(&name), method)?;
+                let index = match method {
+                    "__catalogResolve" => 0,
+                    "__streamResolve" => 1,
+                    _ => anyhow::bail!("unexpected activation call {method}"),
+                };
+                let reply = self.replies[index]
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .ok_or_else(|| anyhow::anyhow!("repeated activation proof {method}"))?;
+                Ok((index, reply))
+            })();
+            let polled = self.polled.clone();
+            Box::pin(async move {
+                let (index, reply) = admitted?;
+                polled.fetch_or(1 << index, Ordering::SeqCst);
+                reply.await?
+            })
+        }
+    }
+
+    // Either independently placed authority may be cold after retained restart.
+    // Holding one read cannot prevent the other from beginning its quorum work,
+    // and one successful proof can never publish a binding by itself.
+    for first in [0, 1] {
+        for accepted in [false, true] {
+            let (binding, declaration) = binding_declaration(false);
+            let active = json!({"state":"active","resource":binding.resource});
+            let (catalog, catalog_reply) = tokio::sync::oneshot::channel();
+            let (partition, partition_reply) = tokio::sync::oneshot::channel();
+            let host = Gated {
+                replies: [
+                    Mutex::new(Some(catalog_reply)),
+                    Mutex::new(Some(partition_reply)),
+                ],
+                polled: Arc::new(AtomicU8::new(0)),
+            };
+            let declarations = [declaration];
+            let mut activation = Box::pin(configure(&host, &[], &declarations));
+            let waker = futures_util::task::noop_waker();
+            let mut cx = Context::from_waker(&waker);
+            assert!(activation.as_mut().poll(&mut cx).is_pending());
+            assert_eq!(
+                host.polled.load(Ordering::SeqCst),
+                3,
+                "serialized current-authority reads"
+            );
+            let mut replies = [Some(catalog), Some(partition)];
+            replies[first]
+                .take()
+                .unwrap()
+                .send(Ok(active.clone()))
+                .unwrap();
+            assert!(
+                activation.as_mut().poll(&mut cx).is_pending(),
+                "one proof granted readiness"
+            );
+            let last = if accepted {
+                Ok(active)
+            } else {
+                Err(anyhow::Error::from(RuntimeError::DeadlineExceeded))
+            };
+            replies[1 - first].take().unwrap().send(last).unwrap();
+            match activation.as_mut().poll(&mut cx) {
+                Poll::Ready(Ok(bindings)) if accepted => assert_eq!(bindings, vec![binding]),
+                Poll::Ready(Err(error)) if !accepted => assert!(matches!(
+                    error.downcast_ref::<RuntimeError>(),
+                    Some(RuntimeError::DeadlineExceeded)
+                )),
+                result => panic!("incorrect two-authority activation result: {result:?}"),
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn broker_birth_preparation_and_catalog_bootstrap_make_progress_together() -> Result<()> {
     use std::sync::{
