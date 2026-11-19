@@ -10,6 +10,9 @@ mod configuration;
 pub(crate) mod message;
 mod wire;
 
+#[cfg(test)]
+mod schema_tests;
+
 use super::{decode_rpc_result, encode_rpc, Context, HandlerFuture, Output};
 use crate::engine_api::{
     QueueBatch, QueueDispatchResult, QueueOutcome, QueueRetryBatch, QueueRetryMessage,

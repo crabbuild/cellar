@@ -36,6 +36,25 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Queue schema reopen work and current priorities
+
+Compiler inputs `2a7231be5eee34670d16c063fe2ce68ffe030f3a4a1d2cdb3e9e5903b22413d4` skip the Queue stats bootstrap aggregate when its existing stats row is present. Raft opens the schema for each private command image; previously the aggregate scanned the entire backlog before `ON CONFLICT` discarded its result. Schema creation, trigger definitions and missing-row rebuilds remain. Workers, banks, deadlines, identities, APIs and durability proofs stay unchanged.
+
+The byte-identical bundled-SQLite regression fails on the original SQL at 512 messages (8,831 VM callbacks versus 129 when empty), then passes with the schema-only change. Missing-stats rebuilding and subsequent delete/purge trigger metrics pass before and after. The exact linked SQLite 3.53.2 kernel uses 69,759 versus 122 VM steps at 4,096 messages, and 170,127 versus 122 at 10,000. These are initializer work counts, with no command throughput or latency-percentile claim.
+
+Current-source validation passes the full library (**1,261 passed / 2 existing ignores**), full native broker (**1 passed**) and original SQL/KV/RPC continuation controls in both image modes. **Combined application qualification remains FAILED:** ordinary shared-Raft Queue callbacks, batch proof sharing, C2, independent materialized/rooted C4 and combined C4 all fail. The C2/C4 producer failures reach their original peak two/four concurrency; final acknowledged-message/completion oracles remain unpassed. First-target budgets are 2,625 ms for C2, 1,627 ms for materialized C4 and 1,168 ms for rooted C4. These observations do not establish a causal regression or repair. All nine strict/repository checks pass, including all-feature/all-target Clippy and native-only facade compilation. See the [source-bound record](queue-schema-qualification-2026-11-19.json) for exact source/profile/executable/log hashes, the invalid initial selector setup and verified retained failures.
+
+The hosted original serial disaster target passes **13 cases / 8 explicit RustFS ignores** on preceding diagnostic commit `6783ed04`, compiler inputs `e92708ce`. The broader SDK native 3.14 job on that same source fails `disaster_retry_and_old_token_refusal` and `transition_disaster_selects_complete_closure` (11 passed / 2 failed / 8 ignored). Both failure sections identify **duplicate peer address** as the provisioning refusal. The rejected condition is now known; the collision origin and repair remain unproven. These preceding-source results do not qualify this Queue candidate. Full SDK and earlier archive-cleanup acceptance remain open.
+
+Priorities remain:
+
+1. **P0 — Queue progress and endpoint admission:** diagnose and close all six original-deadline Queue failures, then establish and repair the duplicate-peer-address condition in the full hosted sequence while preserving the production refusal. Profile physical image preparation, persistence and ingress waits while retaining SQL/KV/RPC regression coverage. SQL apply already has its own progress bank; post-failure snapshots do not justify raising producer ceilings. Cumulative SQL-publication unsuccessful counts include pending reconciliation and are not command-conflict counts.
+2. **P1 — Complete bounded optimization:** finish routing/read refusal and partition coverage, measured persistence batching and fairness, verified physical reclamation/once-only credit, reserve-aware movement and interrupted park/wake/recovery qualification (OPT-01–07).
+3. **P1 — Combined release:** complete the primitive/SDK/Axum/daemon/feature/backend-fault/crash suite and historical CG evidence (OPT-08). Preserve earlier failures when independent controls pass.
+4. **P2 — Original matched comparison:** retain SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket C1/4/16, three 1-vCPU/2-GiB Colima nodes, RF3/three groups/shared original RustFS, 256-byte payloads, Queue batch eight and reversed repetitions. The read-only observation at 2026-11-19T03:03:20.790083+00:00 finds zero available bytes below the unchanged 6-GiB reserve, stable identity/resources and zero restarts. No constrained comparison is admitted.
+
+Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open.
+
 ### Cached committed RPC conflicts and current priorities
 
 Implementation `6a6878dd` includes `origin/main` `2f083f14` and retains one final committed command ID and input digest in the existing bounded native activation. A different input at that ID can be refused before reopening private SQLite. The exact current image/route/leader/class fence, schema, registered admission and authority checks remain required. Matching inputs and other IDs keep ordinary receipt inspection; SQL ingress still needs its fresh quorum consumed-other proof before selecting another sequence. Intermediate checkpoints, output bytes, image custody and absence/non-commit authority are not cached. Workers, deadlines, stream identities, activation slots and banks stay unchanged.

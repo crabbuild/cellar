@@ -80,6 +80,8 @@ INSERT INTO __sys_queue_stats
               MIN(CASE WHEN purge_on_settle = 0 THEN enqueued_at END)
          FROM __sys_queue_messages
         WHERE true
+        -- Triggers maintain an existing row. LIMIT 0 skips the aggregate scan.
+        LIMIT (SELECT NOT EXISTS (SELECT 1 FROM __sys_queue_stats WHERE id = 1))
        ON CONFLICT(id) DO NOTHING;
 
 CREATE TRIGGER IF NOT EXISTS __sys_queue_messages_stored_insert
