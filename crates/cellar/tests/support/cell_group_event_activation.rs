@@ -64,22 +64,36 @@ pub async fn qualify(real: bool) -> Result<()> {
         .await?;
         let outcome = domain
             .run(async {
-                let stream = named_service::activate_at(&cluster, "stream-archive", 0).await?;
-                let catalog = named_service::activate_at(&cluster, "catalog-archive", 1).await?;
-                for node in &cluster.nodes {
-                    node.activate_event_resources().await?;
+                let stream = named_service::activate_at(&cluster, "stream-archive", 0)
+                    .await
+                    .context("activation fixture stream group")?;
+                let catalog = named_service::activate_at(&cluster, "catalog-archive", 1)
+                    .await
+                    .context("activation fixture catalog group")?;
+                for (index, node) in cluster.nodes.iter().enumerate() {
+                    node.activate_event_resources().await.with_context(|| {
+                        format!("initial retained-metadata activation node={index}")
+                    })?;
                 }
-                named_service::restart(&mut cluster).await?;
+                named_service::restart(&mut cluster)
+                    .await
+                    .context("retained metadata restart")?;
                 // Settle ordinary post-restart elections before the cost oracle.
                 // This warms no namespace range cache or logical-name selection.
                 for host in &cluster.hosts {
                     for history in [cluster.history, stream, catalog] {
-                        host.group(history)?.quorum_membership(TIMEOUT).await?;
+                        host.group(history)?
+                            .quorum_membership(TIMEOUT)
+                            .await
+                            .context("post-restart metadata group quorum")?;
                     }
                 }
                 let names = count(&cluster, "cell_name_quorum_selections")?;
                 let reads = count(&cluster, "cell_linearizable_read_barriers")?;
-                cluster.nodes[0].activate_event_resources().await?;
+                cluster.nodes[0]
+                    .activate_event_resources()
+                    .await
+                    .context("retained metadata activation with fresh quorum")?;
                 ensure!(
                     count(&cluster, "cell_name_quorum_selections")? == names,
                     "retained metadata activation forced an independent name ReadIndex"

@@ -396,7 +396,8 @@ fn speculative_partition_proof_is_discarded_when_catalog_needs_reconciliation() 
             method: &'static str,
             args: Value,
         ) -> HandlerFuture<Value> {
-            let reply = super::Host::rpc(&self.inner, principal, authority, scope, name, method, args);
+            let reply =
+                super::Host::rpc(&self.inner, principal, authority, scope, name, method, args);
             if method == "__catalogStatus" && self.first_status.swap(false, Ordering::SeqCst) {
                 return Box::pin(async move {
                     // Give the concurrent broker read one poll before revealing

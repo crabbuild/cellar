@@ -262,7 +262,22 @@ impl CellCommandInvocation {
                 }
                 break;
             }
-            match self.submit_at().await {
+            let submitted = self.submit_at().await;
+            match &submitted {
+                Ok(CellCommandSubmission::Accepted(proposal)) => {
+                    tracing::trace!(target: "cellar::raft::sql_publish", phase = "accepted",
+                        cell = ?self.cell, command = ?self.request.id, ?proposal);
+                }
+                Ok(CellCommandSubmission::Rejected) => {
+                    tracing::trace!(target: "cellar::raft::sql_publish", phase = "sealed",
+                        cell = ?self.cell, command = ?self.request.id);
+                }
+                Err(error) => {
+                    tracing::trace!(target: "cellar::raft::sql_publish", phase = "submission-refused",
+                        cell = ?self.cell, command = ?self.request.id, ?error);
+                }
+            }
+            match submitted {
                 Ok(CellCommandSubmission::Accepted(_)) => break,
                 Ok(CellCommandSubmission::Rejected) => {
                     return Err(CellDispatchError::Execution(ExecutionError::Refused(

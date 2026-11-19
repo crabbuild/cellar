@@ -2112,7 +2112,12 @@ impl CellGroupOwner {
         data: Vec<u8>,
         reservation: Option<&Arc<super::log_retention::LogReservation>>,
     ) -> Result<Option<CellGroupProposal>, RuntimeError> {
-        if !self.status()?.ready {
+        let status = self.status()?;
+        if !status.ready {
+            tracing::trace!(target: "cellar::raft::sql_publish", phase = "owner-not-ready",
+                group = ?self.group.identity().scope, member = self.node.raft.id,
+                ?status, applying = self.phase.is_some(), checkpoint = self.checkpoint.is_some(),
+                apply_bytes = self.apply_bytes, apply_limit = self.options.max_group_apply_bytes);
             return Err(RuntimeError::NotReady);
         }
         if data.len() > self.options.max_proposal_bytes {
