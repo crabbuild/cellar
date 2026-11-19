@@ -74,7 +74,12 @@
         "cellar::sdk::sql::PreparedStatement::all",
         "cellar::sdk::sql::PreparedStatement::run",
         "cellar::sdk::sql::PreparedStatement::first",
-        "cellar::sdk::sql::PreparedStatement::raw"
+        "cellar::sdk::sql::PreparedStatement::raw",
+        "cellar::sdk::sql::Error",
+        "cellar::sdk::sql::Error::new",
+        "cellar::sdk::sql::Error::from_message",
+        "cellar::sdk::sql::Error::from_error",
+        "cellar::sdk::sql::Error::cause"
       ],
       "owners": [
         "crates/cellar/application/sql/mod.rs",
@@ -85,7 +90,8 @@
         "crates/cellar/application/consensus/sql_ingress_identity.rs",
         "crates/cellar/application/consensus/native_rpc.rs",
         "crates/cellar/application/consensus/class.rs",
-        "crates/cellar/application/consensus/ingress_cursor.rs"
+        "crates/cellar/application/consensus/ingress_cursor.rs",
+        "crates/cellar-native/sql/binding.rs"
       ],
       "schemas": [
         "Target SQLite and migration history",
@@ -103,7 +109,7 @@
       ],
       "permission": "Declared canonical database identity; explicit remote target query/command origins",
       "proof": "Target namespace minimum durability; SQL reads also execute as commands",
-      "ordering": "Session bookmarks and atomic target batches",
+      "ordering": "Session bookmarks and atomic target batches; local typed dispatch causes retain original command/creation identity and ambiguity; messages are not retry authority",
       "recovery": "Restore target database and session/history bounds",
       "case": "primitives_sql_sessions_kv_ttl_and_revision_conditions",
       "refusals": {

@@ -23,8 +23,8 @@ use wire::{js_string, params, truthy};
 
 type Result<T> = std::result::Result<T, Error>;
 
-fn error(error: impl std::fmt::Display) -> Error {
-    Error::from_message(error.to_string())
+fn error(error: impl Into<anyhow::Error>) -> Error {
+    Error::from_error(error.into())
 }
 
 #[derive(Clone, Debug)]

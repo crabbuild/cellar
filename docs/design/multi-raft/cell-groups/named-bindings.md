@@ -149,6 +149,19 @@ recovery and release gates. The current scoped S3-source and public SQL/KV
 qualification is recorded in the
 [latest checkpoint](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
 
+SQL failures retain their existing `family`, `message`, display and serialized
+wire fields. Within Rust, `std::error::Error::source` also retains the original
+owned dispatch failure. Inspect that chain for `sdk::CellBindingCallError` after
+command submission or `sdk::CellBindingEnrollmentError` before a command exists.
+Keep the exact child command or creation identity, target history, independent
+minimum and ambiguity when reconciling. A timeout or lost reply never permits
+reissuing the SQL as a fresh call or replaying a whole source callback. Cloning
+the SQL error retains its local cause; serializing its message does not transport
+or authenticate that typed provenance.
+Construct SQL errors with `Error::new`, `Error::from_message` or
+`Error::from_error`; the owned cause is private, so existing struct literals
+must use a constructor.
+
 ## Stateless SQL ownership boundary
 
 Stateless native calls have no source cell transaction. Creation, any required
