@@ -197,6 +197,9 @@ struct Shared {
 impl Shared {
     fn stop(&self) {
         self.closing.store(true, Ordering::Release);
+        // Checkpoints waiting for existing output capacity retain their original
+        // SQL admission. Wake them without consuming the worker's stop signal.
+        self.s3.wake.notify_waiters();
         self.stop.notify_one();
     }
 

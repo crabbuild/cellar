@@ -217,7 +217,7 @@ impl Suspended {
                                 checkpoint.phase =
                                     CheckpointPhase::Archiving(Box::pin(async move {
                                         let settled = archive
-                                            .command(
+                                            .checkpoint(
                                                 &commits.runtime,
                                                 commits.route,
                                                 receipt,

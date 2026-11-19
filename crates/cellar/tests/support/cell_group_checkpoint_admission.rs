@@ -50,6 +50,32 @@ fn options(sequence: u64) -> Result<CommandOptions> {
     Ok(options)
 }
 
+fn expired(error: &CellDispatchError) -> bool {
+    match error {
+        CellDispatchError::Runtime(RuntimeError::DeadlineExceeded) => true,
+        CellDispatchError::Execution(ExecutionError::Storage(error)) => error
+            .downcast_ref::<CellDispatchError>()
+            .is_some_and(expired),
+        _ => false,
+    }
+}
+
+async fn retired(host: &RaftCells) -> Result<()> {
+    cellar::asyncrt::timeout(TIMEOUT, async {
+        loop {
+            let usage = host.resource_usage();
+            if usage.sql.as_ref().is_some_and(|sql| sql.active_cells == 0)
+                && usage.host.controller.archive_settlement.items == 1
+            {
+                break;
+            }
+            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("checkpoint retained admission after its waiter ended")
+}
+
 pub async fn qualify(rooted: bool, real: bool, end: End) -> Result<()> {
     let entered = Arc::new(Notify::new());
     let calls = Arc::new(AtomicUsize::new(0));
@@ -140,6 +166,7 @@ pub async fn qualify(rooted: bool, real: bool, end: End) -> Result<()> {
         ensure!(first.receipt().is_some() && second.receipt().is_some());
         let usage = host.resource_usage().host.controller;
         ensure!(usage.archive_settlement.items == 2 && usage.archive_settlement.max_items == 2);
+        eprintln!("checkpoint admission: extents={rooted} end={end:?} held_proofs=2");
         let request = options(1)?;
         let checkpoint = source.contract("Checkpoint")?;
         let mut pending = Box::pin(source.command(&checkpoint, b"{}".to_vec(), request.clone()));
@@ -160,10 +187,11 @@ pub async fn qualify(rooted: bool, real: bool, end: End) -> Result<()> {
         }
         ensure!(calls.load(Ordering::Acquire) == 1 && continued.load(Ordering::Acquire) == 0);
         ensure!(host.resource_usage().host.controller.archive_settlement.items == 2);
+        eprintln!("checkpoint admission: partial root committed, callback_calls=1 continued=0");
         match end {
             End::Release => {
                 drop(first);
-                let result = pending.await?;
+                let result = pending.await.context("held checkpoint after S3 capacity release")?;
                 ensure!(result.result == b"1" && result.durability == Durability::S3);
                 drop(result);
                 let replay = source.command(&checkpoint, b"{}".to_vec(), request).await?;
@@ -174,31 +202,32 @@ pub async fn qualify(rooted: bool, real: bool, end: End) -> Result<()> {
             End::Deadline => {
                 let error = pending.await.expect_err("checkpoint escaped its original deadline");
                 ensure!(error.ambiguous, "committed intermediate root became known non-commit");
+                ensure!(expired(error.cause.as_ref()), "checkpoint lost its typed original deadline: {error}");
                 ensure!(continued.load(Ordering::Acquire) == 0);
                 drop(first);
+                retired(host).await?;
+                ensure!(continued.load(Ordering::Acquire) == 0, "expired checkpoint resumed after healing");
             }
             End::Cancel => {
                 drop(pending);
                 drop(first);
-                cellar::asyncrt::timeout(TIMEOUT, async {
-                    loop {
-                        let usage = host.resource_usage();
-                        if usage.sql.as_ref().is_some_and(|sql| sql.active_cells == 0)
-                            && usage.host.controller.archive_settlement.items == 1
-                        {
-                            break;
-                        }
-                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
-                    }
-                }).await.context("cancelled checkpoint retained admission")?;
+                retired(host).await?;
                 ensure!(continued.load(Ordering::Acquire) == 0, "cancelled callback resumed");
             }
             End::Close => {
-                let (closed, result) = tokio::join!(host.close(), pending);
+                let (closed, refused) = tokio::join!(host.close(), async {
+                    let result = pending.await;
+                    ensure!(result.is_err(), "closing owner produced S3 output");
+                    ensure!(continued.load(Ordering::Acquire) == 0, "closed callback resumed");
+                    // Consumer proofs can outlive the node. Release them only
+                    // after its admitted callback has refused continuation.
+                    drop(first);
+                    drop(second);
+                    Ok::<_, anyhow::Error>(())
+                });
                 closed?;
-                ensure!(result.is_err(), "closing owner produced S3 output");
-                ensure!(continued.load(Ordering::Acquire) == 0, "closed callback resumed");
-                drop(first);
+                refused?;
+                return Ok(());
             }
         }
         drop(second);
