@@ -1038,4 +1038,4 @@ mod qualification;
 pub use qualification::{
     qualify_batch_proof, qualify_cold_metadata, qualify_extent_load, qualify_faults, qualify_load,
     qualify_long, qualify_metadata_reads, qualify_metadata_s3, qualify_sdk_metadata,
-};
+ qualify_transfer_identity,};

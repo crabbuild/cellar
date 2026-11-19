@@ -6,6 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const FAST: &str = "quorum-fast";
 
+#[path = "cell_group_queue_transfers.rs"]
+mod transfers;
+pub use transfers::qualify as qualify_transfer_identity;
+
 struct Minimums {
     queue: Durability,
     dead: Durability,
@@ -145,6 +149,34 @@ fn applications(signals: Arc<Signals>, minimums: Minimums) -> Result<Deployments
                     .try_concat()
                     .await
                     .map_err(anyhow::Error::msg)?;
+                if request.url.ends_with("/transfer") {
+                    let args = cellar_native::clone::StructuredValue::from_json(
+                        serde_json::from_slice(&bytes)?,
+                    )?;
+                    let result = async {
+                        let reply = context
+                            .rpc_cell(
+                                cellar::engine_api::queue_cell_scope(DEAD),
+                                Some(DEAD.into()),
+                                "__queueDlqAcceptBatch".into(),
+                                cellar::sdk::encode_rpc(&args)?,
+                            )
+                            .await?;
+                        cellar::sdk::decode_rpc_result(&reply)?.to_json()
+                    }
+                    .await;
+                    return Ok(Output::Http(cellar::engine_api::HttpResponse {
+                        status: if result.is_ok() { 200 } else { 409 },
+                        headers: vec![],
+                        body: result
+                            .map(|value| value.to_string().into_bytes())
+                            .unwrap_or_else(|error| format!("{error:#}").into_bytes()),
+                        stream: None,
+                        websocket: None,
+                        write_position: None,
+                        observed_position: None,
+                    }));
+                }
                 let values: Vec<String> = serde_json::from_slice(&bytes)?;
                 let entries: Vec<_> = values
                     .into_iter()
