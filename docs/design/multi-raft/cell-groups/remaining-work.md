@@ -41,23 +41,27 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `41ff9551a` pipelines fresh/retained explicit broker proofs with catalog
-reconciliation and validates all captured capabilities against the exact current
-catalog definition. Raft and Fleet catalog proofs cannot be interchanged.
-Eleven owning activation tests pass. **The original owning campaigns remain
-FAILED:** native retained metadata passes materialized restart/quorum/refusal
-checks, then fails extent's initial catalog enrollment. Native and real RustFS
-public EventStream fail initial materialized activation; their extents are unrun.
-Real RustFS retained metadata also fails initial materialized activation.
+Runtime `f899e5d35` waits for settled catalog state without archiving intermediate
+pending observations. It retains one invocation, its original deadline/attempt
+budget and exact-history quorum checks; settled success still requires the full
+target S3 proof. All 27 selected owning protocol/metadata/authority tests pass.
+Native public publication/subscriptions/outbox and retained activation each pass
+both image modes. Real RustFS public materialized mode passes its entire owning
+case; extent mode fails initial activation. RustFS retained activation and both
+Axum public cases fail initial materialized activation, leaving their extents
+unrun. This is **5/12 configurations**, with the combined campaign still FAILED.
 
-The immediate feature blockers are **cold catalog enrollment and final S3 proof
-completion within the original activation deadline**, then S3-source binding
-`Read`/`Consume` and autonomous interrupted-call settlement. The native public
-control at `14271ad5e` proves final catalog acceptance before binding adoption begins with only
-8 ms remaining. The new early broker proof completes, but catalog admission/S3
-proof still blocks the full public path. Preserve every older failure and its
-identity; these scoped passes close no primitive family or planned CG-17 case.
-See the [current checkpoint](progress.md#current-integration-checkpoint).
+The immediate feature blocker is **cold catalog enrollment plus source/final S3
+proof latency under the original activation deadline**. Investigate a typed,
+exact-base S3 proof for an unchanged read source, retaining actual physical
+coverage and invalidating it on dirty writes, rebase, route/term change or new
+history. Do not turn the existing Quorum clean-read flag into an S3 proof.
+Next complete original S3-source binding reads/Consume and autonomous interrupted
+call settlement. Rerun the full original public RPC/EventStream cohort, then
+finish every primitive family and the unchanged 32-case matrix. Preserve all
+failed identities and original budgets. The unqualified empty-archive experiment
+was withdrawn; its failed evidence remains. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
 
 Earlier runtime `ee2452a94` bounds incomplete primitive operator uploads with the
 original deadline and closes their connection before dispatch. The old runtime

@@ -6,28 +6,38 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current primitive activation correctness delivery
 
-Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
-`41ff9551a` pipelines fresh/retained explicit broker proofs, validates every
-captured capability against the exact current catalog definition and keeps
-proof reuse inside one backend. Eleven owning activation tests pass. The full
-public EventStream case still fails initial materialized activation on native
-storage and real RustFS; their extent forms are unrun. Native retained metadata
-passes materialized restart/quorum/refusal checks, then fails extent's initial
-catalog enrollment. Real RustFS retained metadata also fails initial activation.
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `f899e5d35`
+adds a private settled-catalog query: pending state releases its SQL selection
+and parks the same invocation for exact-cell progress, then obtains fresh quorum.
+Successful settled state still needs current authorization and full independent
+S3 coverage. Deadlines, attempt budgets and ambiguity rules remain unchanged.
+All 27 selected activation/RPC/authority tests pass.
 
-Next close cold catalog enrollment and final S3 proof latency within the
-original deadline; then complete original S3-source `Read`/`Consume` and
-autonomous binding recovery. Do not weaken same-term uncertainty, independent
-target minima or grant checks. The final proposal was accepted in the
-`14271ad5e` control; do not diagnose it as an unsubmitted command.
+Native public publication/subscriptions/outbox and retained activation each pass
+both image modes. Real RustFS public materialized mode passes the full case;
+extent activation fails. Real RustFS retained activation and native/real-RustFS
+Axum initial materialized activations fail; their extents are unrun. Combined
+qualification is **FAILED, 5/12 configurations**. The earlier full public RPC/Event
+cohort, including named source-S3 retained sequence 7, remains to be requalified.
 
-Evidence `CG-17-event-binding-grant-41ff9551a-1734/record.json` remains FAILED:
-42 failed voter roots/1,718 files and eight frozen executables are verified;
-source/log/evidence metadata is backed up. Owned runtime/backend/VM are stopped.
-All 32 planned entry points, complete family/provider/feature/lifecycle coverage
-and remaining CG-13/15/16 gates are mandatory. Counts stay 13/17 tasks, 147/195
-cases. See the [current checkpoint](progress.md#current-integration-checkpoint).
-Executor state: `.cellar/cg17-payload-01/event-binding-grant-state-1730.json`.
+Next deliver cold catalog/source/final S3 proof completion within the original
+activation budget. Investigate exact-base read-only S3 source proofs with real
+retained coverage and correct dirty/rebase/history/epoch invalidation; never
+relabel the Quorum clean-source flag. Then complete autonomous interrupted
+binding recovery, all families/provider/feature/lifecycle coverage and every
+planned entry point. Do not narrow the 32-case scope or weaken uncertainty.
+
+Evidence `CG-17-event-catalog-ready-f899e5d35-1744/record.json` retains twelve failed
+roots/487 files and two frozen executables; earlier controls remain retained.
+The no-manifest idle-archive experiment `49a3bc96b` failed its new test's incorrect
+no-bootstrap-cut assumption and was withdrawn. Its source/logs, three failed
+roots/49 files and binaries remain in the separate withdrawn record. Runtime
+source is restored exactly to `f899e5d35`. Owned runtime/backend/VM are stopped.
+
+All 32 CG-17 cases and remaining CG-13/15/16 gates remain mandatory. Counts stay
+13/17 tasks, 147/195 cases; the generated implementation index remains current.
+See the [current checkpoint](progress.md#current-integration-checkpoint).
+Executor state: `.cellar/cg17-payload-01/event-catalog-ready-state-1741.json`.
 
 ## Previous streamed-KV correctness delivery
 

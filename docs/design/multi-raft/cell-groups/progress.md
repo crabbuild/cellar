@@ -32,56 +32,67 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-**CG-17 remains open.** Runtime `41ff9551a` pipelines fresh and retained explicit
-broker binding checks with catalog reconciliation. Readiness still requires an
-independent current broker proof and an exact active catalog definition proof.
-Proof reuse checks every captured capability using the broker's existing grant
-validation and is confined to the same backend; a Raft catalog cannot authorize
-adoption through a separately routed Fleet catalog. Invalid declared capabilities
-remain typed `Forbidden` errors. Only speculative immutable read failures can
-use normal post-configuration adoption. No deadline or durability gate changes.
+**CG-17 remains open.** Runtime `f899e5d35` adds a private settled-catalog read.
+Pending configuration returns typed `NotReady` before successful output or archive
+settlement. The same invocation releases its SQL selection, waits for that exact
+cell to advance and obtains fresh quorum authority. A settled response still
+requires current authorization and the ordinary independent target S3 proof.
+Original deadlines, attempt budgets and uncertainty rules remain unchanged.
+Ordinary status reads keep their existing behavior. Earlier full capability and
+backend-isolation checks remain in force.
 
-The locked optimized build passes, with assertions and overflow checks enabled.
-All **11 owning activation tests pass**, including held independent proofs,
-fresh/retained capability revocation, backend isolation, stale receipts and
-cancellation of speculative reads before reconciliation.
+The locked optimized build passes with assertions and overflow checks enabled.
+All **27 selected owning tests pass**: eleven activation protocol tests, fifteen
+private event RPC/metadata tests and one authority test. The catalog initializer
+case covers creating/updating refusal, ordinary status, foreign/ordinary caller
+refusal, active revision/digest, retirement and current grant revocation.
 
-The unchanged owning qualification is **FAILED**:
+The original owning campaign remains **FAILED**, with **5/12 image configurations
+passed**, four failed and three unrun:
 
-- Native retained metadata: **1/2**. Materialized mode passes cold activation,
-  retained restart, fresh quorum, the name-selection cost oracle and refusal
-  without quorum. Extent mode fails initial catalog enrollment with an ambiguous
-  creation identity, before reaching its restart checks.
-- Full public EventStream: native and real RustFS both fail initial materialized
-  activation at node 0. Their extent configurations are unrun.
-- Real RustFS retained metadata also fails initial materialized activation;
-  its extent configuration is unrun. No complete primitive family is accepted.
+| Owning case | Materialized | Extents |
+| --- | --- | --- |
+| Native public publication/subscriptions/outbox | Passed | Passed |
+| Native retained activation | Passed | Passed |
+| Real RustFS public publication/subscriptions/outbox | Passed | Failed initial activation |
+| Real RustFS retained activation | Failed initial activation | Unrun |
+| Native Axum public publication/subscriptions/outbox | Failed initial activation | Unrun |
+| Real RustFS Axum public publication/subscriptions/outbox | Failed initial activation | Unrun |
 
-The `14271ad5e` native control distinguishes normal uncertainty from submission
-failure: the final catalog proposal is accepted at term 2/index 5, and fresh
-catalog status reaches the binding-adoption path with only **8 ms** remaining.
-The original broker proof starts too late and expires. On `41ff9551a`, the early
-broker proof completes within budget, but the current catalog status/S3 proof
-still exceeds the public activation window. This does not explain every older
-timeout or establish a complete deadline repair. Same-term absence remains
-uncertain; original identities, oracles and budgets are retained.
+The passing public cases complete their original lifecycle, recovery, archive
+outage, receipt/replay and quorum-refusal checks. Retained cases require fresh
+quorum and retain their name-selection cost/refusal oracles. These are scoped
+passes, not complete EventStream-family or planned-case acceptance. The older
+12-selector public RPC/EventStream cohort has not been fully rerun on this source;
+its named source-S3 retained-sequence failure and other unqualified paths remain
+required. No speedup, timing stability or exclusive causal fix is established.
 
-The immediate feature gap is **cold catalog enrollment and final S3 proof
-completion within the original activation deadline**, followed by the earlier
-S3-source binding `Read`/`Consume` and autonomous interrupted-call recovery gaps.
-All public families and the full 32-case inventory/feature/provider/lifecycle
-matrix remain mandatory before cutover.
+The critical gap is still **cold catalog enrollment and source/final S3 proof
+completion within the original activation deadline**. Next investigate exact-base
+S3 proofs for unchanged read sources, with real retained coverage and invalidation
+on dirty writes or writer rebase; a Quorum clean-source flag cannot supply S3
+proof. Then complete autonomous interrupted binding recovery and every remaining
+primitive/provider/feature/lifecycle case. All 32 CG-17 cases remain mandatory.
 
-Evidence `CG-17-event-binding-grant-41ff9551a-1734/record.json` remains **FAILED**.
-It verifies 42 retained failed voter roots, 1,718 files and eight frozen
-executables, with a verified backup of source/log/evidence metadata. RF3 TLS
-voters share one process with separate disks; real RustFS has one CPU, two GiB
-and no additional swap. Independent voter cgroups and release qualification
-are not established. Owned runtime processes, backend and VM are stopped.
-Acceptance remains **13/17 tasks and 147/195 cases**; **0/32 planned CG-17
-entry-point functions** are present. Historical CG-01 evidence is still missing.
-Strict library/all-test Clippy passes after a test-only clone-to-borrow cleanup.
-Runtime code and qualification oracles are unchanged after `41ff9551a`.
+Evidence `CG-17-event-catalog-ready-f899e5d35-1744/record.json` is **FAILED**.
+It verifies twelve failed voter roots/487 files and two frozen executables, with
+verified source/log/evidence backup. The earlier 42-root/1,718-file controls and
+eight binaries remain retained through the preceding record. RF3 TLS voters share
+one process with separate disks. Real RustFS has one CPU, two GiB and no additional
+swap. Independent voter cgroups and release qualification are not established.
+Owned runtime/backend/VM are stopped.
+
+An unqualified no-manifest archive-scheduling experiment at `49a3bc96b` was
+withdrawn without weakening its failing oracle: the chosen fixture legitimately
+publishes an empty bootstrap cut. Its failed test, source, three voter roots/49
+files and frozen executables remain in
+`CG-17-idle-archive-withdrawn-49a3bc96b-1750/record.json`. The successor restores
+runtime source exactly to `f899e5d35`; that experiment is not part of the change.
+
+Acceptance stays **13/17 tasks and 147/195 cases**; **0/32 planned CG-17 entry-point
+functions** are present. The generated implementation index remains current.
+Historical CG-01 evidence is still missing. Final repository checks are reported
+separately from the frozen runtime qualification.
 
 ### Earlier operator intake qualification
 
