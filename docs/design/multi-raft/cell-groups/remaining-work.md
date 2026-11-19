@@ -36,6 +36,72 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Retained log cache reuse and current priorities
+
+Compiler inputs `2efed90e495f23cc30777713bb38b46142ad414ee29b0d4e9dac89a9215eaebb`
+include main `2f083f14`. Metadata-only persistence candidates now share immutable
+retained entries. Appends build a private map; checkpoints copy only the surviving
+suffix; snapshot installation replaces the candidate map. Existing validation,
+sync/publication ordering, receipts, capacity charges, workers and deadlines stay
+unchanged. This removes entry-map cloning; no end-to-end throughput or latency
+gain is qualified.
+
+The byte-identical real-engine regression observes entry reuse **false before /
+true after**, with held-sync invisibility, no premature completion, committed
+rewrite refusal, unchanged retained views, exact reopen and joined shutdown on
+both sides. Its RF3-configured local group does not establish RF3 serving. Full
+library **1,263 / 2 existing ignores**, storage **22 / 2 owned process-fixture
+ignores**, and snapshot **5 / 2 owned process-fixture ignores** pass.
+
+The original eleven-case application cohort remains **5 passed / 6 failed**.
+Ordinary/Axum SQL, ordinary KV and both Queue operator-read controls pass. Axum KV
+refuses extent-backed `PublicLarge` with `Runtime(Overloaded)` after 190 ms,
+before its large put completes. The identical baseline case and a later actual
+execution of the same candidate binary pass both image modes. This establishes
+an intermittent failure with unproven cause; the failed cohort remains failed,
+and full KV acceptance stays open. All five ordinary/C2/combined and independent
+C4 Queue progress/drain cases fail. Available failed-run disks and verified
+closed copies remain retained, including **9,353 files / 811,572,380 bytes**.
+Successful isolated fixture cleanup leaves no terminal disks and grants no
+retained recovery-media evidence.
+
+Eight initial strict/repository checks pass. The ninth, the 44-case plan suite,
+first rejects the changed manifest anchor. After review, only that anchor and
+the source revision are repinned to `d13558f85`; all other anchors and task
+statuses remain unchanged. All 44 tests and direct reviewed-source preflight
+then pass. The broader plan CLI separately cannot load historical CG-01 evidence
+in this checkout; its delivery gate remains open.
+
+The preceding native Queue diagnostic still finds separate log-append,
+commit-index and applied-state publication writes, with node-call means roughly
+31–50 ms. Across complete diagnostic runs including setup, 733 of 735 appends
+contain one entry. These temporary-probe observations identify persistence work;
+they are not current-source performance qualification or a matched Fleet/Bucket
+comparison. Required durability boundaries remain unchanged.
+
+Remaining priorities:
+
+1. **P0 — Queue progress and large KV admission:** close original Queue deadlines
+   and acknowledged-message drain, and diagnose intermittent Axum KV large-value
+   refusal. Preserve original identities, failed data, limits and proof checks.
+2. **P0 — Release acceptance:** obtain current-source routing/read-refusal,
+   Python lifecycle and SDK acceptance; retain historical source boundaries.
+3. **P1 — OPT-01–08 and remaining CG gates:** complete measured persistence,
+   ReadIndex/archive batching and fairness, physical reclamation/once-only credit,
+   reserve-aware movement, interrupted transitions/recovery and complete
+   primitive/backend/crash/historical evidence.
+4. **P2 — Original constrained performance:** the 2026-11-19T16:48:49Z read-only
+   RustFS observation still has zero available bytes against the unchanged 6 GiB
+   reserve, stable identity/resources and zero restarts. No case is admitted.
+   Preserve the original three 1-vCPU/2-GiB Colima nodes, RF3/three groups/shared
+   RustFS; SQL/KV/Queue × Quorum/Quorum+S3/Fleet/Bucket × C1/4/16, 256-byte values,
+   Queue batch eight and reversed repetitions.
+
+Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See
+the [source-bound record](retained-log-cache-qualification-2026-11-19.json) for
+source/profile/executable/log bindings, original failures, isolated controls,
+retained media and environment limits.
+
 ### Retired-voter drain verification and current priorities
 
 Compiler inputs `029d9a82fe1a7da0c985758ccae9593166c885bb466c64834d316e1c69f15a58` include main `2f083f14`.
