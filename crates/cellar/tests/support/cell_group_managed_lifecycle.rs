@@ -44,7 +44,9 @@ async fn replacement(rooted: bool) -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_s3_group_replacement_and_joined_restart() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(replacement_with_source(rooted, true)).await?;
+        Box::pin(replacement_with_source(rooted, true))
+            .await
+            .with_context(|| format!("S3 replacement lifecycle extents={rooted}"))?;
     }
     Ok(())
 }
@@ -91,6 +93,9 @@ async fn replacement_with_store(
         FirstGroupSetup::Normal,
     ))
     .await?;
+    for root in &mut cluster.roots {
+        root.disable_cleanup(true);
+    }
     if from_s3 {
         // Seed from retained startup, with the transport pool enabled and no
         // periodic checkpoint policy. Fresh attachment uses a different path.
@@ -129,13 +134,17 @@ async fn replacement_with_store(
         }
     }
     let work = async {
-        let (seed, obsolete) = replace_with_source(&cluster, from_s3).await?;
+        let (seed, obsolete) = replace_with_source(&cluster, from_s3)
+            .await
+            .context("replacement lifecycle: selected movement and source verification")?;
         let joined_boot = cluster.hosts[3]
             .observe_node(TIMEOUT)
             .await?
             .fleet_boot
             .context("installed learner's boot")?;
-        drain_leader(&mut cluster, &seed, obsolete).await?;
+        drain_leader(&mut cluster, &seed, obsolete)
+            .await
+            .context("replacement lifecycle: handoff and survivor verification")?;
         ensure!(
             calls.load(Ordering::Acquire) == 6,
             "seed replay ran SQL again"

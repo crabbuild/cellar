@@ -6316,3 +6316,63 @@ Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
 See [source-bound qualification](import-completion-qualification-2026-11-19.json)
 for exact source/executable/profile/log bindings, failed attempts, reuse and
 native/environment limits.
+
+## Retired-voter drain verification — 2026-11-19
+
+Compiler inputs `029d9a82fe1a7da0c985758ccae9593166c885bb466c64834d316e1c69f15a58` include main `2f083f14`.
+All production inputs are byte-identical to published `1ba5fb538`. This follow-up
+corrects a managed lifecycle test race and retains its node disks/error phases.
+
+The exact S3 replacement case first passes in isolation, then the first serial
+repetition fails after replacement reaches Complete and verifies source data.
+Its drain scan requests status from candidate **0**, also the verified obsolete
+voter **0**; that runtime detaches between lookup and status, returning
+`Raft runtime: NotFound`. The fixture now excludes only this removed voter from
+initial drain leader selection and maps the result to the original host index.
+Unexpected `NotFound` from any eligible voter still fails. This is a test
+selection correction, with no production retry or recovery-policy change.
+
+The same lifecycle oracle passes both materialized and extents modes: exact S3
+receipts, replay/fresh values, final membership, retained debt, lost terminal CAS
+reconciliation, actual drain handoff/no unresolved producers, invocation counts
+six/eight, joined retained restart, cold quorum-read and oldboot grant refusals.
+The failed trial's **128 files / 1,766,043 bytes** and candidate's **364 files /
+5,203,294 bytes** remain at their original paths and match verified closed copies.
+The initial context-only control had no available terminal disks under its prior
+TempDir cleanup; it is not represented as retained recovery media.
+
+Full managed qualification now passes **38 / 0 failed / 15 explicit RustFS
+ignores**. Library **1,262 / 2 existing ignores** and disaster **13 / 8 explicit
+RustFS ignores** also pass; reuse requires freshly rebuilt byte-identical
+executables and complete profiles. All nine strict/repository checks pass.
+These host-native synthetic-store results do not qualify the original constrained
+Colima/RustFS comparison or establish a throughput/latency gain.
+
+Remaining priorities:
+
+1. **P0 — Queue progress:** close original producer/source-RPC/consumer deadlines
+   and acknowledged-message drain in both image modes. Preserve ambiguous IDs,
+   exact receipts, workers, bounds and required proofs. The preceding application
+   selection remains six passed/five failed; SQL/KV/RPC controls pass, while
+   ordinary Queue, C2 and C4 progress/drain cases remain open.
+2. **P0 — Current-source release acceptance:** obtain hosted routing/read-refusal,
+   Python lifecycle and SDK acceptance. The earlier hosted S3 `NotFound` has no
+   exact phase context, so the local diagnosis does not independently prove its
+   cause. Preserve earlier failures and their source boundaries.
+3. **P1 — OPT-01–07:** finish routing/read partition coverage, measured persistence/
+   ReadIndex/archive batching and fairness, physical shared-file reclamation with
+   once-only capacity credit, reserve-aware movement and interrupted lifecycle/
+   transition/recovery qualification.
+4. **P1 — OPT-08:** complete primitive/SDK/Axum/daemon/feature/backend-fault/crash
+   and historical CG evidence.
+5. **P2 — Original constrained performance:** keep the original three 1-vCPU/2-GiB
+   Colima nodes, RF3/three groups/shared RustFS; SQL/KV/Queue across Quorum,
+   Quorum+S3/Fleet/Bucket C1/4/16, 256-byte values, Queue batch eight and reversed
+   repetitions. The 2026-11-19T14:27:07Z read-only original RustFS observation
+   still finds zero available bytes against the unchanged 6 GiB reserve, stable
+   identity/resources and zero restarts. No performance case is admitted.
+
+Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
+See [source-bound qualification](retired-voter-drain-qualification-2026-11-19.json)
+for exact source/executable/profile/log hashes, intermittent controls, retained
+media, reuse and environment limits.

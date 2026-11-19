@@ -333,7 +333,9 @@ pub async fn replace_with_retry(
             "S3 replacement never fetched archive payloads"
         );
     }
-    verify_cells(observer, &seed, 2).await?;
+    verify_cells(observer, &seed, 2)
+        .await
+        .context("replacement movement: verify settled source")?;
     Ok((seed, obsolete))
 }
 
@@ -342,8 +344,27 @@ pub async fn drain_leader(
     seed: &SeededCells,
     obsolete: usize,
 ) -> Result<()> {
-    let members = (1..=4).collect::<Vec<_>>();
-    let index = current_leader(&cluster.hosts, &members, cluster.history).await?;
+    let index = {
+        // The settled membership has removed this voter. Its runtime may
+        // detach while we inspect it; only current voters can lead the drain.
+        let candidates = (0..cluster.hosts.len())
+            .filter(|index| *index != obsolete)
+            .collect::<Vec<_>>();
+        let hosts = candidates
+            .iter()
+            .map(|index| cluster.hosts[*index].clone())
+            .collect::<Vec<_>>();
+        let members = candidates
+            .iter()
+            .map(|index| *index as u64 + 1)
+            .collect::<Vec<_>>();
+        let selected = current_leader(&hosts, &members, cluster.history)
+            .await
+            .with_context(|| {
+                format!("replacement drain: find current voter leader, obsolete={obsolete}")
+            })?;
+        candidates[selected]
+    };
     ensure!(index != obsolete);
     let node = cluster.nodes.remove(index);
     let host = cluster.hosts.remove(index);
@@ -382,8 +403,12 @@ pub async fn drain_leader(
         })
         .collect::<Vec<_>>();
     let members = survivors.iter().map(|i| *i as u64 + 1).collect::<Vec<_>>();
-    let leader = current_leader(&hosts, &members, cluster.history).await?;
-    verify_cells(&hosts[leader], seed, 3).await?;
+    let leader = current_leader(&hosts, &members, cluster.history)
+        .await
+        .context("replacement drain: find surviving leader")?;
+    verify_cells(&hosts[leader], seed, 3)
+        .await
+        .context("replacement drain: verify surviving leader")?;
     Ok(())
 }
 
@@ -395,7 +420,16 @@ pub async fn current_leader(
     tokio::time::timeout(TIMEOUT, async {
         loop {
             for (i, (host, member)) in hosts.iter().zip(members).enumerate() {
-                let status = host.group(history)?.status().await?;
+                let status = host
+                    .group(history)
+                    .with_context(|| {
+                        format!("current leader handle candidate={i}, member={member}")
+                    })?
+                    .status()
+                    .await
+                    .with_context(|| {
+                        format!("current leader status candidate={i}, member={member}")
+                    })?;
                 if status.ready && status.leader == Some(*member) {
                     return Ok::<_, anyhow::Error>(i);
                 }
