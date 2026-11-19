@@ -511,7 +511,9 @@ pub(crate) struct CachedGroup {
     pub conf_state: ConfState,
     pub membership: GroupMembership,
     pub snapshot: Snapshot,
-    pub entries: BTreeMap<u64, Entry>,
+    // Metadata publications share immutable log storage. Log changes build a
+    // private map, preserving every retained cache view.
+    pub entries: Arc<BTreeMap<u64, Entry>>,
     pub applied: DurableApply,
     pub group_manifest: Option<GroupManifest>,
     /// Derived from the immutable mapping; never supplied by a write/snapshot.
@@ -643,7 +645,7 @@ impl CachedGroup {
         }
         let mut previous_index = metadata.index;
         let mut previous_term = metadata.term;
-        for (&index, entry) in &self.entries {
+        for (&index, entry) in self.entries.iter() {
             if previous_index.checked_add(1) != Some(index)
                 || index != entry.index
                 || index == u64::MAX
@@ -806,7 +808,7 @@ impl CachedGroup {
                         return Err(LogError::Invalid("snapshot park cut changed".into()));
                     }
                     prepared.membership().succeeds(&self.membership)?;
-                    next.entries.clear();
+                    next.entries = Arc::default();
                     next.applied = DurableApply {
                         position: marker.position(),
                         image: None,
@@ -836,7 +838,12 @@ impl CachedGroup {
                     {
                         return Err(LogError::Invalid("local checkpoint binding/cut".into()));
                     }
-                    next.entries = next.entries.split_off(&(metadata.index + 1));
+                    next.entries = Arc::new(
+                        next.entries
+                            .range((metadata.index + 1)..)
+                            .map(|(&index, entry)| (index, entry.clone()))
+                            .collect(),
+                    );
                     next.checkpoint_manifest = Some(root.marker().clone());
                 }
                 SnapshotChange::Checkpoint(_) => {
@@ -845,7 +852,12 @@ impl CachedGroup {
                     {
                         return Err(LogError::Invalid("unapplied local snapshot".into()));
                     }
-                    next.entries = next.entries.split_off(&(metadata.index + 1));
+                    next.entries = Arc::new(
+                        next.entries
+                            .range((metadata.index + 1)..)
+                            .map(|(&index, entry)| (index, entry.clone()))
+                            .collect(),
+                    );
                 }
                 SnapshotChange::Install { applied, .. } => {
                     if metadata.index < self.hard_state.commit
@@ -858,7 +870,7 @@ impl CachedGroup {
                     {
                         return Err(LogError::Invalid("invalid snapshot install marker".into()));
                     }
-                    next.entries.clear();
+                    next.entries = Arc::default();
                     next.applied = applied.clone();
                     next.conf_state = metadata.get_conf_state().clone();
                 }
@@ -895,8 +907,9 @@ impl CachedGroup {
                     "append would truncate the committed suffix".into(),
                 ));
             }
-            next.entries.split_off(&first.index);
-            next.entries.extend(
+            let entries = Arc::make_mut(&mut next.entries);
+            entries.split_off(&first.index);
+            entries.extend(
                 write
                     .entries
                     .iter()
@@ -1123,7 +1136,7 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
         membership: GroupMembership::initial(&conf_state),
         conf_state,
         snapshot,
-        entries: BTreeMap::new(),
+        entries: Arc::default(),
         group_manifest: None,
         recovery_genesis: None,
         manifest_pins: None,

@@ -1443,7 +1443,7 @@ impl Worker {
                     .get_entry::<EntryCodec>(mapping.key, index)
                     .map_err(engine_error)?
                     .ok_or_else(|| LogError::Corrupt("missing retained entry".into()))?;
-                cache.entries.insert(index, entry);
+                Arc::make_mut(&mut cache.entries).insert(index, entry);
                 if cache.bytes() > self.options.max_cache_bytes {
                     return Err(LogError::Overloaded);
                 }
@@ -2440,7 +2440,7 @@ impl Worker {
         cache.group_manifest.take();
         cache.checkpoint_manifest.take();
         cache.recovery_genesis.take();
-        cache.entries.clear();
+        cache.entries = Arc::default();
         cache.snapshot = ::raft::prelude::Snapshot::default();
         cache.conf_state = ConfState::default();
         cache.membership = super::member_state::GroupMembership::initial(&cache.conf_state);
