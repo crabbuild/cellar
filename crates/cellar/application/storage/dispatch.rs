@@ -351,10 +351,18 @@ impl RaftDispatch {
             let external = Arc::new(AtomicBool::new(false));
             let waiting = external.clone();
             let task = Box::pin(async move {
+                if read_only {
+                    tracing::debug!(target: "cellar::raft::resource_read", phase = "source-queued",
+                        source = ?self.context.binding_source.as_ref().map(|s| &s.history.cell),
+                        at_ms = crate::asyncrt::mono_ms());
+                }
                 let proof = async {
                     slot.admission.clone().await.map_err(anyhow::Error::msg)?;
                     self.remaining()?;
                     if read_only {
+                        tracing::debug!(target: "cellar::raft::resource_read", phase = "source-proving",
+                            source = ?self.context.binding_source.as_ref().map(|s| &s.history.cell),
+                            at_ms = crate::asyncrt::mono_ms());
                         crate::storage::confirm_raft_read_work(&self.authority).await
                     } else {
                         crate::storage::commit_raft_work(&self.authority).await
@@ -365,6 +373,11 @@ impl RaftDispatch {
                 let result = async {
                     proof?;
                     let timeout = self.remaining()?;
+                    if read_only {
+                        tracing::debug!(target: "cellar::raft::resource_read", phase = "source-proven",
+                            source = ?self.context.binding_source.as_ref().map(|s| &s.history.cell),
+                            at_ms = crate::asyncrt::mono_ms());
+                    }
                     let permit = RaftDispatchPermit(self);
                     waiting.store(true, Ordering::Release);
                     // Admission and every response poll use the original

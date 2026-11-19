@@ -443,9 +443,30 @@ async fn call_options(
         let encoded = serde_json::to_vec(&input)?;
         let deadline =
             cellar::asyncrt::mono_ms().saturating_add(u64::try_from(options.timeout.as_millis())?);
+        let before = cluster
+            .hosts
+            .iter()
+            .map(|host| host.performance())
+            .collect::<Vec<_>>();
+        eprintln!(
+            "EventStream command start cell={} method={method} sequence={} at_ms={}",
+            history.cell.as_str(),
+            id.sequence(),
+            cellar::asyncrt::mono_ms()
+        );
         let mut response = cell
             .command(&contract, encoded.clone(), options.clone())
             .await;
+        eprintln!(
+            "EventStream command response cell={} method={method} sequence={} ok={} at_ms={}",
+            history.cell.as_str(),
+            id.sequence(),
+            response.is_ok(),
+            cellar::asyncrt::mono_ms()
+        );
+        if response.is_err() || cellar::asyncrt::mono_ms().saturating_add(2000) >= deadline {
+            report_progress(cluster, &before, method);
+        }
         loop {
             let refused = response.as_ref().err().is_some_and(|error| {
                 !error.ambiguous
@@ -548,9 +569,27 @@ async fn call_options(
     }
 }
 
+fn report_progress(cluster: &ManagedCluster, before: &[RaftPerformanceSnapshot], method: &str) {
+    for (node, (before, host)) in before.iter().zip(&cluster.hosts).enumerate() {
+        let after = host.performance();
+        let operations = before.operations.iter().zip(&after.operations)
+            .filter(|(a, b)| a.started != b.started || a.sum_us != b.sum_us)
+            .map(|(a, b)| json!({"name":b.name,"started":b.started.checked_sub(a.started),
+                "succeeded":b.succeeded.checked_sub(a.succeeded),"failed":b.failed.checked_sub(a.failed),
+                "abandoned":b.abandoned.checked_sub(a.abandoned),"sum_us":b.sum_us.checked_sub(a.sum_us)}))
+            .collect::<Vec<_>>();
+        eprintln!(
+            "EventStream progress {}",
+            json!({"node":node,"method":method,
+            "same_source":before.source==after.source,"available":before.available && after.available,
+            "saturated":before.saturated || after.saturated,"operations":operations})
+        );
+    }
+}
+
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug")
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug")
         .try_init();
     for rooted in [false, true] {
         eprintln!("EventStream RustFS={real_rustfs} extents={rooted} Axum={external}: START");
@@ -610,7 +649,12 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
                 named_service::activate_at(&cluster, "stream-archive", 0).await?;
                 named_service::activate_at(&cluster, "catalog-archive", 1).await?;
                 for (index, node) in cluster.nodes.iter().enumerate() {
-                    node.activate_event_resources().await.with_context(|| format!("initial explicit event activation node={index}"))?;
+                    let before = cluster.hosts.iter().map(|host| host.performance()).collect::<Vec<_>>();
+                    eprintln!("EventStream activation node={index}: START at_ms={}", cellar::asyncrt::mono_ms());
+                    let activated = node.activate_event_resources().await;
+                    eprintln!("EventStream activation node={index}: ok={} at_ms={}", activated.is_ok(), cellar::asyncrt::mono_ms());
+                    report_progress(&cluster, &before, "activation");
+                    activated.with_context(|| format!("initial explicit event activation node={index}"))?;
                 }
                 let source = CellHistory {
                     cluster: cluster.history.cluster,

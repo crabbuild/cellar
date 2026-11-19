@@ -56,6 +56,11 @@ impl RaftCells {
         let owner = self.internal_observer();
         Box::pin(async move {
             let (invocation, admission) = prepared?;
+            let trace = |phase: &'static str| {
+                tracing::debug!(target: "cellar::raft::resource_read", phase,
+                    cell = %route.cell.as_str(), ?invocation, deadline_ms = deadline,
+                    at_ms = ?owner.handle.domain.mono_ms().ok());
+            };
             let remaining = || -> anyhow::Result<Duration> {
                 owner.check_open()?;
                 Ok(Duration::from_millis(
@@ -67,9 +72,11 @@ impl RaftCells {
             };
             let operation = async {
                 let mut backoff_ms = 10;
+                trace("started");
                 loop {
                     remaining()?;
                     let result = async {
+                        trace("locating");
                         let history = match route.history_hint.clone() {
                             Some(history) => history,
                             None => {
@@ -89,6 +96,7 @@ impl RaftCells {
                                 found?.ok_or(RuntimeError::NotFound)?
                             }
                         };
+                        trace("querying");
                         let response = owner
                             .handle
                             .core
@@ -113,6 +121,7 @@ impl RaftCells {
                             )?
                             .response()
                             .await?;
+                        trace("query-returned");
                         remaining()?;
                         anyhow::ensure!(
                             response.result().len() <= route.max_result_bytes,
@@ -130,6 +139,7 @@ impl RaftCells {
                     .await;
                     match result {
                         Err(error) if super::read_admission::retryable(&error) => {
+                            trace("admission-retry");
                             // A cold selected image can temporarily refuse a
                             // reader. Retry only immutable admission, retaining
                             // the original deadline, authority and source proof.
@@ -148,8 +158,14 @@ impl RaftCells {
             };
             let timer = owner.handle.domain.sleep_until(deadline)?;
             crate::asyncrt::select_biased! { "original resource metadata deadline";
-                _ = timer => Err(anyhow::Error::from(RuntimeError::DeadlineExceeded)),
-                result = operation => result,
+                _ = timer => {
+                    trace("expired");
+                    Err(anyhow::Error::from(RuntimeError::DeadlineExceeded))
+                },
+                result = operation => {
+                    trace(if result.is_ok() { "completed" } else { "failed" });
+                    result
+                },
             }
         })
     }
