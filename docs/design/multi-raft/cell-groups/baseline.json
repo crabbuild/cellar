@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "e76598cfde939f7da068d0ad5dae0ee7d43dfd8d",
-  "runtime_revision": "e76598cfde939f7da068d0ad5dae0ee7d43dfd8d",
-  "review_note": "Reviewed production34e16afa8 full-history KV revision binding, canonical validation, service schema cutover and real operator regression; e76598cfd changes only owning test stage observations and all-profile attempts. All 24 existing anchor files/excerpts remain unchanged. Native4/4 and traced RustFS4/4 scope passes do not waive the earlier S3 deadline, public KV3/4 failure or earlier SQL recovery7/8 and2/8. All full case oracles/dependencies/statuses/evidence remain unchanged.",
+  "source_revision": "bb09d155c7de987f375746be637158162e899e84",
+  "runtime_revision": "bb09d155c7de987f375746be637158162e899e84",
+  "review_note": "Reviewed bb09d155c KV deadline capture before input/encoding, per-chunk and pending-input checks, source release, and unchanged typed commit RPC settlement. All 24 anchor files/excerpts remain unchanged. Public red input control fails both images; current stream checks pass native 2/2 and RustFS 2/2. Full public native 2/2 passes; RustFS 1/2 fails materialized 25-MiB CLI publication. No original oracle, deadline, dependency, status or evidence is waived.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {

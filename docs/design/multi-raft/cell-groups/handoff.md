@@ -4,7 +4,33 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current KV revision correctness delivery
+## Current streamed-KV correctness delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Production
+`bb09d155c` captures the Raft KV operation deadline before input/encoding and
+carries it through publication and commit. Pending/ready input expires and its
+source is released; submitted RPCs keep typed identities/ambiguity. The public
+input baseline `fd3da1c99` fails both forms before the fix. No wire/schema change.
+
+Stream intake/publication passes native 2/2 and real RustFS 2/2; Fleet passes
+2/2. Full public KV passes native 2/2 and RustFS **1/2**. RustFS extent passes
+SDK/CLI including 25-MiB values; materialized CLI put fails publication with
+`CellGroupPayloadError::DeadlineExceeded`, including an abandoned object PUT.
+The exact upload/verification phase is unproven. Next build the short real
+RustFS materialized CLI loop and measure those stages before changing runtime.
+Keep original budgets and verify bytes before installing references.
+
+Reduced outage/restart variants pass both native images with zero payload
+admissions after denial. The old full native restoration failure does not
+reproduce on current source; no exclusive fix is established. Earlier scalar
+S3/Consume and SQL restart/lease failures remain required work. All 32 cases,
+actual family/provider/feature/lifecycle drivers and ledgers remain mandatory;
+counts stay 13/17 tasks, 147/195 cases. Evidence
+`CG-17-kv-stream-bb09d155c-1683/record.json` remains FAILED. Failed disks and
+frozen binaries are retained; owned runtime/backend/VM are stopped.
+Executor state: `.cellar/cg17-payload-01/kv-stream-budget-state-1679.json`.
+
+## Previous KV revision correctness delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Production
 `34e16afa8` binds conditional revision tokens to complete logical history after

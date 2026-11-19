@@ -41,7 +41,17 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Production `34e16afa8` fixes foreign KV revision conditions by binding complete
+Production `bb09d155c` bounds stream intake and carries one KV operation deadline
+through publication and commit, preserving typed submitted outcomes. The public
+input baseline fails both images before the fix. Stream qualification passes
+native 2/2 and real RustFS 2/2; Fleet passes 2/2. Full public KV passes native 2/2
+but RustFS remains 1/2: the materialized 25-MiB CLI put times out during
+publication; extent mode passes. Upload versus read-back is not isolated.
+Reduced outage/restart controls pass without retained payload admissions, and
+the older native restoration failure does not reproduce on current source.
+Neither observation establishes an exclusive fix for that older failure.
+
+Earlier production `34e16afa8` fixes foreign KV revision conditions by binding complete
 logical cell history; the operator regression proves the earlier bug. Native
 4/4 passes; test-only stage instrumentation `e76598cfd` passes native 4/4 and
 real RustFS 4/4, with both image forms and target minima. Fleet conformance and
@@ -77,7 +87,10 @@ remain required work.
 
 Deliver next in this order:
 
-1. Isolate original-deadline S3 operator and post-outage large-read failures;
+1. Minimize the real RustFS materialized 25-MiB CLI publication failure and
+   measure preparation, upload and verification against the original budget.
+   Optimize the measured path without trusting unverified publication or
+   refreshing deadlines. Isolate original-deadline S3 operator and post-outage large-read failures;
    preserve original ambiguous identities and resolve or safely seal their
    sequences. Close actual managed startup/restart failures and isolate the
    lease-expiry observation before claiming reliable recovery. Then close original-deadline

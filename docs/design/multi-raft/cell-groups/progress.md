@@ -32,6 +32,48 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+**CG-17 remains open.** Production `bb09d155c` closes a public streamed-KV
+deadline gap. Previously input was drained before the Raft operation deadline
+was created. The actual public input regression at `fd3da1c99` exceeds its
+three-second budget in both image forms, reaching the 3.5-second test observer.
+The fix captures time before intake/encoding, checks pending and ready input,
+drops the input claim before publication, and carries the same deadline through
+immutable verification and target commit. Commit RPCs retain typed identities
+and ambiguity; they are not cancelled by a new outer timer.
+
+Current stream qualification passes **native 2/2 and real RustFS 2/2**. The
+fixture checks unending input and, separately, delayed publication after one
+second of input. Neither installs a value; the source is dropped. Each operation
+has its original three-second budget and 3.5-second observer. The two operations
+run sequentially in one HTTP handler, so its total duration exceeds three seconds.
+Fleet KV conformance/validation passes **2/2**. The unchanged full public KV case
+passes **native 2/2**, including normal streams, large values, restart, provider
+outage and quorum refusal. The earlier native extent restoration failure does
+not reproduce; no exclusive causal fix for it is established.
+
+**Broader RustFS qualification remains failed, 1/2.** Extent mode passes the full
+SDK/CLI case, including the 25-MiB CLI path. Materialized mode fails the CLI
+25-MiB put with `CellGroupPayloadError::DeadlineExceeded`. Metrics include an
+abandoned object PUT; upload versus read-back has not been isolated. Preserve
+the candidate publication, original budgets and failed voter disks.
+
+The reduced outage/restart controls at `af886b58b` and `a0ec34b12` each pass both
+native image forms; the latter restores the earlier unconfirmed-reference
+operation. Payload admissions are zero after denial. These controls exclude an
+unconditional leak in that reduced scenario, not the older full-case failure.
+
+Evidence `CG-17-kv-stream-bb09d155c-1683/record.json` remains **FAILED** overall.
+The real RF3 TLS voters share a process with separate disks; RustFS has one CPU,
+two GiB and no extra swap. Quorum target minima are exercised here. Complete
+durability/feature/provider/lifecycle coverage and all **32 cases** remain required.
+Owned processes exited and the backend/VM are stopped with data retained.
+Locked builds, affected strict Clippy, formatting and layout pass. No wire or
+schema format changes in this fix. Earlier S3/Consume/SQL recovery failures,
+historical CG-01 evidence and older custody gaps remain open; task acceptance
+stays **13/17 tasks, 147/195 cases**.
+
+## Earlier KV revision qualification
+
 **CG-17 remains open.** Production `34e16afa8` fixes KV conditional revision
 identity. The actual authenticated operator at `0956fbf88` accepted another
 logical cell's token when incarnation and counter coincided, changing that

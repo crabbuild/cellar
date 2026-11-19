@@ -94,6 +94,14 @@ body leases keep decoder workspace charged through operation/reply consumption.
 This is lazy capacity, not memory allocated for every idle cell. Node usage and
 Prometheus output include active payload operations and retained/capacity bytes.
 
+Raft KV writes capture their operation deadline before consuming or encoding
+input. Stream intake, immutable publication/read-back and target commit share
+that deadline; EOF does not start another budget. Pending input is cancelled on
+expiry, ready chunks recheck admission/time, and the input claim is released
+before publication. Only intake has an outer cancellation timer: submitted RPCs
+retain their ordinary typed identity and ambiguous outcome. Fleet keeps its
+existing deadline policy.
+
 KV conditional revision tokens include the complete logical cell history digest
 and the monotonic SQLite counter: `cg1:<64 lowercase hex digits>:<counter>`.
 The digest binds cluster, namespace, logical cell ID and incarnation, independently
