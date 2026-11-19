@@ -195,6 +195,30 @@ mod rpc_progress;
 #[path = "support/cell_group_checkpoint_admission.rs"]
 mod checkpoint_admission;
 
+#[path = "support/cell_group_s3_foreground.rs"]
+mod s3_foreground;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn s3_invocations_coalesce_intermediate_background_archives() -> Result<()> {
+    for rooted in [false, true] {
+        for expire in [false, true] {
+            Box::pin(s3_foreground::qualify(rooted, false, expire)).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_s3_invocations_coalesce_intermediate_background_archives() -> Result<()> {
+    for rooted in [false, true] {
+        for expire in [false, true] {
+            Box::pin(s3_foreground::qualify(rooted, true, expire)).await?;
+        }
+    }
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn admitted_s3_checkpoint_waits_for_held_output_capacity() -> Result<()> {
     for rooted in [false, true] {
