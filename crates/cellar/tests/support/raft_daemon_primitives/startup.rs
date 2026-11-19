@@ -227,6 +227,12 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
                         }
                     }
                 }
+                if boot_mode == "cluster-resume-0" {
+                    persist(&prepared_root, "primitive-startup-held", b"1")?;
+                    while !tokio::fs::try_exists(prepared_root.join("primitive-startup-release")).await? {
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                    }
+                }
                 service.observe_node(TIMEOUT).await?;
                 persist(
                     &prepared_root,
