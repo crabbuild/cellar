@@ -41,7 +41,16 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `9b4fdf132` includes latest fetched main `2f083f148`. It removes only
+Runtime `d3fdba11c` includes freshly fetched main `2f083f148`. Explicit UUID
+activation now overlaps the catalog and partition reads while requiring both
+current independent proofs. The causal regression fails the serial baseline;
+all seven owning activation tests pass. This does not establish public closure:
+the original four runtime selectors all fail, including native source `Read`
+sequence 6, RustFS initial activation and both retained-activation controls.
+Foreign compiler activity is recorded; all owned builds join before runtime.
+No timing cause or speedup is claimed. Twelve failed voter disks remain.
+
+The previous archive runtime `9b4fdf132` removes only
 anonymous receive-spool sync and adds bounded reuse of GET-confirmed objects in
 the same pending upload owner. Immutable image barriers, full verifying GETs,
 cold-owner conditional-create reconciliation, output proofs and fences remain.
@@ -49,7 +58,7 @@ cold-owner conditional-create reconciliation, output proofs and fences remain.
 test is ignored and not counted. The original unchanged-cut zero-PUT oracle,
 missing/corrupt-object refusal, retention, recovery and S3 output gates pass.
 
-**Public RPC/EventStream remains FAILED, 1/12 selectors.** RustFS named RPC passes
+**The previous public RPC/EventStream cohort remains FAILED, 1/12 selectors.** RustFS named RPC passes
 all four image/source-minimum configurations; native passes three of four, with
 materialized source-S3 retained sequence 7 still ambiguous at its deadline. All
 ten EventStream selectors fail Consume or initial activation. These results do
@@ -64,7 +73,11 @@ that were deleted before retention fixes. No custody gap or case is waived.
 Deliver the next features in this order:
 
 1. Finish normal EventStream activation, Consume and explicit outbox progress,
-   plus retained materialized source-S3 RPC completion. Use the exact failing
+   plus retained materialized source-S3 RPC completion. Preserve the current
+   uncertain `Counter:event-sink` client `[190; 16]`, sequence 6; do not infer
+   non-commit or substitute a new identity. Diagnose the actual original
+   activation/source failure; parallel proof reads alone have not closed it.
+   Use the exact failing
    public requests and a causal owning regression before changing the shared
    invocation, checkpoint or scheduling path. Existing independent callback
    admission and background archive coalescing already exist. The 25 archive

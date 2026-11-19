@@ -32,6 +32,62 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+**CG-17 is not complete.** Runtime `d3fdba11c` includes freshly fetched main
+`2f083f148`. Explicit UUID bindings now start their catalog and partition reads
+together. Both current, independently authorized lifecycle/identity/durability
+proofs remain required before pinning a binding. Named bindings retain their
+catalog proof from name resolution. The original host deadline and admission
+banks remain; no request, proof or mutation is replayed to manufacture readiness.
+
+The causal regression at `6fdc4ed18` fails because a pending catalog prevents the
+partition read from being polled. At `d3fdba11c`, all **seven owning activation
+tests pass**, including either completion order, refusal from either authority,
+and prevention of readiness from one proof. Locked unit/public compilation,
+format checking and strict affected Clippy pass. Temporary stage probes are
+removed. This proves the scheduling change, not the public deadline fix.
+
+Layout, documentation, native dependency checks, the partial coverage catalog,
+thirteen validator tests, 24 source anchors and the unchanged generated index
+pass. Full plan preflight and validation still stop at missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`; the source-only check does not
+waive this gate.
+
+The original runtime diagnostic is **FAILED, 0/4 selectors**:
+
+- Native explicit outbox recovery passes activation, then fails `Read` for
+  `Counter:event-sink`, client `[190; 16]`, sequence **6**, with uncertain
+  `Execution(Refused(Unavailable))`.
+- Real-RustFS explicit activation fails at node 0's original deadline.
+- Native retained activation fails its deadline. The RustFS retained control
+  fails enrollment with uncertainty preserved.
+
+Record `CG-17-event-proof-contended-1474-d3fdba11/record.json` under
+`.cellar/cell-groups-evidence/` contains seven unit passes and these four runtime
+failures; it is not a seven-of-eleven primitive qualification. All twelve failed
+voter disks remain. Independent compilers are recorded at both boundaries;
+owned builds finish before runtime entry. RF3 actors share a process with
+separate disks; RustFS retains its one-CPU/two-GiB limit. No isolated latency,
+exclusive cause, complete-family or independent-voter release claim is made.
+
+The preceding traced run, 1467 at `6182b16f8`, failed retained outbox activation
+after initial activation progressed. It recorded completed catalog reads and
+spare ordinary admission before the stream read timed out. This does not
+establish admission starvation. A verified frozen `9b4fdf132` binary also fails
+the original retained-activation control at enrollment with uncertain
+`Unavailable` in diagnostic 1475. That comparison does not requalify current
+source or exclude additional regressions.
+
+All owned test/build/VM handles have joined. RustFS and its VM are stopped;
+objects, failed disks and frozen binaries remain. The archive passes below
+retain their `9b4fdf132` pin and were not repeated. All **32 CG-17 cases**, provider
+and feature modes, lifecycle/recovery oracles and dependencies remain required.
+Acceptance stays **13/17 tasks, 147/195 cases**. Next close the actual public
+activation and source-`Read`/Consume failures with causal owning controls, then
+complete the remaining primitive and combined recovery matrix. See
+[priorities](remaining-work.md#primitive-delivery-priority).
+
+## Previous confirmed-object archive checkpoint
+
 **CG-17 is not complete.** Runtime `9b4fdf132` includes latest fetched main
 `2f083f148`. This checkpoint delivers two archive changes without weakening
 quorum, fencing, uncertainty or the original request budgets:

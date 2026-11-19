@@ -4,7 +4,37 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current disposable-scratch delivery
+## Current activation proof delivery
+
+Reuse open PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
+`d3fdba11c` includes freshly fetched main `2f083f148`. Explicit UUID bindings
+start both independent current-authority reads together, retain their original
+deadline/admission, and require both proofs before readiness. Seven owning tests
+pass; the deterministic pending-catalog baseline fails at `6fdc4ed18`. Locked
+unit/public build, format check and strict affected Clippy pass. All temporary
+stage probes are removed.
+
+**The four original runtime selectors all fail.** Native explicit recovery
+reaches source `Read`, client `[190; 16]`, sequence 6, then reports uncertain
+`Execution(Refused(Unavailable))`. RustFS initial activation and native retained
+activation time out; the RustFS retained control fails uncertain enrollment.
+The verified previous `9b4fdf132` binary also fails retained-control enrollment
+with uncertain `Unavailable`. This does not establish an exclusive cause or
+exclude additional regressions. Independent compilers are present; owned builds
+are joined before runtime. All fifteen failed disks from these two diagnostics
+remain. See the [current checkpoint](progress.md#current-integration-checkpoint)
+for exact records and limits.
+
+Next deliver the actual activation/source Read/Consume path under its original
+budgets, then retained source-S3 RPC, independent target-S3 SQL/KV and the full
+primitive/provider/feature/lifecycle/recovery matrix. Do not repeat the already
+green archive optimization without a new defect. Counts remain **13/17 tasks,
+147/195 cases**; all 32 CG-17 cases and dependencies remain mandatory. Historical
+CG-01 evidence is still missing. All owned handles are joined, and RustFS/VM are
+stopped with objects retained. Ignored `event-stage-state-1465.json` under
+`.cellar/cg17-payload-01/` records the current ownership and handoff state.
+
+## Previous disposable-scratch delivery
 
 Latest main `16c45b266` is included; reuse open PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `af127fc3f` creates
