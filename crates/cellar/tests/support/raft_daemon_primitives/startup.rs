@@ -205,6 +205,27 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
                     usage.host.controller.groups == 2,
                     "primitive daemon did not install both shared groups"
                 );
+                let cut = primary.fleet.read(TIMEOUT).await?;
+                for peer in 0..3 {
+                    inspect_current(&service, node(peer)?, cut.revision()).await?;
+                    if peer != index {
+                        for namespace in 0..2 {
+                            let history = group(namespace)?;
+                            service.grant_managed_query_origin(
+                                history.cluster,
+                                history.namespace,
+                                node(peer)?,
+                                1,
+                            )?;
+                            service.grant_managed_command_origin(
+                                history.cluster,
+                                history.namespace,
+                                node(peer)?,
+                                1,
+                            )?;
+                        }
+                    }
+                }
                 service.observe_node(TIMEOUT).await?;
                 persist(
                     &prepared_root,

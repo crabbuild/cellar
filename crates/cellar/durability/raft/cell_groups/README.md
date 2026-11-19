@@ -700,6 +700,12 @@ checks the current peer view and monotonic permission revision. Read and write
 grants are independent. `revoke_command_origin` retains a revision tombstone and
 seals the old grant while already admitted work remains owned. Reapply these
 trusted host permissions when restarting the transport.
+For an explicit node allowlist, `grant_managed_query_origin` and
+`grant_managed_command_origin` select the currently accepted directory process
+and endpoints without requiring the embedder to reconstruct them. Refresh and
+inspect the managed trust cut before granting. Unknown peers and namespaces
+refuse, and the same monotonic permission revisions and revocation tombstones
+apply. These helpers grant no permission through membership alone.
 The lower-level controller `command` API retains local-only execution; SDK
 `dispatch_command` owns the originating routed invocation.
 

@@ -246,12 +246,12 @@ impl Cluster {
                 if peer.node == self.managed.fixtures[index].spec.node {
                     continue;
                 }
-                host.grant_command_origin(NamespaceCommandOrigin {
-                    cluster: self.managed.history.cluster,
-                    namespace: self.managed.history.namespace,
-                    revision: 1,
-                    peer: peer.clone(),
-                })?;
+                host.grant_managed_command_origin(
+                    self.managed.history.cluster,
+                    self.managed.history.namespace,
+                    peer.node,
+                    1,
+                )?;
             }
         }
         Ok(())
@@ -259,12 +259,12 @@ impl Cluster {
 
     pub fn authorize_ingress_reads(&self) -> Result<()> {
         for host in &self.managed.hosts[..INGRESS] {
-            host.grant_query_origin(NamespaceQueryOrigin {
-                cluster: self.managed.history.cluster,
-                namespace: self.managed.history.namespace,
-                revision: 1,
-                peer: self.managed.peers[INGRESS].clone(),
-            })?;
+            host.grant_managed_query_origin(
+                self.managed.history.cluster,
+                self.managed.history.namespace,
+                self.managed.peers[INGRESS].node,
+                1,
+            )?;
         }
         Ok(())
     }
