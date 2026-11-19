@@ -85,7 +85,10 @@ async fn operation(context: &Context, method: &str) -> Result<serde_json::Value>
         "Contract" => kv_contract::basic(context, &namespace).await?,
         "Large" => kv_contract::large(context, &namespace).await?,
         "PublicLarge" => kv_contract::large(context, &context.kv("SIDE")?).await?,
-        "StreamDeadline" => streams::deadline(context).await?,
+        "StreamDeadline" => {
+            streams::deadline(context).await?;
+            streams::publication_deadline(context).await?;
+        }
         "ReadLarge" => {
             let Some(ReadValue::Bytes(value)) =
                 namespace.get(context, "large", ReadType::Bytes).await?
@@ -532,6 +535,9 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
                     .cell_payload_chunk_bytes
                     .store(16 * 1024, Ordering::Release);
             }
+            if coverage == Coverage::StreamDeadline {
+                store.cell_payload_chunk_bytes.store(512, Ordering::Release);
+            }
             Box::pin(run(rooted, store, backend.as_ref(), external, coverage)).await
         }
         .await;
@@ -647,6 +653,10 @@ async fn run(
             }
             if coverage == Coverage::StreamDeadline {
                 public_ok(&cluster, 0, "StreamDeadline").await?;
+                ensure!(cluster.fixtures[0].store.cell_payload_get_calls.load(Ordering::Acquire) > 0,
+                    "stream deadline did not reach the payload reader");
+                ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == 1,
+                    "stream deadline did not publish exactly one immutable candidate");
                 return Ok(());
             }
             let token = operator_contract(&cluster).await?;
