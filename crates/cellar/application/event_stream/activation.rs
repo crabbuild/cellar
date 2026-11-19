@@ -159,7 +159,13 @@ pub(crate) async fn configure(
             // At most two owner calls overlap. Read-only speculation is safe
             // even if a retained catalog needs reconciliation: discard it in
             // that case and use the ordinary post-configuration binding path.
-            let (current, partitions) = futures_util::join!(current, partitions);
+            use futures_util::future::{ready, select, Either};
+            let (current, partitions) = match select(current, Box::pin(partitions)).await {
+                Either::Left((current, partitions)) => (current, Either::Left(partitions)),
+                Either::Right((partitions, current)) => {
+                    (current.await, Either::Right(ready(partitions)))
+                }
+            };
             match current {
                 // This is a fresh, authorized, linearizable observation with
                 // the target's independent minimum proof, never a historical
@@ -167,7 +173,7 @@ pub(crate) async fn configure(
                 // catalog identity and resolution grants checked above. Every
                 // partition still needs its own independent current proof.
                 Ok(current) if matches_definition(&current, definition, &digest) => {
-                    for (index, binding) in partitions? {
+                    for (index, binding) in partitions.await? {
                         verified[index] = Some(binding);
                     }
                     continue;

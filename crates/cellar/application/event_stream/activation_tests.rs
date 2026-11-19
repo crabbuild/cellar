@@ -356,9 +356,76 @@ async fn retained_definition_proof_does_not_authorize_revoked_or_foreign_binding
     Ok(())
 }
 
-#[tokio::test]
-async fn speculative_partition_proof_is_discarded_when_catalog_needs_reconciliation() -> Result<()>
-{
+#[test]
+fn speculative_partition_proof_is_discarded_when_catalog_needs_reconciliation() -> Result<()> {
+    use std::{
+        future::Future,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        task::{Context, Poll},
+    };
+
+    struct Cancelled(Arc<AtomicBool>);
+
+    impl Drop for Cancelled {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct Reconciling {
+        inner: Host,
+        first_status: AtomicBool,
+        first_partition: AtomicBool,
+        cancelled: Arc<AtomicBool>,
+    }
+
+    impl super::Host for Reconciling {
+        fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
+            Ok(true)
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            args: Value,
+        ) -> HandlerFuture<Value> {
+            let reply = super::Host::rpc(&self.inner, principal, authority, scope, name, method, args);
+            if method == "__catalogStatus" && self.first_status.swap(false, Ordering::SeqCst) {
+                return Box::pin(async move {
+                    // Give the concurrent broker read one poll before revealing
+                    // that the catalog needs creation/reconciliation.
+                    let mut yielded = false;
+                    futures_util::future::poll_fn(|cx| {
+                        if yielded {
+                            Poll::Ready(())
+                        } else {
+                            yielded = true;
+                            cx.waker().wake_by_ref();
+                            Poll::Pending
+                        }
+                    })
+                    .await;
+                    reply.await
+                });
+            }
+            if method == "__streamResolve" && self.first_partition.swap(false, Ordering::SeqCst) {
+                let guard = Cancelled(self.cancelled.clone());
+                return Box::pin(async move {
+                    let _guard = guard;
+                    reply.await?;
+                    futures_util::future::pending().await
+                });
+            }
+            reply
+        }
+    }
     let mut declared = definition();
     declared.grants[0].read = true;
     let (binding, declaration) = binding_declaration(false);
@@ -368,7 +435,7 @@ async fn speculative_partition_proof_is_discarded_when_catalog_needs_reconciliat
     let mut pending = status.clone();
     pending["state"] = json!("updating");
     let active = json!({"state":"active","resource":binding.resource});
-    let host = Host {
+    let inner = Host {
         known: true,
         replies: std::sync::Mutex::new(
             vec![
@@ -382,11 +449,24 @@ async fn speculative_partition_proof_is_discarded_when_catalog_needs_reconciliat
             .into(),
         ),
     };
-    assert_eq!(
-        configure(&host, &[("app".into(), declared)], &[declaration]).await?,
-        vec![binding]
-    );
-    assert!(host.replies.lock().unwrap().is_empty());
+    let host = Reconciling {
+        inner,
+        first_status: AtomicBool::new(true),
+        first_partition: AtomicBool::new(true),
+        cancelled: Arc::new(AtomicBool::new(false)),
+    };
+    let definitions = [("app".into(), declared)];
+    let declarations = [declaration];
+    let mut activation = Box::pin(configure(&host, &definitions, &declarations));
+    let waker = futures_util::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert!(activation.as_mut().poll(&mut cx).is_pending());
+    match activation.as_mut().poll(&mut cx) {
+        Poll::Ready(result) => assert_eq!(result?, vec![binding]),
+        Poll::Pending => panic!("speculative read blocked catalog reconciliation"),
+    }
+    assert!(host.cancelled.load(Ordering::SeqCst));
+    assert!(host.inner.replies.lock().unwrap().is_empty());
     Ok(())
 }
 
