@@ -115,6 +115,17 @@ combined cleanup and recovery qualification remains open. The serial-baseline
 regression and 101 owning tests pass at `f0647e010`; public qualification remains
 FAILED3/10, so this is no claim of deadline improvement or complete family support.
 
+After shared-group birth preparation completes, its side of that two-operation
+window can check explicit broker bindings while catalog reconciliation continues.
+These are real current broker reads with independent target minima. They can be
+adopted only after a fresh active catalog read proves the exact compiled
+definition and its resolution grants. Preparation alone and historical receipts
+grant no readiness. Catalog proof reuse is limited to principals that route to
+the same backend; Raft proof cannot authorize a separately routed Fleet catalog.
+If an early broker read fails, normal adoption obtains both
+fresh proofs after configuration; hosts without birth preparation keep that
+ordinary ordering. No operation deadline is extended.
+
 Fresh catalog creation can acknowledge its compiled provisioning intent from
 the request's owned enrollment response. The exact nonce-independent wire binds
 scope, resource, caller, operation and definition. History, creation, schema and

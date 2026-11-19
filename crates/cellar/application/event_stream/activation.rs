@@ -15,6 +15,12 @@ pub(crate) struct ConfigurationStatus {
 }
 
 pub(crate) trait Host {
+    /// Proof reuse requires both principals to select the same catalog backend.
+    /// The default is conservative; this never replaces current target proofs.
+    fn shares_catalog(&self, owner: &str, caller: &str) -> bool {
+        owner == caller
+    }
+
     /// A startup/history hint chooses whether to try the immutable fast path.
     /// It grants no authority and never replaces the subsequent strong read.
     /// Fresh owners with unknown catalogs use ordinary durable creation;
@@ -23,10 +29,11 @@ pub(crate) trait Host {
         Ok(false)
     }
 
-    /// Prepare only a declared broker's birth. This is never binding readiness;
-    /// catalog reconciliation and independent target proofs still gate serving.
-    fn prepare_broker(&self, _principal: &str, _definition: &Definition) -> HandlerFuture<()> {
-        Box::pin(async { Ok(()) })
+    /// Prepare only a declared broker's birth. True permits speculative current
+    /// binding inspection; it grants no readiness or authority. Hosts without
+    /// this preparation keep their ordinary post-configuration adoption path.
+    fn prepare_broker(&self, _principal: &str, _definition: &Definition) -> HandlerFuture<bool> {
+        Box::pin(async { Ok(false) })
     }
 
     /// Shared-group hosts wait for an exact newer cell version before reading
@@ -131,31 +138,7 @@ pub(crate) async fn configure(
                 "__catalogStatus",
                 json!([{}]),
             );
-            let partitions = async {
-                let mut resolved = Vec::new();
-                for (index, declaration) in declarations.iter().enumerate() {
-                    if declaration.resource.id.is_none() {
-                        continue;
-                    }
-                    let binding = declaration.explicit()?;
-                    if binding.resource != definition.resource {
-                        continue;
-                    }
-                    // Authorization is from the definition whose exact digest
-                    // the concurrent current catalog read must prove below.
-                    // This local check alone supplies no readiness or proof.
-                    let caller = Authority::resolution(&binding)?;
-                    event_stream::store::authorize(
-                        definition,
-                        &caller,
-                        event_stream::authority::Action::Resolve,
-                        None,
-                    )?;
-                    resolve_partition(host, &binding).await?;
-                    resolved.push((index, binding));
-                }
-                Ok::<_, anyhow::Error>(resolved)
-            };
+            let partitions = resolve_declared_partitions(host, script, definition, declarations);
             // At most two owner calls overlap. Read-only speculation is safe
             // even if a retained catalog needs reconciliation: discard it in
             // that case and use the ordinary post-configuration binding path.
@@ -183,7 +166,20 @@ pub(crate) async fn configure(
                 Err(error) => return Err(error),
             }
         }
-        let preparation = host.prepare_broker(script, definition);
+        let preparation = async {
+            let prepared = host.prepare_broker(script, definition).await?;
+            // Once birth preparation finishes, use its side of the two-call
+            // window for an independent current broker proof. Neither the birth
+            // nor this proof alone admits a binding. A speculative read failure
+            // falls back to fresh adoption after successful reconciliation.
+            Ok::<_, anyhow::Error>(if prepared {
+                resolve_declared_partitions(host, script, definition, declarations)
+                    .await
+                    .ok()
+            } else {
+                None
+            })
+        };
         let reconciliation = async {
             let configured = rpc(host, script, authority.clone(), event_stream::catalog_scope(&definition.resource)?, event_stream::catalog_name(&definition.resource)?,
                 "__catalogConfigure", json!([{"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(bytes)}])).await?;
@@ -232,8 +228,16 @@ pub(crate) async fn configure(
         // Only two bounded owner operations overlap for this declaration.
         // Neither an applied birth hint nor preparation grants readiness.
         let (prepared, reconciled) = futures_util::join!(preparation, reconciliation);
-        prepared?;
+        let partitions = prepared?;
         reconciled?;
+        // Reconciliation has now independently proved the exact active catalog
+        // definition and its own minimum durability. Reuse only those broker
+        // proofs that also completed in this same activation, never receipts.
+        if let Some(partitions) = partitions {
+            for (index, binding) in partitions {
+                verified[index] = Some(binding);
+            }
+        }
     }
     let mut activated = Vec::new();
     for (index, declaration) in declarations.iter().enumerate() {
@@ -287,6 +291,33 @@ pub(crate) async fn configure(
         activated.push(binding);
     }
     Ok(activated)
+}
+
+async fn resolve_declared_partitions(
+    host: &impl Host,
+    principal: &str,
+    definition: &Definition,
+    declarations: &[BindingConfig],
+) -> Result<Vec<(usize, Binding)>> {
+    let mut resolved = Vec::new();
+    for (index, declaration) in declarations.iter().enumerate() {
+        if declaration.resource.id.is_none()
+            || !host.shares_catalog(principal, &declaration.principal)
+        {
+            continue;
+        }
+        let binding = declaration.explicit()?;
+        if binding.resource != definition.resource {
+            continue;
+        }
+        // The exact current catalog digest must separately prove this
+        // definition before these locally checked grants can authorize adoption.
+        let caller = Authority::resolution(&binding)?;
+        super::store::authorize(definition, &caller, super::authority::Action::Resolve, None)?;
+        resolve_partition(host, &binding).await?;
+        resolved.push((index, binding));
+    }
+    Ok(resolved)
 }
 
 async fn resolve_partition(host: &impl Host, binding: &Binding) -> Result<()> {

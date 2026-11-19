@@ -122,6 +122,7 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
 
     struct Gated {
         known: bool,
+        configured: Option<Value>,
         replies: [Mutex<Option<tokio::sync::oneshot::Receiver<Result<Value>>>>; 2],
         polled: Arc<AtomicU8>,
     }
@@ -129,6 +130,11 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
     impl super::Host for Gated {
         fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
             Ok(self.known)
+        }
+
+        fn prepare_broker(&self, _: &str, _: &Definition) -> HandlerFuture<bool> {
+            let prepared = self.configured.is_some();
+            Box::pin(async move { Ok(prepared) })
         }
 
         fn rpc(
@@ -140,6 +146,23 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
             method: &'static str,
             _args: Value,
         ) -> HandlerFuture<Value> {
+            if method == "__catalogConfigure"
+                || (self.configured.is_some() && method == "__catalogResolve")
+            {
+                let result = (|| -> Result<Value> {
+                    anyhow::ensure!(principal == "app");
+                    authority.validate_target(&scope, Some(&name), method)?;
+                    if method == "__catalogResolve" {
+                        // A failed early read must still refuse readiness when
+                        // the original-deadline fresh adoption also refuses.
+                        return Err(RuntimeError::DeadlineExceeded.into());
+                    }
+                    self.configured
+                        .clone()
+                        .ok_or_else(|| anyhow::anyhow!("unexpected configuration"))
+                })();
+                return Box::pin(async move { result });
+            }
             let admitted = (|| -> Result<_> {
                 anyhow::ensure!(principal == "app");
                 authority.validate_target(&scope, Some(&name), method)?;
@@ -167,20 +190,36 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
     // Either independently placed authority may be cold after retained restart.
     // Holding one read cannot prevent the other from beginning its quorum work,
     // and one successful proof can never publish a binding by itself.
-    for (known, first) in [(false, 0), (false, 1), (true, 0), (true, 1)] {
+    for (known, fresh, first) in [
+        (false, false, 0),
+        (false, false, 1),
+        (true, false, 0),
+        (true, false, 1),
+        (false, true, 0),
+        (false, true, 1),
+    ] {
         for accepted in [false, true] {
             let (binding, declaration) = binding_declaration(false);
             let mut declared = definition();
             declared.grants[0].read = true;
             let active = json!({"state":"active","resource":binding.resource});
             let status = json!({"state":"active","resource":declared.resource.id,
+                "operation":super::super::raft::operation("app", &declared)?,
                 "accepted_revision":declared.revision.to_string(),
                 "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
-            let successes = [if known { status } else { active.clone() }, active];
+            let successes = [
+                if known || fresh {
+                    status.clone()
+                } else {
+                    active.clone()
+                },
+                active,
+            ];
             let (catalog, catalog_reply) = tokio::sync::oneshot::channel();
             let (partition, partition_reply) = tokio::sync::oneshot::channel();
             let host = Gated {
                 known,
+                configured: fresh.then_some(status),
                 replies: [
                     Mutex::new(Some(catalog_reply)),
                     Mutex::new(Some(partition_reply)),
@@ -188,7 +227,7 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
                 polled: Arc::new(AtomicU8::new(0)),
             };
             let declarations = [declaration];
-            let definitions = if known {
+            let definitions = if known || fresh {
                 vec![("app".into(), declared)]
             } else {
                 vec![]
@@ -246,7 +285,7 @@ async fn broker_birth_preparation_and_catalog_bootstrap_make_progress_together()
     }
 
     impl super::Host for Bootstrap {
-        fn prepare_broker(&self, principal: &str, declared: &Definition) -> HandlerFuture<()> {
+        fn prepare_broker(&self, principal: &str, declared: &Definition) -> HandlerFuture<bool> {
             let admitted = principal == "app" && declared == &definition();
             let entered = self.entered.clone();
             let completed = self.completed.clone();
@@ -258,7 +297,7 @@ async fn broker_birth_preparation_and_catalog_bootstrap_make_progress_together()
                 // either whole path before starting the other cannot pass.
                 catalog.notified().await;
                 completed.store(true, Ordering::SeqCst);
-                Ok(())
+                Ok(true)
             })
         }
 
@@ -352,6 +391,90 @@ async fn retained_definition_proof_does_not_authorize_revoked_or_foreign_binding
         .await;
         assert!(result.is_err(), "unproven binding admitted: {result:?}");
         assert!(host.replies.lock().unwrap().is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn unproven_brokers_and_other_backends_require_current_adoption() -> Result<()> {
+    struct Prepared {
+        inner: Host,
+        sharing: bool,
+        calls: std::sync::Mutex<Vec<&'static str>>,
+    }
+
+    impl super::Host for Prepared {
+        fn shares_catalog(&self, _: &str, _: &str) -> bool {
+            self.sharing
+        }
+
+        fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
+            Ok(self.inner.known)
+        }
+
+        fn prepare_broker(&self, _: &str, _: &Definition) -> HandlerFuture<bool> {
+            Box::pin(async { Ok(true) })
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            args: Value,
+        ) -> HandlerFuture<Value> {
+            self.calls.lock().unwrap().push(method);
+            super::Host::rpc(&self.inner, principal, authority, scope, name, method, args)
+        }
+    }
+    let mut declared = definition();
+    declared.grants[0].read = true;
+    let (binding, declaration) = binding_declaration(false);
+    let current = json!({"state":"active","resource":declared.resource.id,
+        "operation":super::super::raft::operation("app", &declared)?,
+        "accepted_revision":declared.revision.to_string(),
+        "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+    let active = json!({"state":"active","resource":binding.resource});
+    let mut foreign = active.clone();
+    foreign["resource"]["id"] = json!("02020202020202020202020202020202");
+    for (known, sharing) in [(false, true), (false, false), (true, false)] {
+        let mut replies = Vec::new();
+        if sharing {
+            replies.push(("__streamResolve", foreign.clone()));
+        }
+        if !known {
+            replies.push(("__catalogConfigure", current.clone()));
+        }
+        replies.extend([
+            ("__catalogStatus", current.clone()),
+            ("__catalogResolve", active.clone()),
+            ("__streamResolve", active.clone()),
+        ]);
+        let mut expected: Vec<_> = replies.iter().map(|(method, _)| *method).collect();
+        let host = Prepared {
+            inner: Host {
+                known,
+                replies: std::sync::Mutex::new(replies.into()),
+            },
+            sharing,
+            calls: std::sync::Mutex::new(Vec::new()),
+        };
+        assert_eq!(
+            configure(
+                &host,
+                &[("app".into(), declared.clone())],
+                &[declaration.clone()]
+            )
+            .await?,
+            vec![binding.clone()]
+        );
+        assert!(host.inner.replies.lock().unwrap().is_empty());
+        let mut actual = host.calls.lock().unwrap().clone();
+        actual.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(actual, expected, "extra or missing current proofs");
     }
     Ok(())
 }

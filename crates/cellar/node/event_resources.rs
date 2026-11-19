@@ -244,6 +244,12 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
+    fn shares_catalog(&self, owner: &str, caller: &str) -> bool {
+        // rpc selects exactly these two backends. A Raft catalog proof cannot
+        // authorize adoption through an independently routed Fleet catalog.
+        self.shared.contains(owner) == self.shared.contains(caller)
+    }
+
     fn configuration_known(
         &self,
         principal: &str,
@@ -262,14 +268,19 @@ impl event_stream::activation::Host for ActivationHost {
         &self,
         principal: &str,
         definition: &event_stream::Definition,
-    ) -> crate::application::HandlerFuture<()> {
+    ) -> crate::application::HandlerFuture<bool> {
         if self.shared.contains(principal) {
-            self.owner
+            let preparation = self
+                .owner
                 .as_ref()
                 .expect("shared activation retains its owner")
-                .prepare_event_broker(principal, definition, self.deadline)
+                .prepare_event_broker(principal, definition, self.deadline);
+            Box::pin(async move {
+                preparation.await?;
+                Ok(true)
+            })
         } else {
-            Box::pin(async { Ok(()) })
+            Box::pin(async { Ok(false) })
         }
     }
 

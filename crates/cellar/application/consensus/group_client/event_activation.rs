@@ -57,6 +57,11 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
+    fn shares_catalog(&self, _owner: &str, _caller: &str) -> bool {
+        // activate_event_generation validates every participant uses this owner.
+        true
+    }
+
     fn configuration_known(
         &self,
         _principal: &str,
@@ -69,9 +74,14 @@ impl event_stream::activation::Host for ActivationHost {
         &self,
         principal: &str,
         definition: &event_stream::Definition,
-    ) -> HandlerFuture<()> {
-        self.owner
-            .prepare_event_broker(principal, definition, self.deadline)
+    ) -> HandlerFuture<bool> {
+        let preparation = self
+            .owner
+            .prepare_event_broker(principal, definition, self.deadline);
+        Box::pin(async move {
+            preparation.await?;
+            Ok(true)
+        })
     }
 
     fn configuration_status(
