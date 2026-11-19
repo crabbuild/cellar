@@ -764,7 +764,7 @@ fn retain_archive_fixture_disks(cluster: &mut Cluster) {
     // Keep both successful proof inputs and failed sources. Ordinary TempDir
     // cleanup would otherwise delete the three disks on an assertion or `?`.
     cluster._root.disable_cleanup(true);
-    for n in 0..cluster.voters.len() {
+    for n in 1..=cluster.voters.len() {
         eprintln!(
             "retained archive fixture disk: {}",
             cluster._root.path().join(format!("node-{n}")).display()
@@ -827,6 +827,44 @@ async fn checkpoint_roundtrip_and_reuse(real_rustfs: bool) -> Result<()> {
             assert_eq!(objects, cell_objects(&after_path, &after_index, cell));
         }
         assert_ne!(original, latest);
+        // Cached confirmation is only permission to GET. Missing/corrupt
+        // objects must refuse without recreating or overwriting the evidence.
+        let selected = &cell_objects(&after_path, &after_index, "beta")[0];
+        let bytes = store.inner.get(selected).await?.bytes().await?;
+        for missing in [true, false] {
+            let mut damaged = bytes.to_vec();
+            damaged[0] ^= 0x80;
+            if missing {
+                store.inner.delete(selected).await?;
+            } else {
+                store.inner.put(selected, damaged.clone().into()).await?;
+            }
+            let count = store.puts.load(Ordering::Acquire);
+            assert!(archive
+                .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
+                .await
+                .is_err());
+            assert_eq!(store.puts.load(Ordering::Acquire), count);
+            if missing {
+                assert!(matches!(
+                    store.inner.get(selected).await,
+                    Err(object_store::Error::NotFound { .. })
+                ));
+            } else {
+                assert_eq!(
+                    store.inner.get(selected).await?.bytes().await?.as_ref(),
+                    damaged
+                );
+            }
+            store.inner.put(selected, bytes.clone().into()).await?;
+            assert_eq!(
+                archive
+                    .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
+                    .await?,
+                latest
+            );
+            assert_eq!(store.puts.load(Ordering::Acquire), count);
+        }
         let marker = cluster.voters[0]
             .owner
             .as_ref()
@@ -883,44 +921,6 @@ async fn checkpoint_roundtrip_and_reuse(real_rustfs: bool) -> Result<()> {
         }
         drop(verified);
         assert_eq!(receive_pool.usage().sources, 0);
-        // Cached confirmation is only permission to GET. Missing/corrupt
-        // objects must refuse without recreating or overwriting the evidence.
-        let selected = &cell_objects(&after_path, &after_index, "beta")[0];
-        let bytes = store.inner.get(selected).await?.bytes().await?;
-        for missing in [true, false] {
-            let mut damaged = bytes.to_vec();
-            damaged[0] ^= 0x80;
-            if missing {
-                store.inner.delete(selected).await?;
-            } else {
-                store.inner.put(selected, damaged.clone().into()).await?;
-            }
-            let count = store.puts.load(Ordering::Acquire);
-            assert!(archive
-                .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
-                .await
-                .is_err());
-            assert_eq!(store.puts.load(Ordering::Acquire), count);
-            if missing {
-                assert!(matches!(
-                    store.inner.get(selected).await,
-                    Err(object_store::Error::NotFound { .. })
-                ));
-            } else {
-                assert_eq!(
-                    store.inner.get(selected).await?.bytes().await?.as_ref(),
-                    damaged
-                );
-            }
-            store.inner.put(selected, bytes.clone().into()).await?;
-            assert_eq!(
-                archive
-                    .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
-                    .await?,
-                latest
-            );
-            assert_eq!(store.puts.load(Ordering::Acquire), count);
-        }
         cluster.close().await?;
     }
     Ok(())
