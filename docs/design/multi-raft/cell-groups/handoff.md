@@ -4,7 +4,33 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current SQL failure correctness delivery
+## Current KV revision correctness delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Production
+`34e16afa8` binds conditional revision tokens to complete logical history after
+an authenticated operator regression proves the old cross-cell match. This is
+a schema-bound hard format-1 cutover requiring matching definitions and fresh
+compatible KV namespaces; Fleet decimal revisions remain unchanged.
+
+Native revision scope passes 4/4. Test-only stage source `e76598cfd` passes
+native 4/4 and real RustFS 4/4 with both images and Quorum/S3 minima, leader
+transfer and retained restart. Fleet conformance/validation passes 2/2.
+**Full public KV remains failed, 3/4:** native extent's first large read after
+payload restoration and retained restart has ambiguous ingress sequence 50.
+Earlier uninstrumented RustFS materialized/S3 has ambiguous sequence 4; extents
+were not reached. The traced pass does not establish a deadline fix or waive
+that control. Preserve the original identities and budgets.
+
+Evidence `CG-17-kv-history-e76598cfd-1662/record.json` remains FAILED. New failed
+disks, frozen binaries and original logs are retained; owned runtime/backend/VM
+are stopped. Next construct the short owning outage/restart loop and isolate
+S3 publication versus ingress sequence settlement versus readiness using the
+existing phase traces. Change runtime only against a causal regression.
+Then close startup/lease failures and complete real family/provider/feature and
+recovery ledgers. All 32 cases remain; counts stay 13/17 tasks, 147/195 cases.
+Executor state: `.cellar/cg17-payload-01/kv-history-state-1647.json`.
+
+## Previous SQL failure correctness delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
 `2da96dcd6` preserves local typed SQL binding failures, including original child

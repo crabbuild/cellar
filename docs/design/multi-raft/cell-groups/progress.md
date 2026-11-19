@@ -32,6 +32,55 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+**CG-17 remains open.** Production `34e16afa8` fixes KV conditional revision
+identity. The actual authenticated operator at `0956fbf88` accepted another
+logical cell's token when incarnation and counter coincided, changing that
+cell's value. Tokens now bind the complete logical history (cluster, namespace,
+cell and incarnation), independently of physical group or leader. The KV service
+schema changes with this hard format-1 cutover: use matching service definitions
+and compatible fresh KV namespaces; incarnation-only tokens are refused.
+Ordinary Fleet decimal revisions remain unchanged.
+
+The regression checks foreign refusal without changing the target, successful
+own conditions, stale conditions, leader transfer and retained all-voter restart.
+Native RF3 passes **4/4** configurations at `34e16afa8`. Test-only instrumentation
+`e76598cfd` attempts every image/minimum and records operation/ingress/checkpoint
+stages: native **4/4**, real RustFS **4/4** pass. Both image forms and Quorum/S3
+target minima are covered. Fleet KV conformance and token validation pass **2/2**.
+
+**Broader qualification still fails.** Unchanged public KV owning tests pass
+**3/4** configurations: both Axum forms and native materialized pass; native
+extent fails the first `ReadLarge` after restoring denied payload reads,
+following retained restart. The error preserves ingress lane sequence **50**
+as ambiguous after the original deadline. An earlier, uninstrumented RustFS
+revision run passes materialized/Quorum, then fails materialized/S3 with ambiguous
+sequence **4**; extent configurations are not reached. This failure did not
+reproduce in the traced run. No production deadline fix or exclusive cause is
+established, and that later pass does not erase the failed control.
+
+Evidence is `CG-17-kv-history-e76598cfd-1662/record.json` under
+`.cellar/cell-groups-evidence/`; its aggregate status is **FAILED**. Failed disks,
+original identities, logs and frozen binaries are retained. The custody audit
+verifies nine new failed voter disks, 2,459 files and four frozen executables.
+Voters are real RF3
+TLS actors sharing one process with separate disks; RustFS is limited to one
+CPU/two GiB/no extra swap. Independent Linux voters, complete primitive/provider/
+feature coverage, movement and disaster recovery are not qualified here. Owned
+processes exited and the backend/VM are stopped with objects retained.
+
+Locked builds, affected strict Clippy, formatting, layout, dependency and docs
+checks pass; all 13 independent coverage-validator tests pass. The inventory
+remains partial: **18 entries, 222 symbols, 4,872 required coverage cells**.
+None of the 32 planned full acceptance entry points is present. Next isolate
+original-deadline S3/public-payload settlement with original identities and safe
+sequence sealing, resolve the startup/restart failures below, and complete actual
+family drivers and ledgers. All 32 cases and dependencies remain mandatory;
+acceptance remains **13/17 tasks, 147/195 cases**.
+Full plan validation still fails on the missing historical CG-01 evidence record;
+this campaign does not recreate it or repair older custody gaps.
+
+## Earlier SQL failure qualification
+
 **CG-17 remains open.** Runtime `2da96dcd6` fixes a SQL correctness gap: the
 ordinary Rust SQL facade retains the original typed binding command or enrollment
 failure instead of flattening it to text. Clones retain the owned cause; serialized

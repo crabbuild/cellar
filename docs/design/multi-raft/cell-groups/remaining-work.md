@@ -41,6 +41,17 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
+Production `34e16afa8` fixes foreign KV revision conditions by binding complete
+logical cell history; the operator regression proves the earlier bug. Native
+4/4 passes; test-only stage instrumentation `e76598cfd` passes native 4/4 and
+real RustFS 4/4, with both image forms and target minima. Fleet conformance and
+token validation pass 2/2. Full public KV remains **3/4**: native extent's first
+large read after payload restoration and retained restart fails with ambiguous
+sequence 50. Earlier uninstrumented RustFS materialized/S3 fails with ambiguous
+sequence 4; its cause is unresolved despite the later traced pass. No full
+family or task acceptance follows. See the current checkpoint for source pins,
+the schema-bound hard cutover and retained failed controls.
+
 Runtime `2da96dcd6` delivers typed SQL failure ownership: five native value/error
 tests and both public SQL tests pass, with a byte-identical failing baseline.
 The separate retained-restart campaign is **failed: native 7/8, RustFS 2/8**.
@@ -66,8 +77,10 @@ remain required work.
 
 Deliver next in this order:
 
-1. Close actual managed startup/restart failures and isolate the lease-expiry
-   observation before claiming reliable recovery. Then close original-deadline
+1. Isolate original-deadline S3 operator and post-outage large-read failures;
+   preserve original ambiguous identities and resolve or safely seal their
+   sequences. Close actual managed startup/restart failures and isolate the
+   lease-expiry observation before claiming reliable recovery. Then close original-deadline
    source-S3/Consume settlement and autonomous interrupted bindings with safe
    sequence sealing. Preserve original identities, budgets,
    exact source/target proof gates and unknown outcomes; use causal regressions.

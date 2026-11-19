@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "2da96dcd6d30c386b7929cef96c881750bfd34ba",
-  "runtime_revision": "2da96dcd6d30c386b7929cef96c881750bfd34ba",
-  "review_note": "Reviewed SQL local cause ownership, constructor adaptation, public caller and value tests at 2da96dcd6. All 24 existing anchor files/excerpts remain unchanged. Public/value tests pass; focused native/RustFS retained recovery remains FAILED (7/8 and 2/8). No case oracle, dependency, acceptance status or deadline is waived.",
+  "source_revision": "e76598cfde939f7da068d0ad5dae0ee7d43dfd8d",
+  "runtime_revision": "e76598cfde939f7da068d0ad5dae0ee7d43dfd8d",
+  "review_note": "Reviewed production34e16afa8 full-history KV revision binding, canonical validation, service schema cutover and real operator regression; e76598cfd changes only owning test stage observations and all-profile attempts. All 24 existing anchor files/excerpts remain unchanged. Native4/4 and traced RustFS4/4 scope passes do not waive the earlier S3 deadline, public KV3/4 failure or earlier SQL recovery7/8 and2/8. All full case oracles/dependencies/statuses/evidence remain unchanged.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
