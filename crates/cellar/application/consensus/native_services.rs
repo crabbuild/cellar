@@ -130,6 +130,22 @@ pub(in crate::application) fn queue_service(
         Sha256::digest(b"cellar-queue-ingress-sequence-1").into(),
         |query, input| query.sql_ingress_sequence(input),
     )?;
+    class = class.query(
+        crate::application::queue::read::OPERATION,
+        Sha256::digest(b"cellar-queue-operator-pinned-read-1").into(),
+        |query, input| {
+            let request = super::native_rpc::decode_request(input)?;
+            super::native_rpc::validate_identity(
+                "cellar-queue-service",
+                crate::deploy::QUEUE_CLASS,
+                query.identity().cell.as_str(),
+                request.name.as_deref(),
+            )?;
+            let value = crate::application::queue::read::operator(query.storage(), request.args)?
+                .unwrap_or_else(|| crate::engine_api::RpcData::Json("null".into()));
+            super::native_rpc::encode_response(&value)
+        },
+    )?;
     class = class.with_cell_factory(Arc::new(move |context, _| {
         crate::application::queue::create_raft_cell(&context, handler.clone())
     }))?;

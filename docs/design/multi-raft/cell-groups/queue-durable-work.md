@@ -110,6 +110,18 @@ the same broker. Its operator contract is absent from producer binding discovery
 The existing authorization binds method, path, body and addressed node. Operator
 timeouts preserve an unknown mutation outcome rather than replaying the command.
 
+When local history and the Queue schema are available, signed `info` and `peek`
+select a fresh linearizable committed image without appending a command.
+The target namespace's S3 minimum
+still requires current archive coverage of that selected image before returning
+data. Stale consistency refuses admission. Resource identity, configured
+retention, peek limits, console byte budget and response shape remain the
+broker's ordinary rules. Producer bindings do not acquire operator access.
+An absent local history or missing Queue schema/statistics uses the existing
+authorized initialization command with the original arguments and deadline;
+other read errors never authorize a mutation retry. Pause, resume, purge and
+redrive keep their ordinary mutation path and durability proofs.
+
 ## Shared writer admission
 
 Ordinary requests and parked callbacks share a bounded per-cell FIFO writer.

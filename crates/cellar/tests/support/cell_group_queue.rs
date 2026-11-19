@@ -1012,5 +1012,5 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
 mod qualification;
 pub use qualification::{
     qualify_batch_proof, qualify_faults, qualify_load, qualify_load_mode, qualify_long,
-    qualify_perf,
+    qualify_operator_read_boundaries, qualify_operator_reads, qualify_perf,
 };

@@ -8,6 +8,8 @@ pub(crate) const OPERATOR: &str = "__queueOperator";
 mod broker;
 mod configuration;
 pub(crate) mod message;
+pub(crate) mod read;
+mod sql;
 mod wire;
 
 #[cfg(test)]

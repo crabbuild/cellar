@@ -454,6 +454,26 @@ impl CellGroupHost {
         )
     }
 
+    /// Select a pure observation only after the ordinary operator authorization.
+    pub(crate) fn queue_operator_read_route(
+        &self,
+        scope: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        let mut selected = self.queue_operator_route(scope, log)?;
+        let target = self
+            .inner
+            .namespaces
+            .get(&(selected.cluster, selected.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        selected.contract = target
+            .class
+            .queue_operator_read_contract()
+            .filter(|contract| contract.kind == crate::application::consensus::OperationKind::Query)
+            .ok_or(CellDispatchError::Invalid("Queue operator query contract"))?;
+        Ok(selected)
+    }
+
     pub(crate) fn workflow_operator_route(
         &self,
         scope: &str,

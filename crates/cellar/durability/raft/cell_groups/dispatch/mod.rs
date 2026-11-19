@@ -382,6 +382,13 @@ impl CellGroupDispatcher {
                 RegistrationError::KindMismatch,
             ));
         }
+        if self.class.queue_operator_read_contract().as_ref() == Some(&request.contract)
+            && !matches!(request.consistency, CellQueryConsistency::Linearizable)
+        {
+            return Err(CellDispatchError::Invalid(
+                "Queue operator read consistency",
+            ));
+        }
         if let QueryAdmission::Event(minimum) = admission {
             if !matches!(request.consistency, CellQueryConsistency::Linearizable)
                 || minimum < self.host_binding()?.0.minimum_durability
@@ -794,7 +801,17 @@ impl CellQueryInvocation {
                     CellDispatchError::Execution(error)
                 }
             })?;
-        if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3) {
+        let queue_archive = self
+            .dispatcher
+            .class
+            .queue_operator_read_contract()
+            .as_ref()
+            == Some(&self.request.contract)
+            && self.dispatcher.host_binding()?.0.minimum_durability
+                == cellar_logic::consensus::Durability::S3;
+        if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3)
+            || queue_archive
+        {
             let client = self
                 .dispatcher
                 .s3

@@ -5,6 +5,10 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::AtomicUsize;
 
+#[path = "cell_group_queue_operator_read.rs"]
+mod operator_read;
+pub use operator_read::qualify as qualify_operator_read_boundaries;
+
 const FAST: &str = "quorum-fast";
 
 /// Timed healthy traffic, separate from the unchanged fault/load qualification.
@@ -1061,6 +1065,81 @@ pub async fn qualify_load(real: bool, per_queue_in_flight: usize) -> Result<()> 
     ensure!((1..=2).contains(&per_queue_in_flight));
     for rooted in [false, true] {
         qualify_load_mode(real, per_queue_in_flight, rooted).await?;
+    }
+    Ok(())
+}
+
+/// Signed observation of an initialized, idle Queue must not compete with
+/// consumer mutations for a new replicated entry. The storage-only DLQ has no
+/// consumer or timer work that could independently advance this group.
+pub async fn qualify_operator_reads() -> Result<()> {
+    for rooted in [false, true] {
+        let s = Scenario::start(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+            false,
+            5000,
+            None,
+            8,
+            Durability::Quorum.into(),
+        )
+        .await?;
+        let domain = s.cluster.fixtures[0].domain.clone();
+        let checked = domain
+            .run(async {
+                ready(&s.cluster, &[s.dead]).await?;
+                let leader = managed_fixture::leader(&s.cluster.hosts, s.dead).await?;
+                let handle = s.cluster.hosts[leader].group(s.dead)?;
+                let before = handle.status().await?;
+                let info = admin(&s.cluster, DEAD, json!({"op":"info"})).await?;
+                ensure!(
+                    info["backlogCount"] == 0.0 && info["stored"] == 0.0 && info["paused"] == false
+                );
+                let peek = admin(&s.cluster, DEAD, json!({"op":"peek","limit":10})).await?;
+                ensure!(peek["messages"].as_array().is_some_and(Vec::is_empty));
+                let after = handle.status().await?;
+                ensure!(
+                    before.term == after.term && before.leader == after.leader,
+                    "operator read work control changed leadership"
+                );
+                eprintln!(
+                    "Queue operator read work: rooted={rooted} before={} after={}",
+                    before.committed.get(),
+                    after.committed.get()
+                );
+                ensure!(
+                    after.committed == before.committed,
+                    "Queue info/peek appended mutations: before={} after={}",
+                    before.committed.get(),
+                    after.committed.get()
+                );
+                let paused = admin(&s.cluster, DEAD, json!({"op":"pause"})).await?;
+                ensure!(paused["paused"] == true);
+                let written = handle.status().await?;
+                ensure!(
+                    written.committed > after.committed,
+                    "Queue pause did not remain a mutation"
+                );
+                let info = admin(&s.cluster, DEAD, json!({"op":"info"})).await?;
+                ensure!(info["paused"] == true);
+                ensure!(
+                    handle.status().await?.committed == written.committed,
+                    "Queue info appended after observing pause"
+                );
+                let resumed = admin(&s.cluster, DEAD, json!({"op":"resume"})).await?;
+                ensure!(resumed["paused"] == false);
+                ensure!(
+                    handle.status().await?.committed > written.committed,
+                    "Queue resume did not remain a mutation"
+                );
+                Ok::<_, anyhow::Error>(())
+            })
+            .await;
+        let retain = !matches!(&checked, Ok(Ok(())));
+        let cleanup = s.close(retain).await;
+        domain.shutdown().await;
+        checked??;
+        cleanup?;
     }
     Ok(())
 }

@@ -46,12 +46,14 @@ pub(super) async fn dispatch_authenticated(
         );
         let body: serde_json::Value = serde_json::from_slice(body)
             .map_err(|_| anyhow::anyhow!("QUEUE_ERROR: invalid request body"))?;
-        encode_rpc(&cellar_native::clone::StructuredValue::from_json(
+        let read = matches!(body["op"].as_str(), Some("info" | "peek"));
+        let args = encode_rpc(&cellar_native::clone::StructuredValue::from_json(
             serde_json::json!([body]),
-        )?)
+        )?)?;
+        Ok((args, read))
     })();
-    let args = match input {
-        Ok(args) => args,
+    let (args, read) = match input {
+        Ok(input) => input,
         Err(error) => {
             return Some(response(
                 StatusCode::BAD_REQUEST,
@@ -68,7 +70,11 @@ pub(super) async fn dispatch_authenticated(
         drop(args);
         let call_scope = crate::host_rpc::CallScope::default()
             .with_reply_limit(super::MAX_PEER_PROTOCOL_BODY_BYTES);
-        Ok(owner.queue_operator(admitted, call_scope, deadline))
+        Ok(if read {
+            owner.queue_operator_read(admitted, call_scope, deadline)
+        } else {
+            owner.queue_operator(admitted, call_scope, deadline)
+        })
     })();
     let result = match prepared {
         Ok(call) => call.await,

@@ -2333,6 +2333,16 @@ async fn queue_load_preserves_acknowledged_messages() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_operator_reads_preserve_auth_archive_and_fresh_quorum() -> Result<()> {
+    Box::pin(queues::qualify_operator_read_boundaries()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_operator_reads_do_not_append_mutations() -> Result<()> {
+    Box::pin(queues::qualify_operator_reads()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
     Box::pin(queues::qualify_load(false, 2)).await
 }
