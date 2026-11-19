@@ -97,20 +97,6 @@ mod event_streams;
 #[path = "support/cell_group_events.rs"]
 mod events;
 
-#[path = "support/cell_group_idle_archives.rs"]
-mod idle_archives;
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn empty_group_archivers_wait_for_first_cell_then_prove_s3() -> Result<()> {
-    idle_archives::qualify(false).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires isolated real RustFS"]
-async fn rustfs_empty_group_archivers_wait_for_first_cell_then_prove_s3() -> Result<()> {
-    idle_archives::qualify(true).await
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
     binding_writer::qualify(false).await

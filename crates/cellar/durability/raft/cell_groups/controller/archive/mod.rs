@@ -277,15 +277,10 @@ struct Entry {
     proof_retry: Option<(LogIndex, u64)>,
 }
 
-enum PublicationProgress {
-    Published(GroupManifest),
-    Idle(LogIndex),
-}
-
 pub(super) struct PublicationCompleted {
     group: GroupHistory,
     context: Option<job::Context>,
-    result: Result<PublicationProgress>,
+    result: Result<GroupManifest>,
     maintenance_pending: bool,
     observation: std::result::Result<LogIndex, RuntimeError>,
     waiters: Vec<settlement::Request>,
@@ -754,7 +749,7 @@ impl Manager {
                         if waiters.is_empty() {
                             maintenance_pending = retained.maintenance_pending;
                             completed_coverage = Some(retained.coverage);
-                            return Ok(PublicationProgress::Published(retained.published));
+                            return Ok(retained.published);
                         }
                         // Release this temporary reuse before asking for a new
                         // verification. Only real output owners may continue
@@ -777,8 +772,7 @@ impl Manager {
                         job::Outcome::Verified(driven) => driven,
                         // This advisory completion cannot settle a waiter or
                         // advance compaction; it owns no physical coverage.
-                        job::Outcome::Maintenance(published) => return Ok(PublicationProgress::Published(published)),
-                        job::Outcome::Idle(applied) => return Ok(PublicationProgress::Idle(applied)),
+                        job::Outcome::Maintenance(published) => return Ok(published),
                     };
                     maintenance_pending = driven.maintenance_pending;
                     let coverage = driven.coverage;
@@ -796,7 +790,7 @@ impl Manager {
                     tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                         group = ?group.group, stage = "settled", remaining = waiters.len());
                     completed_coverage = Some(coverage);
-                    Ok(PublicationProgress::Published(driven.published))
+                    Ok(driven.published)
                 })
                 .catch_unwind()
                 .await
@@ -858,17 +852,9 @@ impl Manager {
             .unwrap_or_else(|error| error.into_inner());
         let status = statuses.get_mut(&completed.group).expect("archive status");
         match completed.result {
-            Ok(progress) => {
-                let (covered, recheck_idle) = match progress {
-                    PublicationProgress::Published(marker) => {
-                        let covered = marker.position().index;
-                        status.published = Some(marker);
-                        (covered, false)
-                    }
-                    // This index only prevents another empty-group turn. It
-                    // never populates published status or confirms compaction.
-                    PublicationProgress::Idle(applied) => (applied, entry.dirty),
-                };
+            Ok(marker) => {
+                let covered = marker.position().index;
+                status.published = Some(marker);
                 status.error = None;
                 if completed.maintenance_pending {
                     // Cached output does not complete durable publication or
@@ -881,11 +867,7 @@ impl Manager {
                         let latest = entry
                             .latest_applied
                             .map_or(applied, |seen| seen.max(applied));
-                        // Preserve every apply notification received during an
-                        // idle turn, including installation at the same index.
-                        // An idle observation can never consume that wakeup.
-                        entry.dirty =
-                            recheck_idle || latest > covered || completed.maintenance_pending;
+                        entry.dirty = latest > covered || completed.maintenance_pending;
                     }
                     Err(error) => {
                         let error = Error::Runtime(error);
