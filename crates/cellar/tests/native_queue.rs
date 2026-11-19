@@ -646,22 +646,26 @@ async fn run() -> Result<()> {
         decode_rpc_result(&replay.data)?.to_json()?["backlogCount"],
         0
     );
-    let mut collision = transfer;
-    collision[0]["transfers"][0]["entry"]["id"] = json!("different-id");
-    let reply = runtime
-        .rpc(
-            scope(DLQ),
-            None,
-            "__queueDlqAcceptBatch".into(),
-            encode_rpc(&StructuredValue::from_json(collision)?)?,
-            None,
-        )
-        .await?;
-    assert!(decode_rpc_result(&reply.data)
-        .err()
-        .unwrap()
-        .to_string()
-        .contains("collided"));
+    for (field, value) in [
+        ("body", json!([255, 2])),
+        ("contentType", json!("text")),
+        ("id", json!("different-id")),
+    ] {
+        let mut collision = transfer.clone();
+        collision[0]["transfers"][0]["entry"][field] = value;
+        let reply = runtime
+            .rpc(
+                scope(DLQ),
+                None,
+                "__queueDlqAcceptBatch".into(),
+                encode_rpc(&StructuredValue::from_json(collision)?)?,
+                None,
+            )
+            .await?;
+        let error = decode_rpc_result(&reply.data)
+            .expect_err("changed Queue transfer payload was acknowledged");
+        assert!(error.to_string().contains("collided"), "{field}: {error:#}");
+    }
     operator(&runtime, Q, json!({"op":"resume"})).await?;
     signals.mode.store(0, Ordering::SeqCst);
     fire(&runtime, Q, 3).await?;
