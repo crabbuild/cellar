@@ -911,7 +911,7 @@ fn dispatch_failure(error: Arc<CellCommandError>, attempt: u64, budget_ms: u128)
     anyhow::Error::from(error).context(message)
 }
 
-fn retry_unsubmitted_enrollment(error: &CellEnrollmentError) -> bool {
+pub(super) fn retry_unsubmitted_enrollment(error: &CellEnrollmentError) -> bool {
     !error.ambiguous
         && matches!(
             error.cause.as_ref(),

@@ -255,53 +255,59 @@ impl RaftCells {
             let Some((candidate, creation, schema, durability, _memory)) = prepared? else {
                 return Ok(());
             };
-            // A name observation chooses only whether creation is needed. It
-            // cannot adopt configuration, grant a binding, or acknowledge data.
-            if super::sql_ingress::ready_name(&owner, &candidate, deadline)
-                .await?
-                .is_some()
-            {
-                return Ok(());
-            }
-            let remaining = deadline
-                .checked_sub(owner.handle.domain.mono_ms()?)
-                .filter(|n| *n != 0)
-                .ok_or(RuntimeError::DeadlineExceeded)?;
+            // Atomic enrollment checks the name under current routing and
+            // quorum authority. An absence read adds a barrier without reserving
+            // that name; a concurrent creator can still win after the read.
             let request = CellEnrollmentRequest {
                 creation,
                 durability,
             };
-            match owner
-                .cell(candidate.clone())?
-                .enroll(request, Duration::from_millis(remaining))
-                .await
-            {
-                Ok(proof) => {
-                    anyhow::ensure!(
-                        proof.record().cell() == &candidate
-                            && proof.record().creation() == creation
-                            && proof.record().schema() == schema
-                            && proof.durability() >= durability,
-                        super::super::CommandFailure::CorruptState
-                    );
-                    Ok(())
-                }
-                Err(error) => loop {
-                    owner.check_open()?;
-                    // A concurrent trusted owner can win the same name. Join
-                    // its current locator without retransmitting an unknown
-                    // creation or changing this attempt's original identity.
-                    match super::sql_ingress::ready_name(&owner, &candidate, deadline).await {
-                        Ok(Some(_)) => return Ok(()),
-                        Ok(None) => (),
-                        Err(_) => return Err(error.into()),
+            loop {
+                owner.check_open()?;
+                let remaining = deadline
+                    .checked_sub(owner.handle.domain.mono_ms()?)
+                    .filter(|n| *n != 0)
+                    .ok_or(RuntimeError::DeadlineExceeded)?;
+                match owner
+                    .cell(candidate.clone())?
+                    .enroll(request, Duration::from_millis(remaining))
+                    .await
+                {
+                    Ok(proof) => {
+                        anyhow::ensure!(
+                            proof.record().cell() == &candidate
+                                && proof.record().creation() == creation
+                                && proof.record().schema() == schema
+                                && proof.durability() >= durability,
+                            super::super::CommandFailure::CorruptState
+                        );
+                        return Ok(());
                     }
-                    let now = owner.handle.domain.mono_ms()?;
-                    let next = now
-                        .saturating_add(owner.handle.core.controller.limits().retry_interval_ms)
-                        .min(deadline);
-                    owner.handle.domain.sleep_until(next)?.await;
-                },
+                    Err(error) if super::sql_ingress::retry_unsubmitted_enrollment(&error) => (),
+                    Err(error) => loop {
+                        owner.check_open()?;
+                        // A concurrent trusted owner can win the same name. Join
+                        // its current locator without retransmitting an unknown
+                        // creation or changing this attempt's original identity.
+                        match super::sql_ingress::ready_name(&owner, &candidate, deadline).await {
+                            Ok(Some(_)) => return Ok(()),
+                            Ok(None) => (),
+                            Err(_) => return Err(error.into()),
+                        }
+                        let now = owner.handle.domain.mono_ms()?;
+                        let next = now
+                            .saturating_add(owner.handle.core.controller.limits().retry_interval_ms)
+                            .min(deadline);
+                        owner.handle.domain.sleep_until(next)?.await;
+                    },
+                }
+                // Only a typed refusal before initialization permits another send.
+                // Reuse the exact creation and candidate within the original budget.
+                let now = owner.handle.domain.mono_ms()?;
+                let next = now
+                    .saturating_add(owner.handle.core.controller.limits().retry_interval_ms)
+                    .min(deadline);
+                owner.handle.domain.sleep_until(next)?.await;
             }
         })
     }
