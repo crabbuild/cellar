@@ -17,8 +17,10 @@ def campaign(minimum):
         events.append(dict(phase=phase, **values))
 
     def voter(member, term=1, cells=2):
-        return {'hosted_groups': 2, 'groups': [dict(namespace=namespace, group=namespace, ready=True,
-                cells=cells, term=term, member=member) for namespace in ('sql', 'kv')]}
+        leader = 2 if term == 1 else 1
+        return {'hosted_groups': 2, 'groups': [dict(namespace=namespace, group=namespace, ready=member == leader,
+                cells=cells, term=term, member=member, leader=leader,
+                is_leader=member == leader) for namespace in ('sql', 'kv')]}
 
     def observed(members, term=1, cells=2):
         event('primitive_observed', voters=[voter(member, term, cells) for member in members])
@@ -40,8 +42,8 @@ def campaign(minimum):
             call(adapter, family, cell, 'read', [[1, value]] if family == 'sql' else value)
             event('primitive_read_verified', stage=stage, member=member, adapter=adapter, family=family, cell=cell)
 
-    def stops():
-        for member in range(1, 4):
+    def stops(members=range(1, 4)):
+        for member in members:
             event('primitive_shutdown_joined', member=member, report={'raft': {
                 'owners_closed': True, 'startup_incomplete': False,
                 'groups': 2, 'retain_replica_disks': True}})
@@ -75,13 +77,15 @@ def campaign(minimum):
         status = 200 if minimum == 'quorum' else 503
         call(adapter, family, 'one', 'write', True if status == 200 else {'error': 'uncertain'}, status)
         event('primitive_archive_boundary', adapter=adapter, family=family, status=status)
+    event('primitive_archive_denied', members=[1, 3])
     event('primitive_archive_restored')
     writes('restored')
     reads('restored', range(1, 4))
-    stops()
+    stops((1, 2))
     for adapter, family, operation in product(('native', 'axum'), ('sql', 'kv'), ('read', 'write')):
         call(adapter, family, 'one', operation, {'error': 'no quorum'}, 503)
         event('primitive_quorum_refused', adapter=adapter, family=family, operation=operation, status=503)
+    stops((3,))
     event('primitive_daemon_passed', physical_groups=2, logical_cells=4)
     return events
 
@@ -95,7 +99,7 @@ class PrimitiveOracleTests(unittest.TestCase):
         for phase in ('primitive_write_verified', 'primitive_read_verified', 'primitive_reply',
                       'primitive_retained_restart_verified', 'primitive_before_leader_kill',
                       'primitive_archive_boundary', 'primitive_quorum_refused', 'primitive_observed',
-                      'primitive_shutdown_joined'):
+                      'primitive_shutdown_joined', 'primitive_archive_denied'):
             for duplicate in (False, True):
                 events = campaign('s3')
                 index = next(i for i, event in enumerate(events) if event['phase'] == phase)
@@ -121,6 +125,11 @@ class PrimitiveOracleTests(unittest.TestCase):
                 verify(events)
         events = campaign('quorum')
         next(e for e in events if e['phase'] == 'primitive_reply' and e['route'].endswith('/read'))['body'] = '[]'
+        with self.assertRaises(ValueError):
+            verify(events)
+        events = campaign('quorum')
+        groups = next(e for e in events if e['phase'] == 'primitive_observed')['voters'][0]['groups']
+        groups[0]['ready'] = True
         with self.assertRaises(ValueError):
             verify(events)
         events = campaign('quorum')

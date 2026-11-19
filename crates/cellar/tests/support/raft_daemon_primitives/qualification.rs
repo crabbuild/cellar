@@ -103,8 +103,11 @@ async fn observe(
                 .filter(|group| group["is_leader"] == true)
                 .collect::<Vec<_>>();
             leaders.len() == 1
+                && leaders[0]["ready"] == true
                 && groups.iter().all(|group| {
-                    group["ready"] == true
+                    group["ready"] == group["is_leader"]
+                        && (group["is_leader"] == true)
+                            == (group["member"] == leaders[0]["member"])
                         && group["cells"].as_u64().is_some_and(|n| n == minimum_cells)
                         && group["leader"] == leaders[0]["member"]
                         && group["term"] == leaders[0]["term"]
@@ -382,7 +385,16 @@ pub(crate) async fn qualify() -> Result<()> {
                 ledger.record(json!({"phase":"primitive_archive_boundary","adapter":adapter,"family":kind,"status":status}))?;
             }
         }
-        ensure!((0..3).any(|voter|root.path().join(format!("archive-write-denied-{voter}")).is_file()),"archive outage did not intercept a real write");
+        let deadline=Instant::now()+TIMEOUT;
+        loop {
+            let denied=(0..3).filter(|voter|root.path().join(format!("archive-write-denied-{voter}")).is_file()).map(|voter|voter+1).collect::<Vec<_>>();
+            if !denied.is_empty() {
+                ledger.record(json!({"phase":"primitive_archive_denied","members":denied}))?;
+                break;
+            }
+            ensure!(Instant::now()<deadline,"archive outage did not intercept a real write");
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
         Ok::<_,anyhow::Error>(())
     }.await;
     std::fs::remove_file(block)?;

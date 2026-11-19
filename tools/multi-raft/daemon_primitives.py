@@ -63,12 +63,18 @@ def verify(events):
             'archive durability boundary differs')
     require(len(phase('primitive_archive_blocked')) == 1
             and len(phase('primitive_archive_restored')) == 1, 'archive outage incomplete')
+    denied = phase('primitive_archive_denied')
+    require(len(denied) == 1 and denied[0]['members']
+            and set(denied[0]['members']) <= {1, 2, 3}, 'no actual archive write refused')
     refusals = phase('primitive_quorum_refused')
     require([(e['adapter'], e['family'], e['operation'], e['status']) for e in refusals]
             == [(*items, 503) for items in product(('native', 'axum'), ('sql', 'kv'), ('read', 'write'))],
             'minority write or strong-read refusal missing')
     stops = phase('primitive_shutdown_joined')
     require([e['member'] for e in stops] == [1, 2, 3, 1, 2, 3], 'joined stop inventory differs')
+    require(events.index(stops[4]) < events.index(refusals[0])
+            and events.index(refusals[-1]) < events.index(stops[5]),
+            'minority requests did not occur between majority and final stop')
     for event in stops:
         raft = event['report']['raft']
         require(raft['owners_closed'] is True and raft['startup_incomplete'] is False
@@ -76,14 +82,22 @@ def verify(events):
                 'primitive owners did not join')
     observations = phase('primitive_observed')
     require(len(observations) == 5, 'shared runtime observation missing')
-    for event in observations:
+    for index, event in enumerate(observations):
+        require(len(event['voters']) == (2 if index == 3 else 3), 'responder observation missing')
         for voter in event['voters']:
             groups = voter['groups']
             require(voter['hosted_groups'] == len(groups) == 2
                     and len({g['namespace'] for g in groups}) == 2
                     and len({g['group'] for g in groups}) == 2
-                    and all(g['ready'] is True and g['cells'] in (0, 2) for g in groups),
+                    and all(g['cells'] == (0 if index == 0 else 2) for g in groups),
                     'shared group proof missing')
+        for namespace in range(2):
+            groups = [voter['groups'][namespace] for voter in event['voters']]
+            leaders = [g for g in groups if g['is_leader']]
+            require(len(leaders) == 1 and leaders[0]['ready'] is True
+                    and all(g['ready'] == g['is_leader'] == (g['member'] == leaders[0]['member'])
+                            and g['leader'] == leaders[0]['member'] and g['term'] == leaders[0]['term']
+                            for g in groups), 'voters disagree on a ready leader')
     expected_calls = []
 
     def call(adapter, family, cell, operation, value, status=200):
