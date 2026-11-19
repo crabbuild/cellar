@@ -15,7 +15,7 @@ pub(super) async fn create_then_confirm(rooted: bool, remote: Arc<dyn ObjectStor
                 "fresh"
             }),
         )));
-        let s = Scenario::with_store(rooted, Default::default(), store).await?;
+        let mut s = Scenario::with_store(rooted, Default::default(), store).await?;
         if confirmation_denied {
             let created = s.remote.immutable_creates.load(Ordering::Acquire);
             s.remote.deny_chunk_reads.store(true, Ordering::Release);
@@ -47,6 +47,20 @@ pub(super) async fn create_then_confirm(rooted: bool, remote: Arc<dyn ObjectStor
             !s.remote.lose_immutable_put_response.load(Ordering::Acquire),
             "lost immutable create response was not exercised"
         );
+        let puts = s.remote.puts.load(Ordering::Acquire);
+        anyhow::ensure!(s.checkpoint(&s.upload).await? == checkpoint);
+        anyhow::ensure!(
+            s.remote.puts.load(Ordering::Acquire) == puts,
+            "confirmed same-owner retry issued another PUT"
+        );
+        // Reopen the same persisted pending ticket after the previous operation
+        // has joined. The cold owner has no volatile confirmation cache and
+        // must still reconcile actual conditional-create conflicts.
+        let reopened = s
+            .registry
+            .open_upload(&s.archive_domain, &s.owners, &s.upload.ticket(), &s.tails)
+            .await?;
+        s.upload = reopened;
         let conflicts = s.remote.immutable_create_conflicts.load(Ordering::Acquire);
         let retried = s.checkpoint(&s.upload).await?;
         anyhow::ensure!(

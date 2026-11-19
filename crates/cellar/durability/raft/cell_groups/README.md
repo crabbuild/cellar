@@ -776,6 +776,14 @@ encoding checks remain mandatory. Journal selection alone supplies no archive
 coverage or serving authority; receipt verification and live output fences still
 apply independently.
 
+An upload owner shares a bounded content lookup across its clones. It remembers
+its protected parent graph and objects confirmed in its own pending generation.
+Repeating those bytes performs a full verifying GET without another PUT; missing
+or corrupt objects refuse without recreation. A full lookup falls back to the
+ordinary conditional-create and exact-GET path. Reopening a pending ticket loses
+the volatile confirmations and reconciles conditional-create conflicts again.
+This lookup supplies no archive coverage, serving right or retention authority.
+
 An outstanding S3 output can retain the previous archive hold while the next
 verified head is already committed. That retention delays another archive
 allocation; it does not prevent new outputs from proving their receipts against

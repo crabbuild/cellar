@@ -7,7 +7,7 @@ use super::{
     ownership::*,
     *,
 };
-use std::{collections::BTreeMap, ops::Deref};
+use std::{collections::BTreeMap, ops::Deref, sync::Mutex};
 
 #[derive(Clone, Copy, Debug)]
 pub struct CellGroupArchiveUploadLimits {
@@ -75,18 +75,21 @@ impl CellGroupArchiveUploadPool {
     }
 }
 
+type ContentKey = (Kind, [u8; 32], u64);
+
 struct Owner {
     registry: CellGroupArchiveRegistry,
     ticket: CellGroupArchiveUploadTicket,
     inherited: Graph,
-    reuse: BTreeMap<(Kind, [u8; 32], u64), super::objects::Object>,
+    reuse: Mutex<BTreeMap<ContentKey, super::objects::Object>>,
     _reservation: Arc<Permit>,
     source_budget: Arc<Budget>,
 }
 
 /// The only producer of immutable group archive objects. All new keys include a
 /// never-reused reservation generation. Reuse is restricted to its protected
-/// parent closure; an arbitrary old content address cannot be resurrected.
+/// parent closure and confirmed objects of this pending owner; an arbitrary old
+/// content address cannot be resurrected. Every reuse still verifies a full GET.
 #[derive(Clone)]
 pub struct CellGroupArchiveUpload(Arc<Owner>);
 
@@ -144,7 +147,7 @@ impl CellGroupArchiveRegistry {
                     registry: self.clone(),
                     ticket: *ticket,
                     inherited,
-                    reuse,
+                    reuse: Mutex::new(reuse),
                     _reservation: reservation,
                     source_budget: pool.budget.clone(),
                 })))
@@ -233,17 +236,38 @@ impl CellGroupArchiveUpload {
             Kind::parse(kind).ok_or(CellGroupArchiveError::Invalid("archive object kind"))?;
         let own =
             super::objects::Object::of(self.registry().id(), self.ticket().generation(), &bytes);
-        if let Some(inherited) = self.0.reuse.get(&(kind, own.digest, own.length)) {
-            self.get(kind.name(), inherited, limit).await?;
-            return Ok(inherited.clone());
+        let key = (kind, own.digest, own.length);
+        let confirmed = self
+            .0
+            .reuse
+            .lock()
+            .map_err(|_| CellGroupArchiveError::Invalid("upload object cache"))?
+            .get(&key)
+            .cloned();
+        if let Some(confirmed) = confirmed {
+            self.get(kind.name(), &confirmed, limit).await?;
+            return Ok(confirmed);
         }
-        self.put_generation(
-            self.registry().id(),
-            self.ticket().generation(),
-            kind.name(),
-            bytes,
-            limit,
-        )
-        .await
+        let confirmed = self
+            .put_generation(
+                self.registry().id(),
+                self.ticket().generation(),
+                kind.name(),
+                bytes,
+                limit,
+            )
+            .await?;
+        // The upload pool already reserves a bounded content lookup map. Do
+        // not grow it with every attempted cut of a long-lived ticket. A full
+        // cache only loses this optimization; it grants no publication proof.
+        let mut reuse = self
+            .0
+            .reuse
+            .lock()
+            .map_err(|_| CellGroupArchiveError::Invalid("upload object cache"))?;
+        if reuse.len() < self.max_objects() {
+            reuse.insert(key, confirmed.clone());
+        }
+        Ok(confirmed)
     }
 }
