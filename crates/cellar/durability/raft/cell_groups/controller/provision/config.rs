@@ -86,11 +86,17 @@ impl Config {
         archives: Option<archive::Provisioning>,
         parked: Vec<(CellGroupApplier, PreparedGroupManifest)>,
     ) -> Result<Self, CellGroupControllerError> {
-        let invalid = || CellGroupControllerError::Invalid("group provisioning configuration");
-        settings.manifest.validate().map_err(|_| invalid())?;
-        settings.entries.validate().map_err(|_| invalid())?;
+        let invalid = CellGroupControllerError::Invalid;
+        settings
+            .manifest
+            .validate()
+            .map_err(|_| invalid("group provisioning configuration: manifest limits"))?;
+        settings
+            .entries
+            .validate()
+            .map_err(|_| invalid("group provisioning configuration: entry limits"))?;
         if settings.namespaces.is_empty() || settings.namespaces.len() > 4096 {
-            return Err(invalid());
+            return Err(invalid("group provisioning configuration: namespace count"));
         }
         let mut namespaces = std::collections::BTreeSet::new();
         // Trusted endpoints and fixed configuration metadata remain retained
@@ -99,26 +105,33 @@ impl Config {
         let mut image_bytes = 0;
         for profile in &mut settings.namespaces {
             let namespace = profile.directory.namespace_config();
-            if !namespaces.insert((namespace.cluster, namespace.namespace))
-                || !matches!(
-                    (&profile.images, namespace.image_storage),
-                    (
-                        CellGroupApplyImages::Materialized { .. },
-                        crate::raft::catalog::RaftImageStorage::Materialized
-                    ) | (
-                        CellGroupApplyImages::Extents { .. },
-                        crate::raft::catalog::RaftImageStorage::Extents
-                    )
+            if !namespaces.insert((namespace.cluster, namespace.namespace)) {
+                return Err(invalid(
+                    "group provisioning configuration: duplicate namespace",
+                ));
+            }
+            if !matches!(
+                (&profile.images, namespace.image_storage),
+                (
+                    CellGroupApplyImages::Materialized { .. },
+                    crate::raft::catalog::RaftImageStorage::Materialized
+                ) | (
+                    CellGroupApplyImages::Extents { .. },
+                    crate::raft::catalog::RaftImageStorage::Extents
                 )
-            {
-                return Err(invalid());
+            ) {
+                return Err(invalid(
+                    "group provisioning configuration: namespace image kind",
+                ));
             }
             profile.images.validate().map_err(apply_error)?;
             let mut metadata = profile
                 .directory
                 .cache_capacity_bytes()
                 .checked_add(8192)
-                .ok_or_else(invalid)?;
+                .ok_or_else(|| {
+                    invalid("group provisioning configuration: namespace metadata overflow")
+                })?;
             if let CellGroupApplyImages::Extents {
                 cache_directory, ..
             } = &mut profile.images
@@ -129,18 +142,22 @@ impl Config {
                         .components()
                         .any(|p| matches!(p, std::path::Component::ParentDir))
                 {
-                    return Err(invalid());
+                    return Err(invalid(
+                        "group provisioning configuration: extent cache directory",
+                    ));
                 }
                 metadata = metadata
                     .checked_add(cache_directory.as_os_str().len() * 2)
-                    .ok_or_else(invalid)?;
+                    .ok_or_else(|| {
+                        invalid("group provisioning configuration: cache metadata overflow")
+                    })?;
                 *cache_directory = std::mem::take(cache_directory)
                     .into_boxed_path()
                     .into_path_buf();
             }
             configuration_bytes = configuration_bytes
                 .checked_add(metadata)
-                .ok_or_else(invalid)?;
+                .ok_or_else(|| invalid("group provisioning configuration: metadata overflow"))?;
             image_bytes = image_bytes.max(profile.images.memory_bound());
         }
         if !settings.directory.is_absolute()
@@ -149,36 +166,77 @@ impl Config {
                 .directory
                 .components()
                 .any(|p| matches!(p, std::path::Component::ParentDir))
-            || !(1..=1_000_000).contains(&settings.max_effect_rows)
-            || !(1..=4_000_000).contains(&settings.max_pages)
-            || !(1..=68_719_476_736).contains(&settings.max_page_bytes)
-            || !(2..=4096).contains(&settings.max_retained_roots)
-            || !(1..=128).contains(&settings.peers.len())
-            || settings.peer_revision == 0
-            || settings.max_preparations == 0
-            || settings.max_preparations > shared.limits.max_groups
-            || settings.max_parallel_preparations == 0
-            || settings.max_parallel_preparations > settings.max_preparations.min(256)
-            || !(1..=65_536).contains(&settings.max_waiters)
         {
-            return Err(invalid());
+            return Err(invalid(
+                "group provisioning configuration: manifest directory",
+            ));
+        }
+        if !(1..=1_000_000).contains(&settings.max_effect_rows) {
+            return Err(invalid(
+                "group provisioning configuration: effect row limit",
+            ));
+        }
+        if !(1..=4_000_000).contains(&settings.max_pages) {
+            return Err(invalid(
+                "group provisioning configuration: page count limit",
+            ));
+        }
+        if !(1..=68_719_476_736).contains(&settings.max_page_bytes) {
+            return Err(invalid("group provisioning configuration: page byte limit"));
+        }
+        if !(2..=4096).contains(&settings.max_retained_roots) {
+            return Err(invalid(
+                "group provisioning configuration: retained root limit",
+            ));
+        }
+        if !(1..=128).contains(&settings.peers.len()) || settings.peer_revision == 0 {
+            return Err(invalid("group provisioning configuration: peer limits"));
+        }
+        if settings.max_preparations == 0 || settings.max_preparations > shared.limits.max_groups {
+            return Err(invalid(
+                "group provisioning configuration: preparation count limit",
+            ));
+        }
+        if settings.max_parallel_preparations == 0
+            || settings.max_parallel_preparations > settings.max_preparations.min(256)
+        {
+            return Err(invalid(
+                "group provisioning configuration: parallel preparation limit",
+            ));
+        }
+        if !(1..=65_536).contains(&settings.max_waiters) {
+            return Err(invalid("group provisioning configuration: waiter limit"));
         }
         let local = shared.runtime.log().limits();
         let mut nodes = std::collections::BTreeSet::new();
         let mut addresses = std::collections::BTreeSet::new();
         let mut labels = std::collections::BTreeSet::new();
         for peer in &mut settings.peers {
-            if peer.label.len() > 4096
-                || peer.server_name.len() > 4096
-                || !nodes.insert(peer.node)
-                || !labels.insert(peer.label.clone())
-                || ![peer.control_address, peer.data_address, peer.query_address]
-                    .into_iter()
-                    .all(|a| addresses.insert(a))
-            {
-                return Err(invalid());
+            if peer.label.len() > 4096 || peer.server_name.len() > 4096 {
+                return Err(invalid(
+                    "group provisioning configuration: peer name limits",
+                ));
             }
-            peer.validate_endpoint().map_err(|_| invalid())?;
+            if !nodes.insert(peer.node) {
+                return Err(invalid(
+                    "group provisioning configuration: duplicate peer node",
+                ));
+            }
+            if !labels.insert(peer.label.clone()) {
+                return Err(invalid(
+                    "group provisioning configuration: duplicate peer label",
+                ));
+            }
+            if ![peer.control_address, peer.data_address, peer.query_address]
+                .into_iter()
+                .all(|a| addresses.insert(a))
+            {
+                return Err(invalid(
+                    "group provisioning configuration: duplicate peer address",
+                ));
+            }
+            peer.validate_endpoint()
+                .map_err(|_| invalid("group provisioning configuration: peer endpoint"))?;
             peer.label = std::mem::take(&mut peer.label)
                 .into_boxed_str()
                 .into_string();
@@ -191,13 +249,17 @@ impl Config {
             .iter()
             .any(|p| p.node == local.node && p.disk == local.disk && p.process == local.process)
         {
-            return Err(invalid());
+            return Err(invalid(
+                "group provisioning configuration: local node disk process binding",
+            ));
         }
         // Bound recovery pins, BTree inventory/leases, recursive page decoding,
         // image scratch and all bounded catalog/peer/request metadata. The active
         // roster retains at most max_groups stores of these configured sizes.
         let mut bytes = ManifestPins::maximum_bytes(settings.manifest.max_cells)
-            .checked_add(settings.max_pages.checked_mul(256).ok_or_else(invalid)?)
+            .checked_add(settings.max_pages.checked_mul(256).ok_or_else(|| {
+                invalid("group provisioning configuration: page inventory overflow")
+            })?)
             .and_then(|n| {
                 n.checked_add(
                     settings.manifest.max_depth as usize
@@ -206,14 +268,20 @@ impl Config {
             })
             .and_then(|n| n.checked_add(image_bytes))
             .and_then(|n| n.checked_add(2 * 1024 * 1024))
-            .ok_or_else(invalid)?;
+            .ok_or_else(|| {
+                invalid("group provisioning configuration: preparation size overflow")
+            })?;
         if let Some(archives) = &archives {
             configuration_bytes = configuration_bytes
                 .checked_add(archives.metadata(&settings)?)
-                .ok_or_else(invalid)?;
+                .ok_or_else(|| {
+                    invalid("group provisioning configuration: archive metadata overflow")
+                })?;
             // A preparation retains both serving and private verifier stores.
             // Charge both complete bounds to the existing node-wide bank.
-            bytes = bytes.checked_mul(2).ok_or_else(invalid)?;
+            bytes = bytes.checked_mul(2).ok_or_else(|| {
+                invalid("group provisioning configuration: archive preparation overflow")
+            })?;
         }
         // Immutable namespace handles keep their advertised directory caches alive.
         // Charge those once against the existing total, leaving one shared bank
@@ -221,9 +289,13 @@ impl Config {
         let available = settings
             .max_preparation_bytes
             .checked_sub(configuration_bytes)
-            .ok_or_else(invalid)?;
+            .ok_or_else(|| {
+                invalid("group provisioning configuration: configuration exceeds byte limit")
+            })?;
         if available < bytes {
-            return Err(invalid());
+            return Err(invalid(
+                "group provisioning configuration: preparation exceeds remaining bytes",
+            ));
         }
         settings.directory = settings.directory.into_boxed_path().into_path_buf();
         settings.peers = settings.peers.into_boxed_slice().into_vec();
