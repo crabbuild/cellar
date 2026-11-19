@@ -238,6 +238,17 @@ async fn admitted_s3_checkpoint_waits_for_held_output_capacity() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
+async fn rustfs_extent_checkpoint_cancellation_releases_admission() -> Result<()> {
+    Box::pin(checkpoint_admission::qualify(
+        true,
+        true,
+        checkpoint_admission::End::Cancel,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
 async fn rustfs_admitted_s3_checkpoint_waits_for_held_output_capacity() -> Result<()> {
     for rooted in [false, true] {
         for end in [

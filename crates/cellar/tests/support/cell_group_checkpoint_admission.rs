@@ -73,7 +73,17 @@ async fn retired(host: &RaftCells) -> Result<()> {
         }
     })
     .await
-    .context("checkpoint retained admission after its waiter ended")
+    .with_context(|| {
+        let usage = host.resource_usage();
+        format!(
+            "checkpoint retained admission after its waiter ended: SQL active={:?}, queued={:?}; archive={:?}; ordinary={:?}; retained_s3={}",
+            usage.sql.as_ref().map(|sql| sql.active_cells),
+            usage.sql.as_ref().map(|sql| sql.queued_or_running),
+            usage.host.controller.archive_settlement,
+            usage.host.controller.ordinary,
+            usage.host.controller.retained_s3,
+        )
+    })
 }
 
 pub async fn qualify(rooted: bool, real: bool, end: End) -> Result<()> {

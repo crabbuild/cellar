@@ -132,10 +132,12 @@ pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
             },
             async {
                 let _release = Release(control.clone());
-                cellar::asyncrt::timeout(TIMEOUT, control.entered.notified()).await?;
+                cellar::asyncrt::timeout(TIMEOUT, control.entered.notified())
+                    .await.context("source S3 Run did not reach its checkpoint")?;
                 let published = group.archive_status()?.and_then(|s| s.published)
                     .context("S3 checkpoint has no published cut")?.position().index;
-                let receipt = neighbor.command(&neighbor.contract("Touch")?, b"{}".to_vec(), options(1, Durability::Quorum)?).await?;
+                let receipt = neighbor.command(&neighbor.contract("Touch")?, b"{}".to_vec(), options(1, Durability::Quorum)?)
+                    .await.context("neighbor Quorum Touch while source S3 Run is held")?;
                 let index = receipt.witness.position.index;
                 ensure!(index > published, "neighbor did not advance the group");
                 changed = Some(index);
@@ -159,9 +161,10 @@ pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
             ensure!(error.ambiguous, "committed checkpoint became known non-commit");
             ensure!(expired(error.cause.as_ref()), "original typed deadline was lost: {error}");
         } else {
-            let result = result?;
+            let result = result.context("source S3 Run after checkpoint release")?;
             ensure!(result.result == b"2" && result.durability == Durability::S3);
-            let replay = source.command(&contract, b"{}".to_vec(), request).await?;
+            let replay = source.command(&contract, b"{}".to_vec(), request)
+                .await.context("source S3 Run exact replay")?;
             ensure!(replay.result == b"2" && control.calls.load(Ordering::Acquire) == 1);
         }
         // Drop or original deadline expiry must unblock existing dirty work.
@@ -169,7 +172,8 @@ pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
         let changed = if expire {
             changed.context("neighbor did not commit")?
         } else {
-            neighbor.command(&neighbor.contract("Touch")?, b"{}".to_vec(), options(2, Durability::Quorum)?).await?.witness.position.index
+            neighbor.command(&neighbor.contract("Touch")?, b"{}".to_vec(), options(2, Durability::Quorum)?)
+                .await.context("neighbor Quorum Touch after source completion")?.witness.position.index
         };
         cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
