@@ -121,11 +121,16 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
     };
 
     struct Gated {
+        known: bool,
         replies: [Mutex<Option<tokio::sync::oneshot::Receiver<Result<Value>>>>; 2],
         polled: Arc<AtomicU8>,
     }
 
     impl super::Host for Gated {
+        fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
+            Ok(self.known)
+        }
+
         fn rpc(
             &self,
             principal: &str,
@@ -139,7 +144,7 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
                 anyhow::ensure!(principal == "app");
                 authority.validate_target(&scope, Some(&name), method)?;
                 let index = match method {
-                    "__catalogResolve" => 0,
+                    "__catalogResolve" | "__catalogStatus" => 0,
                     "__streamResolve" => 1,
                     _ => anyhow::bail!("unexpected activation call {method}"),
                 };
@@ -162,13 +167,20 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
     // Either independently placed authority may be cold after retained restart.
     // Holding one read cannot prevent the other from beginning its quorum work,
     // and one successful proof can never publish a binding by itself.
-    for first in [0, 1] {
+    for (known, first) in [(false, 0), (false, 1), (true, 0), (true, 1)] {
         for accepted in [false, true] {
             let (binding, declaration) = binding_declaration(false);
+            let mut declared = definition();
+            declared.grants[0].read = true;
             let active = json!({"state":"active","resource":binding.resource});
+            let status = json!({"state":"active","resource":declared.resource.id,
+                "accepted_revision":declared.revision.to_string(),
+                "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+            let successes = [if known { status } else { active.clone() }, active];
             let (catalog, catalog_reply) = tokio::sync::oneshot::channel();
             let (partition, partition_reply) = tokio::sync::oneshot::channel();
             let host = Gated {
+                known,
                 replies: [
                     Mutex::new(Some(catalog_reply)),
                     Mutex::new(Some(partition_reply)),
@@ -176,7 +188,12 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
                 polled: Arc::new(AtomicU8::new(0)),
             };
             let declarations = [declaration];
-            let mut activation = Box::pin(configure(&host, &[], &declarations));
+            let definitions = if known {
+                vec![("app".into(), declared)]
+            } else {
+                vec![]
+            };
+            let mut activation = Box::pin(configure(&host, &definitions, &declarations));
             let waker = futures_util::task::noop_waker();
             let mut cx = Context::from_waker(&waker);
             assert!(activation.as_mut().poll(&mut cx).is_pending());
@@ -189,14 +206,14 @@ fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result
             replies[first]
                 .take()
                 .unwrap()
-                .send(Ok(active.clone()))
+                .send(Ok(successes[first].clone()))
                 .unwrap();
             assert!(
                 activation.as_mut().poll(&mut cx).is_pending(),
                 "one proof granted readiness"
             );
             let last = if accepted {
-                Ok(active)
+                Ok(successes[1 - first].clone())
             } else {
                 Err(anyhow::Error::from(RuntimeError::DeadlineExceeded))
             };
@@ -300,6 +317,76 @@ async fn broker_birth_preparation_and_catalog_bootstrap_make_progress_together()
         host.completed.load(Ordering::SeqCst),
         "catalog success dropped preparation"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn retained_definition_proof_does_not_authorize_revoked_or_foreign_bindings() -> Result<()> {
+    let mut declared = definition();
+    declared.grants[0].read = true;
+    let status = json!({"state":"active","resource":declared.resource.id,
+        "accepted_revision":declared.revision.to_string(),
+        "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+    for revoked in [false, true] {
+        let (mut binding, _) = binding_declaration(false);
+        let mut resource = binding.resource.clone();
+        resource.id = "02020202020202020202020202020202".into();
+        let mut replies = vec![("__catalogStatus", status.clone())];
+        if revoked {
+            binding.grant = "revoked".into();
+        } else {
+            replies.push((
+                "__streamResolve",
+                json!({"state":"active","resource":resource}),
+            ));
+        }
+        let host = Host {
+            known: true,
+            replies: std::sync::Mutex::new(replies.into()),
+        };
+        let result = configure(
+            &host,
+            &[("app".into(), declared.clone())],
+            &[binding.into()],
+        )
+        .await;
+        assert!(result.is_err(), "unproven binding admitted: {result:?}");
+        assert!(host.replies.lock().unwrap().is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn speculative_partition_proof_is_discarded_when_catalog_needs_reconciliation() -> Result<()>
+{
+    let mut declared = definition();
+    declared.grants[0].read = true;
+    let (binding, declaration) = binding_declaration(false);
+    let status = json!({"state":"active","operation":super::super::raft::operation("app", &declared)?,
+        "resource":declared.resource.id,"accepted_revision":declared.revision.to_string(),
+        "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+    let mut pending = status.clone();
+    pending["state"] = json!("updating");
+    let active = json!({"state":"active","resource":binding.resource});
+    let host = Host {
+        known: true,
+        replies: std::sync::Mutex::new(
+            vec![
+                ("__catalogStatus", pending),
+                ("__streamResolve", active.clone()),
+                ("__catalogConfigure", status.clone()),
+                ("__catalogStatus", status),
+                ("__catalogResolve", active.clone()),
+                ("__streamResolve", active),
+            ]
+            .into(),
+        ),
+    };
+    assert_eq!(
+        configure(&host, &[("app".into(), declared)], &[declaration]).await?,
+        vec![binding]
+    );
+    assert!(host.replies.lock().unwrap().is_empty());
     Ok(())
 }
 

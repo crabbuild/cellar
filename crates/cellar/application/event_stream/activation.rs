@@ -115,13 +115,14 @@ pub(crate) async fn configure(
     declarations: &[BindingConfig],
 ) -> Result<Vec<Binding>> {
     use super as event_stream;
+    let mut verified = vec![None; declarations.len()];
     for (script, definition) in definitions {
         let bytes = event_stream::encoding::json(definition, event_stream::MAX_DEFINITION_BYTES)?;
         let digest = hex::encode(Sha256::digest(&bytes));
         let operation = event_stream::raft::operation(script, definition)?;
         let authority = Authority::deployment(script, definition)?;
         if host.configuration_known(script, &authority)? {
-            match rpc(
+            let current = rpc(
                 host,
                 script,
                 authority.clone(),
@@ -129,13 +130,48 @@ pub(crate) async fn configure(
                 event_stream::catalog_name(&definition.resource)?,
                 "__catalogStatus",
                 json!([{}]),
-            )
-            .await
-            {
+            );
+            let partitions = async {
+                let mut resolved = Vec::new();
+                for (index, declaration) in declarations.iter().enumerate() {
+                    if declaration.resource.id.is_none() {
+                        continue;
+                    }
+                    let binding = declaration.explicit()?;
+                    if binding.resource != definition.resource {
+                        continue;
+                    }
+                    // Authorization is from the definition whose exact digest
+                    // the concurrent current catalog read must prove below.
+                    // This local check alone supplies no readiness or proof.
+                    let caller = Authority::resolution(&binding)?;
+                    event_stream::store::authorize(
+                        definition,
+                        &caller,
+                        event_stream::authority::Action::Resolve,
+                        None,
+                    )?;
+                    resolve_partition(host, &binding).await?;
+                    resolved.push((index, binding));
+                }
+                Ok::<_, anyhow::Error>(resolved)
+            };
+            // At most two owner calls overlap. Read-only speculation is safe
+            // even if a retained catalog needs reconciliation: discard it in
+            // that case and use the ordinary post-configuration binding path.
+            let (current, partitions) = futures_util::join!(current, partitions);
+            match current {
                 // This is a fresh, authorized, linearizable observation with
                 // the target's independent minimum proof, never a historical
-                // configuration receipt. Retained activation needs no mutation.
-                Ok(current) if matches_definition(&current, definition, &digest) => continue,
+                // configuration receipt. Its exact definition also proves the
+                // catalog identity and resolution grants checked above. Every
+                // partition still needs its own independent current proof.
+                Ok(current) if matches_definition(&current, definition, &digest) => {
+                    for (index, binding) in partitions? {
+                        verified[index] = Some(binding);
+                    }
+                    continue;
+                }
                 Ok(_) => (),
                 Err(error) if missing_configuration(&error) => (),
                 Err(error) => return Err(error),
@@ -194,7 +230,11 @@ pub(crate) async fn configure(
         reconciled?;
     }
     let mut activated = Vec::new();
-    for declaration in declarations {
+    for (index, declaration) in declarations.iter().enumerate() {
+        if let Some(binding) = verified[index].take() {
+            activated.push(binding);
+            continue;
+        }
         let script = declaration.principal.as_str();
         let binding = if declaration.resource.id.is_some() {
             declaration.explicit()?
@@ -236,30 +276,31 @@ pub(crate) async fn configure(
             }
             Ok::<_, anyhow::Error>(())
         };
-        let partition = async {
-            let encoded = event_stream::encoding::json(&binding, 64 << 10)?;
-            let resolved = rpc(
-                host,
-                script,
-                authority.clone(),
-                event_stream::cell_scope(&binding.resource)?,
-                event_stream::cell_name(&binding.resource)?,
-                "__streamResolve",
-                json!([{"binding":base64::engine::general_purpose::STANDARD.encode(encoded)}]),
-            )
-            .await?;
-            let resource: event_stream::Resource =
-                serde_json::from_value(resolved["resource"].clone())?;
-            anyhow::ensure!(
-                resolved["state"].as_str() == Some("active") && resource == binding.resource,
-                "resolved event binding identity differs from the deployment"
-            );
-            Ok::<_, anyhow::Error>(())
-        };
+        let partition = resolve_partition(host, &binding);
         futures_util::try_join!(catalog, partition)?;
         activated.push(binding);
     }
     Ok(activated)
+}
+
+async fn resolve_partition(host: &impl Host, binding: &Binding) -> Result<()> {
+    let encoded = super::encoding::json(binding, 64 << 10)?;
+    let resolved = rpc(
+        host,
+        &binding.principal,
+        Authority::resolution(binding)?,
+        super::cell_scope(&binding.resource)?,
+        super::cell_name(&binding.resource)?,
+        "__streamResolve",
+        json!([{"binding":base64::engine::general_purpose::STANDARD.encode(encoded)}]),
+    )
+    .await?;
+    let resource: super::Resource = serde_json::from_value(resolved["resource"].clone())?;
+    anyhow::ensure!(
+        resolved["state"].as_str() == Some("active") && resource == binding.resource,
+        "resolved event binding identity differs from the deployment"
+    );
+    Ok(())
 }
 
 #[cfg(test)]

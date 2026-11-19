@@ -20,9 +20,12 @@ and namespace identity. One generation activation owner configures resources and
 checks current catalog/stream state before pinning explicit and named bindings.
 Named adoption uses its fresh authorized name-resolution response as the catalog
 proof: it already validates active lifecycle, complete resource identity and all
-captured grant capabilities. Explicit UUIDs still need a separate current catalog
-read. Both forms independently check the current broker lifecycle and identity;
-no proof is reused across declarations or inferred from a name/configuration hint.
+captured grant capabilities. Explicit UUIDs require current catalog proof. A
+fresh active status proving the exact compiled definition's revision and digest
+can supply that proof after checking the binding's resolution grant against the
+proven definition. Otherwise, adoption reads current catalog resolution separately.
+Both forms independently check the current broker lifecycle and identity;
+neither a name/configuration hint nor a historical receipt supplies readiness.
 It selects the shared host for Raft resources and never materializes another
 LTX-backed catalog or broker for the same declaration. Embedded hosts activate
 after provisioning the required groups; the daemon uses its startup hook.
@@ -53,6 +56,10 @@ the locator is cold. Neither startup mode nor the history hint grants serving
 or configuration authority. Missing configuration follows the normal creation path;
 unavailability, revocation and unknown outcomes refuse activation. Catalog and
 partition resolution still check their current resource identities and grants.
+For a known definition, its current catalog status and explicit broker proofs
+run concurrently, with at most two owner calls in flight. Neither result alone
+pins a binding. If the catalog needs reconciliation, speculative broker results
+are discarded and adoption repeats both current proofs after configuration.
 Subscription status reports the selected image's identity, lease and lag under
 its current consume/admin grant. Observing an expired lease does not expire it,
 advance the stored clock or create a child intent/receipt. Clocks, leases and mutations retain their command
