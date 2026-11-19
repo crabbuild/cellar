@@ -4,35 +4,35 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current activation proof delivery
+## Current checkpoint backpressure delivery
 
 Reuse open PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
-`d3fdba11c` includes freshly fetched main `2f083f148`. Explicit UUID bindings
-start both independent current-authority reads together, retain their original
-deadline/admission, and require both proofs before readiness. Seven owning tests
-pass; the deterministic pending-catalog baseline fails at `6fdc4ed18`. Locked
-unit/public build, format check and strict affected Clippy pass. All temporary
-stage probes are removed.
+`8541aee3d` includes main `2f083f148`. Production `a0604c66e` makes already-admitted
+native intermediate checkpoints wait for the existing S3 capacity and request
+queue under their original deadline. It retains the committed receipt and
+invocation without callback replay. Normal public admission, current authority,
+physical verification and output-proof requirements retain their contracts.
 
-**The four original runtime selectors all fail.** Native explicit recovery
-reaches source `Read`, client `[190; 16]`, sequence 6, then reports uncertain
-`Execution(Refused(Unavailable))`. RustFS initial activation and native retained
-activation time out; the RustFS retained control fails uncertain enrollment.
-The verified previous `9b4fdf132` binary also fails retained-control enrollment
-with uncertain `Unavailable`. This does not establish an exclusive cause or
-exclude additional regressions. Independent compilers are present; owned builds
-are joined before runtime. All fifteen failed disks from these two diagnostics
-remain. See the [current checkpoint](progress.md#current-integration-checkpoint)
-for exact records and limits.
+The real RF3 pre-fix baseline fails with storage `Overloaded` after commit.
+**Sixteen constrained native/RustFS configurations and six existing S3 safety
+selectors pass.** The original native explicit EventStream lifecycle passes both
+image forms; native named bindings pass all four configurations. Full CG-17 is
+still open: RustFS event activation, both RustFS source-S3 binding configurations,
+ordinary/Axum Consume and native Axum explicit activation still fail. Preserve
+those exact ambiguous identities and deadlines. The [current checkpoint](progress.md#current-integration-checkpoint)
+lists source pins, records, the corrected shared-verification fixture and limits.
+Independent compilation is recorded; this is not isolated performance or
+independent-voter release qualification.
 
-Next deliver the actual activation/source Read/Consume path under its original
-budgets, then retained source-S3 RPC, independent target-S3 SQL/KV and the full
-primitive/provider/feature/lifecycle/recovery matrix. Do not repeat the already
-green archive optimization without a new defect. Counts remain **13/17 tasks,
-147/195 cases**; all 32 CG-17 cases and dependencies remain mandatory. Historical
-CG-01 evidence is still missing. All owned handles are joined, and RustFS/VM are
-stopped with objects retained. Ignored `event-stage-state-1465.json` under
-`.cellar/cg17-payload-01/` records the current ownership and handoff state.
+Next diagnose the actual RustFS activation/source-S3 settlement and public
+Consume boundary before another scheduler or archive change. Then close
+independent target-S3 SQL/KV, Queue/autonomous work, alarms/cron, Workflow and the
+remaining filesystem/payload/provider/WebSocket and combined recovery matrix.
+All 32 cases and task dependencies remain mandatory; acceptance stays
+**13/17 tasks, 147/195 cases**. Full plan validation still lacks historical CG-01
+evidence. All owned runtime/build handles are joined; RustFS/VM are stopped with
+objects and failed disks retained. Ignored `source-refusal-state-1480.json` under
+`.cellar/cg17-payload-01/` records ownership and evidence custody.
 
 ## Previous disposable-scratch delivery
 

@@ -41,65 +41,51 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `d3fdba11c` includes freshly fetched main `2f083f148`. Explicit UUID
-activation now overlaps the catalog and partition reads while requiring both
-current independent proofs. The causal regression fails the serial baseline;
-all seven owning activation tests pass. This does not establish public closure:
-the original four runtime selectors all fail, including native source `Read`
-sequence 6, RustFS initial activation and both retained-activation controls.
-Foreign compiler activity is recorded; all owned builds join before runtime.
-No timing cause or speedup is claimed. Twelve failed voter disks remain.
+Runtime `8541aee3d` includes main `2f083f148`. Already-admitted native
+checkpoints now wait for existing S3 capacity/queue space under their original
+absolute deadline, retaining their committed receipt without replaying callbacks.
+The causal pre-fix RF3 baseline fails with storage `Overloaded`; sixteen native/
+RustFS configurations and six existing S3 safety selectors pass. The original
+native explicit EventStream lifecycle passes both image forms, and named native
+bindings pass all four configurations. See the current checkpoint for exact
+source and evidence pins.
 
-The previous archive runtime `9b4fdf132` removes only
-anonymous receive-spool sync and adds bounded reuse of GET-confirmed objects in
-the same pending upload owner. Immutable image barriers, full verifying GETs,
-cold-owner conditional-create reconciliation, output proofs and fences remain.
-**29 LTX tests and 25 native/RustFS archive selectors pass.** One physical 10 GB
-test is ignored and not counted. The original unchanged-cut zero-PUT oracle,
-missing/corrupt-object refusal, retention, recovery and S3 output gates pass.
-
-**The previous public RPC/EventStream cohort remains FAILED, 1/12 selectors.** RustFS named RPC passes
-all four image/source-minimum configurations; native passes three of four, with
-materialized source-S3 retained sequence 7 still ambiguous at its deadline. All
-ten EventStream selectors fail Consume or initial activation. These results do
-not accept a primitive family or establish a latency fix. Prior SQL, KV, Fetch
-and interrupted-binding passes retain their earlier source pins.
-
-The original deadlines, identities, minima, callback/data and fencing assertions
-remain. The stopped-artifact audit verifies 580 failed node directories and
-records the four older hibernation disks and six earlier archive voter disks
-that were deleted before retention fixes. No custody gap or case is waived.
+**The remaining public paths still fail.** RustFS explicit event activation times
+out; RustFS named bindings pass both Quorum-source configurations but fail both
+S3-source configurations. Native ordinary/Axum Consume and Axum explicit
+activation also fail. Preserve ambiguous binding client `[121; 16]`, materialized
+sequence 2 and extent sequence 1, and Consume parent sequence 2. The earlier
+source Read and retained binding failures remain historical evidence; a timeout
+never establishes non-commit. Independent compilation is recorded, so no isolated
+latency improvement or complete-family qualification is claimed.
 
 Deliver the next features in this order:
 
-1. Finish normal EventStream activation, Consume and explicit outbox progress,
-   plus retained materialized source-S3 RPC completion. Preserve the current
-   uncertain `Counter:event-sink` client `[190; 16]`, sequence 6; do not infer
-   non-commit or substitute a new identity. Diagnose the actual original
-   activation/source failure; parallel proof reads alone have not closed it.
-   Use the exact failing
-   public requests and a causal owning regression before changing the shared
-   invocation, checkpoint or scheduling path. Existing independent callback
-   admission and background archive coalescing already exist. The 25 archive
-   controls are green; do not repeat archive optimization without a new defect.
-   Preserve original absolute deadlines, identities, uncertainty and S3 proofs.
+1. Close RustFS activation and source-S3 settlement, ordinary/Axum Consume and
+   Axum explicit lifecycle under the original budgets. Capture the owning stage
+   before choosing another scheduling change; add a causal regression at that
+   boundary. Keep current authority, all S3 proofs and exact mutation identities.
+   Existing callback banks, background archive coalescing and proof-read overlap
+   already exist. Repeat green controls only when a new change justifies it.
 2. Complete independent target-S3 SQL/KV and binding/streaming ownership coverage,
    then Queue lease/acknowledgement and autonomous drain, alarms/cron and Workflow
    lifecycle. Qualify retention, recreation, deployment/clock changes and
    interruption without business replay.
 3. Complete filesystem/payload closure and HTTP, WebSocket and container/provider
-   adapters with real execution fencing and reconciliation. Finish the reviewed
+   adapters with actual execution fencing and reconciliation. Finish the reviewed
    symbol inventory and independent validator's complete coverage matrix.
 4. Close CG-13 managed recovery and CG-17 movement, park/wake, archive/reclamation
    and fresh-incarnation disaster cases on constrained independent voters. Then
-   run CG-15 qualification and CG-16 cutover. All 32 CG-17 cases and existing
-   dependencies remain mandatory.
+   run CG-15 qualification and CG-16 cutover.
 
-The earlier broad `10e888494` cohort remains FAILED, 34/56 selectors; the current
-narrower campaign does not requalify its other primitive families. Acceptance
-remains **13/17 tasks, 147/195 cases**. Full plan validation still lacks historical
-CG-01 evidence. See the [current checkpoint](progress.md#current-integration-checkpoint)
-for exact profiles, artifacts, failures and validation limits.
+All 32 CG-17 cases and existing dependencies remain mandatory. Acceptance stays
+**13/17 tasks, 147/195 cases**. Earlier broad cohorts and archive/storage passes
+keep their separate source pins; this focused campaign does not requalify them.
+The failed records/disks remain, as do the documented custody gaps for four older
+hibernation disks and six earlier archive voter disks. Full plan validation still
+lacks historical CG-01 evidence. No missing artifact, case or safety oracle is
+waived. See the [current checkpoint](progress.md#current-integration-checkpoint)
+for exact profiles, results and limits.
 
 ### Earlier binding checkpoints
 
