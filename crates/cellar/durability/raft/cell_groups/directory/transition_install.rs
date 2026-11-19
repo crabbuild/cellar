@@ -99,6 +99,29 @@ impl ManagedInstall<'_> {
 }
 
 impl TransferSeedPermit {
+    /// Local engine fixture only; this does not exercise catalog authorization.
+    #[cfg(test)]
+    pub(crate) fn for_unmanaged_engine_test(
+        log: &ReplicaLog,
+        bootstrap: CellGroupBootstrap,
+        genesis: GroupManifest,
+    ) -> Result<Self, LogError> {
+        Ok(Self {
+            owner: log.owner(),
+            local: ReplicaIdentity {
+                scope: bootstrap.route.history,
+                member: bootstrap.member,
+                node: log.limits().node,
+                disk: log.limits().disk,
+                process: log.limits().process,
+            },
+            engine: log.storage_instance()?,
+            bootstrap,
+            genesis,
+            managed: None,
+        })
+    }
+
     pub(crate) fn check(
         &self,
         owner: &Arc<()>,

@@ -450,8 +450,14 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
             // and one follower synced their exact authenticated certificate. The
             // still-active voter must wake its peers through ordinary elections.
             for (index, runtime) in runtimes[..2].iter().enumerate() {
-                runtime
-                    .enter_park(history, certificate.certificate().clone())
+                transports[index]
+                    .handle
+                    .0
+                    .retry_park(deadline, || async {
+                        Ok(runtime
+                            .enter_park(history, certificate.certificate().clone())
+                            .await?)
+                    })
                     .await
                     .with_context(|| format!("park fixture partial enter voter={index}"))?;
             }

@@ -1,0 +1,518 @@
+{
+  "format": 1,
+  "scope": "Consumed import seed ownership completion fix, not complete OPT/CG/SDK/release acceptance or an end-to-end performance claim.",
+  "qualified_tree": {
+    "head_at_build_start": "a7ceeadcaf1b7e93329ff56e2b0f2a34a02d977c",
+    "included_main": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+    "compiler_input_digest": "66f1af10e0ddacf27440ecd3f7e6bb0438ea6649aefd659f97fc34f1debff7bd",
+    "binding": "Publication verifies committed compiler inputs externally, avoiding a self-referential commit in this artifact."
+  },
+  "mechanism": {
+    "before": "The engine replies while its consumed TransferSeed still owns its prepared-root clone. A synchronously awakened caller can observe completed import with recovery slot and byte admission still held.",
+    "after": "After import returns and any fatal closed flag is set, explicitly drop only the consumed seed before sending completion. Other prepared roots retain their own credits and pins. Durable import barriers, catalog/serving authorization, bounds, worker count and retry policies remain intact.",
+    "resource_limit": "The measured bytes are reserved recovery admission, not measured physical RSS or reclaimed disk space."
+  },
+  "causal_source_binding": {
+    "baseline_source_digest": "f41168cc1f035e2725759fc6298c04252ea1dad011ee507801e2e85b10be3748",
+    "candidate_source_digest": "203d12e70be55e4c8368fffd54c422f296b83a9a25477dc4735277743bb1aa69",
+    "changes": {
+      "crates/cellar/durability/raft/storage.rs": {
+        "before": "1a1143e8af8dccec8f4d0e602cf19d5ef975b0913ad802c3436b3d9e67e9db46",
+        "after": "16ab1efa97f1745981c3eefb1c9832247f9593107bd5eed312938475a477bb4b"
+      }
+    },
+    "test_inputs_byte_identical": true,
+    "runtime_change": "Drop consumed ImportedGenesis after setting fatal closed flag, before reply.send. Other root clones and physical pins stay charged; no proof, identity, deadline, worker or bank change."
+  },
+  "baseline_owning_regression": {
+    "status": "RED_VERIFIED",
+    "source_digest": "f41168cc1f035e2725759fc6298c04252ea1dad011ee507801e2e85b10be3748",
+    "scope": "Actual engine imported-seed resource-completion regression with empty transfer genesis and real bounded recovery permit. Existing HOLD_SYNC gate proves pre-sync invisibility; a synchronous oneshot wake records live recovery operations. Check exact non-serving durable mapping, close/reopen and joined release. Test-only unmanaged grant does not qualify catalog, RF3 payloads or serving permission. Same byte-identical test red/green; fixed profile and short same-volume temporary root. A held sync must observe no premature wake; bytes stay charged before sync and baseline wake, then both dimensions must release before candidate wake. Predicted baseline1/candidate0 operations at wake is unproven until every positive control and intended oracle verifies.",
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "retained": {
+      "files": 7,
+      "bytes": 5677,
+      "manifest_sha256": "74e89626176f67f990bb73537d4a4ee8603fc0f2b4283be25b56926776d58bf5"
+    },
+    "completion_observation": {
+      "durableReopenVerified": true,
+      "heldBytesBeforeSync": 84867072,
+      "joinedClose": true,
+      "joinedSlotReleased": true,
+      "noPrematureWakeVerified": true,
+      "operationsAtWake": 1,
+      "preSyncAndMappingVerified": true,
+      "retainedBytesAtWake": 84867072,
+      "wakes": 1
+    },
+    "owning_regression_verified": true,
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 633.4608898329898,
+        "footers": [],
+        "log_sha256": "7dded63e371ea5908098f70639ec3855140010f5a64bc6bf38cb90c1d6164ebb"
+      },
+      {
+        "name": "cellar--imported_seed_releases_its_slot_before_completion_wakes",
+        "status": "EXPECTED_FAILURE_VERIFIED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.20296695898286998,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "1a3f2016d0efc8fbd3d013de16bd023cb5043e7e4eac620652ad6017eb4b6342"
+      }
+    ],
+    "executables": {
+      "cellar": {
+        "sha256": "dff77c7059eef4320d77b0ec75ce8c25234dc39456d671470474af6164d5e2bc",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retention_verification": {
+      "files": 7,
+      "bytes": 5677,
+      "manifest_sha256": "74e89626176f67f990bb73537d4a4ee8603fc0f2b4283be25b56926776d58bf5",
+      "original_matches": true,
+      "closed_copy_matches": true,
+      "scope": "Available terminal fixture files retained in their original locations and independently byte-verified against a closed copy. This does not assert qualification of unrun phases or physical failure-domain isolation."
+    }
+  },
+  "candidate_owning_regression": {
+    "status": "PASSED",
+    "source_digest": "203d12e70be55e4c8368fffd54c422f296b83a9a25477dc4735277743bb1aa69",
+    "scope": "Actual engine imported-seed resource-completion regression with empty transfer genesis and real bounded recovery permit. Existing HOLD_SYNC gate proves pre-sync invisibility; a synchronous oneshot wake records live recovery operations. Check exact non-serving durable mapping, close/reopen and joined release. Test-only unmanaged grant does not qualify catalog, RF3 payloads or serving permission. Same byte-identical test red/green; fixed profile and short same-volume temporary root. A held sync must observe no premature wake; bytes stay charged before sync and baseline wake, then both dimensions must release before candidate wake. Predicted baseline1/candidate0 operations at wake is unproven until every positive control and intended oracle verifies.",
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "retained": {
+      "files": 7,
+      "bytes": 5687,
+      "manifest_sha256": "4d3a731b962a43bf55fd98a286800794ea724f321afbfb94fbdecb3fc7f5208e"
+    },
+    "completion_observation": {
+      "durableReopenVerified": true,
+      "heldBytesBeforeSync": 84867072,
+      "joinedClose": true,
+      "joinedSlotReleased": true,
+      "noPrematureWakeVerified": true,
+      "operationsAtWake": 0,
+      "preSyncAndMappingVerified": true,
+      "retainedBytesAtWake": 0,
+      "wakes": 1
+    },
+    "owning_regression_verified": true,
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 932.2215164999943,
+        "footers": [],
+        "log_sha256": "d2eb4c7821d9ebc5430a13a03112df928e549ee2dc02079a9fad77d22f2e6adf"
+      },
+      {
+        "name": "cellar--imported_seed_releases_its_slot_before_completion_wakes",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.8456605829996988,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "8a22316da429395ffbbabed8ee4b5a25fe712078ab3f5030e1db9a39a2fe06e7"
+      }
+    ],
+    "executables": {
+      "cellar": {
+        "sha256": "bef7239773d0f03b9acadf12c1722f3ea43b16177a36b83f4e14cae6bf46aa6e",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retention_verification": {
+      "files": 7,
+      "bytes": 5687,
+      "manifest_sha256": "4d3a731b962a43bf55fd98a286800794ea724f321afbfb94fbdecb3fc7f5208e",
+      "original_matches": true,
+      "closed_copy_matches": true,
+      "scope": "Available terminal fixture files retained in their original locations and independently byte-verified against a closed copy. This does not assert qualification of unrun phases or physical failure-domain isolation."
+    }
+  },
+  "owning_test_scope": "Real engine, complete empty transfer genesis, real bounded recovery pool, held filesystem sync, pre-sync mapping/wake refusals, deterministic synchronous oneshot-wake observation, exact durable inactive marker, joined close and retained reopen. Test-only unmanaged engine grant is not catalog, RF3 payload or serving qualification.",
+  "excluded_earlier_control": "RED01 confirmed operationAtWake1 before final test strengthening. Its retained original and closed copy remain verified; it is not the byte-identical RED02/GREEN test control.",
+  "initial_full_qualification": {
+    "status": "FAILED",
+    "source_digest": "203d12e70be55e4c8368fffd54c422f296b83a9a25477dc4735277743bb1aa69",
+    "scope": "Full local library plus full managed-group and disaster targets on final consumed-import completion candidate. All-feature locked fixed Rust1.98.1 profile, short same-volume root and serial harness. Test totals/explicit ignores independently checked: library1264total2ignored, managed53total15explicitRustFSignored, disaster21total8explicitRustFSignored. Native real RF3 with synthetic stores is not constrained Colima performance or independent backend failure-domain qualification. Original failures must remain reported and fixtures retained.",
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "retained": {
+      "files": 1727,
+      "bytes": 16580990,
+      "manifest_sha256": "04941e353cf7dceb5e39c95cefb4f13b17f7aa07cf087ceca42e1d2a295c33a4"
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 326.79144962504506,
+        "footers": [],
+        "log_sha256": "9fb7cee6d7180baeff2f640664216ebe250b182413132e319b4b1a4d6dd6d21a"
+      },
+      {
+        "name": "cellar--full",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 258.46034058299847,
+        "footers": [
+          [
+            "FAILED",
+            "1261",
+            "1",
+            "2"
+          ]
+        ],
+        "log_sha256": "5e7b033fe4ea41f3e4336ff4652cefbb4151187c8ba18d87f24cfbed1f0b490a",
+        "full_selection_verified": true
+      },
+      {
+        "name": "native_cell_groups_managed--full",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 712.6689154999913,
+        "footers": [
+          [
+            "FAILED",
+            "37",
+            "1",
+            "15"
+          ]
+        ],
+        "log_sha256": "c4e1894a22d52f9add2c058bfc761c1362e119ca6e7de699109d0c1d161c12f2",
+        "full_selection_verified": true
+      },
+      {
+        "name": "native_cell_groups_disaster--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1110.924547083967,
+        "footers": [
+          [
+            "ok",
+            "13",
+            "0",
+            "8"
+          ]
+        ],
+        "log_sha256": "dce0f4a4ac0f3e748b8ded2caf2ff1fa0c67ae21e241e430311d49722c6cd359",
+        "full_selection_verified": true
+      }
+    ],
+    "executables": {
+      "cellar": {
+        "sha256": "bef7239773d0f03b9acadf12c1722f3ea43b16177a36b83f4e14cae6bf46aa6e",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_disaster": {
+        "sha256": "75fb710476a41d453ad74d0f0dee31742f726c0fb3904ed621b3f2de17aee6dc",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_managed": {
+        "sha256": "eb43d089ccb106c2b01cca0d0c41071bcb82632d65af0aea06b2f4e56fd5f61b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retention_verification": {
+      "files": 1727,
+      "bytes": 16580990,
+      "manifest_sha256": "04941e353cf7dceb5e39c95cefb4f13b17f7aa07cf087ceca42e1d2a295c33a4",
+      "original_matches": true,
+      "closed_copy_matches": true,
+      "scope": "Available terminal fixture files retained in their original locations and independently byte-verified against a closed copy. This does not assert qualification of unrun phases or physical failure-domain isolation."
+    }
+  },
+  "final_full_qualification": {
+    "status": "FAILED",
+    "source_digest": "66f1af10e0ddacf27440ecd3f7e6bb0438ea6649aefd659f97fc34f1debff7bd",
+    "scope": "Full local library plus full managed-group and disaster targets on final consumed-import completion candidate. All-feature locked fixed Rust1.98.1 profile, short same-volume root and serial harness. Test totals/explicit ignores independently checked: library1264total2ignored, managed53total15explicitRustFSignored, disaster21total8explicitRustFSignored. Native real RF3 with synthetic stores is not constrained Colima performance or independent backend failure-domain qualification. Original failures must remain reported and fixtures retained.",
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "retained": {
+      "files": 134,
+      "bytes": 481943,
+      "manifest_sha256": "d7c68386f3225dd1676090b524ed863f7b961f3281414d806e31424c8a5e815d"
+    },
+    "source_reuse_binding": {
+      "prior_source_digest": "203d12e70be55e4c8368fffd54c422f296b83a9a25477dc4735277743bb1aa69",
+      "changed_inputs": [
+        "crates/cellar/durability/raft/park_transport_tests.rs"
+      ],
+      "limit": "Only cfg(test) library park fixture changes. Native results reused only if rebuilt executable SHA and complete test profile are byte-identical; otherwise rerun. Original failure is preserved."
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 800.387177416007,
+        "footers": [],
+        "log_sha256": "1963ee837462f4886db8dde41e80a8d6eea9d9b464a3576250e1979e2a378a0a"
+      },
+      {
+        "name": "cellar--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 232.31976395804668,
+        "footers": [
+          [
+            "ok",
+            "1262",
+            "0",
+            "2"
+          ]
+        ],
+        "log_sha256": "cc2c106bb6304119a19aa9463f8697e322d969366c24933d6fb5a7ec34d7c670",
+        "full_selection_verified": true
+      },
+      {
+        "name": "native_cell_groups_managed--full",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 712.6689154999913,
+        "footers": [
+          [
+            "FAILED",
+            "37",
+            "1",
+            "15"
+          ]
+        ],
+        "log_sha256": "c4e1894a22d52f9add2c058bfc761c1362e119ca6e7de699109d0c1d161c12f2",
+        "full_selection_verified": true,
+        "reused_from": "import-completion-final-01",
+        "reused_executable_sha256": "eb43d089ccb106c2b01cca0d0c41071bcb82632d65af0aea06b2f4e56fd5f61b"
+      },
+      {
+        "name": "native_cell_groups_disaster--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1110.924547083967,
+        "footers": [
+          [
+            "ok",
+            "13",
+            "0",
+            "8"
+          ]
+        ],
+        "log_sha256": "dce0f4a4ac0f3e748b8ded2caf2ff1fa0c67ae21e241e430311d49722c6cd359",
+        "full_selection_verified": true,
+        "reused_from": "import-completion-final-01",
+        "reused_executable_sha256": "75fb710476a41d453ad74d0f0dee31742f726c0fb3904ed621b3f2de17aee6dc"
+      }
+    ],
+    "executables": {
+      "native_cell_groups_disaster": {
+        "sha256": "75fb710476a41d453ad74d0f0dee31742f726c0fb3904ed621b3f2de17aee6dc",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_managed": {
+        "sha256": "eb43d089ccb106c2b01cca0d0c41071bcb82632d65af0aea06b2f4e56fd5f61b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar": {
+        "sha256": "550113d17a1be52fcaf858b42e15515336b61f4dc2c2e67e9178cb1d39a69ee7",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retention_verification": {
+      "files": 134,
+      "bytes": 481943,
+      "manifest_sha256": "d7c68386f3225dd1676090b524ed863f7b961f3281414d806e31424c8a5e815d",
+      "original_matches": true,
+      "closed_copy_matches": true,
+      "scope": "Available terminal fixture files retained in their original locations and independently byte-verified against a closed copy. This does not assert qualification of unrun phases or physical failure-domain isolation."
+    }
+  },
+  "park_fixture_correction": "Initial library run failed first partial enter with typed NotReady before wake/replay oracles. The fixture now uses production transport retry_park for the initial two voters, keeping the same selected certificate and original deadline. Only existing typed NotReady/Overloaded retries apply; the third voter stays undelivered and all persisted-park, fresh-election, late-replay refusal and joined-close assertions remain. No production park change.",
+  "execution_limit": "Excluded compile-only final02 began before cargo format returned. Formatter exited0 and complete input manifests before/after were identical to compiler start. That attempt failed E0599: existing retry helper belongs to transport.handle.0 rather than wrapper, so no runtime test entered. Final03 corrects only this test receiver. Final qualifier verifies inputs before each stage and terminal; no compile elapsed is performance evidence.",
+  "strict_checks": {
+    "status": "PASSED",
+    "source_digest": "66f1af10e0ddacf27440ecd3f7e6bb0438ea6649aefd659f97fc34f1debff7bd",
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 739.9430741670076,
+        "log_sha256": "ca6dfb4ab9a5571f314921857b8094fca96cf507143548e7257190a44b01cb41"
+      },
+      {
+        "name": "native-only",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 124.96565220801858,
+        "log_sha256": "0df0805253f2588b1f621fbc2c811dcb2d628ab86314acfe7ccd7638c4c86c66"
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 123.1023779999814,
+        "log_sha256": "ae7e221ab57fe8afb9e8dfbfd5dd89376c34cab944e4e44ca6af8353066fb49d"
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.1627777079702355,
+        "log_sha256": "87a9236fe4c3eb18bbf00f3f628175339a8ad541dc404fe7b0d952ba527c2c3f"
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.40274849999696016,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.003413291007746,
+        "log_sha256": "ac8e7b81e52ce6f5500b59671854f5ac53b3bf2dcc945c1f75653ba90e038952"
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.821351083985064,
+        "log_sha256": "a57aa3edddf049d9a220d45f441c4518f9fdd2c24af14b229a1201f10f86a582"
+      },
+      {
+        "name": "runner-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.23714029201073572,
+        "log_sha256": "73c6449b9cf138fe3cd87e7bac91cf6f496bfd0406e9737e63e5617031b945c6"
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.045076167036313564,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "prior_queue_diagnostic": {
+    "selection": "Original Queue C2, materialized C4, extents C4 all FAILED their original load/progress oracles.",
+    "observed": "425 phase events, zero pure-query handoff events. The proposed pure-query lost-ready path was not reached and was not selected for a fix. All temporary probes removed.",
+    "retention": "1872 available files / 68022731 bytes, original and closed copy verified; manifest c504f3b48fff8545642bfee44eb38841246acf5a5a91df4caedede79624aeb55.",
+    "limit": "Diagnostic events and native harness elapsed times are not an isolated or matched throughput/latency comparison."
+  },
+  "application_gates": "Prior production source SQL/KV/RPC controls pass, shared application selection remains 6PASS/5FAIL including ordinary Queue,C2,both independent C4 modes,combined C4. These application targets were not rerun for this recovery-only source delta; failures remain open.",
+  "hosted_published_parent": {
+    "head": "a7ceeadcaf1b7e93329ff56e2b0f2a34a02d977c",
+    "sdk_run": 44511522103,
+    "native314_job": 135516694763,
+    "native314": "Library1262PASS2ignore Linux; disaster13PASS8explicitRustFSignore; managed37PASS1FAIL15explicitRustFSignore, S3 replacement/joined-restart returns Raft runtime NotFound.",
+    "standalone_disaster": {
+      "run": 44511521951,
+      "job": 135516694106,
+      "status": "cancelled",
+      "completed_test_footers": 0,
+      "restarted": false,
+      "limit": "Cancellation cause unproven. Neither a completed pass nor a test failure."
+    },
+    "rpc314": {
+      "run": 44511522024,
+      "job": 135516694819,
+      "status": "success"
+    },
+    "limit": "Published-parent jobs do not qualify the uncommitted local candidate. Other lifecycle/release gates remain required."
+  },
+  "latest_original_capacity_observation": {
+    "observed_at_utc": "2026-11-19T13:14:03.258565+00:00",
+    "available_bytes": 0,
+    "reserve_bytes": 6442450944,
+    "admissible": false,
+    "capacity_guard_satisfied": false,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_inspection_config_and_start_unchanged": true,
+    "restarts": 0
+  },
+  "native_environment_limit": "Host-native files and real RF3 integration with synthetic store adapters. Explicit real RustFS cases remain ignored. Not independent backend failure domains or constrained Colima performance.",
+  "open_priorities": [
+    "Original-deadline Queue producer/source RPC/consumer drain in both image modes, preserving ambiguous IDs and receipts.",
+    "S3 replacement/joined restart and retained recovery/routing/Python lifecycle failures with current-source acceptance.",
+    "OPT01-07 routing/read/partition refusal, measured batching/fairness, physical shared-file reclamation/once-only credit, reserve-aware movement and interrupted wake/transition/recovery.",
+    "OPT08 complete primitive/SDK/Axum/daemon/feature/backend-fault/crash and historical CG evidence.",
+    "Original constrained SQL/KV/Queue throughput/latency comparison only after unchanged backend reserve admits it."
+  ],
+  "original_performance_contract": "Three original1vCPU/2GiB Colima nodes,RF3/threegroups/shared original RustFS; SQL/KV/Queue x Quorum/Quorum+S3/Fleet/Bucket x C1/4/16,256B values,Queue batch8,reversed repetitions. No resource/storage changes, failed fixture resets or identity replacement."
+}

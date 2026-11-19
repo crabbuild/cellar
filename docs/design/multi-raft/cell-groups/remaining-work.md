@@ -36,6 +36,65 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Import completion and current priorities
+
+Compiler inputs `66f1af10e0ddacf27440ecd3f7e6bb0438ea6649aefd659f97fc34f1debff7bd` include main `2f083f14`.
+The engine now drops its consumed transfer seed before waking the import caller,
+after durable import and any fatal closed flag. Other prepared-root owners keep
+their admission and pins. The causal real-engine regression observes **1 recovery
+slot / 84,867,072 reserved bytes at completion before the fix**, then **0 / 0**
+with byte-identical test inputs. Held-sync invisibility and no-premature-wake,
+exact durable inactive mapping, joined close and retained reopen pass on both
+sides. This verifies ownership completion; reserved bytes are not physical RSS
+or reclaimed disk, and the empty unmanaged transfer is not RF3 serving proof.
+
+The full library passes **1,262 / 2 existing ignores**. Its first attempt failed
+the partial-park fixture's initial direct enter with typed `NotReady`. The fixture
+now uses production's existing bounded retry for the same certificate and
+original deadline; all persisted-park, fresh-election and late-replay refusal
+assertions remain. Full managed qualification remains **37 passed / 1 failed /
+15 explicit RustFS ignores**: S3 group replacement/joined restart returns
+`Raft runtime: NotFound`. Full disaster qualification passes **13 / 8 explicit
+RustFS ignores**. Native reuse requires rebuilt byte-identical executables and
+profiles; both source digests and the test-only delta are recorded. All nine
+strict/repository checks pass. Original failed fixtures and verified closed
+copies remain retained.
+
+The original Queue C2 and both C4 diagnostic runs still fail their progress
+oracles. Across 425 phase events, the suspected pure-query handoff never occurs;
+that hypothesis was not selected for a fix. SQL/KV/RPC controls from the preceding
+application selection pass, but its five Queue failures remain open. No end-to-end
+throughput or latency gain is qualified.
+
+Remaining priorities:
+
+1. **P0 — Queue progress:** close original producer/source-RPC/consumer deadlines
+   and acknowledged-message drain in both image modes; retain ambiguous IDs,
+   exact receipts, current workers, bounds and durability requirements.
+2. **P0 — Recovery and lifecycle:** diagnose S3 replacement/joined-restart
+   `NotFound`, retained routing/recovery and Python shutdown failures. Published
+   parent SDK 3.14 independently has the same S3 failure; its library and disaster
+   targets pass. The separate standalone disaster run was cancelled before a
+   test footer, with cause unproven. Parent RPC 3.14 passes; other release modes
+   still require current-source acceptance.
+3. **P1 — OPT-01–07:** finish routing/read refusal and partition coverage,
+   measured persistence/ReadIndex/archive batching and fairness, physical shared
+   file reclamation with once-only credit, repeated reserve-aware movement and
+   interrupted park/wake/transition/recovery qualification.
+4. **P1 — OPT-08 and release:** complete primitive/SDK/Axum/daemon/feature/
+   backend-fault/crash and historical CG evidence.
+5. **P2 — Original performance matrix:** retain the three original 1-vCPU/2-GiB
+   Colima nodes, RF3/three groups/shared RustFS; SQL/KV/Queue across Quorum,
+   Quorum+S3, Fleet and Bucket, C1/4/16, 256-byte values, Queue batch eight and
+   reversed repetitions. At 2026-11-19T13:14:03Z the original RustFS has zero
+   available bytes against the unchanged 6 GiB reserve, stable identity/resources
+   and zero restarts. No performance case is admitted.
+
+Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
+See [source-bound qualification](import-completion-qualification-2026-11-19.json)
+for exact source/executable/profile/log bindings, failed attempts, reuse and
+native/environment limits.
+
 ### Checkpoint reply progress and current priorities
 
 Compiler inputs 98eba6ce include main 2f083f14. After the existing checkpoint

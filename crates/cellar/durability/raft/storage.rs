@@ -2705,6 +2705,9 @@ impl Worker {
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);
                     }
+                    // Drop the consumed copy before waking the caller. Any
+                    // remaining prepared roots keep their admission and pins.
+                    drop(seed);
                     let _ = reply.send(result);
                     fatal
                 }
