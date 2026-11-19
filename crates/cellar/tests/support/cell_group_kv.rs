@@ -6,6 +6,8 @@ use cellar::sdk::kv::{PutOptions, ReadType, ReadValue};
 
 #[path = "cell_group_kv_cli.rs"]
 mod cli;
+#[path = "cell_group_operator_ingress.rs"]
+mod ingress;
 #[path = "cell_group_kv_revisions.rs"]
 mod revisions;
 #[path = "cell_group_kv_stream.rs"]
@@ -47,13 +49,18 @@ enum Coverage {
     Streaming,
     PayloadRecovery,
     StreamDeadline,
+    IngressDeadline,
 }
 
 impl Coverage {
     fn focused(self) -> bool {
         matches!(
             self,
-            Self::Preparation | Self::Streaming | Self::PayloadRecovery | Self::StreamDeadline
+            Self::Preparation
+                | Self::Streaming
+                | Self::PayloadRecovery
+                | Self::StreamDeadline
+                | Self::IngressDeadline
         )
     }
 }
@@ -487,6 +494,10 @@ pub async fn qualify_stream_deadline(real_rustfs: bool) -> Result<()> {
     qualify_case(real_rustfs, false, Coverage::StreamDeadline).await
 }
 
+pub async fn qualify_ingress_deadline(real_rustfs: bool) -> Result<()> {
+    qualify_case(real_rustfs, false, Coverage::IngressDeadline).await
+}
+
 fn payload_recovery_usage(cluster: &ManagedCluster, stage: &str) -> Result<()> {
     for (node, host) in cluster.hosts.iter().enumerate() {
         let usage = host
@@ -505,6 +516,7 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
         Coverage::Preparation => "preparation",
         Coverage::PayloadRecovery => "payload recovery",
         Coverage::StreamDeadline => "stream deadline",
+        Coverage::IngressDeadline => "ingress deadline",
         _ => "binding",
     };
     for rooted in [false, true] {
@@ -662,6 +674,9 @@ async fn run(
                 ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == 1,
                     "stream deadline did not publish exactly one immutable candidate");
                 return Ok(());
+            }
+            if coverage == Coverage::IngressDeadline {
+                return ingress::qualify(&cluster).await;
             }
             let token = operator_contract(&cluster).await?;
             let namespace = cellar_native::cell_id::Namespace::new(
