@@ -192,6 +192,46 @@ mod resume_progress;
 #[path = "support/cell_group_rpc_progress.rs"]
 mod rpc_progress;
 
+#[path = "support/cell_group_checkpoint_admission.rs"]
+mod checkpoint_admission;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admitted_s3_checkpoint_waits_for_held_output_capacity() -> Result<()> {
+    for rooted in [false, true] {
+        for end in [
+            checkpoint_admission::End::Release,
+            checkpoint_admission::End::Deadline,
+            checkpoint_admission::End::Cancel,
+            checkpoint_admission::End::Close,
+        ] {
+            Box::pin(checkpoint_admission::qualify(rooted, false, end))
+                .await
+                .with_context(|| format!("checkpoint admission extents={rooted} end={end:?}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_admitted_s3_checkpoint_waits_for_held_output_capacity() -> Result<()> {
+    for rooted in [false, true] {
+        for end in [
+            checkpoint_admission::End::Release,
+            checkpoint_admission::End::Deadline,
+            checkpoint_admission::End::Cancel,
+            checkpoint_admission::End::Close,
+        ] {
+            Box::pin(checkpoint_admission::qualify(rooted, true, end))
+                .await
+                .with_context(|| {
+                    format!("RustFS checkpoint admission extents={rooted} end={end:?}")
+                })?;
+        }
+    }
+    Ok(())
+}
+
 #[path = "support/cell_group_public_receipt.rs"]
 mod public_receipt;
 
