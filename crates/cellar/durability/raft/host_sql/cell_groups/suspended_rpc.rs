@@ -319,6 +319,36 @@ impl Cells {
             let commits = commits.map(|context| *context);
             let max_result = options.limits().max_result_bytes;
             let mut activation = self.activations.take(&cell, &authority, &class, now)?;
+            if commits.is_some() && activation.conflicts_with(&attempt.request) {
+                // `take` matched the exact current image and live leader fence.
+                // This rejects only a known conflicting input; it supplies no
+                // output or absence proof and does not authorize a new sequence.
+                let refusal = (|| {
+                    authority
+                        .check()
+                        .map_err(crate::raft::execution::authority_failure)?;
+                    if authority.route().schema_digest != options.application_digest() {
+                        return Err(ExecutionError::Invalid("cell execution schema"));
+                    }
+                    crate::raft::execution::validate_admitted_registered_command(
+                        options.limits(),
+                        options.application_digest(),
+                        &cell,
+                        &attempt.request,
+                        &class,
+                        &input,
+                        admission,
+                    )?;
+                    authority
+                        .check()
+                        .map_err(crate::raft::execution::authority_failure)?;
+                    Err(ExecutionError::Refused(CommandFailure::CommandConflict))
+                })();
+                return self
+                    .activations
+                    .put(cell.clone(), activation, now)
+                    .and(refusal);
+            }
             let mut executor =
                 options
                     .clone()

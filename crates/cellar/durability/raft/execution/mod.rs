@@ -22,6 +22,7 @@ mod enrollment;
 mod registered;
 pub use enrollment::{CellEnrollmentAttempt, CellEnrollmentResolution, CellPrivateEnrollment};
 pub(crate) use registered::validate as validate_registered_command;
+pub(crate) use registered::validate_admission as validate_admitted_registered_command;
 mod images;
 pub use cell::{CellCommittedReceipt, CellPrivateExecutor, CellReconciliation, CellStageOutcome};
 mod rooted_working;
@@ -352,6 +353,14 @@ pub struct StoredReceipt {
 }
 
 impl StoredReceipt {
+    /// A final committed receipt can reject a different input at this exact ID.
+    /// Intermediate RPC checkpoints cannot establish a completed invocation.
+    pub(crate) fn final_request_identity(&self) -> Option<(CommandId, [u8; 32])> {
+        self.rpc_step
+            .is_none()
+            .then_some((self.id, self.request_digest))
+    }
+
     pub fn command(&self) -> CommandId {
         self.id
     }

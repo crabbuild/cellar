@@ -261,6 +261,7 @@ pub enum FirstGroupSetup {
 struct StartOptions {
     partitions: Option<cellar::sdk::fleet_operations::RaftFleetAutomaticPartitionOptions>,
     roots: Option<Vec<tempfile::TempDir>>,
+    filesystems: Option<Vec<Arc<dyn cellar_ltx::FileSystem>>>,
 }
 
 pub struct ManagedCluster {
@@ -395,6 +396,26 @@ impl ManagedCluster {
         .await
     }
 
+    /// Capture each node's physical provider before its execution domain starts.
+    pub async fn start_with_filesystems(
+        first: Fixture,
+        filesystems: Vec<Arc<dyn cellar_ltx::FileSystem>>,
+    ) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            first,
+            &[],
+            ArchiveSetup::Initialized,
+            false,
+            None,
+            FirstGroupSetup::Normal,
+            StartOptions {
+                filesystems: Some(filesystems),
+                ..Default::default()
+            },
+        ))
+        .await
+    }
+
     /// Retain caller-created disks so physical I/O faults can target their
     /// exact paths before any node owner starts.
     pub async fn start_with_roots(first: Fixture, roots: Vec<tempfile::TempDir>) -> Result<Self> {
@@ -449,6 +470,12 @@ impl ManagedCluster {
         let mut fixtures = vec![first, second, third];
         for id in spares {
             fixtures.push(peer_fixture(&fixtures[0], *id).await?);
+        }
+        if let Some(filesystems) = options.filesystems {
+            ensure!(filesystems.len() == fixtures.len());
+            for (fixture, filesystem) in fixtures.iter_mut().zip(filesystems) {
+                fixture.filesystem = filesystem;
+            }
         }
         if let Some(applications) = applications {
             ensure!(applications.len() == fixtures.len());

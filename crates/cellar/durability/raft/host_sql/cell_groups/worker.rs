@@ -443,6 +443,7 @@ impl Cells {
                 pending.producer.close()?;
                 if let Some(mut activation) = pending.activation {
                     activation.fence = fence;
+                    activation.committed(&receipt.receipt);
                     self.activations.put(cell, activation, now)?;
                 }
                 Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
@@ -495,6 +496,9 @@ impl Cells {
                     };
                     if let Some(fence) = fence {
                         activation.fence = fence;
+                        if let CellReconciliation::Committed(receipt) = &resolution {
+                            activation.committed(&receipt.receipt);
+                        }
                         self.activations.put(cell, activation, now)?;
                     } else {
                         activation.close()?;

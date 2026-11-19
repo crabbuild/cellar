@@ -1898,6 +1898,16 @@ async fn rustfs_ordinary_json_rpc_uses_raft_owned_context() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn materialized_cached_conflict_preserves_private_writer_capacity() -> Result<()> {
+    Box::pin(activations::known_conflict(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_cached_conflict_preserves_private_writer_capacity() -> Result<()> {
+    Box::pin(activations::known_conflict(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cell_activation_cache_is_bounded_and_fenced() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(activations::run(
