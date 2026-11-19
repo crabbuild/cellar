@@ -4,7 +4,33 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current basic SQL/KV daemon delivery
+## Current SQL failure correctness delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
+`2da96dcd6` preserves local typed SQL binding failures, including original child
+or creation identity, target history and ambiguity. Native value/error tests
+pass 5/5; public SQL passes 2/2 with its byte-identical failing baseline retained
+at `76c66c7c1`. SQL errors use constructors; wire family/message fields remain.
+Build, affected strict Clippy, formatting and layout pass.
+
+**Recovery qualification failed:** native RF3 7/8, real RustFS 2/8. Native
+extent/Quorum/SQL-error restart observes `NodeLeaseExpired` during its stop phase;
+do not infer the expiry's cause or time from that observation alone. RustFS has
+four group-startup transport timeouts, one `NotReady` and one ambiguous enrollment
+deadline. Preserve all 21 failed voter disks, original unknown identities and
+five-second budgets. Audit 1638 also verifies the three original Consume disks
+and five frozen executables. Runtime/formatter/compiler owners are stopped;
+backend objects remain. See the [current checkpoint](progress.md#current-integration-checkpoint).
+
+Next isolate the actual startup/lease/restart failures with an owning causal
+regression, close original Consume/source-S3 settlement, and deliver complete
+family drivers/ledgers. Full SQL/KV, Queue/EventStream, durable time/Workflow,
+filesystem/payload, WebSocket/provider and combined recovery remain required.
+All 32 cases/dependencies remain; acceptance stays **13/17 tasks, 147/195 cases**.
+Current executor state is `.cellar/cg17-payload-01/sql-binding-errors-state-1622.json`.
+No repeated broad matrix or changed deadline can substitute for a causal fix.
+
+## Previous basic SQL/KV daemon delivery
 
 Reuse open PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
 `b9f9ddf87`, daemon qualification `f4db9e450`, includes main `2f083f148`.

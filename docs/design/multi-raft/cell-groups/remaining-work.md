@@ -41,6 +41,14 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
+Runtime `2da96dcd6` delivers typed SQL failure ownership: five native value/error
+tests and both public SQL tests pass, with a byte-identical failing baseline.
+The separate retained-restart campaign is **failed: native 7/8, RustFS 2/8**.
+Native restart observes a lease-expired fenced node; RustFS fails four group
+startups, one readiness check and one ambiguous enrollment. Preserve the 21
+failed voter disks and original identities. See the current checkpoint for exact
+stages, sources and limits; no complete binding or primitive gate is accepted.
+
 Basic managed SQL/KV daemon delivery now passes all four constrained Linux/RustFS
 image/minimum profiles at `f4db9e450`: ordinary SDK calls, compiled CLI onboarding,
 native/Axum application adapters, rollback, retained restart, leader kill/rejoin,
@@ -58,8 +66,10 @@ remain required work.
 
 Deliver next in this order:
 
-1. Close original-deadline source-S3/Consume settlement and autonomous interrupted
-   bindings with safe sequence sealing. Preserve original identities, budgets,
+1. Close actual managed startup/restart failures and isolate the lease-expiry
+   observation before claiming reliable recovery. Then close original-deadline
+   source-S3/Consume settlement and autonomous interrupted bindings with safe
+   sequence sealing. Preserve original identities, budgets,
    exact source/target proof gates and unknown outcomes; use causal regressions.
 2. Deliver real public-family acceptance drivers and complete per-API ledgers as
    each family closes. The declared target currently has **0/32 planned acceptance

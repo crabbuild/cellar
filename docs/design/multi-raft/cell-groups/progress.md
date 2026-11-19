@@ -32,6 +32,46 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+**CG-17 remains open.** Runtime `2da96dcd6` fixes a SQL correctness gap: the
+ordinary Rust SQL facade retains the original typed binding command or enrollment
+failure instead of flattening it to text. Clones retain the owned cause; serialized
+errors keep only their existing family/message fields and cannot mint dispatch
+provenance. Construct `sql::Error` with its constructors instead of struct literals.
+
+The byte-identical public regression fails at `76c66c7c1` and passes at
+`2da96dcd6`, preserving child/creation IDs, target histories, ambiguity and the
+enrollment minimum. All five native value/error tests and both public SQL tests
+pass. The public facade fixture supplies host-channel outcomes; it is not itself
+a Raft recovery proof. Locked builds, affected strict Clippy, formatting and layout
+pass. The inventory remains partial: 18 entries, 220 symbols, 4,872 required cells.
+
+**The separate retained-restart recovery qualification is FAILED:** native
+RF3 passes **7/8**, real RustFS **2/8**. The unchanged case covers both image forms,
+Quorum/S3 source commands, successful SQL and batch rollback after parent
+interruption. Native extent/Quorum/SQL-error recovery observes
+`Fenced(NodeLeaseExpired)` in restart's stop phase; the actual expiry time and
+cause are not established. RustFS has four group-startup transport timeouts,
+one `NotReady` and one ambiguous enrollment deadline. Neither cohort accepts
+complete binding recovery. Original five-second budgets and all oracles remain.
+
+Records are under `CG-17-sql-errors-2da96dcd6-1639/` in
+`.cellar/cell-groups-evidence/`; the aggregate remains failed. Custody audit 1638
+verifies all **21 new failed voter disks**, the three original Consume disks,
+649 files and five frozen executable copies. The voters share a host process;
+RustFS retains one CPU/two GiB/no extra swap. No independent-voter or release
+qualification is claimed. Test processes exited and the owned backend/VM are
+stopped with data retained. The stopped container reports no OOM kill or restart;
+that observation does not establish the timeout cause.
+
+The original native public Consume baseline also fails at `76c66c7c1`: materialized
+parent sequence 2 exceeds its original three seconds; extent mode is not reached.
+Earlier source-S3 failures remain required work. Next close actual managed
+startup/restart and original-deadline failures, then complete public-family
+drivers, provider/feature coverage and combined lifecycle/recovery. All 32 cases
+and dependencies remain; no task or case acceptance changes.
+
+## Earlier basic SQL/KV daemon qualification
+
 **CG-17 remains open.** Runtime `b9f9ddf87`, qualified by daemon source
 `f4db9e450`, includes latest fetched main `2f083f148`. Ordinary SQL and KV SDK
 bindings now pass the complete **basic managed daemon campaign in all four
