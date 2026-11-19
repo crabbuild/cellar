@@ -81,6 +81,16 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
 
 async fn provision(operators: &[Arc<Operator>], service: &RaftCells, root: &Path) -> Result<()> {
     let primary = &operators[0];
+    // Cold boots change the Fleet revision. Observe every rooted standby
+    // before issuing capacity CAS requests, as the managed daemon gate does.
+    let cut = primary.fleet.read(TIMEOUT).await?;
+    for index in 0..3 {
+        let observed = inspect_current(service, node(index)?, cut.revision()).await?;
+        ensure!(
+            observed.node.groups == 0,
+            "standby already attached a group"
+        );
+    }
     let mut directories = Vec::new();
     for operator in operators {
         let declaration = operator.declaration()?;

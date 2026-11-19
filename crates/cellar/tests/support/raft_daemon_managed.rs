@@ -1132,7 +1132,8 @@ async fn admit_capacity(
                 OWNER,
             )
             .await?
-            .success()?,
+            .success()
+            .with_context(|| format!("capacity {verb} for node {index} at revision {revision}"))?,
         )?;
         ensure!(admission.admission.admitted_state == state);
     }
