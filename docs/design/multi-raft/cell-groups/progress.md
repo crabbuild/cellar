@@ -32,45 +32,52 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-**CG-17 remains open.** Production `bb09d155c` closes a public streamed-KV
-deadline gap. Previously input was drained before the Raft operation deadline
-was created. The actual public input regression at `fd3da1c99` exceeds its
-three-second budget in both image forms, reaching the 3.5-second test observer.
-The fix captures time before intake/encoding, checks pending and ready input,
-drops the input claim before publication, and carries the same deadline through
-immutable verification and target commit. Commit RPCs retain typed identities
-and ambiguity; they are not cancelled by a new outer timer.
+**CG-17 remains open.** Runtime `ee2452a94` closes an unbounded request-body
+wait at the common primitive operator entrance. Collection now consumes the
+original node deadline and expiry closes the incomplete HTTP connection before
+authentication or primitive dispatch. Submitted command settlement and payload
+verification are unchanged. The actual signed-upload baseline `138e3e23e` fails
+both image forms at the 3.5-second observer for the unchanged three-second policy.
 
-Current stream qualification passes **native 2/2 and real RustFS 2/2**. The
-fixture checks unending input and, separately, delayed publication after one
-second of input. Neither installs a value; the source is dropped. Each operation
-has its original three-second budget and 3.5-second observer. The two operations
-run sequentially in one HTTP handler, so its total duration exceeds three seconds.
-Fleet KV conformance/validation passes **2/2**. The unchanged full public KV case
-passes **native 2/2**, including normal streams, large values, restart, provider
-outage and quorum refusal. The earlier native extent restoration failure does
-not reproduce; no exclusive causal fix for it is established.
+Qualification of the frozen runtime and matching CLI passes:
 
-**Broader RustFS qualification remains failed, 1/2.** Extent mode passes the full
-SDK/CLI case, including the 25-MiB CLI path. Materialized mode fails the CLI
-25-MiB put with `CellGroupPayloadError::DeadlineExceeded`. Metrics include an
-abandoned object PUT; upload versus read-back has not been isolated. Preserve
-the candidate publication, original budgets and failed voter disks.
+- Incomplete uploads: **native 2/2 and real RustFS 2/2**. The response carries the
+  fixed deadline code; the connection and upload stream close, no KV value is
+  installed, and subsequent ordinary operator and public requests succeed.
+- Isolated actual CLI 25-MiB SDK read and file put/get: **real RustFS 2/2**, with
+  complete byte verification and original budgets. Its initial reduced fixture
+  omitted authentication setup; those six failed disks and logs are retained.
+- The unchanged full public KV case: **real RustFS 2/2**, including SDK/CLI paths,
+  retained restart, payload outage/restoration, archive-write outage and quorum
+  refusal. An earlier test-only timing run at `73f41e2b0` also passes both forms.
+  These passes do not explain or exclusively fix the older materialized CLI
+  publication timeout at `bb09d155c`; its failed candidate and disks remain retained.
 
-The reduced outage/restart controls at `af886b58b` and `a0ec34b12` each pass both
-native image forms; the latter restores the earlier unconfirmed-reference
-operation. Payload admissions are zero after denial. These controls exclude an
-unconditional leak in that reduced scenario, not the older full-case failure.
+**EventStream still blocks delivery.** Unchanged controls at test-only
+`73f41e2b0` remain failed: native materialized completes its case, but extent mode
+fails initial explicit activation with `DeadlineExceeded`. Real RustFS fails the
+S3-source delivery `Read` before reaching `Consume`; its extent form is unrun.
+Preserve these failures alongside earlier `Consume`, binding and SQL recovery
+failures. Next isolate the read/admission and activation paths within their
+original budgets, then complete durable binding and consumer settlement.
 
-Evidence `CG-17-kv-stream-bb09d155c-1683/record.json` remains **FAILED** overall.
-The real RF3 TLS voters share a process with separate disks; RustFS has one CPU,
-two GiB and no extra swap. Quorum target minima are exercised here. Complete
-durability/feature/provider/lifecycle coverage and all **32 cases** remain required.
-Owned processes exited and the backend/VM are stopped with data retained.
-Locked builds, affected strict Clippy, formatting and layout pass. No wire or
-schema format changes in this fix. Earlier S3/Consume/SQL recovery failures,
-historical CG-01 evidence and older custody gaps remain open; task acceptance
-stays **13/17 tasks, 147/195 cases**.
+Evidence is `CG-17-operator-ingress-ee2452a94-1700/record.json`: the upload fix
+passes its causal checks, while the overall record remains **FAILED** because
+broader primitive qualification is incomplete. RF3 TLS voters share a process
+with separate disks; RustFS has one CPU, two GiB and no extra swap. Target quorum
+minima are exercised; this is not complete feature/provider/durability/lifecycle
+coverage. All **32 planned cases** remain required and no task acceptance changes.
+
+Strict affected Clippy and layout pass at the qualified runtime. Final formatting
+and documentation follow that source; no combined final-source acceptance is
+claimed. Owned runtime processes, backend and VM are stopped with data retained.
+The generated index remains 13/17 tasks and 147/195 accepted cases; full plan
+validation still lacks the historical CG-01 evidence record.
+
+Earlier production `bb09d155c` preserves one streamed-KV deadline through intake,
+publication and commit, with native 2/2, RustFS 2/2 and Fleet 2/2 checks. Its causal
+input control, the history-bound revision fix `34e16afa8`, and typed SQL failures
+at `2da96dcd6` retain their separate evidence and qualification limits.
 
 ## Earlier KV revision qualification
 

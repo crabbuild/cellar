@@ -50,6 +50,15 @@ preserves `TransportError::Refused`; opaque read disconnections remain
 earlier unknown outcome. This response-header change is an internal format-1
 hard cutover requiring matching binaries, with no legacy reader.
 
+## Primitive operator request budgets
+
+Peer-authenticated `/runtime/` primitive operators share the receiver's original
+operation deadline across request-body collection and subsequent staging and
+dispatch. An incomplete upload expires with the fixed RPC deadline response and
+closes its HTTP connection, releasing the pending body before authentication or
+adapter execution. Completing an upload does not refresh the remaining budget.
+Submitted mutations retain their existing receipt and uncertain-outcome rules.
+
 ## SQL database bindings
 
 Shared native cells may declare `sql_bindings`, obtain a database with

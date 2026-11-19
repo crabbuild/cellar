@@ -3669,7 +3669,9 @@ async fn handle_internal(
             .await
             {
                 Ok(Ok(body)) => body,
-                Ok(Err(error)) => return Ok(peer_response(body_read_error("operator cell", error))),
+                Ok(Err(error)) => {
+                    return Ok(peer_response(body_read_error("operator cell", error)))
+                }
                 Err(_) => {
                     let mut reply = rpc_deadline::response();
                     // The unread request cannot be reused as another HTTP/1
