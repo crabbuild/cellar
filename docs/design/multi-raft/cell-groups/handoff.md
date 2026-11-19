@@ -4,45 +4,44 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current bounded archive-coalescing delivery
+## Current primitive phase and RustFS qualification delivery
 
 Reuse open PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
-`66f301855` includes main `2f083f148`. It coalesces intermediate background cuts
-within a native S3 invocation's first original deadline. Foreground publication,
-current authority and physical output proofs remain mandatory. Overlap cannot
-extend the deadline; expiry/retirement releases scheduling. Final proof completion
-consumes its guard before delivery, preventing completed-window inheritance.
+`db35703e9` includes main `2f083f148`. Bounded S3 coalescing and terminal guard
+release remain. Optional `cellar::raft::binding` / `cellar::raft::checkpoint`
+tracing records parent/ordinal/child and source checkpoint phases without payloads,
+extra disabled clocks or per-cell owners. Temporary prints are removed; private
+refs preserve traced `754b62aca` and `366dc4c96`, absent from publication ancestry.
 
-The clean RF3 scheduling baseline fails. **Eight owning scheduler units and four
-native RF3 release/expiry configurations pass.** The new RustFS fixture fails its
-first materialized configuration with ambiguous client `[246; 16]`, sequence 1;
-source and neighbor have separate cell scopes but the same ID, so add call context
-before attributing the failure. Its remaining three configurations do not run.
-The [current checkpoint](progress.md#current-integration-checkpoint) lists the
-exact source pins, records, original constraints and module-test limits.
+**All 24 owning native/RustFS configurations pass on this source:** both image
+forms, coalescing release/expiry and checkpoint capacity/deadline/cancellation/
+joined close. Earlier cancellation did not reproduce; no exclusive fix or timing
+stability is established. **Original public 1538 is FAILED, 0/3 selectors**:
+native, Axum and RustFS Consume parent 2 stays ambiguous. Traced target histories
+are known, completed children resume their source writer promptly, and remaining
+time spans required source checkpoints, target execution and parent settlement.
+An Axum run fails after private binding completion; that is not a parent receipt.
+The [current checkpoint](progress.md#current-integration-checkpoint) pins all
+results. Separately pinned `5425b30c5` named RustFS S3-source sequences 1 still
+fail; Quorum passes. Explicit activation/read and target-S3 SQL/KV remain open.
 
-**Compatibility/public 1516 is FAILED, 8/13 selectors.** Eight native checkpoint
-configurations, six native/RustFS S3 safety selectors and all four native named
-binding configurations pass. RustFS extent cancellation fails admission release;
-extent close does not run. Native explicit Consume fails ambiguous sequence 11
-with `Unavailable`; ordinary/Axum Consume fails parent 2; Axum explicit Read fails
-ambiguous sequence 6. Separate RustFS public 1515 fails source-S3 materialized
-retained sequence 7, extent sequence 6 and initial explicit activation. Preserve
-all identities, ambiguity and deadlines. These are failures, not family closure.
-
-Next resolve cancellation/admission and the exact source/neighbor/Consume stages,
-then independent target-S3 SQL/KV, Queue/autonomous work, alarms/cron, Workflow and
-remaining filesystem/payload/provider/WebSocket and combined recovery coverage.
+Next implement/exercise ordinary primitive paths through the existing constrained
+Linux daemon harness (`tools/multi-raft/daemon.py`, `daemon.Dockerfile` and
+`native_raft_daemon.rs`), alongside closing original Consume/source-S3 failures
+under unchanged budgets. Independent-voter qualification is required by the plan;
+a different-profile pass cannot erase Mac failures. Then complete independent
+SQL/KV minima, Queue/autonomous work, alarms/cron, Workflow and remaining
+filesystem/payload/provider/WebSocket plus combined lifecycle/recovery coverage.
 All 32 cases and dependencies remain mandatory; acceptance stays **13/17 tasks,
-147/195 cases**. Full plan validation still lacks historical CG-01 evidence.
+147/195 cases**. Historical CG-01 evidence is still missing.
 
 All owned handles are joined; RustFS/VM are stopped with objects retained. Audit
-`.cellar/cg17-payload-01/source-coalescing-owned-integrity-1518.json` verifies 667
-failed node directories and ten frozen executable copies for this campaign.
-Historical custody gaps remain. The exact-source module harness uses copied
-locked dependencies; it does not qualify the whole Cargo unit binary. Independent
-compilation is recorded; no isolated timing or independent-voter release claim
-is made. Ignored `source-settlement-state-1500.json` records current ownership.
+`.cellar/cg17-payload-01/primitive-phases-owned-integrity-1541.json` verifies 697
+failed node directories, 30 new ones and six frozen executable copies for this
+campaign. Historical custody gaps remain. Locked build, strict Clippy and
+repository/source checks pass. Independent compilation is recorded; no isolated
+latency, full-family or independent-voter release claim is made. Ignored
+`source-cancellation-state-1524.json` records ownership and exact next actions.
 
 ## Previous disposable-scratch delivery
 
