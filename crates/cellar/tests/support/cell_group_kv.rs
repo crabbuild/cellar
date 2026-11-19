@@ -628,6 +628,11 @@ async fn run(
             }
             } else {
                 public_ok(&cluster, leader, "Write").await?;
+                if coverage == Coverage::PayloadRecovery {
+                    // An unfulfilled wire preparation must not obstruct later
+                    // reads after the payload provider has returned.
+                    public_ok(&cluster, 0, "Unconfirmed").await?;
+                }
             }
             let token = operator_contract(&cluster).await?;
             let namespace = cellar_native::cell_id::Namespace::new(
