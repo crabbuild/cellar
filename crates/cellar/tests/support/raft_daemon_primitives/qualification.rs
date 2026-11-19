@@ -189,7 +189,9 @@ async fn start(root: &Path, index: usize, mode: &str) -> Result<Process> {
             process.logs()?
         );
         match std::fs::read_to_string(&marker) {
-            Ok(pid) if pid.parse::<u64>()? == process.pid()? => return Ok(process),
+            Ok(token) if process.primitive_boot.as_deref() == Some(token.as_str()) => {
+                return Ok(process)
+            }
             Ok(_) => (),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
             Err(error) => return Err(error.into()),

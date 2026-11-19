@@ -8,6 +8,7 @@ mod startup;
 
 pub(crate) const ENABLED: &str = "CELLAR_RAFT_DAEMON_PRIMITIVES";
 pub(crate) const MINIMUM: &str = "CELLAR_RAFT_PRIMITIVE_MINIMUM";
+pub(crate) const BOOT_TOKEN: &str = "CELLAR_RAFT_PRIMITIVE_BOOT_TOKEN";
 pub(crate) use qualification::qualify;
 pub(crate) use startup::child;
 

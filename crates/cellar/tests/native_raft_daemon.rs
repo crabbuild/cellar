@@ -382,6 +382,7 @@ impl Ingress {
 struct Process {
     child: Child,
     voter: Option<docker::Voter>,
+    primitive_boot: Option<String>,
     log: PathBuf,
     diagnostics: PathBuf,
 }
@@ -443,12 +444,22 @@ impl Process {
                 std::env::var("CELLAR_RAFT_CRON_MINIMUM")?,
             );
         }
-        if managed::primitives::enabled() {
+        let primitive_boot = if managed::primitives::enabled() {
+            // PIDs belong to different namespaces in Docker. A fresh token
+            // proves that a rendezvous marker belongs to this exact launch.
+            let mut token = [0; 16];
+            getrandom::fill(&mut token)
+                .map_err(|error| anyhow::anyhow!("primitive launch identity: {error}"))?;
+            let token = hex::encode(token);
             cmd.env(managed::primitives::ENABLED, "1").env(
                 managed::primitives::MINIMUM,
                 std::env::var(managed::primitives::MINIMUM)?,
             );
-        }
+            cmd.env(managed::primitives::BOOT_TOKEN, &token);
+            Some(token)
+        } else {
+            None
+        };
         if let Some(cli) = std::env::var_os("CELLAR_RAFT_OPERATOR_CLI") {
             cmd.env("CELLAR_RAFT_OPERATOR_CLI", cli);
         }
@@ -471,6 +482,7 @@ impl Process {
         Ok(Self {
             child,
             voter,
+            primitive_boot,
             log,
             diagnostics,
         })

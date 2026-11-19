@@ -185,7 +185,7 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
                 persist(
                     &prepared_root,
                     &format!("primitives-boot-{boot_mode}"),
-                    std::process::id().to_string().as_bytes(),
+                    std::env::var(BOOT_TOKEN)?.as_bytes(),
                 )?;
                 if index == 0 && !retained {
                     provision(&operators, &service, &prepared_root).await?;
