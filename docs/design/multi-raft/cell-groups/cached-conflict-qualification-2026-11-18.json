@@ -1,0 +1,1142 @@
+{
+  "copyright": "Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.",
+  "format": 1,
+  "scope": "Reject a different input at the latest final committed RPC identity without reopening private SQLite. Work-count correctness qualification; no throughput, latency-percentile or complete OPT/CG acceptance.",
+  "backend_scope": "Host-native TLS/RF3 voters and local disks with synthetic in-memory object stores. Original RustFS/Colima comparison is not admitted. Failed filesystem files and closed copies are verified; memory stores are not retained as running services. No independent failure-domain qualification is claimed.",
+  "implementation_commit": "6a6878ddfbaf00e81af7a263db53d5f4ae43568c",
+  "main_commit": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+  "candidate_source_digest": "1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a14085",
+  "toolchain": "1.98.1",
+  "test_profile": {
+    "opt_level": 1,
+    "debug": 0,
+    "debug_assertions": true,
+    "overflow_checks": true,
+    "incremental": false,
+    "build_jobs": 1
+  },
+  "invariants": [
+    "One fixed final command ID/input digest per existing count-admitted activation; no result bytes, private SQLite or immutable image custody.",
+    "Only successful final commitment/close or exact prepared-final reconciliation populates the identity. Intermediate RPC checkpoints do not.",
+    "Existing cache admission checks exact engine/group/route/image/leader/class and expiry. Schema, registered admission and authority checks still precede refusal.",
+    "Same input, another ID, stale cache or a cache miss uses the original private receipt path. No output, absence, non-commit or next-sequence proof is cached.",
+    "SQL ingress still requires a fresh quorum consumed-other fingerprint proof before selecting a new sequence. Original IDs, deadlines, workers, slots and banks remain."
+  ],
+  "control_scope": "Pre-implementation source with the same byte-identical real native regression and physical observer on all three voters. Red asserts actual private reopen in both modes. This is not a pristine-parent throughput benchmark.",
+  "fixture_sources_identical_in_red_and_green": {
+    "crates/cellar/tests/native_cell_groups_primitives.rs": "9c8a3c83ccb42f0b70aed231c49f667bb0ecbbebfff5c35dabcae8ad510ea794",
+    "crates/cellar/tests/support/cell_group_activations.rs": "ae5f4c08f4909934eea7fc3928d8515d94230b02b954420b4f73adcaab5887cd",
+    "crates/cellar/tests/support/cell_group_managed_fixture_cluster.rs": "957e1fb32ffebefcc5d58c3eec17148b96a5a3ed1ccbdf29a152b7171e5e1efa",
+    "crates/cellar/tests/support/cell_group_activation_conflicts.rs": "f1a9249709735a16a888554c83bdf1169eb29bf78a6061d17da6793f57b4a867"
+  },
+  "control": {
+    "label": "cached-conflict-321cde-red-04",
+    "status": "FAILED",
+    "source_digest": "cade02af24738ba719ffc5d7c22bf7c4c19f1c8660503d1fcfa0566a4c84736b",
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 48.55375424999511,
+        "footers": [],
+        "log_sha256": "4f30c0323343345ccf42619bacbd8b15eb65a8269acf74708adc1d2b1e6b25e4"
+      },
+      {
+        "name": "native_cell_groups_primitives--materialized_cached_conflict_preserves_private_writer_capacity",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 5.621862250030972,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "0f2be2ebafc61d4f95d4cd5c3a59d71acdd51004f2daaa97d9ea5206bed727fb",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--rooted_cached_conflict_preserves_private_writer_capacity",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 5.361644291027915,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "ae4f386825d0f65ce0e53ef9dcacad2a6b2f0d864580f36af8fb65f1a9796951",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_primitives": {
+        "sha256": "ffc3392d48717d7e4c3037d1fdbec4180c68944957b47f0fb697c45e7f1e0a9d",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retained": {
+      "files": 153,
+      "bytes": 1522651,
+      "manifest_sha256": "1c8ddbf68e6e11c8de29e383274dd99b923a9f207f83e524011ec6c9d0dd8770"
+    },
+    "retention_verification": {
+      "status": "VERIFIED",
+      "files": 153,
+      "bytes": 1522651,
+      "manifest_sha256": "1c8ddbf68e6e11c8de29e383274dd99b923a9f207f83e524011ec6c9d0dd8770",
+      "original_verified": true,
+      "copy_verified": true
+    },
+    "source_inputs_unchanged": true
+  },
+  "candidate_regression": {
+    "label": "cached-conflict-321cde-green-01",
+    "status": "PASSED",
+    "source_digest": "1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a14085",
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 529.6595945419976,
+        "footers": [],
+        "log_sha256": "eb2fc560acf35935ba32c15d322433dd0fce69543b4b6c0ff13eaafeb41134ed"
+      },
+      {
+        "name": "native_cell_groups_primitives--materialized_cached_conflict_preserves_private_writer_capacity",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 8.500427833001595,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b7a77a359f6af73ff9f60ba45733e8169168973de58b82f8c4dbf7d6b58889f4",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--rooted_cached_conflict_preserves_private_writer_capacity",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 8.86455970897805,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "02fabd97a4f803237895b1d7ef184860c1d89efc4929e12a0d5436edfea52477",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_primitives": {
+        "sha256": "f9ad30d528e4fbc1c41a0a1729f8b760e02b8432499a9c1875fd0e1c0db102bc",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retained": {
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "retention_verification": {
+      "status": "VERIFIED",
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "original_verified": true,
+      "copy_verified": true
+    },
+    "source_inputs_unchanged": true
+  },
+  "observed_work": {
+    "first_conflict_control_private_preparations": {
+      "materialized": 3,
+      "rooted": 1
+    },
+    "candidate_repeated_conflicts": 2,
+    "candidate_conflict_private_preparations": {
+      "materialized": 0,
+      "rooted": 0
+    },
+    "oracles": [
+      "typed conflict",
+      "same exact duplicate result/version",
+      "constructor remains once",
+      "unchanged cache usage/capacity",
+      "older ID requires normal physical inspection",
+      "subsequent valid writes execute once",
+      "joined shutdown"
+    ]
+  },
+  "initial_harness_attempts": [
+    {
+      "label": "cached-conflict-321cde-red-01",
+      "status": "FAILED",
+      "source_digest": "3025f37df7abddbdb224c9c5cc5ff30d0c7f7269ba09683f256a85008d5ba2ff",
+      "stages": [
+        {
+          "name": "compile-cellar",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 63.152053291967604,
+          "footers": [],
+          "log_sha256": "b6266382aa46f8fef04a608fd3df2737c387da539216dce19ce374698a2ad41f"
+        },
+        {
+          "name": "native_cell_groups_primitives--materialized_cached_conflict_preserves_private_writer_capacity",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.21800129197072238,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "91fb3b3addeebb49189279e71adefbbdfeaecd1986c773b397c9af166fb578cf",
+          "failed_cases": []
+        },
+        {
+          "name": "native_cell_groups_primitives--rooted_cached_conflict_preserves_private_writer_capacity",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.2409614169737324,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "3fefef0f3cbfda343686e950d0678d3f171b6c1e4df0d6ad2aad89aa497651d1",
+          "failed_cases": []
+        }
+      ],
+      "executables": {
+        "native_cell_groups_primitives": {
+          "sha256": "252c5e7a80d7be5bab174aad2c890b50c752a4777a2389d08eb0bd14489f5c55",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "retained": {
+        "files": 10,
+        "bytes": 197392,
+        "manifest_sha256": "81f22a0283f625628e2d5c89a065c8181b6fdb4c73976bbdc6139018acce6e9d"
+      },
+      "retention_verification": {
+        "status": "VERIFIED",
+        "files": 10,
+        "bytes": 197392,
+        "manifest_sha256": "81f22a0283f625628e2d5c89a065c8181b6fdb4c73976bbdc6139018acce6e9d",
+        "original_verified": true,
+        "copy_verified": true
+      },
+      "source_inputs_unchanged": true
+    },
+    {
+      "label": "cached-conflict-321cde-red-02",
+      "status": "FAILED",
+      "source_digest": "e8a2e41b12a5d3f4040f45f8c9b0c5b1122ff7cdea4fbbc4d517d5d80df7c51b",
+      "stages": [
+        {
+          "name": "compile-cellar",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 48.69216404197505,
+          "footers": [],
+          "log_sha256": "b09d0e8ab8487979a3699559bf271a0405c598954a857222b3365f8aee4f086e"
+        },
+        {
+          "name": "native_cell_groups_primitives--materialized_cached_conflict_preserves_private_writer_capacity",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 7.719255125033669,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "d8a2334bf2efd4724eac4f13dcd6ca00897568d5409eb2157ef9eb97499f7290",
+          "failed_cases": []
+        },
+        {
+          "name": "native_cell_groups_primitives--rooted_cached_conflict_preserves_private_writer_capacity",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 7.7520032079773955,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "2c4fe64aa9fee2fe9267aae4c585045a2119a6b2ec464caa43f1cbd8f1dccdf8",
+          "failed_cases": []
+        }
+      ],
+      "executables": {
+        "native_cell_groups_primitives": {
+          "sha256": "902eb86d2c1549cdb119497b95e8628d0a64cbfe217e7456f1542ac21b205397",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "retained": {
+        "files": 152,
+        "bytes": 1545021,
+        "manifest_sha256": "b530a6b07eec94f1c5e99b2ff83beb0bf718881462531eebc125909d14d5ac63"
+      },
+      "retention_verification": {
+        "status": "VERIFIED",
+        "files": 152,
+        "bytes": 1545021,
+        "manifest_sha256": "b530a6b07eec94f1c5e99b2ff83beb0bf718881462531eebc125909d14d5ac63",
+        "original_verified": true,
+        "copy_verified": true
+      },
+      "source_inputs_unchanged": true
+    },
+    {
+      "label": "cached-conflict-321cde-red-03",
+      "status": "FAILED",
+      "source_digest": "1bf06996d2e6b935d2b950af81c45e6025a5dfc17c16087358ac37fc53540acd",
+      "stages": [
+        {
+          "name": "compile-cellar",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 46.42810954101151,
+          "footers": [],
+          "log_sha256": "ceffbdd3915bba4037748c01d94c4088b08a9ee790b4b7661e0fce29f9ae9f14"
+        },
+        {
+          "name": "native_cell_groups_primitives--materialized_cached_conflict_preserves_private_writer_capacity",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 5.511591167014558,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "bb8364e9fd1c741100b1ada18bbd6884d2c38dd515514677d9c29ac64aef91e8",
+          "failed_cases": []
+        },
+        {
+          "name": "native_cell_groups_primitives--rooted_cached_conflict_preserves_private_writer_capacity",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 6.746921332960483,
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "log_sha256": "9bdad392f8079827206cf00b476346a2330d3ee003cdd1ecceafd2e745f43880",
+          "failed_cases": []
+        }
+      ],
+      "executables": {
+        "native_cell_groups_primitives": {
+          "sha256": "9bd85069bdc112b62e4dcb9f6d6035df4c99bd132293a1f74dc1b01f7cf6efa6",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "retained": {
+        "files": 151,
+        "bytes": 1481978,
+        "manifest_sha256": "2926a34991e68e0eadcfb1a4db56a987a4e04bc092998fd1671ac46a8332ed1a"
+      },
+      "retention_verification": {
+        "status": "VERIFIED",
+        "files": 151,
+        "bytes": 1481978,
+        "manifest_sha256": "2926a34991e68e0eadcfb1a4db56a987a4e04bc092998fd1671ac46a8332ed1a",
+        "original_verified": true,
+        "copy_verified": true
+      },
+      "source_inputs_unchanged": true
+    }
+  ],
+  "initial_harness_limits": "Attempt 01 refused optional physical I/O before the oracle. Attempts 02/03 did not consistently observe the selected peer because peer fixtures reset the provider; attempt 02 rooted reached the intended failure. Attempt 04 explicitly installs a transparent DirectFileSystem observer on all three nodes before startup and is the authoritative red.",
+  "candidate_controls": {
+    "label": "cached-conflict-controls-01",
+    "status": "FAILED",
+    "source_digest": "1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a14085",
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 819.614423291001,
+        "footers": [],
+        "log_sha256": "2463c83a8a2f4edebdb15c6482bacd7d3f8d9c0050f427eb231a4c40ba0d3472"
+      },
+      {
+        "name": "cellar--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 215.60386583401123,
+        "footers": [
+          [
+            "ok",
+            "1259",
+            "0",
+            "2"
+          ]
+        ],
+        "log_sha256": "7c828fea435bb19a1c1621fb5f9bb6a054d8c6c131f6cb98e824d3e7df4260ee",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 125.19088566699065,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "125fa787e60e7370e40be05fdaf63c2c89b9288eeb8f43fb44251c0ae23809ce",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_cell_activation_cache_is_bounded_and_fenced",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 182.79833412502194,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "6af4145c4475dc7a5f340b423abe1a9b218429b001f1d0a4902499a1d916b080",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_cell_rpcs_interleave_between_proven_roots",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 148.0853790420224,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "5734f2c2d18df0b0ce23ad30e37e457d4a1b6193f5f853dee74e46e290188779",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--proven_rpc_continuation_does_not_wait_for_unrelated_group_apply",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 22.52385466598207,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "136a988982d9da468665ad1620aba01ab69318e30097074df95f0ac9fa0704a4",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 24.109966374991927,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "631761d94a2092d2f02a7f74ce6e02ec8c954f2b45d4deb241d2790a6eab5bdd",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 449.62972399999853,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "9249466bc3d09d668f60a9b8d4b12bd9ac0872c086139302407fd62cf21eaab7",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_queue_callbacks_use_shared_quorum",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 143.86173837503884,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "77b5867877eb5b41dbdcfdeed06f911b02ec1b7231277b5238dd88daec7e3fdb",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--queue_load_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 132.97278229199583,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "1d88c6680ed8c25aa4d9cabc29f95e15b52c638875b67b1ef42f0e0ec5478808",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 70.72936241701245,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "847790f268c91f7cba689bacc256de751a2b2d64e77ef604dbf355abae4ce7a5",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 25.05736383300973,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "9f80c01ec3fa4d6b1fb141768424a7e7216558677e955b511cda076793ade7a3",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_effects--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 133.92523845803225,
+        "footers": [
+          [
+            "ok",
+            "10",
+            "0",
+            "1"
+          ]
+        ],
+        "log_sha256": "5008840d4e2f37c8c1f0b6681e6289deca835bd994a41ffffc28291f833df5a9",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--unrelated_cell_mutation_does_not_stall_sql_preparation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.03823729098076,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b19682e83de677c3131e59cc378d473dc75a3ba425fccaac335968885af4e22a",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--rooted_unrelated_cell_mutation_does_not_stall_sql_preparation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.4452919170144014,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "5f2331837942ee514b939458cd5133ee0c3e88178237ebbbe448335c697a344f",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--queued_sql_submissions_share_ready_persistence",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.6324134159949608,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "2ef679dbe0e9c441dfed7a8804a8c18fa4ffcff15942acc82bf5dd716404a0b9",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--rooted_queued_sql_submissions_share_ready_persistence",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.6339931249967776,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3f1eb7ee4fef8cd06652c7d7ee761ce13317f8f046dff3ad6a350c8a2da7a3d0",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--queued_sql_submissions_preserve_intervening_read",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.7317245000158437,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b84350c66c745dad25d108cd47cd08cb8ccc8e91bfc4cfb0177adb9811ef7546",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--queued_sql_submissions_respect_event_capacity",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.6422996670007706,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "2e147abd2a39b45251339fb191bcb42f003b42b69d38ad1551007691986cbae0",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--rooted_queued_sql_submissions_respect_event_capacity",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.547099207993597,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "1d2da435a684e1853ab8b2de6815ef249532e849d47f75fad09f0ea334925dc6",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--command_waits_for_committed_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 3.81479729199782,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "ff986cda7abbc654a8356d8c0c394a3292c56b3f2cdb0d2481e024ac1c498903",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--command_readiness_wait_keeps_original_deadline",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 4.611198625003453,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b43eb834a3cd3273292fb4e65dc2092b9edeb7de82a72999ac047dc2e071c52c",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--materialized_live_apply_reuses_exact_producer_image",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.4509775410406291,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "f3c77545d1393b76c9499a6cb1ad3f2f1df8e536d3295997ed602bc9cdc30f11",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--rooted_live_apply_reuses_exact_producer_image",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.4225508749950677,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "9a045adc3b2009e513a91f0bb77ae3db66f3ff0fc13b0f975cdaa83f1410dc92",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_disaster--transition_disaster_selects_complete_closure",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 301.98086983303074,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "a076a09128f6469cd7734d57a117444752761a4649a7eb84099aad26e7226a9f",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_effects": {
+        "sha256": "da99e9cdf6a4109b40adb5845499ef28e763fa9e2b4ae61c86261f0fe9fd2497",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar": {
+        "sha256": "85757d5bdee9a336278cd94781b55996836a677c9696fa393cdfd5b08c8e514b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_disaster": {
+        "sha256": "4c8990e0badc628c930dc42c3474e6a1213d42a21b7b32dd837aa40efd1a0d1b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "f9ad30d528e4fbc1c41a0a1729f8b760e02b8432499a9c1875fd0e1c0db102bc",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_execution": {
+        "sha256": "cd14c91fcee38317c0e23bfdfa311e0f9c9f6a0c7cc28829a73243cd2d24e513",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retained": {
+      "files": 6409,
+      "bytes": 80228369,
+      "manifest_sha256": "02cd7a1d70f0806458cfa240cc8c666518b8126640afa4bd13fbe43398eda430"
+    },
+    "retention_verification": {
+      "status": "VERIFIED",
+      "files": 6409,
+      "bytes": 80228369,
+      "manifest_sha256": "02cd7a1d70f0806458cfa240cc8c666518b8126640afa4bd13fbe43398eda430",
+      "original_verified": true,
+      "copy_verified": true
+    },
+    "source_inputs_unchanged": true
+  },
+  "current_failure_scopes": {
+    "ordinary_sql_bindings_use_managed_shared_groups": "Materialized concurrent first-use IngressRace reaches an ambiguous deadline; rooted mode completes this run.",
+    "proven_rpc_continuation_does_not_wait_for_unrelated_group_apply": "Materialized source final completion reaches an ambiguous deadline; this combined case does not proceed to rooted. Parent/candidate controls remain separate.",
+    "ordinary_queue_callbacks_use_shared_quorum": "Rooted ambiguous command deadline; materialized mode completes.",
+    "queue_load_preserves_acknowledged_messages": "Original C2 case ends with deadline elapsed. This footer alone does not establish the failed internal phase.",
+    "materialized_queue_four_in_flight_preserves_acknowledged_messages": "Public producer deadline. First Raft target attempt has 718ms of the original request budget remaining.",
+    "rooted_queue_four_in_flight_preserves_acknowledged_messages": "Pre-load queue-emptying operator reaches an ambiguous deadline; the C4 load oracle remains unrun. Its first target attempt has 2408ms remaining."
+  },
+  "candidate_checks": {
+    "label": "cached-conflict-checks-01",
+    "status": "PASSED",
+    "source_digest": "1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a14085",
+    "stages": [
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 765.2825749579933,
+        "footers": [],
+        "log_sha256": "c8d7112eb6a3145b4ae59c392f862d439b2ac3df062ff7871058317f25eca396"
+      },
+      {
+        "name": "native-only",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 115.95646591699915,
+        "footers": [],
+        "log_sha256": "e534e5280f7556be0a46ac681339673b21fab0b47baaca3573a8088082633d1d"
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 109.27357754099648,
+        "footers": [],
+        "log_sha256": "096fdd7c3bf7d7a739d83146fcec031d829a8c797dbda94458c31414a018ef3b"
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.1471589159918949,
+        "footers": [],
+        "log_sha256": "049cfdbd29dbf0a7ca10b555c33ac28fa1459809eb8c49f7847232460eb127c6"
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4745798750082031,
+        "footers": [],
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9242170409997925,
+        "footers": [],
+        "log_sha256": "73c1bf13b208a9721f1a1023b3de5b970c3bec381b77cec9cf79d5448a043dc8"
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.563941458996851,
+        "footers": [],
+        "log_sha256": "4f5248157c193350a9a6531e20520dfcb887251c3d4bad3355c1618b1f1a1860"
+      },
+      {
+        "name": "runner-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.22479629097506404,
+        "footers": [],
+        "log_sha256": "7afd45791a1a84997b1452cfb975e96ad8a42d4e3a47a36365d76108db8991cf"
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.025230166036635637,
+        "footers": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "executables": {},
+    "retained": {
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "retention_verification": {
+      "status": "VERIFIED",
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "original_verified": true,
+      "copy_verified": true
+    },
+    "source_inputs_unchanged": true
+  },
+  "rpc_continuation_parent_comparison": {
+    "label": "cached-conflict-rpc-comparison-01",
+    "status": "PASSED",
+    "source_digest": "1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a14085",
+    "stages": [
+      {
+        "name": "0-parent--proven_rpc_continuation_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 16.691697625035886,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "35cf4103dcbad0c617d1b461e0c4a67dc07ad3fb6fdd9e8bbb8fae5fb90dd789",
+        "failed_cases": []
+      },
+      {
+        "name": "1-candidate--proven_rpc_continuation_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 15.529418874997646,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "d97800a418a6496af85454cc1ee4d084e6ca4c153b45195d32a4681202c7f164",
+        "failed_cases": []
+      },
+      {
+        "name": "2-candidate--proven_rpc_continuation_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 16.416551625006832,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "891e98fbbadd0aa05a25736556ee22ef36afd2b7d1befee1aea9e27a98f619a5",
+        "failed_cases": []
+      },
+      {
+        "name": "3-parent--proven_rpc_continuation_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 14.271156792005058,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "5b374cc2a21f11bdba76ecd204e4192f781e90a9fc37eed34effc3f6cbd5eb26",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "parent": {
+        "sha256": "704657ce4cd9ac895908fa9cb2c2155b0a28e0a09d62609209d9c1cb5b63756d",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "source_digest": "321cde1a365fac246e0796b98c390e8b6234feac76c92fd3b7194d43478fe914"
+      },
+      "candidate": {
+        "sha256": "f9ad30d528e4fbc1c41a0a1729f8b760e02b8432499a9c1875fd0e1c0db102bc",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "source_digest": "1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a14085"
+      }
+    },
+    "retained": {
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "retention_verification": {
+      "status": "VERIFIED",
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "original_verified": true,
+      "copy_verified": true
+    },
+    "source_inputs_unchanged": true
+  },
+  "comparison_limit": "Independent passes do not erase the original current-source failure or establish its cause. Original RPC progress fixture bytes match the parent, while the compiled source includes the separately scoped cache implementation and observer constructor.",
+  "combined_status": "FAILED",
+  "original_capacity_observation": {
+    "observed_at_utc": "2026-11-18T23:16:28.388526+00:00",
+    "reserve_bytes": 6442450944,
+    "admissible": false,
+    "available_bytes": 757760,
+    "capacity_guard_satisfied": false,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_inspection_config_and_start_unchanged": true,
+    "restarts": 0,
+    "stable_inspection_sha256": "3385998d819d01c22374605e0bb3b8c24fa004b18f19027e33c5f196d0c90c7c",
+    "status": "OBSERVED"
+  },
+  "hosted_recovery_failure": {
+    "commit": "a64664205064fa565f1d1ffbf2fed41fc0d762fa",
+    "workflow_run": 44407468401,
+    "job": 135166687931,
+    "case": "transition_disaster_selects_complete_closure",
+    "scope": "Published-child materialized retained-voter boot refused group provisioning configuration. Cleanup reports joined; exact invalid guard remains undiagnosed. A local pass does not repair or close this hosted failure."
+  },
+  "additional_hosted_failure": {
+    "commit": "a64664205064fa565f1d1ffbf2fed41fc0d762fa",
+    "workflow_run": 44407468401,
+    "job": 135166688557,
+    "case": "bootstrap::lifecycle::s3::managed_s3_seed_refusal_preserves_admission_and_retries_after_failover",
+    "failure": "Expected active_archive_seed_cleanup == 1 and s3_bytes >= 8192; the assertion failed. This managed target is outside the current local selection.",
+    "native_counts": {
+      "passed": 36,
+      "failed": 1,
+      "ignored": 15
+    }
+  },
+  "hosted_aggregate_scope": "Both Python ABI/SDK jobs and all three filesystem release jobs pass on the published parent. The Rust framework/SDK aggregate jobs fail because their native test prerequisite failed; their logs do not report another independent Rust build/SDK failure. This is parent evidence, not qualification of the unpublished candidate.",
+  "open_gates": [
+    "Original-deadline SQL, RPC continuation and Queue C2/C4 progress; scoped current outcomes remain attached above.",
+    "Routing negative paths, partition/read coverage and remaining OPT-01/02/03 qualification.",
+    "Physical shared-segment release, once-only capacity credit and reserve-aware repeated movement (OPT-04/05).",
+    "Measured persistence batching, SQL/image/archive interference and scheduling fairness (OPT-06).",
+    "Wake, interrupted-transition and fenced recovery qualification, hosted SDK refusal (OPT-07).",
+    "Combined primitive/SDK/daemon/feature/backend-fault/crash gates and missing historical CG-01 evidence (OPT-08).",
+    "Source-matched original 3x1-vCPU/2-GiB, RF3/three groups, shared RustFS SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket C1/4/16 comparison, 256B payload and Queue batch8, reversed repetitions."
+  ],
+  "complete_opt_packages_accepted": [],
+  "throughput_or_latency_gain_qualified": false
+}
