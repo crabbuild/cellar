@@ -106,8 +106,7 @@ async fn observe(
                 && leaders[0]["ready"] == true
                 && groups.iter().all(|group| {
                     group["ready"] == group["is_leader"]
-                        && (group["is_leader"] == true)
-                            == (group["member"] == leaders[0]["member"])
+                        && (group["is_leader"] == true) == (group["member"] == leaders[0]["member"])
                         && group["cells"].as_u64().is_some_and(|n| n == minimum_cells)
                         && group["leader"] == leaders[0]["member"]
                         && group["term"] == leaders[0]["term"]

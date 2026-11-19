@@ -72,8 +72,10 @@ def verify(events):
             'minority write or strong-read refusal missing')
     stops = phase('primitive_shutdown_joined')
     require([e['member'] for e in stops] == [1, 2, 3, 1, 2, 3], 'joined stop inventory differs')
-    require(events.index(stops[4]) < events.index(refusals[0])
-            and events.index(refusals[-1]) < events.index(stops[5]),
+    stop_positions = [i for i, e in enumerate(events) if e.get('phase') == 'primitive_shutdown_joined']
+    refusal_positions = [i for i, e in enumerate(events) if e.get('phase') == 'primitive_quorum_refused']
+    require(stop_positions[4] < refusal_positions[0]
+            and refusal_positions[-1] < stop_positions[5],
             'minority requests did not occur between majority and final stop')
     for event in stops:
         raft = event['report']['raft']
