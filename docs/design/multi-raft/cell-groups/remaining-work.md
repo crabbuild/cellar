@@ -65,6 +65,22 @@ closed copies remain retained, including **9,353 files / 811,572,380 bytes**.
 Successful isolated fixture cleanup leaves no terminal disks and grants no
 retained recovery-media evidence.
 
+Three bounded diagnostic cohorts retain those failures and expose additional
+phase boundaries. A refusal probe fails earlier in extent-mode source streaming,
+before its large-request target; its zero events do not refute the original
+`Overloaded`. A test-only stream probe passes once, then fails extent-backed
+`PublicLarge` with an ambiguous deadline after every stream step completes.
+The combined resource/refusal probe also passes once. Its second trial completes
+both modes' large put/get, then a post-restart public `Read` returns 503 with an
+ambiguous deadline at 3,134 ms and no Budget/frame refusal. This small KV read
+currently enters the command/binding path. A pure pinned-reader path remains a
+candidate requiring cold initialization, TTL/revision and external-value proof
+preservation. These are distinct unresolved failures, not causal repairs.
+All probes are removed and exact published compiler inputs restored. The three
+cohorts retain verified failed-run media and closed copies. See the
+[diagnostic record](kv-progress-diagnostics-2026-11-19.json); instrumented timing
+and overlapping background counters do not qualify an end-to-end speedup.
+
 Eight initial strict/repository checks pass. The ninth, the 44-case plan suite,
 first rejects the changed manifest anchor. After review, only that anchor and
 the source revision are repinned to `d13558f85`; all other anchors and task
