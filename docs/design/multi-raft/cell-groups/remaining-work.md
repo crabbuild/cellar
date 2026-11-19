@@ -36,6 +36,26 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Retained peer endpoints and current priorities
+
+Compiler inputs `4164eb74b62e36240adddfa0b688c387ee10c83cd8c9a2a4dfc57094cb4c211d` change test fixtures only. A stopped managed node can retain an authenticated advertised view while the OS reassigns its loopback port. The shared fixture now remembers the first logical owner of each Raft port and rejects foreign reuse before publication. It retains metadata, with no socket custody; same-node reuse remains allowed. Selection checks at most 64 candidates. Production uniqueness guards, durability proofs, boot/command retries, resources and deadlines remain unchanged.
+
+The same real-node regression fails with the duplicate-address refusal under the original selection policy, then passes in both image modes with only the selection helper changed. It checks retained node/disk/engine lineage, newer process/epoch, joined shutdown and release of the stopped port. Zero-group standbys isolate this pre-attachment guard; they do not replace RF3 recovery. Five original provisioning controls pass, including an exact typed duplicate-address refusal before filesystem work.
+
+**Combined owning qualification remains FAILED.** The full managed target has **37 passed / 1 failed / 15 explicit RustFS ignores**. The full disaster target has **11 passed / 2 failed / 8 explicit RustFS ignores**. Complete-closure recovery passes all four parent/child and materialized/extents combinations, with no duplicate-address refusal in the disaster log. Remaining failures are extents S3 seed failover settlement (`[Seeding, Joint]`), extents fresh outbox-lane settlement, and materialized pending recovery forming a fresh quorum. Available failed disks and snapshots are retained and verified against closed copies. These observations do not establish a causal regression comparison.
+
+All nine strict/repository checks pass. The rebuilt library executable and profile are byte-identical to the prior 1,261-pass / 2-ignore run; that result is reused explicitly, rather than reported as a new full-library run. On published predecessor `f82283053`, hosted complete-closure recovery still fails the duplicate-address guard (12 passed / 1 failed / 8 ignored). Corrected-source hosted SDK acceptance remains required. See the [source-bound qualification](peer-port-qualification-2026-11-19.json).
+
+Remaining priorities, in order:
+
+1. **P0 — Application and recovery progress:** close the six original-deadline Queue failures recorded on production checkpoint `f82283053`, plus the three owning failures above. Profile actual image preparation, persistence and ingress phases without increasing workers, banks or deadlines. Preserve SQL/KV/RPC regression coverage and exact command identities.
+2. **P0 — Hosted acceptance:** run the corrected fixture through the original hosted disaster and complete SDK sequence. A sufficient reproduced port-collision mechanism and a local complete-closure pass do not close the whole release gate.
+3. **P1 — Bounded optimization and capacity:** finish routing/read refusal and partition coverage, measured batching/fairness, physical shared-file reclamation with once-only credit, repeated reserve-aware movement, and interrupted park/wake/recovery qualification (OPT-01–07).
+4. **P1 — Combined release:** complete primitive/SDK/Axum/daemon/feature/backend-fault/crash and historical CG evidence (OPT-08).
+5. **P2 — Original matched comparison:** retain all SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket C1/4/16 cases on three Colima 1-vCPU/2-GiB nodes, RF3/three groups/shared original RustFS, 256-byte payloads, Queue batch eight and reversed repetitions. The read-only observation at 2026-11-19T04:28:57.081176+00:00 still finds zero available bytes below the unchanged 6-GiB reserve, stable identity/resources and zero restarts. No constrained comparison is admitted.
+
+Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open. No end-to-end throughput or latency gain is qualified by this fixture correction.
+
 ### Queue schema reopen work and current priorities
 
 Compiler inputs `2a7231be5eee34670d16c063fe2ce68ffe030f3a4a1d2cdb3e9e5903b22413d4` skip the Queue stats bootstrap aggregate when its existing stats row is present. Raft opens the schema for each private command image; previously the aggregate scanned the entire backlog before `ON CONFLICT` discarded its result. Schema creation, trigger definitions and missing-row rebuilds remain. Workers, banks, deadlines, identities, APIs and durability proofs stay unchanged.

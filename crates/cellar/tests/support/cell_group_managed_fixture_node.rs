@@ -22,6 +22,7 @@ impl PaginatedListStore for NoListing {
 
 #[derive(Clone)]
 pub struct Fixture {
+    pub(super) peer_ports: Arc<super::peer_ports::PeerPorts>,
     pub domain: Arc<ExecutionDomain>,
     pub store: Arc<fault::Store>,
     /// Optional fault adapter for this host over the shared backing store.
@@ -214,6 +215,7 @@ impl Fixture {
             .register_node(&cut, &request(2, cut.revision()), &spec, TIMEOUT)
             .await?;
         Ok(Self {
+            peer_ports: Arc::new(super::peer_ports::PeerPorts::default()),
             domain,
             store,
             host_store: None,
@@ -294,6 +296,21 @@ impl Fixture {
         mode: LogOpenMode,
         generation: u8,
     ) -> Result<(RaftCellsConfig, RaftCellsServices)> {
+        self.config_with_control_candidate(node, mode, generation, None)
+            .await
+    }
+
+    pub fn rejected_peer_addresses(&self) -> usize {
+        self.peer_ports.rejections()
+    }
+
+    pub async fn config_with_control_candidate(
+        &self,
+        node: &Node,
+        mode: LogOpenMode,
+        generation: u8,
+        candidate: Option<tokio::net::TcpListener>,
+    ) -> Result<(RaftCellsConfig, RaftCellsServices)> {
         let cut = self
             .catalog
             .read(TIMEOUT)
@@ -304,11 +321,7 @@ impl Fixture {
             .authorize_host(&cut, self.spec.node, TIMEOUT)
             .await
             .context("authorize the host against the Fleet head")?;
-        let listeners = NodeRaftListeners {
-            control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
-            data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
-            query: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
-        };
+        let listeners = self.peer_ports.bind(self.spec.node, candidate).await?;
         let process = ProcessGeneration::new([generation; 16])?;
         let peer = RaftPeerNode {
             node: self.spec.node,

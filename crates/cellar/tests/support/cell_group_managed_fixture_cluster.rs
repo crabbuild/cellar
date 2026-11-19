@@ -47,6 +47,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         .register_node(&cut, &request(id, cut.revision()), &spec, TIMEOUT)
         .await?;
     Ok(Fixture {
+        peer_ports: f.peer_ports.clone(),
         domain: f.domain.clone(),
         store: Arc::new(fault::Store::around(f.store.clone())),
         host_store: None,

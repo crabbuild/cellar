@@ -190,6 +190,15 @@ pub(crate) async fn provisioning_coalesces_and_serves() -> Result<()> {
             controllers[0].configure_provisioning(too_small),
             Err(CellGroupControllerError::Invalid(_))
         ));
+        let mut duplicate_address =
+            settings(&f, &a, 0, &[directory.clone(), other.clone()]).await?;
+        duplicate_address.peers[0].data_address = duplicate_address.peers[0].control_address;
+        assert!(matches!(
+            controllers[0].configure_provisioning(duplicate_address),
+            Err(CellGroupControllerError::Invalid(
+                "group provisioning configuration: duplicate peer address"
+            ))
+        ));
         assert!(
             !directory_before.exists(),
             "invalid namespace profiles perform no filesystem work"

@@ -33,6 +33,8 @@ pub mod movement;
 mod node;
 #[path = "cell_group_managed_fixture_operator.rs"]
 pub mod operator;
+#[path = "cell_group_managed_fixture_peer_ports.rs"]
+mod peer_ports;
 #[path = "cell_group_managed_requests.rs"]
 pub mod requests;
 #[path = "cell_group_managed_fixture_seed_failure.rs"]

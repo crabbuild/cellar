@@ -29,6 +29,8 @@ mod inspection_catchup;
 mod inspection_endpoint;
 #[path = "support/cell_group_managed_fleet_inspection.rs"]
 mod inspection_group;
+#[path = "support/cell_group_managed_peer_restart.rs"]
+mod peer_restart;
 #[path = "support/cell_group_managed_registry.rs"]
 mod registry;
 #[path = "support/cell_group_rustfs.rs"]
@@ -47,6 +49,14 @@ async fn stopped(node: Node, service: &RaftCells) -> Result<()> {
         report.groups_total == 0
             && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_boot_avoids_another_nodes_advertised_port() -> Result<()> {
+    for rooted in [false, true] {
+        peer_restart::run(rooted).await?;
+    }
     Ok(())
 }
 
