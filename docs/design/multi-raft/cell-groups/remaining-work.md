@@ -36,6 +36,66 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Inline KV reads and current priorities
+
+Compiler inputs `cb932af1de5d86d5ea01dc7d06507ad47a3d7ce8c3aa5bd608b4bbdb56c9a57b`
+include main `2f083f14`. Eligible warm stateless KV gets now use a fresh
+quorum-pinned image before selecting a mutation sequence. Original namespace
+authorization, history selection, FIFO, request admission and deadline remain.
+The shared codecs preserve values and revisions; scalar length checks bound
+returned buffers. Cold initialization, external values and larger replies retain
+the original command path. Only an explicit eligibility result permits that
+fallback; other read errors retain their cause. Stateful source calls stay on
+their original journaled protocol. Stale private reads refuse before decoding,
+and S3-minimum reads still require selected-image archive coverage.
+
+The byte-identical matched RF3 regression records **three read commits before /
+zero after** in both image modes. A real write advances the group and fresh
+quorum loss refuses. Six successful native HTTP samples are **490–1,341 ms before /
+128–133 ms after**. These are sequential reads of six-byte text in a host-native,
+two-group correctness fixture, not the original constrained 256-byte workload,
+throughput, percentiles or a Fleet/Bucket comparison.
+
+Full library **1,263 passed / 2 existing ignores** and all nine strict/repository
+checks pass. The original eleven-case application cohort is **6 passed / 5
+failed**: ordinary/Axum SQL and KV and both Queue operator-read controls pass;
+all five Queue callback/progress/drain cases fail. The two new read cases pass,
+including actual archive denial, independently successful Quorum metadata reads,
+S3 business-read refusal, stale refusal, restored coverage, restart and quorum loss.
+The first successful S3 fixture cleaned up its disks and discarded its faulted
+write response body; it supplies no terminal-media/returned-ID evidence. The
+test-only retention correction passes a separate independent cohort, preserving
+two returned ambiguous IDs and six original node directories. Its **200 files /
+2,735,810 bytes** and the failed original cohort's **1,890 files / 44,266,324 bytes**
+match verified closed copies. Freshly rebuilt byte-identical library executable
+and profile preserve the full-library result. See the
+[source-bound qualification](inline-kv-read-qualification-2026-11-19.json).
+
+Remaining priorities:
+
+1. **P0 — Queue and availability:** close original callback, C2/C4 producer/source
+   RPC/consumer deadlines and exact acknowledged-message drain. Earlier KV
+   streaming/large-value failures remain separate historical failures; this
+   passing cohort does not establish their complete causal repair or sustained
+   availability. Preserve failed identities, data, original bounds and proofs.
+2. **P0 — Release acceptance:** complete current-source routing/read-refusal,
+   Python lifecycle and SDK qualification. Hosted passes on prior sources do not
+   qualify a changed executable.
+3. **P1 — Full OPT-01–08 and remaining CG gates:** measured persistence,
+   ReadIndex/archive batching and fairness; physical shared-file reclamation and
+   once-only credit; reserve-aware movement; interrupted lifecycle/recovery;
+   complete primitive/backend/crash/historical qualification.
+4. **P2 — Original constrained comparison:** the 2026-11-19T22:21:42Z read-only
+   RustFS observation has **663,552 available bytes** against the unchanged
+   **6,442,450,944-byte reserve**. Identity/resources/start remain unchanged,
+   restarts are zero and no case is admitted. Preserve three 1-vCPU/2-GiB Colima
+   nodes, RF3/three groups/shared RustFS, SQL/KV/Queue ×
+   Quorum/Quorum+S3/Fleet/Bucket × C1/4/16, 256-byte values, Queue batch eight and
+   reversed repetitions. No resource/storage change is proposed.
+
+No complete OPT or CG task is accepted by this checkpoint. The full optimization,
+SDK/release and original performance objective remains open.
+
 ### Retained log cache reuse and current priorities
 
 Compiler inputs `2efed90e495f23cc30777713bb38b46142ad414ee29b0d4e9dac89a9215eaebb`
