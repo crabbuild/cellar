@@ -40,6 +40,11 @@ def verify(events):
     restarts = phase('primitive_retained_restart_verified')
     require(len(restarts) == 1 and len(set(restarts[0]['old_pids'])) == 3,
             'retained restart proof missing')
+    leases = phase('primitive_startup_lease_verified')
+    require(len(leases) == 1 and leases[0]['old_generation'] != leases[0]['generation']
+            and leases[0]['generation'] and leases[0]['first_expires_ms'] > 0
+            and leases[0]['renewed_expires_ms'] > leases[0]['first_expires_ms']
+            and leases[0]['public_admission'] is False, 'lease did not renew behind startup admission')
     writes = phase('primitive_write_verified')
     expected_writes = [(stage, adapter, family, cell)
                        for stage in ('initial', 'after-kill', 'restored')
@@ -74,6 +79,10 @@ def verify(events):
     require([e['member'] for e in stops] == [1, 2, 3, 1, 2, 3], 'joined stop inventory differs')
     stop_positions = [i for i, e in enumerate(events) if e.get('phase') == 'primitive_shutdown_joined']
     refusal_positions = [i for i, e in enumerate(events) if e.get('phase') == 'primitive_quorum_refused']
+    lease_position = next(i for i, e in enumerate(events) if e.get('phase') == 'primitive_startup_lease_verified')
+    restart_position = next(i for i, e in enumerate(events) if e.get('phase') == 'primitive_retained_restart_verified')
+    require(stop_positions[2] < lease_position < restart_position,
+            'held lease proof did not occur during retained startup')
     require(stop_positions[4] < refusal_positions[0]
             and refusal_positions[-1] < stop_positions[5],
             'minority requests did not occur between majority and final stop')

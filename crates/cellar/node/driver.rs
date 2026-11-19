@@ -106,7 +106,7 @@ impl Drop for AdmissionFence {
     }
 }
 
-fn fence_outcome(report: Option<FenceReport>) -> NodeOutcome {
+pub(super) fn fence_outcome(report: Option<FenceReport>) -> NodeOutcome {
     // Forced closure aborts monitor owners. EOF in an already-entered driver
     // poll is cancellation; an actual report still preserves its fence cause.
     if report.is_none() && crate::asyncrt::services().is_closed() {
@@ -120,7 +120,7 @@ fn fence_outcome(report: Option<FenceReport>) -> NodeOutcome {
     }
 }
 
-fn core_outcome(report: Option<Result<(), String>>) -> NodeOutcome {
+pub(super) fn core_outcome(report: Option<Result<(), String>>) -> NodeOutcome {
     // Domain closure can retire the monitor before the root poll notices it.
     // Its empty channel alone is not evidence that the core actor panicked.
     if report.is_none() && crate::asyncrt::services().is_closed() {

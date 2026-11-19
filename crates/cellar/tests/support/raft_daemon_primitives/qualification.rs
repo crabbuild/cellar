@@ -19,14 +19,21 @@ async fn startup_lease(
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut first = None;
     loop {
-        ensure!(!process.logs()?.contains("cellar listening on "), "held startup opened ingress");
+        ensure!(
+            !process.logs()?.contains("cellar listening on "),
+            "held startup opened ingress"
+        );
         if root.join("primitive-startup-held").is_file() {
             if let Some(lease) = leases.read_node_lease("raft-cli-cluster-0").await? {
-                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_millis();
                 if lease.generation != previous && u128::from(lease.expires_ms) > now {
                     match &first {
                         None => first = Some((lease.generation.clone(), lease.expires_ms)),
-                        Some((generation, expires)) if generation == &lease.generation && lease.expires_ms > *expires => {
+                        Some((generation, expires))
+                            if generation == &lease.generation && lease.expires_ms > *expires =>
+                        {
                             ledger.record(json!({"phase":"primitive_startup_lease_verified",
                                 "old_generation":previous,"generation":generation,
                                 "first_expires_ms":expires,"renewed_expires_ms":lease.expires_ms,
@@ -34,12 +41,18 @@ async fn startup_lease(
                             persist(root, "primitive-startup-release", b"1")?;
                             return Ok(());
                         }
-                        Some((generation, _)) => ensure!(generation == &lease.generation, "held startup changed lease generation"),
+                        Some((generation, _)) => ensure!(
+                            generation == &lease.generation,
+                            "held startup changed lease generation"
+                        ),
                     }
                 }
             }
         }
-        ensure!(Instant::now() < deadline, "node lease did not renew while Raft startup held ingress closed");
+        ensure!(
+            Instant::now() < deadline,
+            "node lease did not renew while Raft startup held ingress closed"
+        );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
@@ -338,8 +351,17 @@ pub(crate) async fn qualify() -> Result<()> {
     reads(&client, &entrances, None, "initial", &mut ledger).await?;
     observe(&client, &entrances, None, 2, &mut ledger).await?;
     let bucket = open_deployment_store(root.path())?;
-    let leases = cellar::ownership_store::BucketOwnership::new(bucket.clone(), bucket, String::new(), String::new());
-    let previous = leases.read_node_lease("raft-cli-cluster-0").await?.context("initial node lease")?.generation;
+    let leases = cellar::ownership_store::BucketOwnership::new(
+        bucket.clone(),
+        bucket,
+        String::new(),
+        String::new(),
+    );
+    let previous = leases
+        .read_node_lease("raft-cli-cluster-0")
+        .await?
+        .context("initial node lease")?
+        .generation;
     let old_pids = processes
         .iter()
         .map(Process::pid)

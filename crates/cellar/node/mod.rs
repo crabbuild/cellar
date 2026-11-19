@@ -294,6 +294,15 @@ impl DurabilityOwnerSelection {
         self.runtime_owner = Some(owner);
     }
 
+    // Maintenance publishes through the core's lease writer. Activate only
+    // after that actor starts, including while Raft readiness is still pending.
+    fn activate(mut self) -> Option<crate::node_log::DurabilityOwner> {
+        if let Some(owner) = &mut self.runtime_owner {
+            owner.start_background(self.follower.clone());
+        }
+        self.select()
+    }
+
     fn select(self) -> Option<crate::node_log::DurabilityOwner> {
         self.runtime_owner.or_else(|| {
             self.follower
@@ -4602,7 +4611,7 @@ async fn async_main(
             covered: false,
         });
     });
-    let (fence_tx, fence_rx) = mpsc::unbounded_channel();
+    let (fence_tx, mut fence_rx) = mpsc::unbounded_channel();
     let node = std::env::var("CELLAR_NODE").unwrap_or_else(|_| random_node_session_id());
     let clean_reload_node = node.clone();
     crate::control_plane::install_reexec_node_session_id(&node)?;
@@ -5249,12 +5258,10 @@ async fn async_main(
                 })
             })
             .await?;
-            let mut owner = crate::node_log::DurabilityOwner::new(manager, durability == "fleet");
-            owner.start_background(follower.clone());
+            let owner = crate::node_log::DurabilityOwner::new(manager, durability == "fleet");
             durability_owner.install_runtime(owner);
         }
     }
-    let durability_owner = durability_owner.select();
     let mut channels = driver::Channels::install(websocket_rx);
     // KV large values live in the fleet bucket. The cloneable handle follows
     // the Blob binding's startup pattern, so independent cells issue bucket I/O
@@ -5270,36 +5277,15 @@ async fn async_main(
     actor.store_load_sample(initial_sample);
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-    if let Some(raft) = raft {
-        let result = {
-            let supplied_stop = async {
-                match stop.as_mut() {
-                    Some(stop) => stop.await,
-                    None => std::future::pending::<()>().await,
-                }
-            };
-            crate::asyncrt::select! {
-                result = raft.start(&app, data_dir.clone(), node.clone(), fleet_bucket.is_some()) => result,
-                _ = supplied_stop => Err(anyhow::anyhow!("Raft startup cancelled by host")),
-                _ = channels.shutdown_rx.recv() => Err(anyhow::anyhow!("Raft startup interrupted by fleet stop")),
-                _ = sigterm.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGTERM")),
-                _ = sigint.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGINT")),
-            }
-        };
-        if let Err(error) = result {
-            let _ = crate::asyncrt::services().raft_lifecycle().close().await;
-            #[cfg(not(cellar_internal_tests))]
-            crate::asyncrt::shutdown_process_domain().await;
-            return Err(error.context("production Raft startup refused; retain replica disks"));
-        }
-    }
+    // Raft readiness may wait on operators or other voters. Keep its node lease
+    // live throughout that wait; public ingress still starts only after binding.
     // The core is a serial ownership actor, not a Worker executor. It owns the
     // node lease timer, so ingress, proxy retries, and restore completions must
     // not consume every scheduler turn it needs. Its isolated single-thread
     // runtime also keeps state transitions ordered exactly as the deterministic
     // executor models them. Request work, restores, and blocking scans stay on
     // the shared runtime and report their results back as messages.
-    let (actor_exit_tx, actor_exit_rx) = mpsc::unbounded_channel();
+    let (actor_exit_tx, mut actor_exit_rx) = mpsc::unbounded_channel();
     let core_thread = std::thread::Builder::new()
         .name("cellar-core".into())
         .spawn(move || {
@@ -5318,6 +5304,46 @@ async fn async_main(
                 });
             let _ = actor_exit_tx.send(result);
         })?;
+
+    let mut durability_owner = durability_owner.activate();
+    if let Some(raft) = raft {
+        let result = {
+            let supplied_stop = async {
+                match stop.as_mut() {
+                    Some(stop) => stop.await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
+            crate::asyncrt::select! {
+                result = raft.start(&app, data_dir.clone(), node.clone(), fleet_bucket.is_some()) => result,
+                report = fence_rx.recv() => Err(anyhow::anyhow!("node authority failed during Raft startup: {:?}", driver::fence_outcome(report))),
+                report = actor_exit_rx.recv() => Err(anyhow::anyhow!("core failed during Raft startup: {:?}", driver::core_outcome(report))),
+                _ = supplied_stop => Err(anyhow::anyhow!("Raft startup cancelled by host")),
+                _ = channels.shutdown_rx.recv() => Err(anyhow::anyhow!("Raft startup interrupted by fleet stop")),
+                _ = sigterm.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGTERM")),
+                _ = sigint.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGINT")),
+            }
+        };
+        if let Err(error) = result {
+            let _ = crate::asyncrt::services().raft_lifecycle().close().await;
+            if let Some(owner) = &mut durability_owner {
+                owner.shutdown_local().await;
+            }
+            #[cfg(not(cellar_internal_tests))]
+            {
+                crate::asyncrt::shutdown_process_domain().await;
+                let joined = tokio::task::spawn_blocking(move || core_thread.join()).await;
+                if !matches!(joined, Ok(Ok(()))) {
+                    return Err(
+                        error.context("core host thread failed while joining refused Raft startup")
+                    );
+                }
+            }
+            #[cfg(cellar_internal_tests)]
+            drop(core_thread);
+            return Err(error.context("production Raft startup refused; retain replica disks"));
+        }
+    }
 
     // The sampler is a plain ticker: it measures and posts, and decides
     // nothing. Everything downstream of the numbers -- the latch, the target,

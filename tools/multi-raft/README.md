@@ -377,6 +377,9 @@ observed SQL leader, resumes its disk, blocks real archive writes, restores the
 backend, and verifies minority write and protected-read refusal. The independent
 oracle rejects missing operations, incorrect read results, incomplete resource
 observations and weaker acknowledgements.
+During retained startup, the fixture holds the readiness callback and requires
+a new node-lease generation and an actual renewal before releasing public
+admission. This detects log-maintenance owners started without their lease actor.
 
 This campaign does not qualify an external Axum-owned listener, same-command
 retry of an uncertain stateless binding response, or the other primitive

@@ -61,6 +61,8 @@ def campaign(minimum):
     reads('initial', range(1, 4))
     observed(range(1, 4))
     stops()
+    event('primitive_startup_lease_verified', old_generation='old', generation='new',
+          first_expires_ms=1000, renewed_expires_ms=2000, public_admission=False)
     reads('initial', range(1, 4))
     observed(range(1, 4))
     event('primitive_retained_restart_verified', old_pids=[101, 102, 103])
@@ -99,7 +101,8 @@ class PrimitiveOracleTests(unittest.TestCase):
         for phase in ('primitive_write_verified', 'primitive_read_verified', 'primitive_reply',
                       'primitive_retained_restart_verified', 'primitive_before_leader_kill',
                       'primitive_archive_boundary', 'primitive_quorum_refused', 'primitive_observed',
-                      'primitive_shutdown_joined', 'primitive_archive_denied'):
+                      'primitive_shutdown_joined', 'primitive_archive_denied',
+                      'primitive_startup_lease_verified'):
             for duplicate in (False, True):
                 events = campaign('s3')
                 index = next(i for i, event in enumerate(events) if event['phase'] == phase)
@@ -118,6 +121,9 @@ class PrimitiveOracleTests(unittest.TestCase):
             ('primitive_archive_boundary', 'status', 200),
             ('primitive_quorum_refused', 'status', 200),
             ('primitive_reply', 'body', 'false'),
+            ('primitive_startup_lease_verified', 'generation', 'old'),
+            ('primitive_startup_lease_verified', 'renewed_expires_ms', 1000),
+            ('primitive_startup_lease_verified', 'public_admission', True),
         ]:
             events = campaign('s3')
             next(event for event in events if event['phase'] == phase)[field] = value
