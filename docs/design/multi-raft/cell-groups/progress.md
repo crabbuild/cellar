@@ -32,6 +32,92 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+**CG-17 is not complete.** Runtime `9b4fdf132` includes latest fetched main
+`2f083f148`. This checkpoint delivers two archive changes without weakening
+quorum, fencing, uncertainty or the original request budgets:
+
+- An anonymous materialized receive spool no longer syncs before being copied.
+  Incoming bytes are still fully checked. New immutable destinations retain
+  independent verification and file/directory sync; reused destinations retain
+  their forced verification and persistence barriers. The spool is never adopted.
+- One pending upload owner shares a bounded lookup of its protected inherited
+  objects and its own GET-confirmed objects. Warm repeats verify a full GET and
+  issue no additional PUT. A reopened owner still reconciles actual conditional
+  creates; missing or corrupt cached objects refuse without recreation or
+  overwrite. This metadata cache supplies no coverage or serving authority.
+
+At `03f7f2481`, the original unchanged-checkpoint test fails with **33 PUTs
+instead of 18**. The fixed source preserves that zero-additional-PUT assertion,
+adds warm missing/corrupt-object checks and real-RustFS coverage, and preserves
+cold-owner conditional-create conflict checks. The cancellation fixture now
+continues polling the transfer while waiting for its original five-second GET
+gate, then applies the original 50 ms noncompletion, Busy, refund and join checks.
+Its earlier observer could leave the transfer unpolled before reaching the gate.
+
+Current-source results:
+
+- **29 LTX tests pass**; the physical 10 GB test is ignored and not counted.
+  The receive checks cover new, cached and reopened images, destination barrier
+  failures, corrupt input/destination bytes, and scratch/handle release.
+- **17 native and eight real-RustFS archive selectors pass.** Both image forms
+  are exercised by the owning fixtures. Coverage includes warm/cold upload retry,
+  independent image/LTX replay, corrupt/missing data, current-source closure,
+  source-pin admission, expiry, pending-parent GC, delayed deletion, erased-disk
+  restoration, import/genesis restart, retained holds and exact S3 output proofs.
+- **The public RPC/EventStream campaign is FAILED, 1/12 selectors.** Named RPC
+  passes all four RustFS configurations and three of four native configurations.
+  Native materialized source-S3 **retained sequence 7** exceeds its original
+  deadline with uncertainty preserved. All ten EventStream selectors fail:
+  four basic native/Axum/backend paths fail Consume; four explicit paths and two
+  independent target-S3 paths fail initial activation. These results do not
+  establish a deadline fix, stability or complete primitive-family support.
+
+Records are `CG-17-archive-confirmed-native-1457d-9b4fdf13/record.json`,
+`CG-17-archive-confirmed-rustfs-1458d-9b4fdf13/record.json` and
+`CG-17-archive-confirmed-public-1459-9b4fdf13/record.json` under
+`.cellar/cell-groups-evidence/`; LTX results are in
+`.cellar/cg17-payload-01/archive-confirmed-ltx-owning-1461.json`.
+Original public host/stateful deadlines, two-command/64-KiB controller bank,
+one SQL worker per voter and eight-cell/512-MiB cache remain. RF3 actors share
+one process with separate disks; RustFS is pinned to one CPU/two GiB. One foreign
+compiler is observed at the public run's completion; no owned build overlaps a
+runtime campaign. No isolated performance or independent-voter release claim is
+made. The earlier public KV/SQL/Fetch/recovery results below remain separately
+source-pinned and are not requalified by this narrower campaign.
+
+Integrity audit 1462 verifies **580 retained failed node directories**, eighteen
+retained positive source directories and seventeen additional frozen executable
+copies. Its stopped-directory inventory covers 28,948 files. It records two
+custody gaps: four older hibernation disks, and six voter disks from two earlier
+archive fixtures deleted before retention was added. Their logs/binaries remain;
+those gaps are not repaired. The first revised archive run, 1456, failed because
+new fault checks followed the original deliberate source close; its diagnostic
+also numbered disks incorrectly. Its three real disks are retained and audited;
+only one selector ran and the other sixteen did not. `9b4fdf132` moves the checks
+before source close, preserves independent recovery after close and fixes the
+labels. The anonymous-spool pre-fix probe retained dirty-test input/diff hashes;
+it is diagnostic evidence, not a clean-source acceptance baseline.
+
+All owned processes have joined. RustFS and its VM are stopped with objects
+retained. Locked build, strict affected Clippy, formatting and layout pass.
+Documentation, native dependencies, the partial catalog, 24 source anchors,
+the generated index and thirteen coverage-validator tests pass. Full preflight
+and validation stop at missing historical
+`.cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-01-record.json`;
+the source-only anchor/index check does not waive that evidence gate.
+**All 32 CG-17 cases and existing dependencies remain mandatory.** Acceptance
+stays **13/17 tasks, 147/195 cases**; historical CG-01 evidence and the complete
+public/provider/feature/lifecycle/recovery matrix remain open.
+
+Next deliver the original EventStream activation/Consume paths and retained
+source-S3 RPC completion, then independent target-S3 SQL/KV, Queue, Workflow,
+alarms/cron and the remaining filesystem/payload/provider/WebSocket lifecycle
+matrix. Existing callback admission and background archive coalescing already
+exist; do not duplicate them or replace failing requests with narrower tests.
+See [remaining work](remaining-work.md#primitive-delivery-priority).
+
+## Previous startup, namespace refusal and payload retry checkpoint
+
 Runtime source `052f7e5b4` includes latest fetched origin/main `2f083f148`.
 It delivers three correctness changes on the shared-group primitive path:
 
@@ -57,7 +143,7 @@ controls and two native archive/payload controls. The latter cover both image
 forms, autonomous recovery without application traffic, actual restored bytes,
 corruption, missing data, retained recovery cuts and GC.
 
-The current public/RustFS campaign is **FAILED, 16/18 selectors passing**:
+That public/RustFS campaign is **FAILED, 16/18 selectors passing**:
 
 - KV passes all four selectors: **8/8 image/ingress/backend configurations**.
   Ordinary SDK operations, large values, RustFS CLI/operator calls, retained
