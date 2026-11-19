@@ -41,32 +41,35 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `8541aee3d` includes main `2f083f148`. Already-admitted native
-checkpoints now wait for existing S3 capacity/queue space under their original
-absolute deadline, retaining their committed receipt without replaying callbacks.
-The causal pre-fix RF3 baseline fails with storage `Overloaded`; sixteen native/
-RustFS configurations and six existing S3 safety selectors pass. The original
-native explicit EventStream lifecycle passes both image forms, and named native
-bindings pass all four configurations. See the current checkpoint for exact
-source and evidence pins.
+Runtime `66f301855` includes main `2f083f148`. Native S3 invocations now
+coalesce intermediate background archive cuts under the first original deadline;
+foreground publication and exact proofs remain required. Final proof completion
+releases its guard before delivery. The causal scheduling baseline fails; eight
+owning scheduler units and four native RF3 release/expiry configurations pass.
+The new RustFS fixture fails its first call configuration and needs source versus
+neighbor call context before stage attribution. See the current checkpoint for
+exact source and evidence pins.
 
-**The remaining public paths still fail.** RustFS explicit event activation times
-out; RustFS named bindings pass both Quorum-source configurations but fail both
-S3-source configurations. Native ordinary/Axum Consume and Axum explicit
-activation also fail. Preserve ambiguous binding client `[121; 16]`, materialized
-sequence 2 and extent sequence 1, and Consume parent sequence 2. The earlier
-source Read and retained binding failures remain historical evidence; a timeout
-never establishes non-commit. Independent compilation is recorded, so no isolated
-latency improvement or complete-family qualification is claimed.
+**The compatibility/public cohort is FAILED, 8/13 selectors.** Eight native
+checkpoint-capacity configurations and six native/RustFS S3 safety selectors pass;
+RustFS extent cancellation fails to retire admission within its original bound.
+Named native bindings pass all four configurations. Explicit native EventStream
+fails Consume sequence 11 with ambiguous `Unavailable`; native ordinary/Axum
+Consume fails parent sequence 2; Axum explicit Read fails ambiguous sequence 6.
+The separate RustFS public cohort fails source-S3 materialized retained sequence
+7 and extent sequence 6, and initial explicit activation. Preserve every original
+identity and deadline. A timeout never establishes non-commit. Independent
+compilation is recorded, so no isolated latency or family acceptance is claimed.
 
 Deliver the next features in this order:
 
-1. Close RustFS activation and source-S3 settlement, ordinary/Axum Consume and
-   Axum explicit lifecycle under the original budgets. Capture the owning stage
-   before choosing another scheduling change; add a causal regression at that
-   boundary. Keep current authority, all S3 proofs and exact mutation identities.
-   Existing callback banks, background archive coalescing and proof-read overlap
-   already exist. Repeat green controls only when a new change justifies it.
+1. Resolve RustFS extent cancellation/admission release and identify the new
+   coalescing fixture's failed source or neighbor call. Then close RustFS
+   activation/source-S3 settlement and ordinary/Axum Consume/readiness under the
+   original budgets. Capture the owning stage and add its causal regression
+   before another scheduling change. Preserve current authority, all S3 proofs
+   and exact mutation identities. Existing callback banks, bounded coalescing
+   and proof-read overlap already exist; do not replace them speculatively.
 2. Complete independent target-S3 SQL/KV and binding/streaming ownership coverage,
    then Queue lease/acknowledgement and autonomous drain, alarms/cron and Workflow
    lifecycle. Qualify retention, recreation, deployment/clock changes and

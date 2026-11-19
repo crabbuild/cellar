@@ -32,69 +32,82 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-**CG-17 is not complete.** Runtime `8541aee3d` includes fetched main
-`2f083f148`. Production fix `a0604c66e` changes only already-admitted native
-intermediate checkpoints: temporary S3 capacity or queue pressure now waits on
-the existing bounded admission bank under the original absolute deadline.
-The committed receipt and invocation remain owned; the callback is not replayed.
-Ordinary public output admission remains fail-fast. Closing, size limits,
-current authority, physical archive verification and S3 output proofs remain
-mandatory.
+**CG-17 is not complete.** Runtime `66f301855` includes fetched main
+`2f083f148`. It adds bounded, per-group coalescing of background archive cuts
+while a native S3 invocation prepares dependent checkpoints. Foreground S3
+publication and verification still run. The first invocation's original deadline
+bounds deferral; overlapping calls cannot extend it. Guard drop or deadline
+expiry makes background work eligible. Registration identity fences retired guards,
+and guards retain no host owner. Final S3 proof completion consumes the guard
+before response delivery, so a following call cannot inherit a completed window.
 
-The causal RF3 baseline at `502b1e1a8` fails with
-`Execution(Storage(Runtime(Overloaded)))` after the checkpoint has committed.
-Temporary probes had identified the same failure at a catalog continuation;
-they were removed before the baseline. The fixed source passes **eight native
-and eight real-RustFS configurations**: both image forms with capacity release,
-original deadline expiry, dropped waiter and joined close. The release fixture
-consumes both old responses because they share one archive verification lease.
-The earlier 1490 run incorrectly released only one, failed, and is preserved.
-Dropping a waiter does not prove that an admitted mutation never committed.
+The clean pre-fix RF3 baseline at `98516e568` fails the intermediate-publication
+oracle: background archive advances prefix 5 to 6 while the S3 parent is held.
+The fixed source passes **all four native configurations**, both image forms with
+release or original deadline expiry, exact replay, one callback and autonomous
+background resumption. **Eight distinct scheduler unit tests pass** in an
+exact-source owning-module harness; a controlled `906c04aff` module fails the
+terminal guard oracle against the same copied domain dependencies. This is module
+qualification, not a complete Cargo unit or primitive-family result.
 
-**Six existing S3 safety selectors pass**, native and real RustFS: slow delivery
-and bounded proof retention, deadline ambiguity/callback behavior, and typed
-receipt-lookup failures/admission. **The original native explicit EventStream
-lifecycle passes both image forms**, including publication, subscription
-outbox/inbox recovery and retained restart. **Named native cell bindings pass
-all four image/source-minimum configurations**, including the previously failing
-materialized source-S3 retained call.
+The new real-RustFS fixture fails its first materialized release configuration
+with ambiguous client `[246; 16]`, sequence 1; the other three configurations do
+not run. Source and neighbor use that ID in different cells, so the current error
+does not identify which call failed. Add call context before attributing a stage.
+The temporary trace that motivated coalescing observed immediate S3 capacity
+admission and redundant background work ahead of a required checkpoint; it did
+not establish a capacity cycle or exclusive latency cause. All probes are removed.
 
-The remaining original public paths still fail:
+**The compatibility/public campaign is FAILED, 8/13 selectors:**
 
-- Real-RustFS explicit EventStream activation exceeds node 0's original deadline;
-  its extent configuration does not run after that first failure.
-- Real-RustFS named bindings pass both Quorum-source configurations, but both S3
-  configurations fail with ambiguity preserved: materialized sequence 2 and
-  extent sequence 1, client `[121; 16]`.
+- All eight native checkpoint-capacity configurations pass. Real RustFS passes
+  six configurations, then extent-mode cancellation fails to retire admission
+  within its original bound; extent close does not run. The previous source's
+  sixteen passing configurations remain historical, not current acceptance.
+- All six existing native/RustFS S3 safety selectors pass: bounded slow delivery,
+  deadline ambiguity/callback behavior and typed receipt lookup/admission.
+- Named native bindings pass all four image/source-minimum configurations.
+- Native explicit EventStream fails Consume, ambiguous client `[190; 16]`,
+  sequence 11, `Execution(Refused(Unavailable))`.
 - Native ordinary and Axum Consume fail with ambiguous parent sequence 2.
-- Native Axum explicit activation exceeds its original deadline.
+- Native Axum explicit lifecycle fails Read, ambiguous client `[190; 16]`,
+  sequence 6, `Execution(Refused(Unavailable))`.
+
+The separate original RustFS public campaign also fails both selectors. Named
+bindings pass both Quorum-source configurations, while materialized S3 retained
+sequence 7 and extent S3 sequence 6 exceed their original deadlines with ambiguity
+preserved. Reaching later sequences than the prior run does not establish
+stability or a performance cause. Explicit event activation still exceeds node
+0's original deadline; its extent configuration does not run.
 
 Frozen records under `.cellar/cell-groups-evidence/` are:
 
-- `CG-17-checkpoint-admission-baseline-1485-502b1e1a/record.json` (expected pre-fix failure).
-- `CG-17-checkpoint-admission-contended-native-1493-8541aee3/record.json` (eight configurations pass).
-- `CG-17-checkpoint-admission-contended-rustfs-1494b-8541aee3/record.json` (eight of nine selectors pass; RustFS explicit fails).
-- `CG-17-checkpoint-admission-contended-public-1495-8541aee3/record.json` (one of five selectors passes).
+- `CG-17-source-refusal-settlement-1500-rustfs-1502-8b049528/record.json` (temporary trace, diagnostic only).
+- `CG-17-checkpoint-admission-contended-coalescing-red-1505-98516e56/record.json` (expected pre-fix failure).
+- `CG-17-checkpoint-admission-contended-coalescing-fixed-1514-66f30185/record.json` (four native configurations pass; RustFS fails).
+- `CG-17-checkpoint-admission-contended-coalescing-public-rustfs-1515-66f30185/record.json` (both public selectors fail).
+- `CG-17-checkpoint-admission-contended-coalescing-controls-public-1516-66f30185/record.json` (8/13 selectors pass).
 
-These are correctness diagnostics with independent compilation recorded; they
-establish no isolated latency improvement, family acceptance or release result.
-RF3 actors share a process with separate disks. Original host/client deadlines,
-two-command/64-KiB controller bank, one SQL worker and eight-cell/512-MiB cache
-remain. RustFS retains its one-CPU/two-GiB limit. Strict affected Clippy and locked
-builds pass; temporary probes are removed. The separately pinned archive passes
-below are not requalified by this campaign.
+Locked builds, affected strict Clippy, formatting, layout, documentation and
+native-dependency checks pass. The partial coverage catalog, thirteen validator
+tests, 24 source anchors and generated index are checked separately. RF3 actors
+share a process with separate workspace disks; the original deadlines,
+two-command/64-KiB bank, one SQL worker and eight-cell/512-MiB cache remain.
+RustFS retains one CPU/two GiB. Independent compilation is recorded. No isolated
+latency improvement, complete-family acceptance or independent-voter release
+qualification is claimed; mixed-load archive lag/RPO remains a release gate.
 
-Formatting, layout, documentation, native dependencies, the partial catalog,
-thirteen coverage-validator tests, 24 source anchors and the generated index
-pass. All owned handles are joined; RustFS and its VM are stopped with objects
-retained. Audit 1498 verifies 628 retained failed node directories and eleven
-frozen executable copies. The previously documented custody gaps remain.
+All owned handles are joined; RustFS and its VM are stopped with objects retained.
+Audit 1518 verifies **667 retained failed node directories**, including 39 new
+ones, and ten frozen executable copies for this campaign. Previously documented
+custody gaps remain; this audit does not restore missing historical inputs.
 
 All **32 CG-17 cases**, provider/feature modes and lifecycle/recovery dependencies
-remain required. Acceptance stays **13/17 tasks, 147/195 cases**. Next close the
-actual RustFS activation/source-S3 settlement and ordinary/Axum Consume failures,
-then independent target-S3 SQL/KV and the remaining primitive matrix. Historical
-CG-01 evidence remains missing; source anchors/index checks do not waive it.
+remain required. Acceptance stays **13/17 tasks, 147/195 cases**. Next resolve the
+RustFS cancellation/admission failure, identify the new fixture's failed call,
+and close source-S3 settlement and exact Consume/readiness failures. Then finish
+independent SQL/KV minima and the remaining primitive matrix. Historical CG-01
+evidence remains missing; source anchors/index checks do not waive it.
 See [priorities](remaining-work.md#primitive-delivery-priority).
 
 ## Previous confirmed-object archive checkpoint
