@@ -40,7 +40,7 @@ fn sql_error_retains_owned_causes_without_accepting_wire_provenance() {
             assert_eq!(retained.family, expected.family);
             assert_eq!(retained.message, expected.message);
             assert_eq!(retained.to_string(), expected.to_string());
-            let outcome = std::iter::successors(retained.source(), |source| source.source())
+            let outcome = std::iter::successors(retained.source(), |&source| source.source())
                 .find_map(|source| source.downcast_ref::<Outcome>())
                 .expect("cloned SQL error must own the original typed outcome");
             assert_eq!(outcome.command, 37);
