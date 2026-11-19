@@ -6,6 +6,12 @@ use cellar::sdk::kv::{PutOptions, ReadType, ReadValue};
 
 #[path = "cell_group_kv_cli.rs"]
 mod cli;
+#[path = "cell_group_kv_revisions.rs"]
+mod revisions;
+
+pub(super) async fn revision_scope(real_rustfs: bool) -> Result<()> {
+    revisions::qualify(real_rustfs).await
+}
 
 const SCRIPT: &str = "kv-binding-service";
 const NAMESPACE: &str = "shared/cache";
@@ -367,11 +373,19 @@ async fn public_ok(cluster: &ManagedCluster, node: usize, method: &str) -> Resul
 }
 
 async fn admin(cluster: &ManagedCluster, body: serde_json::Value) -> Result<serde_json::Value> {
+    admin_at(cluster, NAMESPACE, body).await
+}
+
+async fn admin_at(
+    cluster: &ManagedCluster,
+    namespace: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
     let info = cluster.nodes[0].info();
     let path = format!(
         "/runtime/{}?name={}",
-        cellar::engine_api::kv_cell_scope(NAMESPACE, 0),
-        url::form_urlencoded::byte_serialize(format!("{NAMESPACE}/0").as_bytes())
+        cellar::engine_api::kv_cell_scope(namespace, 0),
+        url::form_urlencoded::byte_serialize(format!("{namespace}/0").as_bytes())
             .collect::<String>()
     );
     let payload = serde_json::to_vec(&body)?;
@@ -400,8 +414,8 @@ async fn operator_contract(cluster: &ManagedCluster) -> Result<serde_json::Value
     let original = admin(cluster, json!({"op":"get","key":"warm"})).await?;
     let token = original["revision"].as_str().context("KV revision token")?;
     ensure!(
-        token.starts_with("cg1:") && token.len() > 37,
-        "incarnation-qualified revision: {original}"
+        token.starts_with("cg1:") && token.split(':').nth(1).map(str::len) == Some(64),
+        "history-qualified revision: {original}"
     );
     let edit = |revision| json!({"op":"edit","key":"warm","condition":{"revision":revision},"value":"cXVvcnVt","tag":"bytes","metadata":"null","expiration_mode":{"mode":"never"}});
     ensure!(admin(cluster, edit(json!(token))).await?["ok"] == true);
@@ -412,10 +426,10 @@ async fn operator_contract(cluster: &ManagedCluster) -> Result<serde_json::Value
         .context("current revision")?
         .rsplit_once(':')
         .context("revision sequence")?;
-    let foreign = format!("cg1:{}:{sequence}", "01".repeat(16));
+    let foreign = format!("cg1:{}:{sequence}", "01".repeat(32));
     ensure!(
         admin(cluster, edit(json!(foreign))).await?["conflict"] == true,
-        "another incarnation reused the same counter"
+        "another logical history reused the same counter"
     );
     // Existing operator expiration has no minimum public TTL. Leave the cell
     // alone until due; storage metrics distinguish physical removal from reads

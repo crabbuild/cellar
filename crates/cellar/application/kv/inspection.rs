@@ -13,7 +13,9 @@ impl NamespaceCell {
             .source_history()?;
         Ok(format!(
             "cg1:{}:{revision}",
-            hex::encode(history.incarnation.bytes())
+            hex::encode(crate::raft::cell_groups::cell_image_history_digest(
+                &history
+            ))
         ))
     }
 

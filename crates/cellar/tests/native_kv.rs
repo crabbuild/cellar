@@ -30,6 +30,36 @@ use std::time::Duration;
 
 const IDENTITY: &str = "native-kv/namespace";
 
+#[test]
+fn revision_conditions_require_canonical_full_history_tokens() {
+    use cellar::application::kv::RevisionCondition;
+
+    let valid = format!("cg1:{}:1", "ab".repeat(32));
+    for revision in [None, Some("0".into()), Some("42".into()), Some(valid)] {
+        RevisionCondition { revision }.validate().unwrap();
+    }
+    for revision in [
+        format!("cg1:{}:1", "ab".repeat(16)),
+        format!("cg1:{}:1", "00".repeat(32)),
+        format!("cg1:{}:1", "AB".repeat(32)),
+        format!("cg1:{}:01", "ab".repeat(32)),
+        format!("cg1:{}:-1", "ab".repeat(32)),
+        format!("cg1:{}:1:2", "ab".repeat(32)),
+        "01".into(),
+        "-1".into(),
+        "9223372036854775808".into(),
+    ] {
+        assert!(
+            RevisionCondition {
+                revision: Some(revision.clone())
+            }
+            .validate()
+            .is_err(),
+            "accepted noncanonical revision {revision}"
+        );
+    }
+}
+
 fn scope() -> String {
     cellar::engine_api::kv_cell_scope(IDENTITY, 0)
 }

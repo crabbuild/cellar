@@ -94,9 +94,17 @@ body leases keep decoder workspace charged through operation/reply consumption.
 This is lazy capacity, not memory allocated for every idle cell. Node usage and
 Prometheus output include active payload operations and retained/capacity bytes.
 
-KV conditional revision tokens include the current cell incarnation and the
-monotonic SQLite counter. A restored counter in a new incarnation cannot match
-a pre-disaster token. Retained restart and group movement preserve tokens.
+KV conditional revision tokens include the complete logical cell history digest
+and the monotonic SQLite counter: `cg1:<64 lowercase hex digits>:<counter>`.
+The digest binds cluster, namespace, logical cell ID and incarnation, independently
+of the physical group, leader or term. Two cells with identical incarnation and
+counter cannot satisfy each other's conditions. A restored counter in a new
+incarnation cannot match a pre-disaster token. Retained restart and group movement
+preserve tokens. The KV service schema digest binds this contract; old
+incarnation-only tokens are refused. This is a hard format-1 cutover requiring
+matching service definitions and newly provisioned compatible KV namespaces,
+without reinterpreting existing namespaces. Ordinary Fleet decimal tokens remain
+unchanged.
 Raft TTL evaluation uses the receiving service's clock, including relative TTLs;
 ordinary alarm work reclaims expired rows without another caller request.
 

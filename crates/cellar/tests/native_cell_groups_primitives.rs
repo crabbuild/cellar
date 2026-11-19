@@ -178,6 +178,17 @@ mod interleaving;
 mod kv_bindings;
 #[path = "support/kv_contract.rs"]
 mod kv_contract;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_revision_conditions_cannot_cross_cell_histories() -> Result<()> {
+    kv_bindings::revision_scope(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_kv_revision_conditions_cannot_cross_cell_histories() -> Result<()> {
+    kv_bindings::revision_scope(true).await
+}
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
