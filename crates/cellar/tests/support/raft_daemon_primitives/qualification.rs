@@ -314,9 +314,12 @@ pub(crate) async fn qualify() -> Result<()> {
         "hosting":"native_daemon","application_adapters":["native","axum"],"external_axum_hosting":false,
         "same_id_transport_retry":false,"retained_root":root.path()}))?;
     startup::initialize(root.path()).await?;
+    // Stateless SDK bindings keep the production 15-second operation deadline.
+    // Leave transport slack to receive that deadline's typed refusal; an equal
+    // client timeout races the refusal when the remaining voter has no quorum.
     let client = reqwest::Client::builder()
         .no_proxy()
-        .timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(20))
         .build()?;
     let mut processes = Vec::new();
     for index in 0..3 {
