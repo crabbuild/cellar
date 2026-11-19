@@ -3659,11 +3659,27 @@ async fn handle_internal(
                 .path_and_query()
                 .map_or_else(|| request.uri().path().to_string(), ToString::to_string);
             let request_headers = request.headers().clone();
-            let body = match collect_limited_body(request.into_body(), MAX_PEER_PROTOCOL_BODY_BYTES)
-                .await
+            // Upload consumes the same budget as primitive admission and
+            // execution. A peer that never finishes its body must release the
+            // collector without reaching authentication or a primitive adapter.
+            let body = match crate::asyncrt::timeout_at(
+                deadline,
+                collect_limited_body(request.into_body(), MAX_PEER_PROTOCOL_BODY_BYTES),
+            )
+            .await
             {
-                Ok(body) => body,
-                Err(error) => return Ok(peer_response(body_read_error("operator cell", error))),
+                Ok(Ok(body)) => body,
+                Ok(Err(error)) => return Ok(peer_response(body_read_error("operator cell", error))),
+                Err(_) => {
+                    let mut reply = rpc_deadline::response();
+                    // The unread request cannot be reused as another HTTP/1
+                    // message, and the sender's pending stream must be dropped.
+                    reply.headers_mut().insert(
+                        hyper::header::CONNECTION,
+                        hyper::header::HeaderValue::from_static("close"),
+                    );
+                    return Ok(reply);
+                }
             };
             if let Err(error) = app.peer_auth.verify(
                 &method,
