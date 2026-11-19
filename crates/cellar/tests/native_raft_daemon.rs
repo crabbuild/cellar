@@ -41,6 +41,9 @@ use std::{
 const SECRET: &str = "fixture-secret-raft-cli";
 
 fn child(root: PathBuf, mode: String) -> Result<()> {
+    if mode == "provision-primitives" {
+        return managed::primitives::child(root, &mode);
+    }
     if mode == "provision-cron" || mode.starts_with("cron-") {
         return managed::cron::child(root, &mode);
     }
@@ -438,6 +441,12 @@ impl Process {
             cmd.env(
                 "CELLAR_RAFT_CRON_MINIMUM",
                 std::env::var("CELLAR_RAFT_CRON_MINIMUM")?,
+            );
+        }
+        if managed::primitives::enabled() {
+            cmd.env(managed::primitives::ENABLED, "1").env(
+                managed::primitives::MINIMUM,
+                std::env::var(managed::primitives::MINIMUM)?,
             );
         }
         if let Some(cli) = std::env::var_os("CELLAR_RAFT_OPERATOR_CLI") {
@@ -1063,7 +1072,9 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?
         .block_on(async {
-            if std::env::var_os("CELLAR_RAFT_CRON_PROCESS_GATE").is_some() {
+            if managed::primitives::enabled() {
+                managed::primitives::qualify().await
+            } else if std::env::var_os("CELLAR_RAFT_CRON_PROCESS_GATE").is_some() {
                 managed::cron::qualify().await
             } else {
                 qualify().await

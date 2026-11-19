@@ -354,6 +354,32 @@ settings, disk mounts and exit states. Logs and disks remain available after
 the run. The lab attests fixture capacity on one VM. Cross-host failure, complete
 RustFS loss and sustained load have separate acceptance gates.
 
+### Public SQL and KV bindings
+
+Add `--primitives` to select a separate SQL/KV campaign. It provisions two
+managed RF3 namespaces through the compiled application CLI, then creates two
+named resources per namespace through ordinary `Context.sql` and `Context.kv`
+calls. Inspection must find four logical cells in two physical groups on every
+voter. Each group retains its image reservation; the host image budget is the
+sum of both reservations, within the unchanged one-CPU/3-GiB voter limit.
+
+The runner selects both image forms and both namespace durability minima.
+Native handlers and `AxumApplication` handlers execute on the native daemon's
+public listener. SQL migration, writes, primary-session reads and failed-batch
+rollback, and KV writes/reads pass through the normal SDK adapters. The campaign
+checks each responder before and after a joined retained restart, kills the
+observed SQL leader, resumes its disk, blocks real archive writes, restores the
+backend, and verifies minority write and protected-read refusal. The independent
+oracle rejects missing operations, incorrect read results, incomplete resource
+observations and weaker acknowledgements.
+
+This campaign does not qualify an external Axum-owned listener, same-command
+retry of an uncertain stateless binding response, or the other primitive
+families. Archive restoration uses fresh requests with idempotent application
+values. Full CG-17 coverage, including the original source-S3 and EventStream
+failures, remains required. Build and run logs, voter disks and every failed
+campaign remain retained; a passing configuration cannot replace a failed one.
+
 ## Sealed source archive holds
 
 Use `cell_groups.py --suite sealed-sources` with an owned RustFS backend and a
