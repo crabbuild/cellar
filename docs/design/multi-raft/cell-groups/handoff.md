@@ -4,7 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current primitive phase and RustFS qualification delivery
+## Current basic SQL/KV daemon delivery
+
+Reuse open PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
+`b9f9ddf87`, daemon qualification `f4db9e450`, includes main `2f083f148`.
+**All four constrained Linux/RustFS basic SQL/KV profiles pass**: both images and
+Quorum/S3 minimum, two RF3 groups/four cells, normal SDK/native/Axum application
+paths, compiled CLI onboarding, rollback, restart, leader SIGKILL/rejoin,
+archive-write denial/restoration, minority refusal and physical join. Native
+materialized/Quorum also passes at `cbad925e6`; Linux lifecycle gates pass both
+images at `88acf48ce`. Production CLI bytes are identical across later fixture
+fixes. Explicit managed-origin grants and lease progress during held Raft startup
+are delivered. See [current evidence and limits](progress.md#current-integration-checkpoint).
+
+**CG-17 is not closed.** Original Consume/source-S3 deadlines and unknown
+identities remain open. None of the 32 planned acceptance entry-point functions
+exists in the declared test target; implement real family drivers and complete
+API/configuration/ledger evidence, not aliases of focused helpers. Next finish
+source settlement/recovery, full SQL/KV/stream bindings, Queue, durable time and
+Workflow, then storage/payload/WebSocket/provider/feature and combined recovery.
+All 32 cases/dependencies remain; counts stay **13/17 tasks, 147/195 cases**.
+Historical CG-01 evidence and older custody gaps are not waived or repaired.
+
+Current resources are joined/stopped with data retained. Audits
+`.cellar/cg17-payload-01/daemon-primitives-custody-1596.json` and
+`daemon-primitives-linux-custody-1608.json` retain the new failed controls and
+frozen executables. Current executor state is `daemon-primitives-state-1546.json`;
+1606 is the successful four-profile Linux campaign. SDK deadlines remain 15
+seconds here; HTTP transport slack is 20. Original three/five-second cases are
+unchanged. This campaign covers archive PUT denial with catalog/leases available,
+NativeDaemon hosting and fresh stateless retry values; full backend outage,
+external Axum hosting and complete family/release qualification remain open.
+
+## Previous primitive phase and RustFS qualification delivery
 
 Reuse open PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime
 `db35703e9` includes main `2f083f148`. Bounded S3 coalescing and terminal guard

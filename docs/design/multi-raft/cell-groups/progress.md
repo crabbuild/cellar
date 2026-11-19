@@ -32,6 +32,79 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+**CG-17 remains open.** Runtime `b9f9ddf87`, qualified by daemon source
+`f4db9e450`, includes latest fetched main `2f083f148`. Ordinary SQL and KV SDK
+bindings now pass the complete **basic managed daemon campaign in all four
+constrained Linux/RustFS configurations**: materialized/extents × Quorum/S3
+namespace minimum. Each run hosts two RF3 groups and four logical cells, with
+one CPU/three GiB/no extra swap per voter and RustFS at one CPU/two GiB.
+
+The campaign uses compiled CLI onboarding, `Context.sql` / `Context.kv`, native
+and Axum application adapters, SQL primary sessions and batch rollback. It checks
+reads after writes, all-voter retained restart, actual leader SIGKILL and retained
+rejoin, archive-write denial/restoration, eight protected minority refusals and
+six physically joined stops. Independent validation requires the selected
+histories, group/cell counts, HTTP results, observed archive failures and actual
+cgroup limits. The final four profiles pass at 146/228/157/232 seconds. A separate
+native/RustFS materialized/Quorum campaign passes at `cbad925e6`.
+
+Two production changes make this path work:
+
+- Explicit managed query/command-origin helpers use the installed current-boot
+  directory and existing revocation fences. Voting membership grants no request
+  permission. The owning native/Axum authority test passes both images at
+  `3c0aef6d6`, including foreign/unknown-peer and stale-grant refusal.
+- The native ownership actor starts before pending Raft readiness; log maintenance
+  starts after that actor. The held-startup regression fails before the fix at
+  `5a4469d06` and passes afterward: a new node-lease generation renews while public
+  ingress stays closed. Startup cancellation/failure closes and joins the owners.
+  Both Linux daemon lifecycle image gates pass at `88acf48ce`. Later commits
+  change only the primitive fixture and failure context; their production CLI
+  SHA-256 remains `7d83a723ceee9f46fe8effed055760fbc26941e5c1cf0ec625ed6c49dcac06e6`.
+
+The fixture also fixes a container/VM PID comparison with a fresh per-launch
+rendezvous token, and observes every rooted standby before capacity admission.
+The failed node-activation outcome remains unknown in its retained audit;
+no blind mutation retry or replacement identity is introduced. The SDK's default
+15-second operation deadline remains; the HTTP client allows 20 seconds to receive
+its typed refusal. Original three/five-second primitive budgets are unchanged.
+
+Records under `.cellar/cell-groups-evidence/` are:
+
+- `CG-17-daemon-primitives-linux-f4db9e450-1606/record.json` and its four case records.
+- `CG-17-daemon-lifecycle-linux-88acf48ce-1601/record.json` (both images pass).
+- `CG-17-daemon-primitives-cbad925e6-materialized-quorum-1593/record.json` (native pass).
+- Earlier failed native/1597/1601 Linux campaigns retain their separate sources,
+  logs, voter disks and frozen executables/images. Audits 1596/1608 verify all ten
+  new native campaigns and ten Linux campaigns, including twenty frozen copies
+  per platform, 52 stopped Linux containers and 6,385 Linux files. Historical
+  custody gaps remain; this is no claim to repair those older losses.
+
+**This closes the basic managed SQL/KV daemon delivery, not a complete primitive
+family or CG-17 acceptance case.** Axum application adapters run on NativeDaemon;
+external Axum hosting is separate. Reads can route to the leader. Archive PUTs
+are denied while catalog/lease access stays available; this is not a full RustFS
+backend outage. Restored writes are fresh, semantically idempotent requests,
+not same-command replay of uncertain stateless calls. Full SQL/KV APIs, other
+families/providers/features, unmanaged paths and combined movement/recovery remain.
+
+The original `db35703e9` public Consume cohort remains failed (0/3 selectors),
+and the separately pinned `5425b30c5` RustFS source-S3 binding calls still miss
+their original five-second deadlines. These results are not waived by another
+profile's pass. A static audit also finds **none of the 32 planned acceptance
+entry-point functions** in `native_cell_groups_primitives.rs`; focused helpers
+and standalone daemon campaigns cannot substitute for the complete, provenanced
+case drivers. The inventory and full independent coverage gate remain unfinished.
+
+All 32 cases and existing dependencies remain mandatory. Acceptance stays
+**13/17 tasks, 147/195 cases**; historical CG-01 evidence is still missing.
+Next close original-deadline source settlement and autonomous recovery, deliver
+complete public-family case drivers/ledgers, then finish Queue/EventStream,
+durable time/Workflow, storage/payload and provider/feature/lifecycle coverage.
+See [priorities](remaining-work.md#primitive-delivery-priority).
+
+## Previous binding/checkpoint phase qualification
+
 **CG-17 is not complete.** Runtime `db35703e9` includes fetched main
 `2f083f148`. Bounded native S3 archive coalescing and consuming the final guard
 before delivery remain delivered. Optional structured binding/checkpoint phases

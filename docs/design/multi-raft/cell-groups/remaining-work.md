@@ -41,51 +41,43 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `db35703e9` includes main `2f083f148`. Bounded S3 invocation
-coalescing now passes **all 24 owning native/RustFS configurations** on one source:
-both image forms, release/expiry, held checkpoint capacity, cancellation and joined
-close. Optional structured binding/checkpoint phases expose dependency progress
-without payloads or new per-cell owners. They change no protocol or proof gate.
+Basic managed SQL/KV daemon delivery now passes all four constrained Linux/RustFS
+image/minimum profiles at `f4db9e450`: ordinary SDK calls, compiled CLI onboarding,
+native/Axum application adapters, rollback, retained restart, leader kill/rejoin,
+archive-write denial/restoration, quorum refusal and joined stop. Explicit managed
+origin policy and startup lease renewal are delivered. See the current checkpoint
+for exact source pins, cgroup proof, failed controls and scope.
 
-**Original public Consume remains FAILED, 0/3 selectors:** native, Axum and real
-RustFS. Parent sequence 2 remains ambiguous. Traced calls select known target
-histories and successful child replies resume the writer promptly; time remains
-in required source checkpoints, target execution and final settlement. This is
-not an exclusive latency diagnosis. Separately pinned RustFS named bindings pass
-Quorum and fail both S3-source configurations at sequence 1 under the original
-five-second deadline. Explicit activation/read and independent target-S3 SQL/KV
-coverage also remain open. See the current checkpoint for exact source pins and
-records; earlier passing safety selectors retain their separate source pins.
+This is NativeDaemon hosting with two groups/four cells, not the complete SQL/KV
+API or primitive family. External Axum hosting, local follower catch-up, full
+backend outages and same-ID uncertain stateless replay are not established here.
+The earlier `db35703e9` owning 24 configurations pass on their separate source,
+but its original public Consume cohort is still failed (0/3); `5425b30c5` RustFS
+source-S3 bindings still miss the original five-second budget. Those failures
+remain required work.
 
-Deliver the next features in this order:
+Deliver next in this order:
 
-1. Deliver ordinary primitive SDK/native/Axum paths through the existing
-   constrained Linux daemon harness on separate voters. Start with EventStream
-   and the basic SQL/KV paths, including onboarding, retained restart, leader loss,
-   quorum refusal and archive outage. Close the original Consume/source-S3
-   settlement failures under their existing budgets and identities. Use observed
-   preparation/apply/target stages to choose a causal fix; avoid speculative
-   scheduler or private-storage changes. Keep existing Mac failures visible;
-   another profile's pass cannot waive them.
-2. Complete independent target-S3 SQL/KV and binding/streaming ownership coverage,
-   then Queue lease/acknowledgement and autonomous drain, alarms/cron and Workflow
-   lifecycle. Qualify retention, recreation, deployment/clock changes and
-   interruption without business replay.
-3. Complete filesystem/payload closure and HTTP, WebSocket and container/provider
-   adapters with actual execution fencing and reconciliation. Finish the reviewed
-   symbol inventory and independent validator's complete coverage matrix.
-4. Close CG-13 managed recovery and CG-17 movement, park/wake, archive/reclamation
-   and fresh-incarnation disaster cases on constrained independent voters. Then
-   run CG-15 qualification and CG-16 cutover.
+1. Close original-deadline source-S3/Consume settlement and autonomous interrupted
+   bindings with safe sequence sealing. Preserve original identities, budgets,
+   exact source/target proof gates and unknown outcomes; use causal regressions.
+2. Deliver real public-family acceptance drivers and complete per-API ledgers as
+   each family closes. The declared target currently has **0/32 planned acceptance
+   entry-point functions**. Do not replace full case oracles with aliases of
+   focused helpers. Finish SQL sessions, KV TTL/revision/conditions and independent
+   binding/stream ownership, then Queue leases/ack/drain, durable alarms/cron and
+   Workflow execution across deployment and clock changes.
+3. Complete filesystem/payload publication and retention closure, HTTP/WebSocket
+   and actual provider execution fencing/reconciliation. Review the complete
+   symbol/feature/provider inventory and run the independent coverage matrix.
+4. Finish CG-13/17 movement, wake, archive retention/reclamation and fresh-history
+   disaster recovery on independent constrained voters, then CG-15/16 cutover.
 
 All 32 CG-17 cases and existing dependencies remain mandatory. Acceptance stays
-**13/17 tasks, 147/195 cases**. Earlier broad cohorts and archive/storage passes
-keep their separate source pins; this focused campaign does not requalify them.
-The failed records/disks remain, as do the documented custody gaps for four older
-hibernation disks and six earlier archive voter disks. Full plan validation still
-lacks historical CG-01 evidence. No missing artifact, case or safety oracle is
-waived. See the [current checkpoint](progress.md#current-integration-checkpoint)
-for exact profiles, results and limits.
+**13/17 tasks, 147/195 cases**. Historical CG-01 evidence and the documented older
+custody gaps remain open. Current failed controls, disks, logs and binaries are
+retained; owned runtimes are stopped after qualification. A new profile's pass
+cannot erase an existing failure or authorize the full default cutover.
 
 ### Earlier binding checkpoints
 
