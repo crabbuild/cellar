@@ -2485,17 +2485,11 @@ pub use cellar_native::sql::{
 };
 
 fn sql_error(message: impl Into<String>) -> SqlFailure {
-    SqlFailure {
-        family: "SQL_ERROR".into(),
-        message: message.into(),
-    }
+    SqlFailure::new("SQL_ERROR", message)
 }
 
 fn sql_exec_error(message: impl Into<String>) -> SqlFailure {
-    SqlFailure {
-        family: "SQL_EXEC_ERROR".into(),
-        message: message.into(),
-    }
+    SqlFailure::new("SQL_EXEC_ERROR", message)
 }
 
 /// The refusal for SQL whose tail SQLite could not parse into a statement.
@@ -2529,22 +2523,22 @@ fn sql_bind_value(value: &serde_json::Value) -> Result<rusqlite::types::Value, S
                 match item.as_u64().filter(|byte| *byte < 256) {
                     Some(byte) => bytes.push(byte as u8),
                     None => {
-                        return Err(SqlFailure {
-                            family: "SQL_TYPE_ERROR".into(),
-                            message: format!(
+                        return Err(SqlFailure::new(
+                            "SQL_TYPE_ERROR",
+                            format!(
                                 "Type 'object' not supported for value '{item}': an array bind \
                                  must hold bytes 0-255"
                             ),
-                        })
+                        ))
                     }
                 }
             }
             Ok(Value::Blob(bytes))
         }
-        other => Err(SqlFailure {
-            family: "SQL_TYPE_ERROR".into(),
-            message: format!("Type 'object' not supported for value '{other}'"),
-        }),
+        other => Err(SqlFailure::new(
+            "SQL_TYPE_ERROR",
+            format!("Type 'object' not supported for value '{other}'"),
+        )),
     }
 }
 
