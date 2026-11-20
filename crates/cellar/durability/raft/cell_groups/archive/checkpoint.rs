@@ -5,6 +5,7 @@ use futures_util::{stream::FuturesOrdered, StreamExt};
 use std::io::Write;
 
 const CHECKPOINT_READ_WINDOW: usize = 2;
+const CHECKPOINT_WRITE_WINDOW: usize = 2;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -192,25 +193,74 @@ impl CellGroupArchiveUpload {
                 })
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?;
-        let upload = async {
-            while let Some(chunk) = receiver.recv().await {
-                index.bytes = index
-                    .bytes
-                    .checked_add(chunk.bytes.len() as u64)
-                    .filter(|n| *n <= self.limits.max_checkpoint_bytes)
-                    .ok_or(CellGroupArchiveError::Limit)?;
-                if index.chunks.len() >= self.limits.max_chunks {
-                    return Err(CellGroupArchiveError::Limit);
-                }
-                let object = self.put("chunks", chunk.bytes, CHUNK_BYTES).await?;
-                index.chunks.push(Chunk {
-                    part: chunk.part,
-                    offset: chunk.offset,
-                    length: chunk.length,
-                    object,
-                });
+        let upload: Result<()> = async {
+            enum UploadEvent {
+                Source(Option<wire::Chunk>),
+                Confirmed(Option<Result<Chunk>>),
             }
-            Ok(())
+
+            // Two creates, their exact GET confirmations, transport copies,
+            // producer and one-slot channel fit the existing eight-chunk I/O
+            // workspace. Poll writes while waiting for more physical bytes;
+            // a slow producer must not stall an already admitted upload.
+            let mut writes = FuturesOrdered::new();
+            let mut source_done = false;
+            let mut failure = None;
+            loop {
+                let event = if writes.is_empty() {
+                    if source_done || failure.is_some() {
+                        break;
+                    }
+                    UploadEvent::Source(receiver.recv().await)
+                } else if source_done
+                    || failure.is_some()
+                    || writes.len() >= CHECKPOINT_WRITE_WINDOW
+                {
+                    UploadEvent::Confirmed(writes.next().await)
+                } else {
+                    crate::asyncrt::select_biased! { "completed confirmations retire buffers before more source admission";
+                        result = writes.next() => UploadEvent::Confirmed(result),
+                        chunk = receiver.recv() => UploadEvent::Source(chunk),
+                    }
+                };
+                match event {
+                    UploadEvent::Source(Some(chunk)) => {
+                        let bytes = index
+                            .bytes
+                            .checked_add(chunk.bytes.len() as u64)
+                            .filter(|n| *n <= self.limits.max_checkpoint_bytes);
+                        if bytes.is_none()
+                            || index.chunks.len() + writes.len() >= self.limits.max_chunks
+                        {
+                            failure = Some(CellGroupArchiveError::Limit);
+                            continue;
+                        }
+                        index.bytes = bytes.ok_or(CellGroupArchiveError::Limit)?;
+                        writes.push_back(async move {
+                            let object = self.put("chunks", chunk.bytes, CHUNK_BYTES).await?;
+                            Ok(Chunk {
+                                part: chunk.part,
+                                offset: chunk.offset,
+                                length: chunk.length,
+                                object,
+                            })
+                        });
+                    }
+                    UploadEvent::Source(None) => source_done = true,
+                    UploadEvent::Confirmed(Some(Ok(chunk))) if failure.is_none() => {
+                        index.chunks.push(chunk);
+                    }
+                    UploadEvent::Confirmed(Some(Err(error))) if failure.is_none() => {
+                        failure = Some(error);
+                    }
+                    UploadEvent::Confirmed(Some(_)) => (),
+                    UploadEvent::Confirmed(None) => break,
+                }
+            }
+            // Keep the producer and archive admission until entered writes
+            // finish, including ambiguous PUTs and their confirmation reads.
+            drop(writes);
+            failure.map_or(Ok(()), Err)
         }
         .await;
         drop(receiver); // Release a blocked producer before joining any error.
