@@ -41,31 +41,30 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `4eb298a85` adds bounded ordered checkpoint downloads with full remote
-and physical verification under the existing workspace. The regression reproduces the baseline failure and
-11 archive safety checks pass. Complete source-read S3 custody now passes all 16
-native/RustFS configurations, and Queue native/Axum transfer replay passes all four
-image/ingress configurations. These are selected results, not family closure.
+Runtime `85901c941` adds two bounded checkpoint creates with exact GET
+confirmation and recovers failed uploads from their durable reservation intent,
+without a redundant ticket fsync. Both red regressions reproduce; native and real
+RustFS correctness branches pass in both image modes. Fifteen archive functions
+pass at pipeline source `0d2de06bb`; six selected RustFS controller functions and
+the native reservation regression pass at final runtime `85901c941`. Every remote
+digest, physical recovery and output proof remains. These are selected results.
 
-The current campaign is **FAILED, 16/20 whole functions pass**. Close these exact
-remaining blockers first:
+The original public binding gate remains **FAILED, 2/4 configurations pass**.
+Both Quorum sources pass; materialized/S3 sequence 1 and extent/S3 sequence 3
+expire. The older-runtime comparison passes 3/4 on this same new RustFS lab;
+pipeline-only passes 2/4. No deadline fix or speedup is established. The separate
+test-only complete fixture trace passes 1/4 and preserves all failures. It shows
+two serial source checkpoints taking about 1.4–1.5 seconds each, plus enrollment
+and child settlement. Optimize the complete accepted-proposal path with causal
+regressions, retaining the original source, child and final parent proof gates.
 
-1. Compound S3-source named bindings: materialized sequence 7 after retained
-   restart and extent sequence 1 miss the original budget. Quorum sources pass
-   both images; do not weaken source, child or final parent proofs.
-2. EventStream extent Consume: Ack is submitted after source proof but the parent
-   expires without a target result. A later test-only publication trace passes
-   without a runtime change; retain the original failure and unknown identity.
-3. Managed startup and joined cleanup: the Queue fault fixture fails starting its
-   fresh retention cluster with transport timeout and closed-resource errors.
-4. Complete autonomous recovery/sealing qualification. Their implementations
-   exist; materialized live checks pass 3/4, while S3 checkpoint recovery is not
-   reached because source enrollment times out. The extent attempt is unrun.
-
-The owned RustFS lab's profile/VM directories, Docker context and endpoint later
-became absent. Cause and timing are unknown; do not attribute earlier failures to
-it or claim old objects remain. Retain voter disks/logs/binaries and restore a
-separately identified owned lab before the remaining real-S3 qualification.
+Then complete autonomous recovery/sealing qualification, EventStream Consume/Ack
+and managed startup/joined cleanup. Their prior failures and unknown identities
+remain required work. The recovery/sealing implementations exist; their complete
+public matrix has not passed. The separately owned replacement RustFS lab is
+qualified for these scoped checks and stopped with its volume retained. Old lab
+contents remain unavailable; native in-process voters do not qualify independent
+Linux voter resource limits.
 
 Then deliver complete primitive/provider/feature/lifecycle cases and actual
 per-API acceptance ledgers. All 32 formal cases remain required. The inventory is

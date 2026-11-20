@@ -4,7 +4,50 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current bounded-checkpoint delivery
+## Current upload and reservation delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `85901c941`
+overlaps two conditional checkpoint creates and their exact GET confirmations
+within the existing workspace. It also derives an upload ticket from the durable
+reservation intent instead of fsyncing the derived ticket again. Publication,
+head-selection and retirement barriers remain. Error/cancellation joins, exact
+generation retry, all remote digests and independent physical recovery remain.
+
+The two owning red regressions reproduce. Create-window native/RustFS controls
+pass in both image modes, including lost responses, refusals and cancellation;
+15 archive functions pass at pipeline source `0d2de06bb`. At final runtime
+`85901c941`, the new native and RustFS reservation checks pass both images:
+actual failed chunk writes, durable intent reload, same-ticket recovery, successor
+publication and cold byte verification. This does not qualify process-kill or
+power-loss recovery. All six selected RustFS controller functions pass. Locked
+builds, strict affected Clippy and repository checks pass.
+
+The original RustFS named-binding gate remains **FAILED, 2/4 pass**: Quorum
+sources pass; materialized/S3 sequence 1 and extent/S3 sequence 3 expire. Older
+comparison `784df7f3a` passes 3/4 on the same new lab; pipeline-only passes 2/4.
+Test-only `8c7b0acba` traces the unchanged full fixture and passes 1/4, with
+materialized/S3, extent/Quorum and extent/S3 sequence 1 failures. It shows two
+source checkpoints taking about 1.4–1.5 seconds each before child dispatch, plus
+enrollment and child settlement. No timing or stability fix is established.
+
+Next deliver a causal improvement to the whole compound source-publication and
+child/final-parent settlement path. Preserve every original deadline, quota,
+unknown identity and proof. Then close autonomous recovery/sealing, EventStream
+Ack and managed cold startup/cleanup before the full family/provider/feature/
+lifecycle matrix. All 32 CG-17 cases remain required. Acceptance stays 13/17
+tasks, 147/195 cases and 0/32 formal CG-17 entry points; inventory and historical
+CG-01 custody remain incomplete.
+
+Evidence `CG-17-upload-reservation-85901c941-1835/record.json` retains both reds,
+three original comparisons, the separate trace, sources, binaries and disks.
+The new owned RustFS lab is stopped with its volume retained; old lab objects
+remain unavailable. RustFS is constrained to one CPU/2 GiB; the voters share a
+native process and do not qualify independent Linux voter limits. A foreign
+native test was observed before the final public run and left untouched, with
+no exclusive causal attribution. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
+## Previous bounded-checkpoint delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `4eb298a85`
 adds a bounded two-chunk download window within the unchanged archive workspace.

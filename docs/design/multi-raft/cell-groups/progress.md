@@ -32,7 +32,65 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-### CG-17 bounded checkpoint verification and public-path results
+### CG-17 bounded uploads and durable reservation recovery
+
+**CG-17 remains open.** Runtime `85901c941` adds bounded, ordered checkpoint
+creates and removes one redundant local ticket checkpoint. Two conditional
+creates and their exact GET confirmations overlap inside the existing workspace.
+Failure stops further admission, drains entered I/O and joins the physical
+producer; cancellation preserves the generation for exact retry. Every object
+still passes length/digest checks and independent physical recovery. A durable
+reservation intent reconciles the same upload ticket after failed chunk writes;
+the publication intent, selected head and retirement debt retain their fsync
+barriers. No request budget, quota, source/target proof or output gate changes.
+
+Both owning regressions fail before their changes: `56a77bc5f` serializes chunk
+creates, and `9f365c7e5` writes the redundant derived ticket. The create-window
+regression passes native and real RustFS in both image modes at `0d2de06bb`.
+Its refusal, lost-response, cancellation and same-generation retry branches pass
+full physical byte verification. Fifteen selected archive functions pass at that
+source. At final runtime `85901c941`, reservation recovery passes both image modes
+on native and RustFS, including actual denied chunk writes, reloading the durable
+intent, exact ticket reconciliation, successor publication and a cold byte audit.
+This is failed-job recovery, not a hard process-kill or power-loss qualification.
+All six selected RustFS controller functions pass, covering reconciliation,
+receipt coverage, deadlines, predecessor retirement and compaction fencing.
+
+The original public binding gate remains **FAILED, 2/4 configurations pass**.
+Both Quorum-source configurations pass. Materialized/S3 expires on sequence 1;
+extent/S3 expires on sequence 3. Earlier comparison runtime `784df7f3a` passes 3/4
+on this same new lab; pipeline-only `0d2de06bb` passes 2/4. These results do not
+establish a speedup or a fix for the compound request deadline.
+
+Test-only `8c7b0acba` enables existing phases around the unchanged complete binding
+fixture. It passes 1/4; both S3-source arms and extent/Quorum expire on sequence 1.
+In the materialized S3 trace, the two source checkpoints take approximately
+1.4–1.5 seconds each before dependent dispatch; target enrollment and the first
+child add approximately 1.4 seconds. The original run also reaches child replies
+before final parent expiry. Reduce the complete source-publication and child
+settlement path with causal regressions; a diagnostic pass or later local apply
+cannot replace the original output gate. Unknown identities and disks remain.
+
+The new owned RustFS lab has a separate identity from the unavailable prior lab.
+Its pinned RustFS container has one CPU and 2 GiB; the RF3 voters remain native
+in-process, so independent Linux voter limits are still unqualified here.
+The new lab is stopped after qualification with its volume retained. This does
+not establish retention of the previous lab's unavailable objects. A foreign
+native test process was observed before the final public run and left untouched;
+the observation supplies no exclusive resource or latency attribution.
+
+Locked builds, strict affected library/test Clippy, formatting/layout, dependency,
+docs, coverage-validator and source/index checks pass. Evidence:
+`CG-17-upload-reservation-85901c941-1835/record.json`, including both red controls,
+three original public comparisons, the separate diagnostic, source archives,
+frozen executables and retained disks. The prior failed campaign below remains
+required history. Next close compound binding settlement, then autonomous
+recovery/sealing, EventStream Ack and managed startup/cleanup before the complete
+primitive/provider/feature/lifecycle matrix. Acceptance stays **13/17 tasks,
+147/195 cases and 0/32 formal CG-17 entry points**. The index remains current;
+inventory and historical CG-01 custody remain incomplete.
+
+### Previous bounded checkpoint verification and public-path results
 
 **CG-17 remains open.** Runtime `4eb298a85` overlaps two checkpoint chunk GETs
 inside the existing eight-chunk archive workspace. Every remote object still
