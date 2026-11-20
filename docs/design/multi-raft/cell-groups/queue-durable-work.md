@@ -134,8 +134,10 @@ matching compiled namespaces are required; the format marker remains 1.
 Quorum proof and independent target-S3 minima still apply. The scoped
 `queue-transfer-identity` suite covers ordinary producer/consumer DLQ delivery,
 purge, retained RF3 restart, exact replay and conflicting mixed batches through
-native and Axum ingress. Full Queue lifecycle/load and independent-voter
-qualification remain separate gates.
+native and Axum ingress. The existing native cross-deployment fault case also
+checks a lost target-S3 reply, partial retries, stale generations, active purge
+and retention. Full Queue lifecycle/load and independent-voter qualification
+remain separate gates.
 
 ## Shared writer admission
 

@@ -202,13 +202,16 @@ SUITES = {
     "queue-transfer-identity": (
         "native_cell_groups_primitives",
         ("rustfs_queue_transfer_receipts_bind_payload_after_purge_and_restart",
-         "rustfs_axum_queue_transfer_receipts_bind_payload_after_purge_and_restart"),
+         "rustfs_axum_queue_transfer_receipts_bind_payload_after_purge_and_restart",
+         "rustfs_queue_cross_deployment_faults_preserve_quorum"),
         "Queue transfer payload identity through public SDK/native/Axum and retained RF3 restart",
         "Both image forms and one SQL worker per voter. Ordinary producer/consumer delivery "
         "creates a DLQ receipt; purge removes its message, archive catch-up precedes retained "
         "restart, and exact replay must not resurrect it. Changed bytes, content type, message "
         "identity and provenance refuse; a mixed batch rolls back its preceding message and "
-        "receipt. Native voters share one process. Target-S3 minima, independent voter crashes, "
+        "receipt. The native cross-deployment fault case covers partial retries, stale generations, "
+        "active purge, a lost cross-group S3 DLQ reply, retained restart and retention. "
+        "Native voters share one process. Independent voter crashes, "
         "clock/deployment changes, load and disk-loss recovery remain separate gates.",
     ),
     "queue-primitives": (
