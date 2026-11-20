@@ -36,6 +36,19 @@ full disaster profile remain open.
 
 ## Primitive delivery priority
 
+The [2026-11-19 Queue audit](progress.md#cg-17-queue-transfer-payload-identity)
+finds and implements complete-payload binding for retained DLQ transfer receipts.
+Previously changed bytes could reuse the old acknowledgement after redrive had
+removed the message. Preserve exact retries, reject conflicts atomically and
+qualify both public ingresses plus lost-S3-reply/restart behavior. This internal
+schema cutover requires fresh Queue roots and matching Raft namespaces.
+
+At coordinated snapshot `c2722358b`, public S3 bindings and EventStream settlement
+still fail their original budgets. Keep those shared proof/Consume/Ack paths,
+interrupted binding recovery and safe sequence sealing first, then complete
+Queue load and filesystem/provider lifecycle coverage. The new transfer identity
+gate does not substitute for the complete 32-case primitive acceptance matrix.
+
 Full public primitive compatibility is the required Quorum product contract.
 The remaining work includes missing adapters and failing runtime gates; a scoped
 SQL/KV or filesystem pass is not the final supported scope.

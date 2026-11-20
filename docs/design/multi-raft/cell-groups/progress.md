@@ -26,6 +26,8 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
+The [Queue transfer identity audit](#cg-17-queue-transfer-payload-identity) records
+the next correctness delivery and its independent qualification boundary.
 The latest [Workflow deletion checkpoint](#cg-17-workflow-committed-delete-settlement)
 records the causal fix, earlier Workflow-create/filesystem-write deadline failures
 and the coordinated successor's eighteen passing Workflow configurations.
@@ -16414,3 +16416,64 @@ Full CLI plan validation still refuses the missing historical CG-01 evidence
 record. All owned build/runtime handles are joined; the backend and dedicated
 VM are stopped with objects and failed disks retained. Delivery records and
 final check logs are retained in `cellar-workflow-delete-delivery-20261118-01`.
+
+
+## CG-17 Queue transfer payload identity
+
+The 2026-11-19 re-audit starts from merged PR #175 and `origin/main`
+`2f083f148`. The coordinated integration snapshot `c2722358b` retains the failed
+public S3-binding/EventStream gate at `31ac1dec4` (1/8 whole functions), despite
+passing native named bindings and 37 owning checks. Those source-pinned failures
+and the remaining formal CG-17 API/provider/lifecycle matrix remain open. This
+follow-up leaves that shared S3 proof/Consume implementation with its owner.
+
+A separate deterministic Queue regression exposes a correctness gap: a retained
+DLQ transfer receipt compares message ID and provenance but omits body and
+content type. Once redrive deletes the message row, changed bytes under that
+same transfer identity are acknowledged. The existing native Queue conformance
+case at runtime `c2722358b`, with retained test overlay `8aa1988f6`, fails in
+0.11 seconds at “changed Queue transfer payload was acknowledged.” The exact
+binary, log and test overlay are retained in
+`cellar-queue-transfer-delivery-20261119-01` on the checkout-owned workspace
+volume. That fixture cleans its temporary data after panic; it is not a retained
+voter-disk or real-store recovery result.
+
+Fix `df78ed957` on updated `main` persists a canonical SHA-256 fingerprint with
+its transfer receipt in the same transaction as the message. It binds every
+interpreted identity/payload field and exact decoded bytes, preserving array and
+ArrayBuffer equivalence. Fractional, negative and mismatched declared sizes
+refuse. A conflicting later transfer rolls back the complete batch; exact retries
+still use their original receipt after message removal. No new transfer ID,
+weaker durability, admission limit or deadline hides a conflict.
+
+The Queue schema requires a complete 32-byte binary fingerprint. Older schemas
+refuse without migrating or deleting their rows. Enrollment provisions and binds
+the exact schema in its initializer digest; fresh Queue roots and matching Raft
+namespaces are required. Format markers remain 1. See the
+[transfer contract](queue-durable-work.md#transfer-identity-and-replay).
+
+The `queue-transfer-identity` suite uses ordinary producer/consumer DLQ delivery,
+public native/Axum SDK dispatch, signed purge/inspection, archived group cuts and
+joined retained RF3 restart. It requires exact replay without resurrection,
+changed-body/type/ID/provenance refusal and atomic mixed-batch rollback. The
+existing native cross-deployment fault case adds partial retry, stale generation,
+active purge, lost cross-group S3 DLQ response and retention controls. These use
+both image modes and one SQL worker per voter. Independent voter crashes,
+full-size/load, clock/deployment changes and all-voter disk loss remain separate
+gates. No formal case or complete primitive family is accepted by naming this
+scoped suite; task acceptance remains **13/17 tasks and 147/195 cases**.
+
+
+Native Fleet conformance passes all three cases at `df78ed957`, including the
+original transfer lifecycle and the two schema-cutover controls. The standalone
+real-RustFS campaign at `af2aa7807` is **FAILED, 0/3 exact cases**. Native fails
+initial archive-cut readiness before its test body; Axum reaches ordinary
+producer delivery but Queue info/drain command sequence 3 exceeds its original
+three-second budget; the existing native fault case fails cold target-S3 DLQ
+info sequence 1. All fail in materialized mode, leaving extents unrun. Nine voter
+disks, raw logs, source hashes and the exact executable are retained in
+`cellar-queue-transfer-rustfs-qualified-20261119-01`. These results do not qualify
+the new fingerprint assertions against RustFS. External compiler overlap is
+recorded without assigning an exclusive timing cause. The old main source also
+predates the coordinated integration's immutable Queue inspection; integration
+qualification is kept separate.
