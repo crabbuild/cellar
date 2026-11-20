@@ -225,14 +225,12 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;
-    for mut fixture in cluster.fixtures.drain(..) {
-        if work.is_err() || joined.is_err() {
-            if let Some(root) = fixture._tmp.take() {
-                eprintln!("retained S3-read-source disk: {}", root.keep().display());
-            }
+    if work.is_err() || joined.is_err() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!("retained S3-read-source disk: {}", root.keep().display());
         }
-        fixture.domain.shutdown().await;
     }
+    cluster.fixtures[0].domain.shutdown().await;
     work?;
     joined
 }
