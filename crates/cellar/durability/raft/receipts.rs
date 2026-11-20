@@ -411,6 +411,9 @@ pub(super) fn prune(
     if !crate::storage::raft_payloads::prunable(connection, id, through).map_err(storage)? {
         return Err(ExecutionError::RetentionNotExpired);
     }
+    if !crate::storage::raft_binding_recovery::prunable(connection, id, through).map_err(storage)? {
+        return Err(ExecutionError::RetentionNotExpired);
+    }
     connection
         .execute(
             "DELETE FROM __sys_raft_receipts WHERE client_id=?1 AND sequence<=?2",
