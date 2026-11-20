@@ -235,12 +235,52 @@ impl BindingJournal {
             storage.resources().transaction.lock().unwrap().is_none(),
             "provider journals cannot be used inside storage callbacks"
         );
+        if let Some(authority) = &context.raft_storage {
+            ensure!(
+                authority
+                    .resources
+                    .provider_bindings
+                    .get()
+                    .is_some_and(|bindings| bindings.contains_key(self.name.as_ref())),
+                super::consensus::CommandFailure::UnsupportedCapability
+            );
+            // A provider supervisor needs its own shared-work adapter. Never
+            // silently reinterpret a retained Fleet maintenance obligation.
+            ensure!(
+                context.container_supervision.is_none()
+                    && crate::storage::container_maintenance::list(
+                        crate::storage::RAFT_STORAGE_SCOPE
+                    )?
+                    .is_empty(),
+                super::consensus::CommandFailure::UnsupportedCapability
+            );
+            return Ok(crate::storage::RAFT_STORAGE_SCOPE);
+        }
         Ok(&context.identity().unwrap().scope)
+    }
+
+    fn check_record(&self, context: &Context, record: &BindingRecord) -> Result<()> {
+        if let Some(authority) = &context.raft_storage {
+            ensure!(
+                authority
+                    .resources
+                    .provider_bindings
+                    .get()
+                    .and_then(|bindings| bindings.get(self.name.as_ref()))
+                    .is_some_and(|declaration| declaration.accepts(record)),
+                "provider journal does not match its declared backend configuration"
+            );
+        }
+        Ok(())
     }
 
     pub fn load(&self, context: &Context) -> Result<Option<BindingCheckpoint>> {
         let scope = self.check(context)?;
-        crate::storage::container_bindings::load(scope, &self.name)
+        let checkpoint = crate::storage::container_bindings::load(scope, &self.name)?;
+        if let Some(checkpoint) = &checkpoint {
+            self.check_record(context, &checkpoint.record)?;
+        }
+        Ok(checkpoint)
     }
 
     /// Wait for exclusive lifecycle admission across event sessions and native
@@ -339,6 +379,7 @@ impl BindingJournal {
     ) -> HandlerFuture<BindingCheckpoint> {
         let prepared = (|| {
             let scope = self.check(context)?;
+            self.check_record(context, &record)?;
             let checkpoint = crate::storage::container_bindings::compare_exchange(
                 scope,
                 &self.name,
@@ -352,7 +393,9 @@ impl BindingJournal {
                     .map(|registration| registration.policy),
                 crate::asyncrt::wall_ms().max(0),
             )?;
-            super::container_supervision::controller::publish(context)?;
+            if context.raft_storage.is_none() {
+                super::container_supervision::controller::publish(context)?;
+            }
             Ok::<_, anyhow::Error>((checkpoint, context.storage()?.sync()))
         })();
         let journal = self.clone();

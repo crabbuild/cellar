@@ -820,12 +820,19 @@ impl RaftClass {
     ) -> anyhow::Result<()> {
         self.validate_cell_factory()?;
         if !self.providers.is_empty() {
+            // Provider records consume framework-generated SQLite mutations.
+            // The producer also checks each complete encoded checkpoint.
             let metadata = self.providers.len()
                 * (crate::application::container_bindings::MAX_BINDING_BYTES + 1024)
                 + 128 * 1024;
             anyhow::ensure!(
                 self.has_cell_factory()
-                    && host.max_input_bytes >= 64 * 1024
+                    && host.execution.max_pending_transactions > 0
+                    && host.execution.max_client_identities >= 2
+                    && host.execution.max_retained_receipts >= 2
+                    && host.execution.envelope.max_payload_bytes >= 64 * 1024
+                    && host.execution.envelope.max_decoded_bytes >= 64 * 1024
+                    && host.execution.envelope.max_pages >= 16
                     && host.execution.max_image_bytes >= metadata as u64
                     && host.archive.limits.max_capture_bytes >= metadata,
                 "provider journals require an ordinary cell factory and bounded command/image/archive capacity"
@@ -1357,6 +1364,32 @@ impl RaftClass {
         };
         if self.filesystem.is_some() {
             self.configure_filesystem(&transaction.storage()?, target.cell, false);
+        }
+        if !self.providers.is_empty() {
+            let storage = transaction.storage()?;
+            let installed = storage
+                .resources()
+                .provider_bindings
+                .get_or_init(|| self.providers.clone());
+            anyhow::ensure!(
+                installed.as_ref() == self.providers.as_ref(),
+                "provider declaration changed within an activation"
+            );
+            for (name, checkpoint) in
+                crate::storage::container_bindings::list(crate::storage::RAFT_STORAGE_SCOPE)?
+            {
+                anyhow::ensure!(
+                    self.providers
+                        .get(&name)
+                        .is_some_and(|declaration| declaration.accepts(&checkpoint.record)),
+                    "retained provider journal has an undeclared backend configuration"
+                );
+            }
+            anyhow::ensure!(
+                crate::storage::container_maintenance::list(crate::storage::RAFT_STORAGE_SCOPE)?
+                    .is_empty(),
+                "provider supervision requires its shared-work adapter"
+            );
         }
         factory.start(target.cell, epoch, method, input, transaction, activation)
     }
