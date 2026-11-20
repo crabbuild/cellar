@@ -4,7 +4,51 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current shared provider and binding integration
+## Current execution-claim delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `2ad84151f`
+adds durable provider execution claims and an explicit fencing-authority API.
+The claim sequence survives with the cell image, advances on group/term or
+binding-checkpoint changes and never compares terms from different groups. The
+API consumes and retains the original binding's lifecycle guard, proves the
+original Quorum/S3 minimum before controller I/O and preserves uncertain outcomes.
+
+The combined Linux/RustFS gate passes all fifteen fixed functions and fifty
+image/minimum/fault configurations. Native protocol and macOS/RustFS/Docker gates
+each pass four configurations. The real Docker oracle proves old/new executor
+non-overlap, stale-token refusal and public-command file effects; independent
+reads verify actual file contents. Twelve owning SQL tests, 26 container unit
+tests and twelve existing provider/Fleet functions pass, as do locked builds,
+strict affected Clippy and format checks.
+
+RF3 shares one Linux process/container capped at three CPUs/4 GiB, swap zero,
+with ext4 disks; RustFS has one CPU/2 GiB in the same six-CPU/12-GiB VM. The Linux
+executable SHA-256 is
+`590cc0a0ff53467550e6f59adba2b6290d226189d23a0d4e1ccc735bb031786b`.
+Evidence `CG-17-provider-execution-2ad84151f-1991/record.json` retains 24 native and
+48 Linux voter roots, six frozen executables, source archives and failed build
+controls, with a second verified backup. All owned runtimes are stopped and
+volumes/objects remain. Previous evidence is not superseded.
+
+**Next deliver normal adapters.** There is no default production fencing
+authority. The fixture controller has volatile state and survives voter restart;
+it does not qualify controller crashes/partitions or durable high-water recovery.
+Normal native Container, sandbox and managed provider cleanup do not yet use the
+new API. Cleanup already owns a lifecycle guard: integrate fencing in the
+framework controller and pass a verified claim to the backend; never reacquire
+that guard inside a maintenance backend. Native Container also needs an owned
+async activation prologue and request-bound transport with full logical history;
+never let an old context borrow a newly installed global grant. Fresh-history DR
+must permanently revoke old provider execution before accepting a new history.
+
+Then finish WebSockets and every public primitive/provider/feature/lifecycle
+ledger, independent voter faults, archive reclamation and fenced disk-loss
+recovery. Earlier macOS S3 supervision failures and missing historical CG-01
+custody remain open. Formal acceptance stays 13/17 tasks, 147/195 cases and CG-17
+0/32. Inventory remains partial at 18 entries/272 symbols. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
+## Previous shared provider and binding integration
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Merged runtime
 `9254e2be9` passes all fourteen fixed Linux/RustFS binding/provider functions and

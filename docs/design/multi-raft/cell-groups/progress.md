@@ -32,6 +32,65 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 execution claims and real Docker revocation
+
+**Runtime `2ad84151f` passes the combined Linux/RustFS gate: 15/15 fixed
+functions and 50 image/minimum/fault configurations.** This includes the previous
+binding/Consume/Ack, journal, exact-checkpoint and supervision cases, plus the
+new execution-claim protocol with actual Docker executor processes. Original
+request deadlines, identities and durability gates are unchanged. The frozen
+Linux executable SHA-256 is
+`590cc0a0ff53467550e6f59adba2b6290d226189d23a0d4e1ccc735bb031786b`.
+
+The public `BindingJournal::fence_execution` API consumes the exact binding's
+original-invocation lifecycle guard. Its protected sequence travels with the
+cell image and advances on group/term or binding-checkpoint changes. Unchanged
+ownership and checkpoint reuse it. The resource key includes the complete cell
+history and binding; physical group terms are never ordered across movement.
+The original Quorum/S3 proof precedes controller I/O, and a returned grant retains
+the guard through its effect gates. Changed bindings, expired authority and a
+mismatched controller configuration refuse admission. Lost outcomes retain the
+original claim and command identities. See the
+[binding contract](../../../../crates/cellar-container/bindings.md#controller-enforced-execution-claims).
+
+**This delivers the framework/controller boundary, not the normal Container
+adapter or a production controller.** The explicitly selected authority must
+persist its high-water marks, authenticate every provider request, revoke older
+execution before a new grant and refuse lost or conflicting state. Fresh-history
+recovery must also permanently revoke old provider execution; a fresh resource
+key cannot bypass it. The qualification controller stays alive through retained
+voter restart and keeps a volatile map. Controller crash/partition recovery,
+normal Container/sandbox dispatch, managed cleanup integration and provider-volume
+recovery remain required. Existing E2B/Vercel/native adapters are not retrofitted.
+
+Four native RF3 protocol configurations and four macOS/RustFS/Docker configurations
+pass. Each real-store campaign retains eight stopped executors, proves old-process exit
+before new-process startup, refuses delayed old claims and tokens, and performs
+file writes through public commands. Independent reads of the stopped macOS-oracle
+containers verify its four resulting file contents. Twelve owning SQL tests, 26 container
+library tests and twelve existing provider/Fleet integration tests pass. Locked
+builds, strict affected Clippy and format checks pass.
+
+Linux RF3 shares one process/container: actual cgroup limits are three CPUs,
+4 GiB and zero swap, with ext4 voter files. RustFS has one CPU/2 GiB in the same
+six-CPU/12-GiB VM. This does not qualify independent voter processes or the full
+fault/load matrix. Earlier macOS S3 supervision failures remain unresolved; this
+new API's passing Docker gate does not waive them.
+
+Evidence: `CG-17-provider-execution-2ad84151f-1991/record.json`, retained outside
+the Cargo target with a second verified backup. It includes 24 native and
+48 Linux voter roots, six frozen executables, source archives and Docker file
+proofs. The first native build's typed-error test failure and deliberately stopped
+obsolete Linux build remain recorded. All owned runtimes are stopped; volumes
+and objects remain. The earlier `9254e2be9` evidence is retained separately.
+
+Next integrate this fence into framework-owned provider cleanup and normal
+Container/sandbox operations, then WebSockets and the full public primitive,
+feature, deployment/clock, cancellation and recovery matrix. **CG-17 remains
+0/32 formal cases accepted; overall acceptance stays 13/17 tasks and 147/195
+cases.** The inventory is partial at 18 entries/272 symbols. Historical CG-01
+custody still prevents the complete plan validator from passing.
+
 ### CG-17 shared provider supervision and exact checkpoint gates
 
 **The merged Linux/RustFS gate passes: 14/14 fixed functions and 46

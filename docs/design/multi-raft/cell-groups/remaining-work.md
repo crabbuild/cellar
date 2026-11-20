@@ -41,18 +41,32 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Merged `9254e2be9` passes all fourteen fixed Linux/RustFS binding/provider
-functions and 46 image/minimum/fault configurations within original budgets. It
-delivers binding/Consume/Ack recovery, safe sequence sealing, shared supervision,
-constructor-independent cleanup, resumable lifecycle waits and exact unchanged
-checkpoint reuse. RF3 shares a three-CPU/4-GiB process/container with ext4 disks;
-RustFS has one CPU/2 GiB. The macOS/RustFS supervision failures remain open at
-retained-restart reconciliation or Delete expiry; Linux does not isolate their
-cause. Next deliver real provider execution fencing, native Container/sandbox,
-WebSocket and complete public primitive/feature/lifecycle support. Persistent
-provider volumes keep their declared proof/recovery contract; native Docker's
-disk remains explicitly ephemeral. The inventory is partial at 257 symbols.
-See the current checkpoint for exact results and retained failed controls.
+Runtime `2ad84151f` passes all fifteen fixed Linux/RustFS binding/provider
+functions and fifty image/minimum/fault configurations, including a real Docker
+execution-claim oracle. It adds durable claim sequences and an explicit fencing
+authority boundary, retaining exact original-invocation lifecycle guards and
+Quorum/S3 proofs. Four native protocol and four macOS/RustFS/Docker configurations
+also pass, with independent file reads and verified old/new process non-overlap.
+Existing SQL, container and Fleet regressions and strict affected Clippy pass.
+
+**The next feature is adapter integration.** Wire fencing into framework-owned
+provider cleanup and normal native Container/sandbox dispatch. Cleanup already
+owns its lifecycle guard; the framework must fence and pass a verified claim to
+the backend. Native Container needs an async activation prologue and a
+request-bound provider transport using the full logical cell history. Qualify an
+independent controller with durable high-water recovery and authenticated
+per-operation enforcement; the current volatile fixture stays alive through
+voter restart. Then close WebSockets and the complete public primitive,
+feature/lifecycle/fault/recovery matrix. A fresh cell incarnation cannot bypass
+revocation of old provider execution.
+
+RF3 shares a three-CPU/4-GiB Linux process/container with zero swap and ext4 disks;
+RustFS has one CPU/2 GiB. Earlier macOS S3 supervision failures remain unresolved.
+The scoped Linux pass does not isolate their cause or qualify independent voter
+faults. Native Docker's disk stays explicitly ephemeral; other providers keep
+their declared volume contracts. Inventory remains partial at 18 entries/272
+symbols. All 32 formal CG-17 cases and historical CG-01 custody remain required.
+See the current checkpoint for exact results and retained controls.
 
 Runtime `feb22476c` delivers declared provider journals and local invocation/proof
 authority through shared-group storage. Twelve RF3 configurations pass: eight
@@ -187,9 +201,10 @@ remain required work.
 
 Deliver next in this order:
 
-1. Build on the merged Linux-qualified binding/Consume/Ack, journal and shared
-   supervision delivery at `9254e2be9`. Finish real provider execution fencing,
-   native Container/sandbox and WebSocket adapters through their public paths.
+1. Build on the integrated Linux-qualified delivery at `2ad84151f`. Connect
+   execution claims to framework-owned cleanup and normal Container/sandbox
+   adapters, then WebSockets. Qualify durable independent controller enforcement
+   through crashes, cancellation and old-history revocation.
    Preserve the earlier macOS final-parent deadline and cold-activation failures
    as open gates. Complete managed cold startup/cleanup on the qualified release
    platforms within their original request deadlines. Measure apply, publication and verification on
@@ -490,7 +505,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. Runtime `9dbdc597d` retains exact settlement confirmation and receipt pins. Linux test source `5b3cd177e` passes all eleven fixed RustFS binding/Consume/Ack functions and 34 image/minimum/fault configurations, within original budgets. Earlier macOS full and current Ack gates remain failed. | Qualify the merged provider/work source, complete every public-family API/feature/lifecycle ledger and resolve supported-platform deadline gates. Independent voter fault/load and the full 32-case matrix remain required. See the [current checkpoint](progress.md#current-integration-checkpoint). |
+| CG-17 | In progress. Runtime `2ad84151f` passes fifteen fixed Linux/RustFS functions and fifty configurations, plus native and macOS/RustFS/Docker execution-claim checks. Durable claims and an explicit authority API join binding recovery, journals and shared supervision. | Integrate normal Container/sandbox and managed cleanup fencing, finish WebSockets, qualify durable independent controllers and every API/feature/lifecycle/fault/recovery ledger. Earlier macOS S3 supervision and historical custody gaps remain open. The full 32-case matrix is required. See the [current checkpoint](progress.md#current-integration-checkpoint). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 
