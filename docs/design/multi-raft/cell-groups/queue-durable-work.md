@@ -39,6 +39,19 @@ per cell keeps duplicate discoveries from consuming both slots. Its cell claim
 survives response expiry through physical settlement; fixed two-entry metadata
 and retained key bytes stay bounded. Idle cells get no tasks.
 
+Discovery omits a new read-authority barrier and SQL scan behind an already
+physically retained callback only when native callback work is the sole possible
+work. The cursor still advances. Compiled alarm capability, built-in KV service,
+admitted KV bindings and any call/outbox/inbox work keep ordinary discovery; KV
+payload retirement is not projected into the effect summary. The original
+post-SQL callback exclusion remains. This omission grants no execution or output
+authority and changes no claim, generation/attempt, quorum, archive or ownership
+proof. A matched RF3/three-group regression reduces three extra queries over three
+discovery turns to zero, holds the same delivery, then drains exactly two messages
+in both image modes. Original sustained Queue load/deadline gates remain open;
+see the [source-bound qualification](owned-callback-discovery-qualification-2026-11-20.json).
+
+
 Queue wake hints preserve an earlier unclaimed installation across producer
 commits. Rearming a claimed installation always replaces its generation, including
 same/later deadlines, so old completion cannot erase a new retry or delayed

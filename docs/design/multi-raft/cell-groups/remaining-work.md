@@ -36,6 +36,72 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Owned callback discovery and current priorities
+
+Compiler inputs `de694bac16735691391100bf6888797fa3adb1b1ed671cbc4f762fde78a38a4f`
+include main `2f083f14`. When the exact cell history already has a physically
+retained native callback and no independent work is possible, discovery now
+advances its cursor without another fresh barrier and SQL scan. Compiled alarms,
+KV service/binding capabilities and call/outbox/inbox work retain discovery.
+The original post-scan callback check and all execution, generation, quorum,
+receipt and required S3 proofs remain. Worker, admission and deadline limits stay
+fixed. Three bounded prepare/submit/settle histograms expose the retained command
+phases; they do not represent business request latency.
+
+The byte-identical matched RF3/three-group regression observes **three extra SQL
+queries before / zero after** across three completed discovery turns in each of
+four configurations per source. The same delivery identity remains held; releasing
+the candidate drains exactly two messages in both image modes. This qualifies
+less background work, not constrained throughput, percentiles or a Fleet/Bucket
+comparison. A final-source replay also passes both modes.
+
+Full library **1,266 passed / 2 existing ignores**, including three independent
+effect/alarm/KV-capability guards. The fifteen selected native cases are **9
+passed / 6 failed**; the original eleven-case subset remains **6 / 5**. Ordinary
+and Axum SQL/KV, both Queue operator controls, a 65-second callback with another
+Queue progressing and cross-deployment fault controls pass. Original ordinary
+Queue, C2 and independent C4 deadline/drain failures remain. Combined C4 fails
+during setup before measured load. A cold KV read/write availability failure
+prevents one S3-boundary case from reaching archive denial; a separate final-source
+cohort passes that boundary in both modes. It does not repair the failed history
+or establish sustained availability.
+
+The failed native cohort's **2,135 files / 46,838,985 bytes** match its closed copy.
+Its load aggregation returned only the first producer error, so complete returned
+identities are unavailable there. A test-only correction preserves all eight
+returned producer failures and their command identities in a separate independent
+C4 cohort; both original load cases still fail. It also preserves two expected
+S3 fault responses. That cohort's **876 files / 22,452,951 bytes** match a verified
+closed copy. Consumer observations are not durable acknowledgement proofs. Raw
+identities and logs stay private; no failed history is reset or mutation reissued.
+The rebuilt library artifact/profile are byte-identical to the full-library pass.
+Strict/repository checks and **344 performance guards / 1 existing skip** pass;
+Clippy retains its explicit dead-code warning override. See the
+[source-bound qualification](owned-callback-discovery-qualification-2026-11-20.json).
+
+Remaining priorities:
+
+1. **P0 — Queue and availability:** original-bound producer/source-RPC/consumer
+   progress and exact acknowledged-message drain; cold and historical
+   streaming/large-value KV availability. Preserve identities, data and proofs.
+2. **P0 — Release acceptance:** current-source routing/read-refusal, SDK, Python
+   lifecycle and full primitive/backend qualification. Prior-source hosted passes
+   do not qualify the changed executable.
+3. **P1 — Full OPT-01–08 and remaining CG gates:** measured fair persistence,
+   ReadIndex/archive batching; physical shared-file release and once-only credit;
+   reserve-aware placement; interrupted lifecycle and fenced recovery.
+4. **P2 — Original constrained comparison:** read-only inspection at
+   **2026-11-20T01:41:56Z** reports **zero available bytes** against the unchanged
+   **6,442,450,944-byte reserve**, with original identity/resources/start and zero
+   restarts. No case is admitted. Preserve three 1-vCPU/2-GiB Colima nodes,
+   RF3/three groups/shared RustFS; SQL/KV/Queue ×
+   Quorum/Quorum+S3/Fleet/Bucket × C1/4/16, 256-byte values, Queue batch eight,
+   reversed repetitions and original 60-second windows.
+
+No complete OPT or CG task is accepted. Full optimization, SDK/release and
+original performance work remain open.
+
+
 ### Inline KV reads and current priorities
 
 Compiler inputs `cb932af1de5d86d5ea01dc7d06507ad47a3d7ce8c3aa5bd608b4bbdb56c9a57b`
