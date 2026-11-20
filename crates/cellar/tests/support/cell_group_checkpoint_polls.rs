@@ -58,7 +58,29 @@ pub async fn qualify() -> Result<()> {
     Ok(())
 }
 
+fn retain_response(
+    phase: &'static str,
+    result: &std::result::Result<CommandReceipt, Arc<CellCommandError>>,
+) {
+    if let Err(error) = result {
+        eprintln!(
+            "CHECKPOINT_POLL_RESPONSE {}",
+            json!({"phase":phase,"ambiguous":error.ambiguous,"command":format!("{:?}",error.command),"error":format!("{error:#}")})
+        );
+    }
+}
+
 async fn run(rooted: bool, durability: Durability) -> Result<()> {
+    let store = Arc::new(catalog_fault::Store::default());
+    let result = run_with_store(rooted, durability, store.clone()).await;
+    managed_fixture::memory::preserve_result(&store.inner, "checkpoint-polls", result).await
+}
+
+async fn run_with_store(
+    rooted: bool,
+    durability: Durability,
+    store: Arc<catalog_fault::Store>,
+) -> Result<()> {
     let invocations = Arc::new(AtomicUsize::new(0));
     let counted = invocations.clone();
     let class = RaftClass::new("Counter", 1, [231; 32])?
@@ -86,13 +108,7 @@ async fn run(rooted: bool, durability: Durability) -> Result<()> {
     );
     let configuration = configuration::options("checkpoint-poll-service");
     application.validate_deployment(&configuration::deployment(configuration.clone()))?;
-    let mut fixture = Fixture::with_application(
-        rooted,
-        "Counter",
-        application,
-        Arc::new(catalog_fault::Store::default()),
-    )
-    .await?;
+    let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
     fixture.configuration = Some(configuration);
     fixture.sql_workers = 1;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
@@ -134,7 +150,9 @@ async fn run(rooted: bool, durability: Durability) -> Result<()> {
                     ..CommandOptions::new(id, u64::try_from(cellar::asyncrt::wall_ms())? + 60_000)
                 };
                 let input = serde_json::to_vec(&json!({"value":sequence}))?;
-                let receipt = cell.command(&tick, input.clone(), options.clone()).await?;
+                let receipt = cell.command(&tick, input.clone(), options.clone()).await;
+                retain_response("command", &receipt);
+                let receipt = receipt?;
                 ensure!(receipt.id == id && receipt.durability == durability);
                 let value: serde_json::Value = serde_json::from_slice(&receipt.result)?;
                 ensure!(value["value"].as_u64() == Some(sequence));
@@ -156,7 +174,9 @@ async fn run(rooted: bool, durability: Durability) -> Result<()> {
                         == json!([sequence, sequence])
                 );
                 ensure!(output.version == receipt.version && output.witness == receipt.witness);
-                let replay = cell.command(&tick, input, options).await?;
+                let replay = cell.command(&tick, input, options).await;
+                retain_response("replay", &replay);
+                let replay = replay?;
                 ensure!(
                     replay.id == id
                         && replay.durability == durability
@@ -177,15 +197,15 @@ async fn run(rooted: bool, durability: Durability) -> Result<()> {
             .await;
     let observed = work.as_ref().ok();
     let expected = vec![2; 3];
-    let matches = observed.is_some_and(|polls| polls == &expected);
     eprintln!(
         "CHECKPOINT_REPLY_POLLS {}",
         json!({"extents":rooted,"durability":format!("{durability:?}"),"polls":observed,"invocations":invocations.load(Ordering::Acquire),"valuesAndReplayVerified":work.is_ok(),"joinedClose":joined.is_ok()})
     );
-    if work.is_err() || joined.is_err() || !matches {
-        for root in std::mem::take(&mut cluster.roots) {
-            eprintln!("retained checkpoint poll disk: {}", root.keep().display());
-        }
+    for root in std::mem::take(&mut cluster.roots) {
+        eprintln!("retained checkpoint poll disk: {}", root.keep().display());
+    }
+    if let Err(error) = &joined {
+        eprintln!("checkpoint poll joined cleanup: {error:#}");
     }
     cluster.fixtures[0].domain.shutdown().await;
     let observed = work?;

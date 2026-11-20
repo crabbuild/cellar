@@ -38,6 +38,8 @@ mod blob_contract;
 mod blobs;
 #[path = "support/cell_group_checkpoint_polls.rs"]
 mod checkpoint_polls;
+#[path = "support/cell_group_checkpoint_submit.rs"]
+mod checkpoint_submit;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
 #[path = "support/cell_group_cron.rs"]
@@ -2389,4 +2391,9 @@ async fn rustfs_rooted_queue_four_in_flight_preserves_acknowledged_messages() ->
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn completed_checkpoints_advance_ready_reply_bridges() -> Result<()> {
     checkpoint_polls::qualify().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prepared_checkpoints_replicate_before_unrelated_queued_sql() -> Result<()> {
+    Box::pin(checkpoint_submit::qualify()).await
 }

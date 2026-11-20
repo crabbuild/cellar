@@ -11,6 +11,10 @@ use std::task::{Context, Poll, Wake, Waker};
 #[path = "rpc_resume.rs"]
 mod resume;
 
+#[cfg(test)]
+#[path = "suspended_rpc_tests.rs"]
+mod tests;
+
 struct Ready(AtomicBool, Arc<crate::raft::host_sql::WorkerWake>);
 
 impl Wake for Ready {
@@ -51,6 +55,17 @@ struct Checkpoint {
 enum CheckpointPhase {
     Applying(BoxFuture<'static, Result<CheckpointProof, ExecutionError>>),
     Archiving(BoxFuture<'static, Result<(), ExecutionError>>),
+}
+
+// Keep an immediately ready outcome for normal proof/reply-bridge processing.
+// Polling the completed submission again would violate its future contract.
+fn prime_submission(
+    future: &mut BoxFuture<'static, Result<CheckpointProof, ExecutionError>>,
+    cx: &mut Context<'_>,
+) {
+    if let Poll::Ready(result) = future.as_mut().poll(cx) {
+        *future = Box::pin(std::future::ready(result));
+    }
 }
 
 impl Suspended {
@@ -95,6 +110,7 @@ impl Suspended {
         &mut self,
         reply: oneshot::Sender<Result<(), String>>,
         domain: &crate::asyncrt::DomainToken,
+        cx: &mut Context<'_>,
     ) -> Result<(), ExecutionError> {
         let commits = self.commits.as_ref().ok_or(ExecutionError::Refused(
             CommandFailure::UnsupportedCapability,
@@ -103,15 +119,18 @@ impl Suspended {
         let prepared = executor.stage_rpc_checkpoint(&mut self.turn)?;
         let expected = executor.rpc_checkpoint_version()?;
         executor.mark_submitted(prepared.proposal())?;
-        let phase = CheckpointPhase::Applying(Box::pin(wait_checkpoint(
-            commits.runtime.clone(),
-            domain.clone(),
-            prepared.clone(),
-            expected.clone(),
-            executor.rpc_activation_fence(),
-            self.retention.bytes.clone(),
-            Some(commits.deadline),
-        )));
+        let mut applying: BoxFuture<'static, Result<CheckpointProof, ExecutionError>> =
+            Box::pin(wait_checkpoint(
+                commits.runtime.clone(),
+                domain.clone(),
+                prepared.clone(),
+                expected.clone(),
+                executor.rpc_activation_fence(),
+                self.retention.bytes.clone(),
+                Some(commits.deadline),
+            ));
+        prime_submission(&mut applying, cx);
+        let phase = CheckpointPhase::Applying(applying);
         self.checkpoint = Some(Checkpoint {
             reply,
             prepared,
@@ -669,7 +688,9 @@ impl Cells {
             };
             let Poll::Ready(result) = outcome else {
                 let progress = if let Some(reply) = rpc.turn.take_checkpoint() {
-                    rpc.begin_checkpoint(reply, domain)
+                    // Start the owned submission before queued SQL occupies this
+                    // worker; process proofs in the normal continuation turn.
+                    rpc.begin_checkpoint(reply, domain, &mut cx)
                 } else if !rpc.ready.0.load(Ordering::Acquire) || rpc.retention.lease.contended() {
                     rpc.try_park(&self.activations, now)
                 } else {
