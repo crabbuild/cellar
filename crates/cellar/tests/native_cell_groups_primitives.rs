@@ -2670,7 +2670,18 @@ async fn trace_fenced_maintenance_s3_settlement() -> Result<()> {
         .with_ansi(false)
         .try_init()
         .map_err(|error| anyhow::anyhow!("initialize fenced maintenance diagnostic: {error}"))?;
-    fenced_maintenance::trace().await
+    fenced_maintenance::trace(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only: extent S3 fenced maintenance read settlement"]
+async fn trace_extent_fenced_maintenance_s3_settlement() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
+        .with_ansi(false)
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("initialize extent maintenance diagnostic: {error}"))?;
+    fenced_maintenance::trace(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

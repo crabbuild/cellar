@@ -312,6 +312,7 @@ impl FencedMaintenanceBackend for Backend {
                 journal
                     .compare_exchange(&context, Some(expected.revision), record)
                     .await?;
+                tracing::debug!(target: "cellar::raft::provider_qualification", phase = "retirement-proven");
                 self.0.retired.store(true, Ordering::Release);
                 self.0.changed.notify_waiters();
                 return Ok(());
@@ -362,8 +363,10 @@ impl Cell for Root {
                 anyhow::bail!("JSON RPC required")
             };
             let op: String = serde_json::from_str(&input)?;
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "root-enter", operation = %op);
             let journal = BindingJournal::open(&context, "TOOL")?;
             let lifecycle = journal.lock_lifecycle(&context).await?;
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "root-lifecycle-held", operation = %op);
             let result = match op.as_str() {
                 "Create" => {
                     self.0.put_json("business", &json!(17))?;
@@ -499,8 +502,8 @@ pub async fn qualify(real_rustfs: bool, docker: bool) -> Result<()> {
     selected(real_rustfs, docker, None).await
 }
 
-pub async fn trace() -> Result<()> {
-    selected(false, false, Some((false, Durability::S3))).await
+pub async fn trace(rooted: bool) -> Result<()> {
+    selected(false, false, Some((rooted, Durability::S3))).await
 }
 
 async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durability)>) -> Result<()> {
