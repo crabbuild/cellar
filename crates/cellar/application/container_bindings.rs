@@ -296,8 +296,8 @@ impl BindingJournal {
     /// load the checkpoint under the guard before deciding or issuing effects.
     /// Command/file work stays concurrent and must check its original generation.
     /// Acquisition is cancellable; do not reacquire while holding this guard.
-    /// A contended shared-group wait parks its private writer; pending source
-    /// writes retain their original checkpoint durability before suspension.
+    /// A contended shared-group wait checkpoints the original invocation at its
+    /// required durability before parking its private writer.
     pub fn lock_lifecycle(&self, context: &Context) -> HandlerFuture<BindingLifecycleGuard> {
         let prepared = (|| {
             self.check(context)?;
@@ -321,7 +321,9 @@ impl BindingJournal {
                         // would prevent that owner from releasing the lock.
                         crate::storage::capture_raft_dispatch()?
                             .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
-                            .schedule_read(move |_| lock.lock_owned())
+                            // Parking requires an unfinished command receipt;
+                            // an unchanged read proof alone cannot resume it.
+                            .schedule_io(move |_| lock.lock_owned())
                             .future
                             .await?
                     }

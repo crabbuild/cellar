@@ -166,6 +166,45 @@ struct NativeActivation {
     resources: Arc<crate::application::storage::Resources>,
 }
 
+// Framework cleanup needs cache/resource continuity while its writer is parked.
+// Construct the business cell only when an application invocation actually runs.
+struct DeferredCell {
+    owner: Arc<NativeCellFactory>,
+    instance: Mutex<Option<Arc<dyn Cell>>>,
+}
+
+impl Cell for DeferredCell {
+    fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
+        let prepared = (|| -> Result<Arc<dyn Cell>> {
+            let mut instance = self
+                .instance
+                .lock()
+                .map_err(|_| CommandFailure::Unavailable)?;
+            if let Some(instance) = instance.as_ref() {
+                return Ok(instance.clone());
+            }
+            let identity = context
+                .identity()
+                .cloned()
+                .ok_or(CommandFailure::Unavailable)?;
+            let authority = context
+                .raft_storage
+                .as_ref()
+                .ok_or(CommandFailure::Unavailable)?;
+            let constructor = self
+                .owner
+                .context(identity.clone(), authority.activation())?;
+            let created = (self.owner.factory)(constructor, &identity)?;
+            *instance = Some(created.clone());
+            Ok(created)
+        })();
+        match prepared {
+            Ok(instance) => instance.invoke(context, invocation),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
+    }
+}
+
 impl CellRpcActivation {
     pub(crate) fn shared(&self) -> bool {
         Arc::strong_count(&self.0) > 1
@@ -546,6 +585,20 @@ impl NativeCellFactory {
         }) {
             // Cleanup owns a fresh framework invocation, not a business cell.
             // A broken constructor after restart must not strand provider debt.
+            if activation.is_none() {
+                *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
+                    owner: self.identity.clone(),
+                    instance: Mutex::new(Some(Arc::new(DeferredCell {
+                        owner: self.clone(),
+                        instance: Mutex::new(None),
+                    }))),
+                    resources: authority.resources.clone(),
+                })));
+            }
+            let keepalive = activation
+                .as_ref()
+                .ok_or(CommandFailure::Unavailable)?
+                .clone();
             let context = self.context(identity, authority)?;
             let resources = context.raft_storage.as_ref().unwrap().resources.clone();
             let state = context.state.clone();
@@ -553,6 +606,7 @@ impl NativeCellFactory {
             let work = work.clone();
             let leased_until = *leased_until;
             let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
+                let _activation = keepalive;
                 crate::application::container_supervision::recover(&context)?;
                 let storage = context.storage()?;
                 if let Some(installation) =
