@@ -14,6 +14,8 @@ mod binding_fixture;
 #[path = "support/cell_group_checkpoint.rs"]
 #[allow(dead_code)]
 mod checkpoint_fixture;
+#[path = "support/cell_group_archive_checkpoint_window.rs"]
+mod checkpoint_window_fixture;
 #[path = "support/cell_group_disaster_fence.rs"]
 mod disaster_fixture;
 #[path = "support/raft_storage_fault.rs"]
@@ -40,6 +42,28 @@ mod tail_window_fixture;
 mod runtime_fixture;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_checkpoint_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_checkpoint_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::qualify(
+            rooted,
+            rustfs::store("checkpoint-read-window", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
