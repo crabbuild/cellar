@@ -56,6 +56,8 @@ struct Control {
     creates: AtomicUsize,
     deletes: AtomicUsize,
     refreshes: AtomicUsize,
+    staged_observations: AtomicUsize,
+    archive: Mutex<Option<Arc<catalog_fault::Store>>>,
     changed: Notify,
     released: Notify,
     claims: Mutex<Vec<ExecutionClaim>>,
@@ -325,9 +327,7 @@ impl FencedMaintenanceBackend for Backend {
                 let mut record = expected.record;
                 record.intent = BindingIntent::Deleted;
                 record.observation = BindingObservation::Pending;
-                journal
-                    .compare_exchange(&context, Some(expected.revision), record)
-                    .await?;
+                journal.prepare_exchange(&context, Some(expected.revision), record)?;
                 ensure!(
                     grant.check(&context).is_err(),
                     "binding change left old grant valid"
@@ -371,8 +371,8 @@ impl Cell for Root {
                 "Create" => {
                     self.0.put_json("business", &json!(17))?;
                     tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-begin");
-                    journal.compare_exchange(&context, None, pending()).await?;
-                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-proven");
+                    journal.prepare_exchange(&context, None, pending())?;
+                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-prepared");
                     let grant = journal
                         .fence_execution(&context, lifecycle, self.1.clone())
                         .await?;
@@ -386,16 +386,34 @@ impl Cell for Root {
                     let mut record = current.record;
                     record.resource_id = Some(id);
                     record.observation = BindingObservation::Confirmed;
-                    let confirmed = journal
-                        .compare_exchange(&context, Some(current.revision), record)
-                        .await?;
-                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-confirmed");
+                    let confirmed =
+                        journal.prepare_exchange(&context, Some(current.revision), record)?;
+                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-observation-prepared");
                     self.1.refuse.store(true, Ordering::Release);
                     confirmed
                 }
                 "Read" => {
                     ensure!(self.0.get_json("business")? == Some(json!(17)));
                     journal.load(&context)?.context("retained resource")?
+                }
+                "StageOutput" => {
+                    let prior = journal.load(&context)?.context("retired resource")?;
+                    ensure!(prior.record.is_retired());
+                    let prepared =
+                        journal.prepare_exchange(&context, Some(prior.revision), prior.record)?;
+                    self.1.staged_observations.fetch_add(1, Ordering::AcqRel);
+                    // Refuse archival only after the business callback has staged
+                    // its complete result. The original final output proof must
+                    // still refuse S3 success; this does not submit provider I/O.
+                    self.1
+                        .archive
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .context("output proof backend")?
+                        .deny_group_archive_writes
+                        .store(true, Ordering::Release);
+                    prepared
                 }
                 _ => anyhow::bail!("unknown operation"),
             };
@@ -535,7 +553,8 @@ async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durabilit
             } else {
                 catalog_fault::Store::default()
             });
-            let mut cluster = start(rooted, minimum, store, control.clone()).await?;
+            *control.archive.lock().unwrap() = Some(store.clone());
+            let mut cluster = start(rooted, minimum, store.clone(), control.clone()).await?;
             let domain = cluster.fixtures[0].domain.clone();
             let work = domain
                 .run(async {
@@ -623,11 +642,58 @@ async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durabilit
                         control.clone().activate(old).await.is_err(),
                         "old maintenance grant regained ownership"
                     );
+                    // Final observation preparation does not acknowledge S3.
+                    // Preserve the same command and read its stored receipt after
+                    // restoring the archive; never rerun the application body.
+                    let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+                    let source = cluster.hosts[leader].cell(history.clone())?;
+                    let contract = source.contract("Run")?;
+                    let input = serde_json::to_vec("StageOutput")?;
+                    let options = bindings::options(3, minimum)?;
+                    let staged = source
+                        .command(&contract, input.clone(), options.clone())
+                        .await;
+                    store.deny_group_archive_writes.store(false, Ordering::Release);
+                    ensure!(control.staged_observations.load(Ordering::Acquire) == 1);
+                    if minimum == Durability::S3 {
+                        let error = staged.err().context("prepared observation escaped S3 output gate")?;
+                        ensure!(error.command == options.id && error.ambiguous);
+                        eprintln!("retained prepared provider output command: {:?}", options.id);
+                    } else {
+                        ensure!(staged?.durability >= minimum);
+                    }
+                    let mut expected = value.clone();
+                    expected["revision"] = json!(value["revision"].as_u64().context("observed revision")? + 1);
+                    let expected = serde_json::to_vec(&expected)?;
+                    let receipt = source
+                        .receipt(
+                            CellReceiptRequest {
+                                id: options.id,
+                                contract,
+                                input,
+                                durability: minimum,
+                            },
+                            TIMEOUT,
+                        )
+                        .await?;
+                    ensure!(
+                        receipt.command() == options.id
+                            && receipt.durability() >= minimum
+                            && receipt.receipt().is_some_and(|row| row.result() == expected.as_slice())
+                    );
+                    ensure!(
+                        control.staged_observations.load(Ordering::Acquire) == 1
+                            && control.creates.load(Ordering::Acquire) == 1
+                            && control.deletes.load(Ordering::Acquire) == 1,
+                        "receipt-only recovery replayed business or provider work"
+                    );
                     eprintln!("fenced_maintenance_observations {}", json!({
                         "extents": rooted, "minimum": format!("{minimum:?}"),
+                        "create_committed_versions": first.version.sequence.get() - before.version.sequence.get(),
                         "creates": control.creates.load(Ordering::Acquire),
                         "deletes": control.deletes.load(Ordering::Acquire),
                         "refreshes": control.refreshes.load(Ordering::Acquire),
+                        "staged_observations": control.staged_observations.load(Ordering::Acquire),
                         "resource": control.state.lock().await.resource.clone(),
                         "claim_sequences": control.claims.lock().unwrap().iter().map(ExecutionClaim::sequence).collect::<Vec<_>>()
                     }));

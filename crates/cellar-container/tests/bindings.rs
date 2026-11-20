@@ -46,6 +46,8 @@ impl Cell for Root {
             match route {
                 "reserve" => {
                     ensure!(journal.load(&context)?.is_none());
+                    ensure!(journal.prepare_exchange(&context, None, pending()).is_err());
+                    ensure!(journal.load(&context)?.is_none());
                     let checkpoint = journal.compare_exchange(&context, None, pending()).await?;
                     ensure!(
                         checkpoint.revision == 1 && journal.load(&context)? == Some(checkpoint)

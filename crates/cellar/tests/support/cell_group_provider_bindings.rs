@@ -158,12 +158,18 @@ impl Cell for Root {
                             _ => record.resource_id = Some("different-resource".into()),
                         }
                         ensure!(journal
+                            .prepare_exchange(&context, Some(prior.revision), record.clone())
+                            .is_err());
+                        ensure!(journal
                             .compare_exchange(&context, Some(prior.revision), record)
                             .await
                             .is_err());
                     }
                     self.0.transaction_sync(|_| {
                         ensure!(BindingJournal::open(&context, "TOOL").is_err());
+                        ensure!(journal
+                            .prepare_exchange(&context, Some(prior.revision), prior.record.clone())
+                            .is_err());
                         Ok(())
                     })?;
                     ensure!(journal.load(&context)?.as_ref() == Some(&prior));
@@ -217,6 +223,10 @@ impl Cell for Root {
                 "Gate" => {
                     let authority = context.container_provider_authority()?;
                     self.0.put_json("provider-gate-attempt", &json!(true))?;
+                    let prior = journal.load(&context)?.context("provider gate binding")?;
+                    let prepared =
+                        journal.prepare_exchange(&context, Some(prior.revision), prior.record)?;
+                    ensure!(prepared.revision == prior.revision + 1);
                     authority.before_effect(&context).await?;
                     self.1.effects.fetch_add(1, Ordering::AcqRel);
                     json!(true)

@@ -424,6 +424,60 @@ impl BindingJournal {
         Ok(())
     }
 
+    /// Prepare a shared-group binding change in the current invocation's private
+    /// transaction, without submitting a checkpoint or waiting for durability.
+    /// This is local preparation, like `Storage::put_json`; the returned record
+    /// is not an execution grant or proof that the change committed.
+    ///
+    /// Before provider I/O, await `fence_execution` or the provider authority's
+    /// `before_effect` gate. They prove all prepared state at the invocation's
+    /// original Quorum/S3 minimum. If no further I/O is needed, the ordinary
+    /// command output gate proves this observation together with its receipt.
+    /// Retain lifecycle admission through I/O and settlement. Changed records
+    /// invalidate existing execution grants; refresh before another effect.
+    ///
+    /// Native/Fleet events use `compare_exchange`; this preparation path refuses
+    /// them before mutation rather than returning an unproven native checkpoint.
+    pub fn prepare_exchange(
+        &self,
+        context: &Context,
+        expected: Option<u64>,
+        record: BindingRecord,
+    ) -> Result<BindingCheckpoint> {
+        ensure!(
+            context.raft_storage.is_some(),
+            super::consensus::CommandFailure::UnsupportedCapability
+        );
+        self.prepare_local(context, expected, record)
+    }
+
+    fn prepare_local(
+        &self,
+        context: &Context,
+        expected: Option<u64>,
+        record: BindingRecord,
+    ) -> Result<BindingCheckpoint> {
+        let scope = self.check(context)?;
+        self.check_record(context, &record)?;
+        let checkpoint = crate::storage::container_bindings::compare_exchange(
+            scope,
+            &self.name,
+            expected,
+            context.identity().unwrap().epoch,
+            record.clone(),
+            context
+                .container_supervision
+                .as_ref()
+                .and_then(|registry| registry.find(&self.name, &record))
+                .map(|registration| registration.policy),
+            crate::asyncrt::wall_ms().max(0),
+        )?;
+        if context.raft_storage.is_none() {
+            super::container_supervision::controller::publish(context)?;
+        }
+        Ok(checkpoint)
+    }
+
     /// Atomically replace the expected revision and await its required durability
     /// proof before returning. An error after the write can leave a retained
     /// pending intent. A successful return does not grant remote fencing.
@@ -434,24 +488,7 @@ impl BindingJournal {
         record: BindingRecord,
     ) -> HandlerFuture<BindingCheckpoint> {
         let prepared = (|| {
-            let scope = self.check(context)?;
-            self.check_record(context, &record)?;
-            let checkpoint = crate::storage::container_bindings::compare_exchange(
-                scope,
-                &self.name,
-                expected,
-                context.identity().unwrap().epoch,
-                record.clone(),
-                context
-                    .container_supervision
-                    .as_ref()
-                    .and_then(|registry| registry.find(&self.name, &record))
-                    .map(|registration| registration.policy),
-                crate::asyncrt::wall_ms().max(0),
-            )?;
-            if context.raft_storage.is_none() {
-                super::container_supervision::controller::publish(context)?;
-            }
+            let checkpoint = self.prepare_local(context, expected, record)?;
             Ok::<_, anyhow::Error>((checkpoint, context.storage()?.sync()))
         })();
         let journal = self.clone();

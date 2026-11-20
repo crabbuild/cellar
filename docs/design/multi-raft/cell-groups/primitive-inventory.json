@@ -692,6 +692,7 @@
         "cellar::sdk::containers::BindingJournal",
         "cellar::sdk::containers::BindingJournal::open",
         "cellar::sdk::containers::BindingJournal::load",
+        "cellar::sdk::containers::BindingJournal::prepare_exchange",
         "cellar::sdk::containers::BindingJournal::compare_exchange",
         "cellar::sdk::containers::BindingJournal::lock_lifecycle",
         "cellar::sdk::containers::BindingJournal::activity",

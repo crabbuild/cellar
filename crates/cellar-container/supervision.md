@@ -138,8 +138,9 @@ pending. Fencing and backend I/O share the configured attempt timeout; the
 original native event deadline also applies.
 
 The backend receives an `ExecutionGrant` and must enforce its claim on every
-provider operation. After checkpointing deletion intent, call `grant.refresh`
-to reconcile the changed checkpoint with the same controller. This retains the
+provider operation. After preparing or checkpointing deletion intent, call
+`grant.refresh` to prove the changed intent and claim with the same controller.
+Prepared intent and its claim share that proof. This retains the
 existing lifecycle admission; do not acquire another lifecycle guard. The
 framework retains admission through result settlement. Maintenance must inspect
 or retire the original resource and must never create compute.

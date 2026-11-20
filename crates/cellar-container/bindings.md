@@ -19,8 +19,9 @@ registering its ordinary cell factory. The declaration contains no credentials,
 participates in the namespace schema and binds every journal record to that
 backend configuration. Open the journal from the executing invocation; a factory
 constructor, retained event handle or storage transaction callback cannot open it.
-Updates and `ProviderAuthority::before_effect` wait for the namespace's required
-Quorum or S3 checkpoint, then recheck the original invocation fence and deadline.
+`BindingJournal::compare_exchange` and `ProviderAuthority::before_effect` wait
+for the namespace's required Quorum or S3 checkpoint, then recheck the original
+invocation fence and deadline.
 An unfinished checkpoint remains an uncertain command, even after S3 returns.
 Repeated framework gates can share an unchanged checkpoint of the same invocation.
 The first effect still records its own unfinished receipt. Changed business or
@@ -41,8 +42,8 @@ The native Docker container and sandbox catalog still need shared-group adapters
 Real provider execution fencing and volume recovery remain independent requirements
 of [CG-17](../../docs/design/multi-raft/cell-groups/qualification.md#full-primitive-compatibility-cg-17).
 
-When an execution-fenced operation checkpoints a binding change, its old grant
-becomes invalid. `ExecutionGrant::refresh` proves a new claim with the same
+When an execution-fenced operation prepares or checkpoints a binding change, its
+old grant becomes invalid. `ExecutionGrant::refresh` proves a new claim with the same
 controller and lifecycle admission. It does not retry the business operation or
 extend the invocation deadline. Framework-owned cleanup can use the same
 contract through [fenced maintenance](supervision.md#controller-fenced-shared-group-maintenance).
@@ -152,6 +153,45 @@ the provider's fencing guarantee remains unchanged.
 
 Keep API keys, access tokens and user environment secrets outside this journal.
 Its fixed record format has no arbitrary credential/configuration payload.
+
+## Prepare within a shared command
+
+`BindingJournal::prepare_exchange` is a synchronous, Raft-only preparation step,
+like `Storage::put_json`. It applies the same protected-record CAS, declaration,
+invocation, transaction and maintenance checks as the durable method. Its returned
+record proves neither commitment nor execution authority. Native/Fleet events
+continue to use `compare_exchange`; preparation refuses them before mutation.
+
+Prepare reservation metadata, then await `fence_execution` so one checkpoint proves
+both the intent and its execution claim before controller I/O. Before another
+provider operation, await the grant's `before_effect`; a changed binding needs
+`refresh`. Preparing deletion intent and then refreshing likewise proves both
+changes together. Hold the original lifecycle guard throughout.
+
+When a provider observation is the final change in the invocation, it can be
+prepared and returned through the ordinary command output gate. That gate proves
+the observation and exact command result together at the required minimum. An
+archive outage still refuses S3 success. A lost reply retains its original ID;
+receipt lookup must not rerun the application or an external operation. Use
+`compare_exchange` when the individual returned future must acknowledge durability.
+
+```rust,no_run
+use cellar::sdk::{
+    containers::{BindingJournal, BindingRecord, ExecutionFenceAuthority, ExecutionGrant}, Context,
+};
+use std::sync::Arc;
+
+async fn prepare_fenced_reservation(
+    ctx: &Context,
+    record: BindingRecord,
+    authority: Arc<dyn ExecutionFenceAuthority>,
+) -> anyhow::Result<ExecutionGrant> {
+    let journal = BindingJournal::open(ctx, "builds")?;
+    let lifecycle = journal.lock_lifecycle(ctx).await?;
+    journal.prepare_exchange(ctx, None, record)?;
+    journal.fence_execution(ctx, lifecycle, authority).await
+}
+```
 
 ## Reserve before creating
 
