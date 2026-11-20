@@ -474,6 +474,18 @@ async fn trace_s3_read_source_settlement() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "directed ownership diagnostic; does not qualify the full read-source case"]
+async fn s3_read_source_eviction_releases_the_one_slot_bank() -> Result<()> {
+    Box::pin(s3_read_source::qualify_eviction(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "directed ownership diagnostic; requires isolated local RustFS"]
+async fn rustfs_s3_read_source_eviction_releases_the_one_slot_bank() -> Result<()> {
+    Box::pin(s3_read_source::qualify_eviction(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
 }

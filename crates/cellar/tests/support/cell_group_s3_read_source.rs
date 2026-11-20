@@ -99,7 +99,11 @@ impl Cell for Reader {
     }
 }
 
-async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+async fn run(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    modes: std::ops::Range<u8>,
+) -> Result<()> {
     let gates = Arc::new(vec![Arc::new(Gate::default()), Arc::new(Gate::default())]);
     let query_gates = gates.clone();
     let target = Arc::new(Mutex::new(None));
@@ -156,7 +160,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         ).await?;
         *target.lock().unwrap() = Some(cluster.hosts[(leader+1)%3].cell(target_history.clone())?);
         let target_writer = cluster.hosts[leader].cell(target_history)?;
-        for mode in 0_u8..4 {
+        for mode in modes {
             let history = CellHistory {
                 cluster: group.cluster, namespace: group.namespace,
                 cell: CellId::new(format!("Counter:s3-read-source-{mode}"))?,
@@ -238,6 +242,15 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
 }
 
 pub async fn qualify(real: bool) -> Result<()> {
+    qualify_modes(real, 0..4).await
+}
+
+/// Directed ownership diagnostic; it does not replace the complete case above.
+pub async fn qualify_eviction(real: bool) -> Result<()> {
+    qualify_modes(real, 3..4).await
+}
+
+async fn qualify_modes(real: bool, modes: std::ops::Range<u8>) -> Result<()> {
     for rooted in [false, true] {
         let store = if real {
             Arc::new(catalog_fault::Store::around(rustfs::store(
@@ -247,7 +260,7 @@ pub async fn qualify(real: bool) -> Result<()> {
         } else {
             Arc::new(catalog_fault::Store::default())
         };
-        Box::pin(run(rooted, store))
+        Box::pin(run(rooted, store, modes.clone()))
             .await
             .with_context(|| format!("verified S3 read source RustFS={real} extents={rooted}"))?;
     }
