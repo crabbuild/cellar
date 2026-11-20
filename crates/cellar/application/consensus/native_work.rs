@@ -25,16 +25,19 @@ pub(crate) struct Work {
     pub lease_ms: u64,
 }
 
-/// Resource cleanup cannot make progress while a foreground lifecycle owner
+/// Provider cleanup cannot make progress while a foreground lifecycle owner
 /// retains the cell writer. Refuse before enqueue instead of forcing that owner
 /// to park and publishing another waiting receipt. Discovery retains the same
-/// durable installation; other callback families keep queued writer admission.
-pub(crate) fn is_resource_reconciliation(
+/// durable installation. EventCatalog resource work can satisfy another RPC's
+/// dependency and must retain queued admission. The class is host-selected.
+pub(crate) fn is_provider_reconciliation(
     admission: super::CommandAdmission,
+    class: &str,
     operation: &str,
     input: &[u8],
 ) -> bool {
     admission.is_system()
+        && class != crate::deploy::EVENT_CATALOG_CLASS
         && operation == OPERATION
         && serde_json::from_slice::<Work>(input)
             .is_ok_and(|work| work.reason == "resource-reconciliation")

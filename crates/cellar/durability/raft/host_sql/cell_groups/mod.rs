@@ -922,8 +922,9 @@ impl CellGroupSqlPool {
         ) = (mode, &callback)
         {
             let maintenance =
-                crate::application::consensus::native_work::is_resource_reconciliation(
+                crate::application::consensus::native_work::is_provider_reconciliation(
                     *admission,
+                    class.name(),
                     &attempt.request.operation,
                     input,
                 );

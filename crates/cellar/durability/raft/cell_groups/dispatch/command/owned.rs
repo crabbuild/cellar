@@ -384,8 +384,9 @@ impl CellCommandInvocation {
                 Err(CellDispatchError::Execution(ExecutionError::Busy))
                     if self.writer_wait && self.origin.is_none() && self.output.is_none() =>
                 {
-                    if crate::application::consensus::native_work::is_resource_reconciliation(
+                    if crate::application::consensus::native_work::is_provider_reconciliation(
                         self.admission_kind,
+                        self.dispatcher.class.name(),
                         &self.request.contract.operation,
                         &self.request.input,
                     ) || (self.admission_kind.is_system()
