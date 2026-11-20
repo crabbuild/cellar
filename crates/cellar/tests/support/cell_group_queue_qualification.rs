@@ -481,19 +481,34 @@ impl Scenario {
 
     async fn close(self, retain: bool) -> Result<()> {
         let store = self.cluster.fixtures[0].store.clone();
+        let nodes = self.cluster.nodes.len();
+        let hosts = self.cluster.hosts.len();
+        let http = self.http.is_some();
         let mut errors = Vec::new();
-        for node in self.cluster.nodes {
+        for (index, node) in self.cluster.nodes.into_iter().enumerate() {
             if let Err(e) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
+                eprintln!(
+                    "QUEUE_CLEANUP_ERROR {}",
+                    json!({"stage":"node","index":index,"error":format!("{e:#?}")})
+                );
                 errors.push(e.to_string());
             }
         }
-        for host in self.cluster.hosts {
+        for (index, host) in self.cluster.hosts.into_iter().enumerate() {
             if let Err(e) = host.close().await {
+                eprintln!(
+                    "QUEUE_CLEANUP_ERROR {}",
+                    json!({"stage":"host","index":index,"error":format!("{e:#?}")})
+                );
                 errors.push(e.to_string());
             }
         }
         if let Some(http) = self.http {
             if let Err(e) = http.close().await {
+                eprintln!(
+                    "QUEUE_CLEANUP_ERROR {}",
+                    json!({"stage":"http","error":format!("{e:#?}")})
+                );
                 errors.push(e.to_string());
             }
         }
@@ -509,6 +524,7 @@ impl Scenario {
         } else {
             "queue-complete"
         };
+        let failures = errors.len();
         let result = (|| {
             ensure!(
                 errors.is_empty(),
@@ -516,7 +532,20 @@ impl Scenario {
             );
             Ok(())
         })();
-        managed_fixture::memory::preserve_result(&store.inner, phase, result).await
+        let result = managed_fixture::memory::preserve_result(&store.inner, phase, result).await;
+        // A producer failure can be returned before this cleanup result. Keep
+        // both outcomes, including export errors, in the private fixture log.
+        if let Err(error) = &result {
+            eprintln!(
+                "QUEUE_CLEANUP_ERROR {}",
+                json!({"stage":"result","error":format!("{error:#?}")})
+            );
+        }
+        eprintln!(
+            "QUEUE_CLEANUP {}",
+            json!({"nodeShutdownAttempts":nodes,"hostCloseAttempts":hosts,"httpCloseAttempted":http,"cleanupErrors":failures,"returnedOk":result.is_ok()})
+        );
+        result
     }
 
     async fn empty(&self, queue: &str) -> Result<()> {
