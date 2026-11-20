@@ -2645,6 +2645,17 @@ async fn trace_provider_supervision_command_settlement() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS; diagnostic settlement tracing only"]
+async fn trace_rustfs_provider_supervision_command_settlement() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
+        .with_test_writer()
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("initialize supervision diagnostic logging: {error}"))?;
+    provider_supervision::qualify(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_provider_supervision_recovers_without_application_requests() -> Result<()> {
     provider_supervision::qualify(true).await
