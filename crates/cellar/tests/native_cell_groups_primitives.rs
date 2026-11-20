@@ -200,6 +200,8 @@ mod named_service;
 mod names;
 #[path = "support/cell_group_provider_bindings.rs"]
 mod provider_bindings;
+#[path = "support/cell_group_provider_supervision.rs"]
+mod provider_supervision;
 #[path = "support/cell_group_queue.rs"]
 mod queues;
 #[path = "support/cell_group_resume_progress.rs"]
@@ -2619,6 +2621,17 @@ async fn provider_journals_keep_checkpoint_and_caller_input_limits_separate() ->
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_provider_binding_journals_use_shared_quorum() -> Result<()> {
     provider_bindings::qualify(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_supervision_recovers_without_application_requests() -> Result<()> {
+    provider_supervision::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_provider_supervision_recovers_without_application_requests() -> Result<()> {
+    provider_supervision::qualify(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
