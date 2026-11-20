@@ -449,6 +449,20 @@ async fn rustfs_clean_initial_queries_reuse_quorum_source_proof() -> Result<()> 
     Box::pin(initial_reads::qualify(true)).await
 }
 
+#[path = "support/cell_group_s3_read_source.rs"]
+mod s3_read_source;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn s3_read_sources_reuse_only_verified_unchanged_checkpoints() -> Result<()> {
+    Box::pin(s3_read_source::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_read_sources_reuse_only_verified_unchanged_checkpoints() -> Result<()> {
+    Box::pin(s3_read_source::qualify(true)).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
