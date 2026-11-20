@@ -36,22 +36,16 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/fleet-control/source.txt"
           rustc -vV > "$RUNNER_TEMP/fleet-control/compiler.txt"
           sha256sum Cargo.lock crates/cellar/tests/native_raft_fleet_enrollment.rs > "$RUNNER_TEMP/fleet-control/inputs.sha256"
-      - name: Repeat each of the five observed failures
+      - name: Stress the intermittent dynamic voter replacement
         env:
           TMPDIR: ${{ runner.temp }}/native-failure-fixtures
         run: |
           set -euo pipefail
           export CARGO_TARGET_DIR="$RUNNER_TEMP/cellar-fleet-control-target"
           cargo test -p cellar-main --all-features --locked --test native_raft_fleet_enrollment --no-run
-          cases=(
-            "hosts::initial_tests::evacuation::restart_gate::runtime::handoff::fleet_restart_handoff_observes_primary_and_preserves_sql"
-            "hosts::initial_tests::resources::movement_tests::completion_tests::restart_runtime::fleet_restart_handoff_moves_dynamic_leader_using_current_membership"
-            "hosts::initial_tests::resources::movement_tests::completion_tests::restart_runtime::fleet_restart_runtime_dynamic_voter_requires_both_current_survivors"
-            "hosts::initial_tests::resources::topology_tests::intents::service_cases::operator_cases::maintenance_cases::restart_cases::fleet_operator_extent_maintenance_full_restart_preserves_data_and_terminal_capacity"
-            "hosts::initial_tests::resources::topology_tests::intents::service_cases::operator_cases::maintenance_cases::restart_cases::fleet_operator_maintenance_full_restart_preserves_data_and_releases_only_terminal_capacity"
-          )
+          cases=("hosts::initial_tests::resources::movement_tests::completion_tests::restart_runtime::fleet_restart_runtime_dynamic_voter_requires_both_current_survivors")
           failed=0
-          for repetition in 1 2 3; do
+          for repetition in $(seq 1 20); do
             index=0
             for case in "${cases[@]}"; do
               index=$((index+1))
