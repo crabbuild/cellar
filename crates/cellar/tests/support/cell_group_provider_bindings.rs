@@ -158,6 +158,20 @@ impl Cell for Root {
                     let checkpoint = journal.load(&context)?.context("provider checkpoint")?;
                     json!({"revision":checkpoint.revision,"record":checkpoint.record})
                 }
+                "Absent" => {
+                    ensure!(
+                        journal.load(&context)?.is_none(),
+                        "provider journal crossed logical cells"
+                    );
+                    json!(null)
+                }
+                "Gate" => {
+                    let authority = context.container_provider_authority()?;
+                    self.0.put_json("provider-gate-attempt", &json!(true))?;
+                    authority.before_effect(&context).await?;
+                    self.1.effects.fetch_add(1, Ordering::AcqRel);
+                    json!(true)
+                }
                 _ => anyhow::bail!("unknown provider test operation"),
             };
             Ok(Output::Rpc(RpcData::Json(result.to_string())))
@@ -270,19 +284,19 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
             let backend = if real_rustfs {
-                catalog_fault::Store::around(rustfs::store(
+                Arc::new(catalog_fault::Store::around(rustfs::store(
                     if minimum == Durability::S3 {
                         "provider-journal-s3"
                     } else {
                         "provider-journal-quorum"
                     },
                     rooted,
-                )?)
+                )?))
             } else {
                 Arc::new(catalog_fault::Store::default())
             };
             let probe = Arc::new(Probe::default());
-            let mut cluster = start(rooted, minimum, backend, probe.clone()).await?;
+            let mut cluster = start(rooted, minimum, backend.clone(), probe.clone()).await?;
             let domain = cluster.fixtures[0].domain.clone();
             let work = domain
                 .run(async {
@@ -305,15 +319,55 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                         )
                         .await?;
                     let first = call(&cluster, &history, minimum, 1, "Create").await?;
-                let old_context = probe.context.lock().unwrap().clone().context("captured invocation")?;
-                ensure!(probe.journal.lock().unwrap().as_ref().context("captured journal")?.load(&old_context).is_err(), "journal escaped its executing invocation");
-                let old_authority = probe.authority.lock().unwrap().clone().context("captured authority")?;
-                ensure!(old_authority.before_effect(&old_context).await.is_err(), "retired invocation authorized provider work");
+                    let old_context = probe
+                        .context
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .context("captured invocation")?;
+                    ensure!(
+                        probe
+                            .journal
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .context("captured journal")?
+                            .load(&old_context)
+                            .is_err(),
+                        "journal escaped its executing invocation"
+                    );
+                    let old_authority = probe
+                        .authority
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .context("captured authority")?;
+                    ensure!(
+                        old_authority.before_effect(&old_context).await.is_err(),
+                        "retired invocation authorized provider work"
+                    );
                     let replay = call(&cluster, &history, minimum, 1, "Create").await?;
                     ensure!(
                         replay.result == first.result,
                         "journal creation replay changed its receipt"
                     );
+                    let other = CellHistory {
+                        cell: CellId::new("Counter:provider-other")?,
+                        incarnation: IncarnationId::new([216; 16])?,
+                        ..history.clone()
+                    };
+                    let owner = managed_fixture::leader(&cluster.hosts, group).await?;
+                    cluster.hosts[owner]
+                        .cell(other.clone())?
+                        .enroll(
+                            CellEnrollmentRequest {
+                                creation: ProposalId::new([217; 16])?,
+                                durability: minimum,
+                            },
+                            TIMEOUT,
+                        )
+                        .await?;
+                    ensure!(call(&cluster, &other, minimum, 1, "Absent").await?.result == b"null");
                     let confirmed = call(&cluster, &history, minimum, 2, "Confirm").await?;
                     ensure!(
                         serde_json::from_slice::<serde_json::Value>(&confirmed.result)?["revision"]
@@ -343,6 +397,56 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                     ensure!(
                         probe.effects.load(Ordering::Acquire) == 1,
                         "journal replay repeated a provider effect"
+                    );
+                    let owner = managed_fixture::leader(&cluster.hosts, group).await?;
+                    let source = cluster.hosts[owner].cell(history.clone())?;
+                    let contract = source.contract("Run")?;
+                    let input = serde_json::to_vec("Gate")?;
+                    let options = bindings::options(8, minimum)?;
+                    backend
+                        .deny_group_archive_writes
+                        .store(true, Ordering::Release);
+                    let response = source
+                        .command(&contract, input.clone(), options.clone())
+                        .await;
+                    backend
+                        .deny_group_archive_writes
+                        .store(false, Ordering::Release);
+                    if minimum == Durability::Quorum {
+                        ensure!(response?.result == b"true");
+                        ensure!(probe.effects.load(Ordering::Acquire) == 2);
+                    } else {
+                        let error = response
+                            .err()
+                            .context("S3 provider effect escaped archive refusal")?;
+                        ensure!(
+                            error.command == options.id && error.ambiguous,
+                            "lost provider response changed its reconciliation identity: {error}"
+                        );
+                        ensure!(
+                            probe.effects.load(Ordering::Acquire) == 1,
+                            "unproven source entered provider work"
+                        );
+                        eprintln!("retained provider gate unknown command: {:?}", options.id);
+                    }
+                    // This reads only the original receipt. Absence stays ambiguous;
+                    // it never authorizes replay of the application/provider body.
+                    let receipt = source
+                        .receipt(
+                            CellReceiptRequest {
+                                id: options.id,
+                                contract,
+                                input,
+                                durability: minimum,
+                            },
+                            TIMEOUT,
+                        )
+                        .await?;
+                    ensure!(receipt.command() == options.id && receipt.durability() >= minimum);
+                    ensure!(
+                        probe.effects.load(Ordering::Acquire)
+                            == if minimum == Durability::Quorum { 2 } else { 1 },
+                        "receipt observation redispatched provider work"
                     );
                     Ok::<_, anyhow::Error>(())
                 })
