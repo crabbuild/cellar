@@ -215,19 +215,41 @@ pub async fn close_group_nodes_with_groups(
     hosts: &[RaftCells],
     expected: usize,
 ) -> Result<()> {
+    let mut failure = None;
     for (node, host) in nodes.into_iter().zip(hosts) {
-        let outcome = node.shutdown(ShutdownMode::Preserve).await?;
-        ensure!(
-            matches!(outcome, NodeOutcome::Stopped(_)),
-            "managed node stop: {outcome:?}"
-        );
-        let report = host.close().await?;
-        ensure!(
-            report.groups_total == expected
-                && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers
-        );
+        // A failed assertion must not leave the remaining voters/controllers
+        // running while the next fault configuration starts. Attempt both
+        // owners even after a stop failure, then report every failed check.
+        let outcome = node.shutdown(ShutdownMode::Preserve).await;
+        let report = host.close().await;
+        let joined: Result<()> = (|| {
+            let outcome = outcome?;
+            ensure!(
+                matches!(outcome, NodeOutcome::Stopped(_)),
+                "managed node stop: {outcome:?}"
+            );
+            let report = report?;
+            ensure!(
+                report.groups_total == expected,
+                "managed close group count: actual={} expected={expected}",
+                report.groups_total
+            );
+            ensure!(
+                report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers,
+                "managed close unresolved local producers: {:?}",
+                report.mutation_outcomes
+            );
+            Ok(())
+        })();
+        if let Err(error) = joined {
+            if failure.is_none() {
+                failure = Some(error);
+            } else {
+                eprintln!("additional managed voter close failure: {error:#}");
+            }
+        }
     }
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 
 pub fn checkpoint_limits() -> CellGroupCheckpointLimits {
