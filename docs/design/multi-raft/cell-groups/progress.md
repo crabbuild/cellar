@@ -32,6 +32,54 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 shared provider supervision and exact checkpoint gates
+
+**CG-17 remains open.** Runtime `be4657f87` connects the public `supervise`
+wrapper to shared provider journals and the committed native-work scheduler.
+Backend identities and complete policies bind the namespace schema. Task/wake
+updates commit together; cleanup preserves original resource and request IDs,
+checks current invocation authority and survives a failing business constructor.
+A deferred activation retains the resources needed to resume a parked writer.
+Contended lifecycle waits record a checkpoint before releasing that writer.
+
+Repeated provider gates can reuse an exact unchanged checkpoint of the same
+invocation. The SQL owner records its full-state marker separately from the
+pure-read watermark; new invocations, mutations and unproven binding bookkeeping
+require another checkpoint. S3 reuse retains the existing physical-custody,
+birth, fence and original-deadline checks. Public `Storage.sync()` is unchanged.
+The deterministic baseline `0bd71a7a7` captures four checkpoints plus the final
+receipt around two mutations. The fix requires two checkpoints plus the final
+receipt, and a fresh no-mutation invocation still records its own receipt.
+This measures committed versions in that workload, not a latency or load gain.
+
+At `be4657f87`, checkpoint provenance passes all four native and four real-RustFS
+image/minimum configurations. Native supervision and the ordinary journal and
+small-input workloads pass another twelve configurations: **sixteen native plus
+four RustFS configurations** across those complete functions. Twelve owning SQL,
+scheduler, dispatch and binding-recovery units and twelve existing ordinary
+provider/Fleet functions pass. The locked affected build and strict affected
+library/four-public-target Clippy pass. Runner checks pass 33 tests; the partial
+inventory now contains 18 entries/257 public symbols. `--suite provider-journals`
+provides fixed public entrypoints and retains every failure with `--keep-going`.
+
+The complete macOS/RustFS supervision function is **FAILED**. Before exact proof
+reuse, `f9490d78f` fails S3 Delete sequence 3; its trace fails Read sequence 2.
+Afterward, the unchanged workload reaches S3 retained restart but misses the
+original sixty-second lost-delete reconciliation oracle. A same-binary trace
+instead expires S3 Delete sequence 3. Both extent configurations remain unrun
+in these failed functions. The changing stage does not identify an exclusive
+cause, establish an original-budget deadline fix or qualify the whole function.
+All controls, original IDs, logs, frozen binaries and voter roots are retained.
+
+The merged Linux/ext4 RustFS comparison is pending; the earlier `5b3cd177e`
+binding-only Linux pass below cannot qualify this successor. The fixture backend
+checks identity and simulated absence; it does not establish real provider
+execution fencing, persistent volumes or native Container/SandboxCatalog support.
+WebSocket, deployment/clock, complete public API and lifecycle/fault/recovery
+matrices remain required. Acceptance stays **13/17 tasks, 147/195 cases and 0/32
+formal CG-17 entrypoints**. The generated plan and partial inventory do not waive
+those requirements.
+
 ### CG-17 binding settlement and Linux qualification
 
 **The scoped Linux settlement gate passes: 11/11 functions and 34 configurations**
@@ -173,7 +221,7 @@ API/lifecycle ledgers. macOS original-budget qualification, independent voter
 fault/load tests and the full primitive matrix remain required before broad
 compatibility or default-backend release claims.
 
-### CG-17 provider journals and local invocation authority
+### Previous provider journals and local invocation authority
 
 **CG-17 remains open.** Runtime `feb22476c` adds
 `RaftClass::provider_binding` and connects the public `BindingJournal` and

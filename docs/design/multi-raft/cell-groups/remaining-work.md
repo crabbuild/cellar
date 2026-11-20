@@ -41,6 +41,16 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
+Runtime `be4657f87` adds shared provider supervision, constructor-independent
+cleanup, resumable lifecycle waits and exact unchanged checkpoint reuse. The
+native and focused provider-proof gates pass, but macOS/RustFS supervision still
+fails after S3 progress: retained-restart reconciliation or Delete's original
+request deadline. Qualify the merged binding/provider source on Linux/ext4 next;
+the separate earlier Linux pass cannot stand in for it. Keep the original failures
+open and deliver real provider fencing/volume recovery, native Container/sandbox,
+WebSocket and complete public primitive/lifecycle support. The partial inventory
+now contains 257 public symbols. See the current checkpoint for exact results.
+
 Runtime `feb22476c` delivers declared provider journals and local invocation/proof
 authority through shared-group storage. Twelve RF3 configurations pass: eight
 native, including small caller-input limits, and four real RustFS. Declaration

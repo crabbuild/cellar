@@ -771,7 +771,9 @@ pub(crate) fn confirm_checkpoint_work(resources: &RaftStorageAuthority) -> Handl
     let proven = require_storage(resources, true).and_then(|()| {
         CURRENT_COMMAND.with(|current| {
             let current = current.borrow();
-            let frame = current.as_ref().context("missing checkpoint source command")?;
+            let frame = current
+                .as_ref()
+                .context("missing checkpoint source command")?;
             let Some(base) = frame.checkpoint_base.get() else {
                 return Ok(false);
             };

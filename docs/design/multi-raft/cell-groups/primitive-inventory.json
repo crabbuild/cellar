@@ -703,7 +703,20 @@
         "cellar::sdk::containers::BindingObservation",
         "cellar::sdk::containers::BindingLifecycleGuard",
         "cellar::sdk::containers::MAX_BINDINGS",
-        "cellar::sdk::containers::MAX_BINDING_BYTES"
+        "cellar::sdk::containers::MAX_BINDING_BYTES",
+        "cellar::sdk::containers::supervise",
+        "cellar::sdk::containers::Supervision",
+        "cellar::sdk::containers::Supervision::register",
+        "cellar::sdk::containers::MaintenancePolicy",
+        "cellar::sdk::containers::MaintenancePolicy::validate",
+        "cellar::sdk::containers::MaintenanceAction",
+        "cellar::sdk::containers::DeleteSafety",
+        "cellar::sdk::containers::BackendIdentity",
+        "cellar::sdk::containers::MaintenanceBackend",
+        "cellar::sdk::containers::MaintenanceBackend::identity",
+        "cellar::sdk::containers::MaintenanceBackend::delete_safety",
+        "cellar::sdk::containers::MaintenanceBackend::maintain",
+        "cellar::sdk::containers::RetentionExpired"
       ],
       "owners": [
         "crates/cellar/application/containers.rs",
@@ -711,7 +724,13 @@
         "crates/cellar/application/authority.rs",
         "crates/cellar/application/container_bindings.rs",
         "crates/cellar/application/consensus/class.rs",
-        "crates/cellar/storage/sqlite/container_bindings.rs"
+        "crates/cellar/storage/sqlite/container_bindings.rs",
+        "crates/cellar/application/container_supervision/mod.rs",
+        "crates/cellar/application/container_supervision/registry.rs",
+        "crates/cellar/application/container_supervision/controller.rs",
+        "crates/cellar/application/consensus/native_cell.rs",
+        "crates/cellar/storage/sqlite/container_maintenance.rs",
+        "crates/cellar/storage/sqlite/container_maintenance.sql"
       ],
       "schemas": [
         "Desired state, supervision and provider volumes"

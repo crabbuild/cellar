@@ -58,6 +58,24 @@ needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
 ## Primitive compatibility evidence
 
+`--suite provider-journals` runs the three fixed public journal, provider-proof
+and supervision functions in `native_cell_groups_primitives`. Both image forms
+and Quorum/S3 namespace minima retain their original request and recovery budgets.
+The runner records every standalone failure with `--keep-going`; zero selected
+or ignored-only results cannot pass.
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite provider-journals \
+  --backend /private/run/rustfs --output /private/run/provider-evidence \
+  --target-directory "$CARGO_TARGET_DIR" --keep-going
+```
+
+These are provider-journal and identity-checking maintenance fixtures on three
+native voters sharing one process. They do not execute a real provider, enforce
+remote execution fencing, restore provider volumes or qualify native Container
+and SandboxCatalog. Current failures and source-pinned results are tracked in
+the [integration checkpoint](../../docs/design/multi-raft/cell-groups/progress.md#current-integration-checkpoint).
+
 CG17-01's [coverage contract](../../docs/design/multi-raft/cell-groups/qualification.md#machine-readable-inventory-and-acceptance-evidence)
 has a partial SDK catalog and an independent admission verifier. Check them with:
 

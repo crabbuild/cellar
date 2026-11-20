@@ -22,6 +22,11 @@ constructor, retained event handle or storage transaction callback cannot open i
 Updates and `ProviderAuthority::before_effect` wait for the namespace's required
 Quorum or S3 checkpoint, then recheck the original invocation fence and deadline.
 An unfinished checkpoint remains an uncertain command, even after S3 returns.
+Repeated framework gates can share an unchanged checkpoint of the same invocation.
+The first effect still records its own unfinished receipt. Changed business or
+framework state requires a new proof; a pure-read watermark alone is insufficient.
+S3 reuse revalidates the exact physically verified source and its current authority.
+Public `Storage.sync()` continues to request a checkpoint.
 
 To enable scheduled cleanup, wrap the application with
 `cellar::sdk::containers::supervise(application, supervision)`. Matching backend

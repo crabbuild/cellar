@@ -4,7 +4,33 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current provider journal delivery
+## Current shared provider and binding integration
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). The complete published
+binding-settlement chain through `f04c72b0c` has been integrated; its separate Linux
+source `5b3cd177e` passes 11 functions/34 configurations on real RustFS. That is
+an earlier scoped result. Current runtime `be4657f87` adds schema-bound shared
+supervision, cleanup without business construction, resumable lifecycle waits
+and exact unchanged provider-checkpoint reuse. New invocations and all private
+mutations keep their required original proofs. Public Storage sync is unchanged.
+
+Current selected passes: 16 native RF3 configurations, four real-RustFS provider
+proof configurations, 12 owning units and 12 ordinary provider/Fleet functions.
+Strict affected Clippy and the locked build pass. The macOS/RustFS supervision
+whole function remains failed: one run reaches S3 retained restart but misses
+its 60-second retirement oracle; a same-binary trace expires Delete sequence 3.
+Preserve both failures and the earlier Read/Delete controls. Original budgets,
+identities, proof gates and unknown outcomes are unchanged.
+
+Next run the merged fixed binding/provider functions on constrained Linux/ext4
+voters and the same owned real RustFS backend. Each RF3 cohort shares one process;
+this cannot qualify independent voter failures or full primitive families. Then
+complete actual provider fencing/volume recovery, native Container/sandbox,
+WebSockets and all public API/lifecycle/feature drivers. CG-17 remains 0/32 formal
+entrypoints accepted; inventory is partial at 18 entries/257 symbols. See the
+[current checkpoint](progress.md#current-integration-checkpoint) for scope and pins.
+
+## Previous provider journal delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `feb22476c`
 connects declared protected provider journals and exact local invocation authority
