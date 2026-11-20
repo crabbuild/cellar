@@ -25,6 +25,21 @@ pub(crate) struct Work {
     pub lease_ms: u64,
 }
 
+/// Resource cleanup cannot make progress while a foreground lifecycle owner
+/// retains the cell writer. Refuse before enqueue instead of forcing that owner
+/// to park and publishing another waiting receipt. Discovery retains the same
+/// durable installation; other callback families keep queued writer admission.
+pub(crate) fn is_resource_reconciliation(
+    admission: super::CommandAdmission,
+    operation: &str,
+    input: &[u8],
+) -> bool {
+    admission.is_system()
+        && operation == OPERATION
+        && serde_json::from_slice::<Work>(input)
+            .is_ok_and(|work| work.reason == "resource-reconciliation")
+}
+
 fn exists(db: &Connection) -> Result<bool> {
     Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_raft_native_work')", [], |r| r.get(0))?)
 }

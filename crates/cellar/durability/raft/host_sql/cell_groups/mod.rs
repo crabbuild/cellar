@@ -915,12 +915,19 @@ impl CellGroupSqlPool {
             CellSqlStageMode::InvokeBefore(deadline),
             worker::Callback::Registered {
                 class,
+                input,
+                admission,
                 commits: Some(commits),
-                ..
             },
         ) = (mode, &callback)
         {
-            if class.is_cell_rpc(&attempt.request.operation) {
+            let maintenance =
+                crate::application::consensus::native_work::is_resource_reconciliation(
+                    *admission,
+                    &attempt.request.operation,
+                    input,
+                );
+            if class.is_cell_rpc(&attempt.request.operation) && !maintenance {
                 let fence = authority.activation_fence();
                 let domain = self.inner.workers[0].domain.clone();
                 let timeout = domain.sleep_until(deadline).map_err(|_| unavailable())?;

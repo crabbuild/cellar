@@ -11,9 +11,11 @@ impl Suspended {
         }
         // The source root is proven and only host-owned I/O can be polled.
         // Keep its admitted connection while uncontended, including bindings.
-        // Every queued or synchronously refused writer marks contention, so a
-        // target-write dependency can force this owner to park without an I/O
-        // wake. Resume still revalidates the original history/term and receipt.
+        // Foreground queued or synchronously refused writers mark contention,
+        // so a target-write dependency can force parking without an I/O wake.
+        // Resource cleanup instead declines busy admission: it cannot progress
+        // through a held lifecycle guard and must not force this owner to park.
+        // Resume still revalidates the original history/term and receipt.
         if !self.retention.lease.contended() && self.turn.waiting_on_owned_io() {
             return Ok(());
         }

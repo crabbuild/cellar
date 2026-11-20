@@ -384,13 +384,17 @@ impl CellCommandInvocation {
                 Err(CellDispatchError::Execution(ExecutionError::Busy))
                     if self.writer_wait && self.origin.is_none() && self.output.is_none() =>
                 {
-                    if self.admission_kind.is_system()
+                    if crate::application::consensus::native_work::is_resource_reconciliation(
+                        self.admission_kind,
+                        &self.request.contract.operation,
+                        &self.request.input,
+                    ) || (self.admission_kind.is_system()
                         && matches!(
                             self.request.contract.operation.as_str(),
                             crate::storage::raft_binding_recovery::CLAIM
                                 | crate::storage::raft_binding_recovery::SETTLE
                                 | crate::raft::execution::binding_seal::OPERATION
-                        )
+                        ))
                     {
                         // The durable maintenance scheduler rereads committed
                         // state on its next turn. Release this command slot
