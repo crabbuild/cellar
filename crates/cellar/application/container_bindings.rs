@@ -184,8 +184,8 @@ pub struct BindingCheckpoint {
 /// Records survive events, deleteAll and activation recovery; this handle does not.
 #[derive(Clone)]
 pub struct BindingJournal {
-    name: Arc<str>,
-    authority: Arc<ProviderAuthority>,
+    pub(super) name: Arc<str>,
+    pub(super) authority: Arc<ProviderAuthority>,
 }
 
 /// Serializes lifecycle transitions for one binding in the current activation.
@@ -193,6 +193,20 @@ pub struct BindingJournal {
 #[must_use = "keep the guard until lifecycle I/O and checkpointing have settled"]
 pub struct BindingLifecycleGuard {
     _guard: tokio::sync::OwnedMutexGuard<()>,
+    name: Arc<str>,
+    authority: Arc<ProviderAuthority>,
+}
+
+impl BindingLifecycleGuard {
+    pub(super) fn check(&self, context: &Context, journal: &BindingJournal) -> Result<()> {
+        self.authority.check(context)?;
+        ensure!(
+            self.name == journal.name,
+            "provider lifecycle guard belongs to another binding"
+        );
+        journal.check(context)?;
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -228,7 +242,7 @@ impl BindingJournal {
         Ok(journal)
     }
 
-    fn check<'a>(&self, context: &'a Context) -> Result<&'a str> {
+    pub(super) fn check<'a>(&self, context: &'a Context) -> Result<&'a str> {
         self.authority.check(context)?;
         let storage = context.storage()?;
         ensure!(
@@ -332,7 +346,11 @@ impl BindingJournal {
                 lock.lock_owned().await
             };
             journal.check(&context)?;
-            Ok(BindingLifecycleGuard { _guard: guard })
+            Ok(BindingLifecycleGuard {
+                _guard: guard,
+                name: journal.name,
+                authority: journal.authority,
+            })
         })
     }
 

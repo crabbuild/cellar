@@ -2613,6 +2613,17 @@ async fn provider_binding_journals_use_shared_quorum() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_execution_claims_fence_restarted_owners() -> Result<()> {
+    provider_bindings::qualify_execution_fencing(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS and an explicitly owned Docker socket/image"]
+async fn rustfs_docker_provider_execution_claims_stop_old_processes() -> Result<()> {
+    provider_bindings::qualify_execution_fencing(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn provider_journals_keep_checkpoint_and_caller_input_limits_separate() -> Result<()> {
     provider_bindings::qualify_small_input().await
 }

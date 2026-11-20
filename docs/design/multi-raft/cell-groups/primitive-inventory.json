@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "9685b5153b15258bccb04bd47b466a68545e2d178e25f93feade7d3c083b3ecb",
-    "crates/cellar/application/mod.rs": "3e7b4ef529c5ff279f7660b2dd25766aabf10806bdac0380469a8e229997c6af"
+    "crates/cellar/application/mod.rs": "b2a765059fa8494fa73de9e0f177c6e4e398cb268d8bdd1be61470e31fad39a6"
   },
   "entries": [
     {
@@ -716,7 +716,22 @@
         "cellar::sdk::containers::MaintenanceBackend::identity",
         "cellar::sdk::containers::MaintenanceBackend::delete_safety",
         "cellar::sdk::containers::MaintenanceBackend::maintain",
-        "cellar::sdk::containers::RetentionExpired"
+        "cellar::sdk::containers::RetentionExpired",
+        "cellar::sdk::containers::BindingJournal::fence_execution",
+        "cellar::sdk::containers::ExecutionClaim",
+        "cellar::sdk::containers::ExecutionClaim::history",
+        "cellar::sdk::containers::ExecutionClaim::binding",
+        "cellar::sdk::containers::ExecutionClaim::resource_key",
+        "cellar::sdk::containers::ExecutionClaim::sequence",
+        "cellar::sdk::containers::ExecutionClaim::owner_digest",
+        "cellar::sdk::containers::ExecutionClaim::checkpoint",
+        "cellar::sdk::containers::ExecutionFenceAuthority",
+        "cellar::sdk::containers::ExecutionFenceAuthority::identity",
+        "cellar::sdk::containers::ExecutionFenceAuthority::activate",
+        "cellar::sdk::containers::ExecutionGrant",
+        "cellar::sdk::containers::ExecutionGrant::claim",
+        "cellar::sdk::containers::ExecutionGrant::check",
+        "cellar::sdk::containers::ExecutionGrant::before_effect"
       ],
       "owners": [
         "crates/cellar/application/containers.rs",
@@ -730,10 +745,13 @@
         "crates/cellar/application/container_supervision/controller.rs",
         "crates/cellar/application/consensus/native_cell.rs",
         "crates/cellar/storage/sqlite/container_maintenance.rs",
-        "crates/cellar/storage/sqlite/container_maintenance.sql"
+        "crates/cellar/storage/sqlite/container_maintenance.sql",
+        "crates/cellar/application/container_execution.rs",
+        "crates/cellar/storage/sqlite/container_execution.rs"
       ],
       "schemas": [
-        "Desired state, supervision and provider volumes"
+        "Desired state, supervision and provider volumes",
+        "crates/cellar/storage/sqlite/container_execution.sql"
       ],
       "bindings": [
         "Real container or sandbox provider"

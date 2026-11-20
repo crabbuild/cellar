@@ -21,6 +21,7 @@ pub mod cells;
 pub(crate) mod concurrency;
 pub mod consensus;
 mod container_bindings;
+mod container_execution;
 pub(crate) mod container_supervision;
 pub mod containers;
 pub mod cron;

@@ -216,6 +216,48 @@ permission to replay an unresolved creation indefinitely.
 
 ## Authority, storage and recovery
 
+### Controller-enforced execution claims
+
+Shared-group hosts can call `journal.fence_execution(ctx, guard, authority).await?`
+with an explicitly configured `ExecutionFenceAuthority`. Its backend identity
+must exactly match the reserved binding. The framework records a protected
+execution sequence in the cell image and proves it at the invocation's original
+Quorum/S3 minimum before polling the controller. A new group/term or resource
+checkpoint advances that sequence; unchanged ownership and checkpoint reuse it. Group terms
+are not compared across movement. The resource key includes cluster, namespace,
+exact cell ID, cell incarnation and binding, and remains stable across ordinary
+movement and resource replacement.
+
+The call consumes the exact binding's original-invocation lifecycle guard and
+retains it through the returned grant and its effect gates. Drop the grant before
+acquiring another lifecycle guard. Do not change the binding checkpoint during
+provider I/O; an invalidated grant cannot publish a result.
+
+The controller must authenticate its caller, persist the high-water mark and
+stop or permanently revoke prior execution before acknowledging a higher claim.
+Every provider request and retained handle must carry the claim and be rejected
+if stale. An equal sequence with another owner or binding checkpoint must refuse.
+Lost controller state must refuse admission. Controller configuration belongs in
+the declared provider configuration digest; the claim is not a bearer credential.
+
+The returned `ExecutionGrant` belongs to the original invocation. Call
+`grant.before_effect(ctx).await?` before submitting provider work with its claim;
+this proves subsequent business changes and rechecks the original authority.
+Local checks cannot revoke an accepted remote command. A changed binding
+checkpoint requires a fresh grant. Lost responses retain the original sequence,
+resource and operation identities; neither a grant nor a timer authorizes replay
+of an unknown create or command. Fresh-history disaster recovery still requires
+permanent infrastructure fencing of the old history, including its external
+provider execution. A fresh resource key cannot bypass that revocation.
+
+This API supplies the framework/controller boundary. There is no default
+production authority, and it does not retrofit fencing into existing E2B,
+Vercel or native Container adapters. Those integrations and controller crash,
+partition and lost-response qualification remain required by CG-17. The Docker
+qualification fixture exercises process revocation with a controller that stays
+alive during retained voter restart; it does not qualify a durable production
+controller or independent voter-process failure.
+
 | Boundary | Behavior |
 | --- | --- |
 | Handle | Exactly one original root-cell invocation; reacquire for later events |

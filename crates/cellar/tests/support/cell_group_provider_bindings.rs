@@ -15,7 +15,13 @@ struct Probe {
     authority: Mutex<Option<Arc<ProviderAuthority>>>,
     context: Mutex<Option<Context>>,
     effects: AtomicUsize,
+    fence: Mutex<Option<Arc<dyn cellar::sdk::containers::ExecutionFenceAuthority>>>,
+    claims: Mutex<Vec<cellar::sdk::containers::ExecutionClaim>>,
+    fenced_effect: Mutex<Option<Arc<FencedEffect>>>,
 }
+
+type FencedEffect =
+    dyn Fn(cellar::sdk::containers::ExecutionClaim) -> HandlerFuture<()> + Send + Sync;
 
 struct Root(Storage, Arc<Probe>);
 
@@ -96,6 +102,32 @@ impl Cell for Root {
                     *self.1.authority.lock().unwrap() =
                         Some(Arc::new(context.container_provider_authority()?));
                     json!({"revision":checkpoint.revision,"record":checkpoint.record})
+                }
+                "Fence" | "FencedExec" => {
+                    let controller = self
+                        .1
+                        .fence
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .context("execution controller")?;
+                    let grant = journal
+                        .fence_execution(&context, _lifecycle, controller)
+                        .await?;
+                    grant.before_effect(&context).await?;
+                    if operation == "FencedExec" {
+                        let execute = self
+                            .1
+                            .fenced_effect
+                            .lock()
+                            .unwrap()
+                            .clone()
+                            .context("fenced provider submission")?;
+                        execute(grant.claim().clone()).await?;
+                    }
+                    grant.check(&context)?;
+                    self.1.claims.lock().unwrap().push(grant.claim().clone());
+                    json!({"sequence":grant.claim().sequence(), "key":hex::encode(grant.claim().resource_key()), "owner":grant.claim().owner_digest()})
                 }
                 "Confirm" => {
                     let prior = journal.load(&context)?.context("pending provider")?;
@@ -306,6 +338,13 @@ async fn call(
             bindings::options(sequence, minimum)?,
         )
         .await?)
+}
+
+#[path = "cell_group_provider_fencing.rs"]
+mod fencing;
+
+pub async fn qualify_execution_fencing(real_rustfs: bool, docker: bool) -> Result<()> {
+    fencing::qualify(real_rustfs, docker).await
 }
 
 pub async fn qualify(real_rustfs: bool) -> Result<()> {

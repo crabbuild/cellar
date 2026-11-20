@@ -33,6 +33,7 @@ pub(crate) use command::{ActiveCommand, CommandDatabase};
 pub use command::{CommandInputs, CommandTransaction};
 mod console;
 pub(crate) mod container_bindings;
+pub(crate) mod container_execution;
 pub(crate) mod container_maintenance;
 mod erase;
 mod event_schema;
@@ -438,6 +439,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
     container_bindings::check_schema(c)?;
+    container_execution::check_schema(c)?;
     sandbox_catalog::check_schema(c)?;
     sandbox_children::check_schema(c)?;
     sandbox_erasure::check_schema(c)?;
