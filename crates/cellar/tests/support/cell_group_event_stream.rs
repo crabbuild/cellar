@@ -4,8 +4,14 @@
 
 use super::*;
 
+#[path = "cell_group_event_ack_recovery.rs"]
+mod ack_recovery;
 #[path = "cell_group_event_activation.rs"]
 mod activation;
+
+pub async fn qualify_ack_recovery(real: bool, minimum: Durability) -> Result<()> {
+    Box::pin(ack_recovery::qualify(real, minimum)).await
+}
 pub use activation::qualify as qualify_retained_metadata;
 use cellar::sdk::event_stream::{self as events, BatchOptions, Event, Stream};
 use cellar::sdk::OutboxOptions;
@@ -103,7 +109,7 @@ pub fn registration() -> Result<()> {
     Ok(())
 }
 
-struct Caller(Stream<Order>);
+struct Caller(Stream<Order>, Option<Arc<ack_recovery::AckCut>>);
 
 impl Cell for Caller {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
@@ -179,7 +185,24 @@ impl Cell for Caller {
                         .map(|record| &record.event)
                         .collect::<Vec<_>>())
                 }
-                "Consume" => {
+                "RecoveryReady" => {
+                    let mut clear = false;
+                    let attempted: Result<()> = storage.transaction_sync(|tx| {
+                        tx.delete_all()?;
+                        clear = true;
+                        anyhow::bail!("rollback business and framework recovery probe")
+                    });
+                    ensure!(attempted.is_err());
+                    json!(clear)
+                }
+                "Consume" | "HoldAck" => {
+                    if method == "HoldAck" {
+                        self.1
+                            .as_ref()
+                            .context("Ack cut observer")?
+                            .calls
+                            .fetch_add(1, Ordering::AcqRel);
+                    }
                     let subscription = self.0.subscription("fulfillment")?;
                     let Some(batch) = subscription
                         .next_with_id(
@@ -210,7 +233,16 @@ impl Cell for Caller {
                     storage.sync().await?;
                     let receipt = batch.receipt().encode()?;
                     if args["ack"].as_bool() == Some(true) {
-                        batch.ack(&context).await?;
+                        let outcome = batch.ack(&context).await?;
+                        if method == "HoldAck" {
+                            ensure!(outcome == events::Acknowledgment::Acknowledged);
+                            let cut = self.1.as_ref().context("Ack cut observer")?;
+                            *cut.receipt.lock().unwrap() = Some(receipt.clone());
+                            cut.committed.notify_one();
+                            // Lose only the parent response, after the actual
+                            // child Ack satisfied its independent durability.
+                            return std::future::pending().await;
+                        }
                     }
                     json!({"receipt":receipt,"expires_ms":batch.expires_at_ms,"effects":storage.get_json("effects")?,"records":batch.records.iter().map(|r|&r.event).collect::<Vec<_>>()})
                 }
@@ -313,6 +345,19 @@ fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptio
 fn application_with_selector(
     named: bool,
 ) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    application_for_selector(named, None)
+}
+
+fn application_with_ack_cut(
+    cut: Option<Arc<ack_recovery::AckCut>>,
+) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    application_for_selector(false, cut)
+}
+
+fn application_for_selector(
+    named: bool,
+    cut: Option<Arc<ack_recovery::AckCut>>,
+) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
     let mut class =
         RaftClass::new("Counter", 1, [171; 32])?.initializer([172; 32], |_, _| Ok(()))?;
     for (index, name) in [
@@ -337,6 +382,11 @@ fn application_with_selector(
     .enumerate()
     {
         class = class.json_cell_rpc(name, [u8::try_from(index + 173)?; 32])?;
+    }
+    if cut.is_some() {
+        class = class
+            .json_cell_rpc("HoldAck", [229; 32])?
+            .json_cell_rpc("RecoveryReady", [230; 32])?;
     }
     let app = Arc::new(
         Registry::new(|context, invocation| {
@@ -386,8 +436,8 @@ fn application_with_selector(
             })
         })
         .raft_event_stream(definition())?
-        .raft_cell(class, |context, _| {
-            Ok(Arc::new(Caller(context.stream("ORDERS")?)))
+        .raft_cell(class, move |context, _| {
+            Ok(Arc::new(Caller(context.stream("ORDERS")?, cut.clone())))
         })?,
     );
     let mut options = configuration::options(SCRIPT);

@@ -51,6 +51,38 @@ CASES = (
 )
 
 SUITES = {
+    "binding-settlement": (
+        "native_cell_groups_primitives",
+        (
+            "rustfs_ordinary_named_cell_bindings_use_shared_group_quorum",
+            "rustfs_event_streams_activate_deliver_and_recover_through_shared_quorum",
+            "rustfs_axum_event_streams_activate_deliver_and_recover_through_shared_quorum",
+            "rustfs_event_streams_preserve_independent_target_s3_minimum",
+            "rustfs_axum_event_streams_preserve_independent_target_s3_minimum",
+            "rustfs_live_materialized_binding_recovery_and_unused_sequence",
+            "rustfs_live_extent_binding_recovery_and_unused_sequence",
+            "rustfs_interrupted_named_bindings_recover_after_retained_restart",
+            "rustfs_committed_event_ack_survives_interrupted_quorum_parent",
+            "rustfs_committed_event_ack_survives_interrupted_s3_parent",
+        ),
+        "source/target binding proof, Consume/Ack settlement and interrupted-call recovery",
+        "Both image modes, original native/Axum request budgets, Quorum/S3 source "
+        "minima and independent target S3 requirements. Live recovery is observed "
+        "without application traffic; checkpointed children and unused sequences "
+        "preserve their original identities. A parent held after a proven child Ack "
+        "must recover live or after retained restart without replaying inbox effects "
+        "or turning an unknown parent into success. One SQL worker per native voter. "
+        "No full primitive family, deployment/clock fault, independent voter process, "
+        "load or all-voter disk loss is qualified by this suite.",
+    ),
+    "binding-settlement-diagnostic": (
+        "native_cell_groups_primitives",
+        ("rustfs_trace_interrupted_s3_binding_settlement",),
+        "diagnostic of one extent/S3 checkpoint recovery configuration",
+        "Private maintenance and archive phases only; this is NOT the full binding "
+        "or recovery acceptance gate. Original deadlines, admission and assertions "
+        "are unchanged. A diagnostic pass cannot replace a failed public gate.",
+    ),
     "live-binding-recovery": (
         "native_cell_groups_primitives",
         ("rustfs_live_materialized_binding_recovery_and_unused_sequence",
@@ -799,7 +831,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
+    if args.keep_going and args.suite not in ("binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated primitive or binding recovery suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -850,7 +882,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -868,7 +900,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
+            elif args.suite in ("binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

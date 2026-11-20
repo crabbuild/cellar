@@ -377,3 +377,17 @@ pub(super) async fn trace_rustfs(rooted: bool) -> Result<()> {
         .try_init();
     qualify_rustfs(rooted).await
 }
+
+/// The exact failing extent/S3 checkpoint configuration, with private worker
+/// errors visible. It is a diagnostic, never the complete recovery gate.
+pub(super) async fn trace_checkpoint_s3() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::cell_groups::controller::effects=debug,cellar::raft::binding=debug,cellar::raft::group_archive=debug,cellar::raft::checkpoint=debug")
+        .with_test_writer().try_init()
+        .map_err(|error| anyhow::anyhow!("binding recovery subscriber: {error}"))?;
+    let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+        "diagnostic-binding-checkpoint-s3",
+        true,
+    )?));
+    Box::pin(run(true, Durability::S3, store, Cut::Checkpoint)).await
+}
