@@ -787,7 +787,8 @@ pub(crate) fn confirm_read_work(resources: &RaftStorageAuthority) -> HandlerFutu
             }
             let marker = command_marker(&connection)?;
             if frame.quorum_read_base.get() == Some(marker) {
-                return Ok(Some(Box::pin(async { Ok(()) })));
+                let read: HandlerFuture<()> = Box::pin(async { Ok(()) });
+                return Ok(Some(read));
             }
             let base = frame.s3_read_base.borrow();
             let Some(base) = base.as_ref().filter(|base| base.marker == marker) else {
@@ -800,14 +801,15 @@ pub(crate) fn confirm_read_work(resources: &RaftStorageAuthority) -> HandlerFutu
                 return Ok(None);
             };
             let fence = dispatch.fence.clone();
-            Ok(Some(Box::pin(async move {
+            let read: HandlerFuture<()> = Box::pin(async move {
                 proof.await?;
                 ensure!(
                     fence.continuation_current(),
                     crate::application::consensus::CommandFailure::Unavailable
                 );
                 Ok(())
-            })))
+            });
+            Ok(Some(read))
         })
     })();
     match confirmed {
