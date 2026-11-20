@@ -179,6 +179,19 @@ impl Control {
             state.running = false;
             self.deletes.fetch_add(1, Ordering::AcqRel);
             if self.lost_delete.swap(false, Ordering::AcqRel) {
+                // Pause the reply after the provider accepted DELETE. The
+                // original callback is cancelled by retained voter restart;
+                // its successor must inspect absence, never repeat DELETE.
+                drop(state);
+                self.delete_entered.store(true, Ordering::Release);
+                self.changed.notify_waiters();
+                loop {
+                    let released = self.released.notified();
+                    if self.release_delete.load(Ordering::Acquire) {
+                        break;
+                    }
+                    released.await;
+                }
                 anyhow::bail!("fixture lost accepted delete reply");
             }
         }
@@ -328,15 +341,6 @@ impl FencedMaintenanceBackend for Backend {
             } else {
                 grant
             };
-            self.0.delete_entered.store(true, Ordering::Release);
-            self.0.changed.notify_waiters();
-            loop {
-                let released = self.0.released.notified();
-                if self.0.release_delete.load(Ordering::Acquire) {
-                    break;
-                }
-                released.await;
-            }
             grant.before_effect(&context).await?;
             self.0.delete(grant.claim()).await
         })
@@ -544,7 +548,7 @@ pub async fn qualify(real_rustfs: bool, docker: bool) -> Result<()> {
                     .await?;
                     ensure!(
                         control.refreshes.load(Ordering::Acquire) == 1
-                            && control.deletes.load(Ordering::Acquire) == 0
+                            && control.deletes.load(Ordering::Acquire) == 1
                     );
                     let old = control
                         .claims
@@ -691,6 +695,28 @@ impl Docker {
                 && r["Config"]["Labels"]["cellar.cg17.request"].as_str()
                     == Some(pending().request_id.as_str()),
             "foreign resource metadata"
+        );
+        let limits = &r["HostConfig"];
+        ensure!(
+            limits["NanoCpus"].as_u64() == Some(100_000_000)
+                && limits["Memory"].as_u64() == Some(67108864)
+                && limits["MemorySwap"].as_u64() == Some(67108864)
+                && limits["RestartPolicy"]["Name"].as_str() == Some("no")
+                && r["Config"]["NetworkDisabled"].as_bool() == Some(true),
+            "managed fixture resource limits changed"
+        );
+        eprintln!(
+            "fenced_maintenance_docker_observation {}",
+            json!({
+                "id": r["Id"], "owner": self.owner,
+                "image": r["Image"], "state": r["State"],
+                "limits": {
+                    "cpus": limits["NanoCpus"], "memory": limits["Memory"],
+                    "memory_swap": limits["MemorySwap"],
+                    "restart": limits["RestartPolicy"]["Name"],
+                    "network_disabled": r["Config"]["NetworkDisabled"]
+                }
+            })
         );
         Ok(true)
     }
