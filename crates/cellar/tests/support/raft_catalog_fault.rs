@@ -326,6 +326,8 @@ pub struct Store {
     pub denied_prefix: std::sync::Mutex<Option<Path>>,
     pub denied_prefix_reads: AtomicUsize,
     pub deny_group_archive_writes: AtomicBool,
+    pub deny_binding_settlement_writes: AtomicBool,
+    pub denied_binding_settlement_writes: AtomicUsize,
     pub group_archive_writes: ArchiveWriteGate,
     pub denied_group_archive_writes: AtomicUsize,
     pub deny_registry_writes: std::sync::Arc<AtomicBool>,
@@ -541,6 +543,21 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        // Only the archive export of a real settlement image triggers this
+        // cut. No command/input/result callback is fabricated by the fixture.
+        let settlement = b"__sys_raft_binding_settle";
+        if self.deny_binding_settlement_writes.load(Ordering::Acquire)
+            && path.as_ref().contains("/cell-group-archives/")
+            && payload.iter().any(|bytes| {
+                bytes
+                    .windows(settlement.len())
+                    .any(|part| part == settlement)
+            })
+        {
+            self.denied_binding_settlement_writes
+                .fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
         let mut observation = StoreObservation::start(self, path, "put");
         if let Some(observation) = &mut observation {
             observation.bytes = payload.iter().map(|bytes| bytes.len()).sum();

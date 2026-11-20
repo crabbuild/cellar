@@ -64,6 +64,7 @@ SUITES = {
             "rustfs_interrupted_named_bindings_recover_after_retained_restart",
             "rustfs_committed_event_ack_survives_interrupted_quorum_parent",
             "rustfs_committed_event_ack_survives_interrupted_s3_parent",
+            "rustfs_binding_settlement_recovers_after_lost_s3_output",
         ),
         "source/target binding proof, Consume/Ack settlement and interrupted-call recovery",
         "Both image modes, original native/Axum request budgets, Quorum/S3 source "
@@ -74,6 +75,16 @@ SUITES = {
         "or turning an unknown parent into success. One SQL worker per native voter. "
         "No full primitive family, deployment/clock fault, independent voter process, "
         "load or all-voter disk loss is qualified by this suite.",
+    ),
+    "binding-settlement-output-loss": (
+        "native_cell_groups_primitives",
+        ("rustfs_binding_settlement_recovers_after_lost_s3_output",),
+        "controlled loss of a private S3 binding-settlement output",
+        "Actual settlement-image archive writes are denied beyond the admitted "
+        "maintenance operation window, then restored without application traffic. "
+        "Both images must retain the unknown parent, retire the exact target "
+        "sequence and confirm autonomous source settlement. No original deadline "
+        "or proof is weakened; voters share one process.",
     ),
     "binding-settlement-diagnostic": (
         "native_cell_groups_primitives",
@@ -831,7 +842,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
+    if args.keep_going and args.suite not in ("binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated primitive or binding recovery suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -882,7 +893,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -900,7 +911,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
+            elif args.suite in ("binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")
@@ -998,7 +1009,8 @@ def main():
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
                       "rustfs_cases": len(cases),
-                      "image_modes_per_case": 0 if args.suite == "immutable-payloads" else 2}), flush=True)
+                      "image_modes_per_case": (0 if args.suite == "immutable-payloads" else
+                                               1 if args.suite == "binding-settlement-diagnostic" else 2)}), flush=True)
 
 
 if __name__ == "__main__":
