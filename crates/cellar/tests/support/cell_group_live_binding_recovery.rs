@@ -18,6 +18,26 @@ async fn run(
     store: Arc<catalog_fault::Store>,
     cut: Cut,
 ) -> Result<()> {
+    run_case(rooted, minimum, store, cut, false).await
+}
+
+struct SettlementCut(Arc<catalog_fault::Store>);
+
+impl Drop for SettlementCut {
+    fn drop(&mut self) {
+        self.0
+            .deny_binding_settlement_writes
+            .store(false, Ordering::Release);
+    }
+}
+
+async fn run_case(
+    rooted: bool,
+    minimum: Durability,
+    store: Arc<catalog_fault::Store>,
+    cut: Cut,
+    lose_settlement: bool,
+) -> Result<()> {
     let checkpoint = Arc::new(Notify::new());
     let observer = Arc::new(bindings::RecoveryObserver::default());
     let observed_store = store.clone();
@@ -29,6 +49,7 @@ async fn run(
     ))
     .await?;
     let domain = cluster.fixtures[0].domain.clone();
+    let restore = SettlementCut(observed_store.clone());
     let work = domain
         .run(async {
             let group = cluster.history;
@@ -62,6 +83,7 @@ async fn run(
                 ),
             };
             let contract = source.contract(method)?;
+            observed_store.deny_binding_settlement_writes.store(lose_settlement, Ordering::Release);
             let rejected_before_recovery = match cut {
                 Cut::Checkpoint => {
                     let call = source
@@ -109,8 +131,21 @@ async fn run(
             };
             // Observe only synchronous host metrics until the node-owned worker
             // confirms settlement. Application probes cannot drive this phase.
+            let recovery_deadline = cellar::asyncrt::mono_ms() + 60_000;
+            if lose_settlement {
+                cellar::asyncrt::timeout(Duration::from_secs(20), async {
+                    while observed_store.denied_binding_settlement_writes.load(Ordering::Acquire) == 0 {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                }).await.context("actual settlement archive output cut was not reached")?;
+                // Force the admitted maintenance operation's original window
+                // to expire. Only the store fault is released; no request is
+                // retried, no deadline changed and no application probe sent.
+                cellar::asyncrt::sleep(Duration::from_millis(RaftEffectOptions::default().operation_timeout_ms + 250)).await;
+                observed_store.deny_binding_settlement_writes.store(false, Ordering::Release);
+            }
             cellar::asyncrt::sleep(Duration::from_secs(2)).await;
-            let end = cellar::asyncrt::mono_ms() + 60_000;
+            let end = if lose_settlement { recovery_deadline } else { cellar::asyncrt::mono_ms() + 60_000 };
             loop {
                 let mut observed = false;
                 for (host, initial) in cluster.hosts.iter().zip(&initial) {
@@ -239,6 +274,7 @@ async fn run(
         .await
         .map_err(anyhow::Error::from)
         .and_then(std::convert::identity);
+    drop(restore);
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;
@@ -390,4 +426,26 @@ pub(super) async fn trace_checkpoint_s3() -> Result<()> {
         true,
     )?));
     Box::pin(run(true, Durability::S3, store, Cut::Checkpoint)).await
+}
+
+/// Force loss of the maintenance response after a real S3 settlement-image
+/// upload has entered. Recovery still needs its original proof and identities.
+pub(super) async fn lost_settlement(real: bool) -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(if real {
+            catalog_fault::Store::around(rustfs::store("binding-settlement-output-loss", rooted)?)
+        } else {
+            catalog_fault::Store::default()
+        });
+        Box::pin(run_case(
+            rooted,
+            Durability::S3,
+            store,
+            Cut::Checkpoint,
+            true,
+        ))
+        .await
+        .with_context(|| format!("settlement output loss RustFS={real} extents={rooted}"))?;
+    }
+    Ok(())
 }

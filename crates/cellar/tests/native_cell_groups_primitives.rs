@@ -2935,3 +2935,14 @@ async fn rustfs_committed_event_ack_survives_interrupted_s3_parent() -> Result<(
 async fn rustfs_trace_interrupted_s3_binding_settlement() -> Result<()> {
     live_binding_recovery::trace_checkpoint_s3().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn binding_settlement_recovers_after_lost_s3_output() -> Result<()> {
+    live_binding_recovery::lost_settlement(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_binding_settlement_recovers_after_lost_s3_output() -> Result<()> {
+    live_binding_recovery::lost_settlement(true).await
+}
