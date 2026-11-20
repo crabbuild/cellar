@@ -16442,7 +16442,7 @@ Fix `df78ed957` on updated `main` persists a canonical SHA-256 fingerprint with
 its transfer receipt in the same transaction as the message. It binds every
 interpreted identity/payload field and exact decoded bytes, preserving array and
 ArrayBuffer equivalence. Fractional, negative and mismatched declared sizes
-refuse. A conflicting later transfer rolls back the complete batch; exact retries
+refuse. The complete batch is preflighted before its first write; exact retries
 still use their original receipt after message removal. No new transfer ID,
 weaker durability, admission limit or deadline hides a conflict.
 
@@ -16477,3 +16477,63 @@ the new fingerprint assertions against RustFS. External compiler overlap is
 recorded without assigning an exclusive timing cause. The old main source also
 predates the coordinated integration's immutable Queue inspection; integration
 qualification is kept separate.
+
+
+The first coordinated integration at `44f5eb214` exposes a second issue rather
+than qualifying the negative oracle. Native and Axum materialized runs complete
+ordinary DLQ delivery, purge, retained restart and exact replay, then a known
+payload conflict becomes ambiguous `Unavailable` instead of a settled RPC error.
+Their extent runs are unrun. The existing native cross-deployment fault case
+passes both images. Preserve the failed campaign and six voter disks in
+`cellar-queue-transfer-integrated-rustfs-20261119-01`.
+
+Runtime `3500e49c5` fixes that distinction. A private refusal type identifies
+malformed payload fields and immutable transfer conflicts. The receiver checks
+all existing receipts and duplicate IDs inside one transaction before writing;
+a conflict returns only after that read-only transaction closes successfully.
+The broker encodes the refusal as an ordinary RPC result with its selected
+Quorum/S3 receipt. Capacity, SQL, rollback and proof failures retain their
+existing failure and ambiguity semantics. The transfer operation digest binds
+this response contract. The public fixture distinguishes a settled conflict from
+a host/transport failure; neither satisfies the other's oracle. Backport
+`9667e6e14` carries only this change onto the isolated public follow-up.
+
+The unchanged scoped real-RustFS gate at `3500e49c5` is **PASSED: 3/3 exact cases,
+6/6 image configurations**:
+
+| Exact public case | Both image modes | Elapsed |
+| --- | --- | --- |
+| Native retained transfer replay/conflict | Pass | 81.155 seconds |
+| Axum retained transfer replay/conflict | Pass | 97.441 seconds |
+| Existing native cross-deployment fault/retention | Pass | 163.504 seconds |
+
+The retained record and verified executable are in
+`cellar-queue-transfer-refusal-rustfs-20261119-01`. Its runtime includes committed
+main-thread source `376eec61c`; this pass is separate from the failed older-main
+campaign, and does not erase it. Two owning refusal-classification units and
+strict library/affected-public-target Clippy pass on this runtime. Original
+request/callback budgets, admission, one SQL worker per voter and all proof and
+ownership guards remain. Voters share one native process. RustFS has one CPU/two
+GiB in the dedicated four-CPU/eight-GiB VM, now stopped with objects retained.
+
+Next finish source/target S3 binding and Consume/Ack settlement, interrupted-call
+recovery and safe sequence sealing, then Queue load and the filesystem/payload
+and provider lifecycle matrices. Full-size/clock/deployment faults, independent
+voter crashes, managed disk-loss recovery and all 32 formal CG-17 cases remain
+required. No complete primitive family or release gate is accepted; task
+acceptance stays **13/17 tasks and 147/195 cases**.
+
+
+The isolated public backport at `9667e6e14` passes all three native Queue
+conformance/schema cases and strict Clippy for the library and both affected
+integration targets. Canonical formatting and layout cover 2,282 Rust files;
+27 runner tests, 44 plan tests, documentation checks and the partial primitive
+catalogue pass. The generated `implementation-plan.md` is current. Full CLI plan
+validation still refuses the missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`; no evidence is waived. Final logs,
+source-scope fidelity and separate red/green campaign records are retained in
+`cellar-queue-transfer-delivery-20261119-01`. No standalone older-base RustFS
+pass is claimed. All owned build/runtime handles are joined; the RustFS backend
+and dedicated VM are stopped with objects and failed disks retained. Draft
+PR [#177](https://github.com/crabbuild/cellar/pull/177) carries the isolated
+follow-up pending shared-runtime integration.

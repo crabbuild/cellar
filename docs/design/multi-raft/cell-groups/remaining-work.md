@@ -39,9 +39,14 @@ full disaster profile remain open.
 The [2026-11-19 Queue audit](progress.md#cg-17-queue-transfer-payload-identity)
 finds and implements complete-payload binding for retained DLQ transfer receipts.
 Previously changed bytes could reuse the old acknowledgement after redrive had
-removed the message. Preserve exact retries, reject conflicts atomically and
-qualify both public ingresses plus lost-S3-reply/restart behavior. This internal
-schema cutover requires fresh Queue roots and matching Raft namespaces.
+removed the message. The receiver now preflights the complete batch and returns
+known conflicts as Quorum/S3-protected RPC errors; capacity/storage/proof failures
+retain their existing failure semantics. Runtime `3500e49c5` passes all three
+scoped real-RustFS cases and six native/Axum image configurations, including
+retained restart and the existing lost-S3-reply fault case. The older standalone
+campaign remains failed. Public backport `9667e6e14` requires the corresponding
+shared-runtime integration for that qualification. This internal schema cutover
+requires fresh Queue roots and matching Raft namespaces.
 
 At coordinated snapshot `c2722358b`, public S3 bindings and EventStream settlement
 still fail their original budgets. Keep those shared proof/Consume/Ack paths,
