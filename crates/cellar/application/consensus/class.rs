@@ -1674,6 +1674,7 @@ impl RaftClass {
                 operation,
                 crate::storage::raft_binding_recovery::CLAIM
                     | crate::storage::raft_binding_recovery::SETTLE
+                    | crate::storage::raft_binding_recovery::CONFIRM
                     | crate::storage::raft_payloads::RETIRE
             ) {
                 return Some(OperationContract {
@@ -1872,6 +1873,7 @@ impl RaftClass {
             contract.operation.as_str(),
             crate::storage::raft_binding_recovery::CLAIM
                 | crate::storage::raft_binding_recovery::SETTLE
+                | crate::storage::raft_binding_recovery::CONFIRM
         ) {
             let _guard = CallbackGuard::enter()?;
             anyhow::ensure!(
@@ -1892,6 +1894,16 @@ impl RaftClass {
                     )?,
                 )?);
             }
+            if contract.operation == crate::storage::raft_binding_recovery::CONFIRM {
+                crate::storage::raft_binding_recovery::confirm(
+                    &connection,
+                    scope,
+                    origin,
+                    request.durability,
+                    &serde_json::from_slice(input)?,
+                )?;
+                return Ok(vec![1]);
+            }
             let settlement = serde_json::from_slice(input)?;
             crate::storage::raft_binding_recovery::settle(
                 &connection,
@@ -1899,6 +1911,7 @@ impl RaftClass {
                 origin,
                 request.durability,
                 &settlement,
+                request,
             )?;
             return Ok(vec![1]);
         }
@@ -2179,6 +2192,8 @@ impl RaftClass {
             hash.update(crate::raft::execution::binding_seal::contract().digest);
             hash.update(crate::storage::raft_binding_recovery::CLAIM.as_bytes());
             hash.update(crate::storage::raft_binding_recovery::SETTLE.as_bytes());
+            hash.update(crate::storage::raft_binding_recovery::CONFIRM.as_bytes());
+            hash.update(b"binding-settlement-confirmation-1");
             hash.update(crate::storage::raft_payloads::RETIRE.as_bytes());
         }
         if !self.system_commands.is_empty() {

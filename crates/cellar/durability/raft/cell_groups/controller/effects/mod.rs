@@ -3,6 +3,7 @@
 //! One bounded node turn discovers committed work through the manifest index.
 //! Cursors are hints per physical group; no cell owns a task, timer or cache.
 
+mod binding_confirmation;
 mod turn;
 
 use super::*;

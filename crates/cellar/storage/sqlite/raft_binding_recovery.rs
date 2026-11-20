@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 pub(crate) const CLAIM: &str = "__sys_raft_binding_claim";
 pub(crate) const SETTLE: &str = "__sys_raft_binding_settle";
+pub(crate) const CONFIRM: &str = "__sys_raft_binding_confirm";
 pub(crate) const MAX_METADATA: usize = 16 * 1024;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -30,6 +31,26 @@ pub(crate) struct Pending {
     pub body: IntentWire,
     pub selected: Option<[u8; 16]>,
     pub digest: [u8; 32],
+    pub confirmation: Option<ReceiptReference>,
+}
+
+/// An exact private maintenance receipt, never a target business retry.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReceiptReference {
+    pub client: [u8; 16],
+    pub sequence: u64,
+    pub retry_until_ms: u64,
+    pub durability: u8,
+    pub candidate_lost: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Confirmation {
+    pub key: Key,
+    pub digest: [u8; 32],
+    pub receipt: ReceiptReference,
 }
 
 impl Pending {
@@ -68,15 +89,25 @@ fn present(connection: &Connection) -> Result<bool> {
 
 fn read(connection: &Connection, key: &Key) -> Result<Option<(Pending, u8)>> {
     let row = connection.query_row(
-        "SELECT format,fingerprint,CASE WHEN typeof(body)='blob' AND length(body)<=?4 THEN body ELSE NULL END,phase,selected FROM __sys_raft_binding_intents WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3",
+        "SELECT format,fingerprint,CASE WHEN typeof(body)='blob' AND length(body)<=?4 THEN body ELSE NULL END,phase,selected,CASE WHEN typeof(settlement)='blob' AND length(settlement)<=1024 THEN settlement ELSE NULL END,settlement_client,settlement_sequence FROM __sys_raft_binding_intents WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3",
         params![key.client.as_slice(),key.sequence.to_be_bytes().as_slice(),key.ordinal.to_be_bytes().as_slice(),MAX_METADATA],
-        |row| Ok((row.get::<_,u8>(0)?,row.get::<_,Vec<u8>>(1)?,row.get::<_,Vec<u8>>(2)?,row.get::<_,u8>(3)?,row.get::<_,Option<Vec<u8>>>(4)?)),
+        |row| Ok((row.get::<_,u8>(0)?,row.get::<_,Vec<u8>>(1)?,row.get::<_,Vec<u8>>(2)?,row.get::<_,u8>(3)?,row.get::<_,Option<Vec<u8>>>(4)?,row.get::<_,Option<Vec<u8>>>(5)?,row.get::<_,Option<Vec<u8>>>(6)?,row.get::<_,Option<Vec<u8>>>(7)?)),
     ).optional()?;
-    let Some((format, fingerprint, bytes, phase, selected)) = row else {
+    let Some((
+        format,
+        fingerprint,
+        bytes,
+        phase,
+        selected,
+        confirmation,
+        pinned_client,
+        pinned_sequence,
+    )) = row
+    else {
         return Ok(None);
     };
     ensure!(
-        format == 1 && fingerprint.as_slice() == key.fingerprint && phase <= 4,
+        format == 1 && fingerprint.as_slice() == key.fingerprint && phase <= 5,
         CommandFailure::CorruptState
     );
     let body: IntentWire = serde_json::from_slice(&bytes)?;
@@ -104,6 +135,27 @@ fn read(connection: &Connection, key: &Key) -> Result<Option<(Pending, u8)>> {
                 .map_err(|_| anyhow::anyhow!(CommandFailure::CorruptState))
         })
         .transpose()?;
+    let confirmation = match (phase, confirmation, pinned_client, pinned_sequence) {
+        (5, Some(bytes), Some(client), Some(sequence)) => {
+            let reference: ReceiptReference = serde_json::from_slice(&bytes)?;
+            cellar_logic::consensus::ClientId::new(reference.client)?;
+            ensure!(
+                durability(reference.durability)? >= durability(body.source_durability)?,
+                CommandFailure::CorruptState
+            );
+            ensure!(
+                reference.sequence != 0
+                    && reference.retry_until_ms != 0
+                    && client.as_slice() == reference.client
+                    && sequence.as_slice() == reference.sequence.to_be_bytes(),
+                CommandFailure::CorruptState
+            );
+            Some(reference)
+        }
+        (5, _, _, _) => anyhow::bail!(CommandFailure::CorruptState),
+        (_, None, None, None) => None,
+        _ => anyhow::bail!(CommandFailure::CorruptState),
+    };
     let mut hash = Sha256::new();
     hash.update(bytes);
     hash.update([u8::from(selected.is_some())]);
@@ -116,6 +168,7 @@ fn read(connection: &Connection, key: &Key) -> Result<Option<(Pending, u8)>> {
             body,
             selected,
             digest: hash.finalize().into(),
+            confirmation,
         },
         phase,
     )))
@@ -203,6 +256,11 @@ pub(crate) fn claim(
             return Ok(None);
         };
         source(&pending, history, origin, policy)?;
+        if phase == 5 {
+            // Only receipt confirmation may retire this row. A stale claim
+            // must not erase the durable rediscovery obligation.
+            return Ok(None);
+        }
         ensure!(
             now >= pending.body.deadline_unix_ms,
             CommandFailure::Unavailable
@@ -213,7 +271,7 @@ pub(crate) fn claim(
             remove(connection, key)?;
             return Ok(None);
         }
-        let changed=connection.execute("UPDATE __sys_raft_binding_intents SET phase=4 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND format=1 AND phase!=3",params![key.client.as_slice(),key.sequence.to_be_bytes().as_slice(),key.ordinal.to_be_bytes().as_slice(),key.fingerprint.as_slice()])?;
+        let changed=connection.execute("UPDATE __sys_raft_binding_intents SET phase=4 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND format=1 AND phase IN(0,1,2,4)",params![key.client.as_slice(),key.sequence.to_be_bytes().as_slice(),key.ordinal.to_be_bytes().as_slice(),key.fingerprint.as_slice()])?;
         ensure!(changed == 1, CommandFailure::CorruptState);
         Ok(Some(pending))
     })
@@ -225,6 +283,7 @@ pub(crate) fn settle(
     origin: Origin,
     policy: Durability,
     settlement: &Settlement,
+    request: &crate::raft::execution::CommandRequest,
 ) -> Result<()> {
     as_framework_sql(|| {
         ensure!(!connection.is_autocommit(), CommandFailure::CorruptState);
@@ -233,9 +292,31 @@ pub(crate) fn settle(
         };
         source(&pending, history, origin, policy)?;
         ensure!(
-            phase == 4 && pending.digest == settlement.digest,
+            matches!(phase, 4 | 5) && pending.digest == settlement.digest,
             CommandFailure::CommandConflict
         );
+        ensure!(
+            request.operation == SETTLE && request.durability >= policy,
+            CommandFailure::CommandConflict
+        );
+        let reference = ReceiptReference {
+            client: request.id.client.bytes(),
+            sequence: request.id.sequence(),
+            retry_until_ms: request.retry_until_ms,
+            durability: if request.durability == Durability::S3 {
+                2
+            } else {
+                1
+            },
+            candidate_lost: settlement.candidate_lost,
+        };
+        if phase == 5 {
+            ensure!(
+                pending.confirmation.as_ref() == Some(&reference),
+                CommandFailure::CommandConflict
+            );
+            return Ok(());
+        }
         let body = &pending.body;
         if settlement.candidate_lost {
             ensure!(
@@ -247,7 +328,54 @@ pub(crate) fn settle(
         }
         let count=connection.execute("UPDATE __sys_raft_binding_lanes SET busy=0 WHERE epoch=?1 AND lane=?2 AND sequence=?3 AND busy=1",params![body.epoch.as_slice(),body.lane,body.serial.to_be_bytes().as_slice()])?;
         ensure!(count == 1, CommandFailure::CorruptState);
-        remove(connection, &settlement.key)
+        // Quorum commitment can precede the required S3 response. Retain a
+        // bounded, payload-free confirmation obligation across that loss.
+        let encoded = serde_json::to_vec(&reference)?;
+        ensure!(encoded.len() <= 1024, CommandFailure::CorruptState);
+        let count=connection.execute("UPDATE __sys_raft_binding_intents SET phase=5,args=X'',settlement=?5,settlement_client=?6,settlement_sequence=?7 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND phase=4",
+            params![settlement.key.client.as_slice(),settlement.key.sequence.to_be_bytes().as_slice(),settlement.key.ordinal.to_be_bytes().as_slice(),settlement.key.fingerprint.as_slice(),encoded,reference.client.as_slice(),reference.sequence.to_be_bytes().as_slice()])?;
+        ensure!(count == 1, CommandFailure::CorruptState);
+        Ok(())
+    })
+}
+
+/// The owning adapter must independently prove the referenced receipt first.
+/// Cleanup never changes a lane, which may already have a newer reservation.
+pub(crate) fn confirm(
+    connection: &Connection,
+    history: &CellHistory,
+    origin: Origin,
+    policy: Durability,
+    confirmation: &Confirmation,
+) -> Result<()> {
+    as_framework_sql(|| {
+        ensure!(!connection.is_autocommit(), CommandFailure::CorruptState);
+        let Some((pending, phase)) = read(connection, &confirmation.key)? else {
+            return Ok(());
+        };
+        source(&pending, history, origin, policy)?;
+        ensure!(
+            phase == 5
+                && pending.digest == confirmation.digest
+                && pending.confirmation.as_ref() == Some(&confirmation.receipt),
+            CommandFailure::CommandConflict
+        );
+        remove(connection, &confirmation.key)
+    })
+}
+
+/// Confirmation owns its exact receipt even after the ordinary retry horizon.
+/// The existing scheduler releases this pin only after real output proof.
+pub(crate) fn prunable(
+    connection: &Connection,
+    client: cellar_logic::consensus::ClientId,
+    through: u64,
+) -> Result<bool> {
+    as_framework_sql(|| {
+        if !present(connection)? {
+            return Ok(true);
+        }
+        Ok(!connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_binding_intents WHERE phase=5 AND settlement_client=?1 AND settlement_sequence<=?2)", params![client.bytes().as_slice(),through.to_be_bytes().as_slice()], |row| row.get::<_,bool>(0))?)
     })
 }
 

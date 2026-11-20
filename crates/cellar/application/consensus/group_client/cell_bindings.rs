@@ -230,6 +230,10 @@ impl Host for BindingHost {
         let owner = self.owner();
         Box::pin(async move {
             let owner = owner?;
+            anyhow::ensure!(
+                pending.confirmation.is_none(),
+                super::super::CommandFailure::UnsupportedCapability
+            );
             let body = &pending.body;
             let history = CellHistory {
                 cluster: ClusterId::new(body.cluster)?,

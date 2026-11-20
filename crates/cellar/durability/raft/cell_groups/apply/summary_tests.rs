@@ -75,6 +75,14 @@ fn call_obligations_schedule_recovery_and_unresolved_calls_prevent_idle() {
     assert_eq!(read(&db, 4).unwrap().pending_calls, 0);
     db.execute("UPDATE __sys_raft_binding_intents SET phase=5", [])
         .unwrap();
+    assert_eq!(
+        read(&db, 4).unwrap().pending_calls,
+        4,
+        "confirmation-only work must prevent idle retirement"
+    );
+    assert_eq!(read(&db, 4).unwrap().next_due_unix_millis(), Some(20));
+    db.execute("UPDATE __sys_raft_binding_intents SET phase=6", [])
+        .unwrap();
     assert!(read(&db, 4).is_err());
 }
 
