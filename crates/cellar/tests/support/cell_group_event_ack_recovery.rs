@@ -107,13 +107,20 @@ async fn run(real: bool, rooted: bool, retained: bool, minimum: Durability) -> R
         None,
         FirstGroupSetup::Normal,
     ))
-    .await?;
+    .await
+    .context("Ack recovery managed cluster startup")?;
     let work = domain
         .run(async {
-            named_service::activate_at(&cluster, "stream-archive", 0).await?;
-            named_service::activate_at(&cluster, "catalog-archive", 1).await?;
-            for node in &cluster.nodes {
-                node.activate_event_resources().await?;
+            named_service::activate_at(&cluster, "stream-archive", 0)
+                .await
+                .context("Ack recovery stream archive activation")?;
+            named_service::activate_at(&cluster, "catalog-archive", 1)
+                .await
+                .context("Ack recovery catalog archive activation")?;
+            for (index, node) in cluster.nodes.iter().enumerate() {
+                node.activate_event_resources().await.with_context(|| {
+                    format!("Ack recovery initial resource activation node={index}")
+                })?;
             }
             let producer = CellHistory {
                 cluster: cluster.history.cluster,
@@ -302,9 +309,12 @@ async fn run(real: bool, rooted: bool, retained: bool, minimum: Durability) -> R
         .await
         .map_err(anyhow::Error::from)
         .and_then(std::convert::identity);
-    let joined =
-        managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
-            .await;
+    let joined = managed_fixture::close_group_nodes_with_groups(
+        std::mem::take(&mut cluster.nodes),
+        &cluster.hosts,
+        1 + cluster.fixtures[0].additional_namespaces.len(),
+    )
+    .await;
     if work.is_err() || joined.is_err() {
         for root in std::mem::take(&mut cluster.roots) {
             eprintln!(
