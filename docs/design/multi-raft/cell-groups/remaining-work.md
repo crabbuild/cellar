@@ -36,6 +36,66 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Append replication overlap: current qualification and gaps
+
+Source `691c6d87` includes main `2f083f14`; compiler inputs are
+`ba33983912c795014fc00a3b2caa9f7e3e37ce7ed2d131465a329e7f7b34d24b`. Eligible stable-term Ready append messages
+now enter the bounded outbox after exact log-worker admission while local sync
+runs. The node schedules only eligible histories in that batch; waiting groups
+sleep when append output drains. Follower replies, read/applied publication,
+SDK receipts and required S3 coverage retain their existing proofs. Worker,
+admission, timeout and service-resource limits stay fixed.
+
+The matched owner regression changes **zero to two early append messages** under
+held leader sync. Both actual peer disks advance; follower replies and leader
+publication remain gated, restart restores exact bytes, and cancellation retains
+the physical owner. A wrapper control exposed missing group scheduling before
+the corrected source passed **eight focused controls**. The complete current
+execution target now passes **234 / 0 / 2 existing ignores**, following ten
+isolated fixture controls. Fixtures explicitly join follower Applied publication
+and previously admitted peer frames within their original five-/twenty-second
+bounds; every original assertion remains. Prior failures stay retained.
+
+Full library **1,266 passed / 2 existing ignores** and selected primitives
+**12 passed / 4 failed** are reused only after Cargo emits byte-identical
+executables and profiles for current inputs. Ordinary/Axum SQL and KV, ordinary
+Queue callbacks, operator reads, long-callback/cross-deployment controls and
+discovery pass. All four remaining primitive failures are original Queue load
+cases. Strict Clippy passes without an override; repository checks pass.
+
+New mutation qualification retains node disks and concrete synthetic-memory
+objects, including successful fault controls: **31 snapshots / 22,463 objects /
+336,442,442 bytes**. Keys stay in private manifests; exported copies are
+nontransactional diagnostics. Earlier failed SQL/Queue synthetic backends were
+not exported; those histories remain incomplete backend evidence despite retained
+node media, raw identities/logs and verified copies. No history is reset or
+mutation reissued. See the [source-bound record](append-replication-qualification-2026-11-20.json).
+
+Remaining priorities:
+
+1. **P0 — Queue progress:** original-bound C2/C4 producer/source-RPC/consumer
+   progress and exact acknowledged-message drain.
+2. **P0 — Recovery and release:** the earlier materialized recovery-close case
+   reports committed index **7**, applied/archived **6**, with no unresolved local
+   producers. Complete shutdown-prefix/fenced-recovery, current-source SDK,
+   routing/read refusal, historical/large/streaming KV, backend-fault and release
+   acceptance remain open.
+3. **P1 — Complete OPT-01–08:** measured fairness and persistence/ReadIndex/archive
+   batching, physical shared-file release/once-only credit, reserve-aware
+   placement and interrupted lifecycle.
+4. **P2 — Original constrained comparison:** read-only inspection at
+   **2026-11-20T08:44:08.665066+00:00** finds **13,475,840 available
+   bytes**, below the unchanged **6,442,450,944-byte reserve**.
+   Original identity/resources/start match, with zero restarts; no case is
+   admitted. Preserve three 1-vCPU/2-GiB Colima nodes, RF3/three groups/shared
+   RustFS; SQL/KV/Queue x Quorum/Quorum+S3/Fleet/Bucket x C1/4/16, 256-byte
+   values, Queue batch eight, reversed repetitions and original 60-second windows.
+
+These controls qualify a bounded overlap mechanism. No constrained throughput,
+latency percentile, Fleet/Bucket conclusion or complete OPT/CG task is accepted.
+Earlier sections below retain their original source boundaries.
+
+
 ### Owned callback discovery and current priorities
 
 Compiler inputs `de694bac16735691391100bf6888797fa3adb1b1ed671cbc4f762fde78a38a4f`
