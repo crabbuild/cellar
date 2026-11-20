@@ -296,6 +296,8 @@ impl BindingJournal {
     /// load the checkpoint under the guard before deciding or issuing effects.
     /// Command/file work stays concurrent and must check its original generation.
     /// Acquisition is cancellable; do not reacquire while holding this guard.
+    /// A contended shared-group wait parks its private writer; pending source
+    /// writes retain their original checkpoint durability before suspension.
     pub fn lock_lifecycle(&self, context: &Context) -> HandlerFuture<BindingLifecycleGuard> {
         let prepared = (|| {
             self.check(context)?;
@@ -310,7 +312,23 @@ impl BindingJournal {
         Box::pin(async move {
             let lock = prepared?;
             journal.check(&context)?;
-            let guard = lock.lock_owned().await;
+            let guard = if context.raft_storage.is_some() {
+                match lock.clone().try_lock_owned() {
+                    Ok(guard) => guard,
+                    Err(_) => {
+                        // The owner of this lock can need its writer again to
+                        // finish a checkpoint. Waiting with our private writer
+                        // would prevent that owner from releasing the lock.
+                        crate::storage::capture_raft_dispatch()?
+                            .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
+                            .schedule_read(move |_| lock.lock_owned())
+                            .future
+                            .await?
+                    }
+                }
+            } else {
+                lock.lock_owned().await
+            };
             journal.check(&context)?;
             Ok(BindingLifecycleGuard { _guard: guard })
         })

@@ -2637,7 +2637,7 @@ fn provider_supervision_policies_bind_the_namespace_contract() -> Result<()> {
 #[ignore = "diagnostic only: unchanged provider supervision with settlement tracing"]
 async fn trace_provider_supervision_command_settlement() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::provider_qualification=debug")
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
         .with_test_writer()
         .try_init()
         .map_err(|error| anyhow::anyhow!("initialize supervision diagnostic logging: {error}"))?;
