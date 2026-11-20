@@ -90,9 +90,12 @@ pub(crate) enum Operation {
     CellCommandOutputCheck,
     CellCommandOutputWait,
     CellCommandS3Freshness,
+    CellCommandPrepare,
+    CellCommandSubmit,
+    CellCommandSettle,
 }
 
-const OPERATIONS: [Operation; 53] = [
+const OPERATIONS: [Operation; 56] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -146,6 +149,9 @@ const OPERATIONS: [Operation; 53] = [
     Operation::CellCommandOutputCheck,
     Operation::CellCommandOutputWait,
     Operation::CellCommandS3Freshness,
+    Operation::CellCommandPrepare,
+    Operation::CellCommandSubmit,
+    Operation::CellCommandSettle,
 ];
 
 impl Operation {
@@ -204,6 +210,9 @@ impl Operation {
             Self::CellCommandOutputCheck => "cell_command_output_check",
             Self::CellCommandOutputWait => "cell_command_output_wait",
             Self::CellCommandS3Freshness => "cell_command_s3_freshness",
+            Self::CellCommandPrepare => "cell_command_prepare",
+            Self::CellCommandSubmit => "cell_command_submit",
+            Self::CellCommandSettle => "cell_command_settle",
         }
     }
 }

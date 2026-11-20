@@ -2355,6 +2355,11 @@ async fn queue_operator_reads_do_not_append_mutations() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owned_queue_callbacks_do_not_repeat_discovery_sql() -> Result<()> {
+    Box::pin(queues::qualify_owned_callback_scans()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
     Box::pin(queues::qualify_load(false, 2)).await
 }

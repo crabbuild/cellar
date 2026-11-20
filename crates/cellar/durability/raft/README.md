@@ -1152,6 +1152,16 @@ waiter expiry does not complete a node-owned phase; timers follow their actual
 future lifetime and distinguish returned errors from abandonment. These static
 metric names grant no authority and change no deadline, admission or proof order.
 
+Local execution also exposes `cell_command_prepare`, `cell_command_submit` and
+`cell_command_settle`. Preparation includes writer/authority waits and SQL work,
+including any intermediate callback checkpoints. Submission includes retries of
+the same owned preparation. Settlement includes the committed receipt, exact
+reconciliation and any nested output/S3 checks. A duplicate completed during
+preparation does not enter submission or settlement. These phases follow the
+retained local invocation, so a caller timeout can precede their completion.
+They exclude routing and ingress FIFO waits and overlap the enclosing
+`cell_command_local`; they are not business latency or throughput samples.
+
 Cell-group checkpoint uploads and independent checkpoint downloads poll at most
 two ordered object futures. A ready object can progress without filling the
 window. Uploads bound input bytes/chunks before starting their object work and

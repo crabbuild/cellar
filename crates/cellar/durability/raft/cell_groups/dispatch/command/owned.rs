@@ -262,8 +262,12 @@ impl CellCommandInvocation {
         self.dispatched = true;
         // Unlike the response-facing phase API, do not drop this SQL waiter at
         // the response deadline. It carries the exact preparation or refusal.
-        match self
-            .prepare_when_applied(&attempt, runtime, sql, options, roster, progress)
+        let performance = runtime.log().performance();
+        match performance
+            .measure(
+                crate::raft::performance::Operation::CellCommandPrepare,
+                self.prepare_when_applied(&attempt, runtime, sql, options, roster, progress),
+            )
             .await
         {
             Ok(CellCommandPreparation::Committed(response)) => return Ok(response),
@@ -273,6 +277,31 @@ impl CellCommandInvocation {
             }
             Err(error) => return Err(error),
         }
+        performance
+            .measure(
+                crate::raft::performance::Operation::CellCommandSubmit,
+                self.submit_owned(runtime, progress),
+            )
+            .await?;
+        // Submission may have entered the owner despite a lost/error response.
+        // Only an exact receipt or newer applied term can retire this producer.
+        self.origin
+            .as_mut()
+            .ok_or(CellDispatchError::Invalid("missing origin"))?
+            .submitted = true;
+        performance
+            .measure(
+                crate::raft::performance::Operation::CellCommandSettle,
+                self.settle_owned(runtime, progress),
+            )
+            .await
+    }
+
+    async fn submit_owned(
+        &mut self,
+        runtime: &CellGroupRuntime,
+        progress: &mut watch::Receiver<()>,
+    ) -> Result<(), CellDispatchError> {
         loop {
             if self.expired()? {
                 if self.cancel_unsubmitted(progress).await? {
@@ -311,12 +340,14 @@ impl CellCommandInvocation {
                 }
             }
         }
-        // Submission may have entered the owner despite a lost/error response.
-        // Only an exact receipt or newer applied term can retire this producer.
-        self.origin
-            .as_mut()
-            .ok_or(CellDispatchError::Invalid("missing origin"))?
-            .submitted = true;
+        Ok(())
+    }
+
+    async fn settle_owned(
+        &mut self,
+        runtime: &CellGroupRuntime,
+        progress: &mut watch::Receiver<()>,
+    ) -> Result<CellCommandResponse, CellDispatchError> {
         loop {
             match self.settle_at().await {
                 Ok(CellCommandSettlement::Committed(response)) => return Ok(response),

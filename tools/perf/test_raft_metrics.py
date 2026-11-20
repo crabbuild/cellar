@@ -262,6 +262,16 @@ class ReclamationVocabulary(unittest.TestCase):
         with self.assertRaises(ValueError):
             delta(before, observation(stamp=2))
 
+    def test_command_phases_preserve_frozen_evidence_and_refuse_mixed_windows(self):
+        from raft_metrics import COMMAND_OPERATIONS
+        for operations in (COMMAND_OPERATIONS, OPERATIONS):
+            with self.subTest(operations=len(operations)):
+                before = observation(operations=operations)
+                after = observation(stamp=2, operations=operations)
+                self.assertEqual(tuple(delta(before, after)['operations']), operations)
+        with self.assertRaises(ValueError):
+            delta(observation(operations=COMMAND_OPERATIONS), observation(stamp=2))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -519,23 +519,35 @@ impl Scenario {
 }
 
 async fn send(cluster: &ManagedCluster, queue: &str, values: &[String]) -> Result<u128> {
-    let start = cellar::asyncrt::mono_ms();
-    let response = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(TIMEOUT + Duration::from_secs(1))
-        .build()?
-        .post(format!(
-            "http://{}/{}",
-            cluster.nodes[0].info().public_address,
-            if queue == FAST { "fast" } else { "queue" }
-        ))
-        .json(values)
-        .send()
-        .await?;
-    let status = response.status();
-    let body = response.text().await?;
-    ensure!(status == 200, "Queue public producer {status}: {body}");
-    Ok(u128::from(cellar::asyncrt::mono_ms() - start))
+    let result: Result<u128> = async {
+        let start = cellar::asyncrt::mono_ms();
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(TIMEOUT + Duration::from_secs(1))
+            .build()?
+            .post(format!(
+                "http://{}/{}",
+                cluster.nodes[0].info().public_address,
+                if queue == FAST { "fast" } else { "queue" }
+            ))
+            .json(values)
+            .send()
+            .await?;
+        let status = response.status();
+        let body = response.text().await?;
+        ensure!(status == 200, "Queue public producer {status}: {body}");
+        Ok(u128::from(cellar::asyncrt::mono_ms() - start))
+    }
+    .await;
+    if let Err(error) = &result {
+        // Preserve every returned identity and offered batch, including errors
+        // that the aggregate join would otherwise drop after its first failure.
+        eprintln!(
+            "QUEUE_PRODUCER_FAILURE {}",
+            json!({"queue":queue,"values":values,"error":format!("{error:#}")})
+        );
+    }
+    result
 }
 
 async fn ready(cluster: &ManagedCluster, groups: &[GroupHistory]) -> Result<()> {
@@ -1144,6 +1156,98 @@ pub async fn qualify_operator_reads() -> Result<()> {
     Ok(())
 }
 
+/// New due work behind an owned callback must not repeatedly reopen its image.
+pub async fn qualify_owned_callback_scans() -> Result<()> {
+    let mut errors = Vec::new();
+    for rooted in [false, true] {
+        if let Err(error) = owned_callback_scan_mode(rooted).await {
+            errors.push(format!("extents={rooted}: {error:#}"));
+        }
+    }
+    ensure!(errors.is_empty(), "owned callback discovery: {errors:?}");
+    Ok(())
+}
+
+async fn owned_callback_scan_mode(rooted: bool) -> Result<()> {
+    let s = Scenario::start(
+        rooted,
+        Arc::new(catalog_fault::Store::default()),
+        false,
+        5000,
+        None,
+        8,
+        Durability::Quorum.into(),
+    )
+    .await?;
+    let domain = s.cluster.fixtures[0].domain.clone();
+    let outcome = domain
+        .run(async {
+            let release = ReleaseBatch(s.signals.clone());
+            send(&s.cluster, QUEUE, &["batch-proof".into()]).await?;
+            s.signals.wait("batch-proof", 1, false, TIMEOUT).await?;
+            // This installs a new, due generation while the first consumer is
+            // still held. Its durable backlog must survive the earlier finish.
+            send(&s.cluster, QUEUE, &["owned-scan-next".into()]).await?;
+            ready(&s.cluster, &[s.queue]).await?;
+            let leader = managed_fixture::leader(&s.cluster.hosts, s.queue).await?;
+            let host = &s.cluster.hosts[leader];
+            let before = host.group(s.queue)?.status().await?;
+            ensure!(host.resource_usage().host.controller.callbacks.items == 1);
+            let deliveries = s.signals.deliveries.lock().unwrap().clone();
+            ensure!(
+                deliveries.len() == 1 && deliveries[0].0 == "batch-proof" && deliveries[0].1 == 1
+            );
+            let queries = || -> Result<u64> {
+                host.performance()
+                    .operations
+                    .iter()
+                    .find(|sample| sample.name == "sql_query")
+                    .map(|sample| sample.started)
+                    .context("SQL query observations")
+            };
+            let query_before = queries()?;
+            let turns = host.resource_usage().host.controller.effect_turns;
+            cellar::asyncrt::timeout(TIMEOUT, async {
+                while host.resource_usage().host.controller.effect_turns < turns + 3 {
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .context("three completed discovery turns behind held consumer")?;
+            ensure!(
+                host.resource_usage().host.controller.callbacks.items == 1
+                    && !s.signals.completed.lock().unwrap().contains("batch-proof")
+                    && *s.signals.deliveries.lock().unwrap() == deliveries,
+                "consumer did not remain held throughout discovery"
+            );
+            let after = host.group(s.queue)?.status().await?;
+            ensure!(before.term == after.term && before.leader == after.leader);
+            let query_after = queries()?;
+            eprintln!(
+                "QUEUE_OWNED_SCAN {}",
+                json!({"extents":rooted,"queriesBefore":query_before,"queriesAfter":query_after,
+                    "completedDiscoveryTurns":host.resource_usage().host.controller.effect_turns-turns})
+            );
+            ensure!(
+                query_after == query_before,
+                "owned callback repeated discovery SQL: {query_before} -> {query_after}"
+            );
+            drop(release);
+            s.signals.wait("batch-proof", 1, true, TIMEOUT).await?;
+            s.signals.wait("owned-scan-next", 1, true, TIMEOUT).await?;
+            s.empty(QUEUE).await?;
+            ensure!(s.signals.completed.lock().unwrap().len() == 2);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    let retain = !matches!(&outcome, Ok(Ok(())));
+    let cleanup = s.close(retain).await;
+    domain.shutdown().await;
+    outcome??;
+    cleanup?;
+    Ok(())
+}
+
 /// Run the same load oracle independently so a first-image failure cannot hide
 /// qualification of the other image. The combined entry point still requires both.
 pub async fn qualify_load_mode(real: bool, per_queue_in_flight: usize, rooted: bool) -> Result<()> {
@@ -1220,6 +1324,16 @@ pub async fn qualify_load_mode(real: bool, per_queue_in_flight: usize, rooted: b
         Ok::<_,anyhow::Error>(())
     }).await;
     let retain = !matches!(&outcome, Ok(Ok(())));
+    if retain {
+        let deliveries = s.signals.deliveries.lock().unwrap().clone();
+        let completed = s.signals.completed.lock().unwrap().clone();
+        // These are pre-close consumer observations, not durable settlement or
+        // business acknowledgement proofs. Keep the original drain assertions.
+        eprintln!(
+            "QUEUE_LOAD_FAILURE_OBSERVATIONS {}",
+            json!({"deliveries":deliveries,"consumerReportedCompletions":completed})
+        );
+    }
     let cleanup = s.close(retain).await;
     outcome??;
     cleanup?;

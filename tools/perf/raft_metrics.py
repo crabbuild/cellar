@@ -58,12 +58,17 @@ FIRST_GROUP_OPERATIONS = (
     'first_group_attach',
     'first_group_quorum',
 )
-OPERATIONS = FIRST_GROUP_OPERATIONS + (
+COMMAND_OPERATIONS = FIRST_GROUP_OPERATIONS + (
     'cell_command_local',
     'cell_command_s3_coverage',
     'cell_command_output_check',
     'cell_command_output_wait',
     'cell_command_s3_freshness',
+)
+OPERATIONS = COMMAND_OPERATIONS + (
+    'cell_command_prepare',
+    'cell_command_submit',
+    'cell_command_settle',
 )
 COUNTERS = (
     'engine_file_read_bytes',
@@ -202,6 +207,7 @@ SCHEMAS = ((LEGACY_OPERATIONS, LEGACY_COUNTERS, LEGACY_BOUNDS),
            (FIRST_GROUP_OPERATIONS[:-3], MAIN_ROUTING_COUNTERS, BOUNDS),
            (FIRST_GROUP_OPERATIONS, RECOVERY_COUNTERS, BOUNDS),
            (FIRST_GROUP_OPERATIONS, COUNTERS, BOUNDS),
+           (COMMAND_OPERATIONS, COUNTERS, BOUNDS),
            (OPERATIONS, COUNTERS, BOUNDS))
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
 
