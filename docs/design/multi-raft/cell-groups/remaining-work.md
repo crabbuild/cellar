@@ -41,15 +41,18 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `be4657f87` adds shared provider supervision, constructor-independent
-cleanup, resumable lifecycle waits and exact unchanged checkpoint reuse. The
-native and focused provider-proof gates pass, but macOS/RustFS supervision still
-fails after S3 progress: retained-restart reconciliation or Delete's original
-request deadline. Qualify the merged binding/provider source on Linux/ext4 next;
-the separate earlier Linux pass cannot stand in for it. Keep the original failures
-open and deliver real provider fencing/volume recovery, native Container/sandbox,
-WebSocket and complete public primitive/lifecycle support. The partial inventory
-now contains 257 public symbols. See the current checkpoint for exact results.
+Merged `9254e2be9` passes all fourteen fixed Linux/RustFS binding/provider
+functions and 46 image/minimum/fault configurations within original budgets. It
+delivers binding/Consume/Ack recovery, safe sequence sealing, shared supervision,
+constructor-independent cleanup, resumable lifecycle waits and exact unchanged
+checkpoint reuse. RF3 shares a three-CPU/4-GiB process/container with ext4 disks;
+RustFS has one CPU/2 GiB. The macOS/RustFS supervision failures remain open at
+retained-restart reconciliation or Delete expiry; Linux does not isolate their
+cause. Next deliver real provider execution fencing, native Container/sandbox,
+WebSocket and complete public primitive/feature/lifecycle support. Persistent
+provider volumes keep their declared proof/recovery contract; native Docker's
+disk remains explicitly ephemeral. The inventory is partial at 257 symbols.
+See the current checkpoint for exact results and retained failed controls.
 
 Runtime `feb22476c` delivers declared provider journals and local invocation/proof
 authority through shared-group storage. Twelve RF3 configurations pass: eight
@@ -184,8 +187,9 @@ remain required work.
 
 Deliver next in this order:
 
-1. Integrate the Linux-qualified binding/Consume/Ack and recovery slice with the
-   provider/journal and durable-work changes, then qualify that combined source.
+1. Build on the merged Linux-qualified binding/Consume/Ack, journal and shared
+   supervision delivery at `9254e2be9`. Finish real provider execution fencing,
+   native Container/sandbox and WebSocket adapters through their public paths.
    Preserve the earlier macOS final-parent deadline and cold-activation failures
    as open gates. Complete managed cold startup/cleanup on the qualified release
    platforms within their original request deadlines. Measure apply, publication and verification on

@@ -34,6 +34,21 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ### CG-17 shared provider supervision and exact checkpoint gates
 
+**The merged Linux/RustFS gate passes: 14/14 fixed functions and 46
+image/minimum/fault configurations at `9254e2be9`.** It covers ordinary named
+bindings, native/Axum Consume/Ack, independent target S3 minima, live and retained
+interrupted-call recovery, safe sequence sealing, controlled lost S3 settlement
+output, provider journals, exact checkpoint gates and autonomous supervision.
+Original request, maintenance and recovery budgets and operation identities are
+unchanged. The owned Linux executable is frozen with SHA-256
+`9e58082f491bd7bd5dc1b702448b305a16e05a729c830a22da4fa8dfc04ba617`.
+
+RF3 shares one process/container. Actual cgroup v2 limits are three CPUs,
+4 GiB memory and zero swap; voter files use ext4. RustFS is separately capped
+at one CPU/2 GiB in the same six-CPU/12-GiB VM. This establishes the combined
+scoped Linux delivery. It does not isolate the macOS failures, prove a speedup,
+qualify independent voter failures or close a primitive family.
+
 **CG-17 remains open.** Runtime `be4657f87` connects the public `supervise`
 wrapper to shared provider journals and the committed native-work scheduler.
 Backend identities and complete policies bind the namespace schema. Task/wake
@@ -71,8 +86,8 @@ in these failed functions. The changing stage does not identify an exclusive
 cause, establish an original-budget deadline fix or qualify the whole function.
 All controls, original IDs, logs, frozen binaries and voter roots are retained.
 
-The merged Linux/ext4 RustFS comparison is pending; the earlier `5b3cd177e`
-binding-only Linux pass below cannot qualify this successor. The fixture backend
+The merged Linux gate above is current-source evidence; the earlier `5b3cd177e`
+binding-only Linux pass below remains a separate checkpoint. The fixture backend
 checks identity and simulated absence; it does not establish real provider
 execution fencing, persistent volumes or native Container/SandboxCatalog support.
 WebSocket, deployment/clock, complete public API and lifecycle/fault/recovery
@@ -80,7 +95,16 @@ matrices remain required. Acceptance stays **13/17 tasks, 147/195 cases and 0/32
 formal CG-17 entrypoints**. The generated plan and partial inventory do not waive
 those requirements.
 
-### CG-17 binding settlement and Linux qualification
+Evidence `CG-17-provider-supervision-9254e2be9-1962/record.json` retains the red
+checkpoint regression, failed macOS controls, source archives, frozen binaries,
+logs and voter-data custody. Twelve owning units and twelve ordinary provider/
+Fleet functions pass at `be4657f87`; its later Rust change is one canonical
+line-wrap. Candidate `9254e2be9` passes formatting/layout, native dependency/docs,
+33 runner and 13 coverage-validator tests; the generated index matches tasks.
+The inventory remains partial at 18 entries/257 symbols. All owned runtimes are
+stopped; object, voter and registry volumes and cold voter copies are retained.
+
+### Previous binding settlement and Linux qualification
 
 **The scoped Linux settlement gate passes: 11/11 functions and 34 configurations**
 at `5b3cd177e`. Ordinary S3 bindings and native/Axum Consume/Ack meet their

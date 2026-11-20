@@ -6,29 +6,40 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current shared provider and binding integration
 
-Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). The complete published
-binding-settlement chain through `f04c72b0c` has been integrated; its separate Linux
-source `5b3cd177e` passes 11 functions/34 configurations on real RustFS. That is
-an earlier scoped result. Current runtime `be4657f87` adds schema-bound shared
-supervision, cleanup without business construction, resumable lifecycle waits
-and exact unchanged provider-checkpoint reuse. New invocations and all private
-mutations keep their required original proofs. Public Storage sync is unchanged.
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Merged runtime
+`9254e2be9` passes all fourteen fixed Linux/RustFS binding/provider functions and
+46 image/minimum/fault configurations. This integrates the binding-settlement
+chain through `f04c72b0c` with shared supervision, constructor-independent cleanup,
+resumable lifecycle waits and exact unchanged checkpoint reuse. The first effect,
+new mutations and fresh invocations keep their own required proofs; public
+Storage sync is unchanged. Provider identity and complete policies bind schema.
 
-Current selected passes: 16 native RF3 configurations, four real-RustFS provider
-proof configurations, 12 owning units and 12 ordinary provider/Fleet functions.
-Strict affected Clippy and the locked build pass. The macOS/RustFS supervision
-whole function remains failed: one run reaches S3 retained restart but misses
-its 60-second retirement oracle; a same-binary trace expires Delete sequence 3.
-Preserve both failures and the earlier Read/Delete controls. Original budgets,
-identities, proof gates and unknown outcomes are unchanged.
+Actual runtime limits: RF3 in one Linux process/container at three CPUs/4 GiB,
+swap zero, ext4 voter disks; RustFS one CPU/2 GiB in the same six-CPU/12-GiB VM.
+The frozen executable SHA-256 is
+`9e58082f491bd7bd5dc1b702448b305a16e05a729c830a22da4fa8dfc04ba617`.
+Evidence is `CG-17-provider-supervision-9254e2be9-1962/record.json`. Source,
+executables, all failed controls and voter data are retained outside the Cargo
+target with a second backup. Owned Linux/RustFS/VM runtimes are stopped; named
+volumes remain. The earlier separate `5b3cd177e` pass is retained as history.
 
-Next run the merged fixed binding/provider functions on constrained Linux/ext4
-voters and the same owned real RustFS backend. Each RF3 cohort shares one process;
-this cannot qualify independent voter failures or full primitive families. Then
-complete actual provider fencing/volume recovery, native Container/sandbox,
-WebSockets and all public API/lifecycle/feature drivers. CG-17 remains 0/32 formal
-entrypoints accepted; inventory is partial at 18 entries/257 symbols. See the
-[current checkpoint](progress.md#current-integration-checkpoint) for scope and pins.
+At `be4657f87`, sixteen native RF3 configurations, four macOS/RustFS provider-proof
+configurations, twelve owning units and twelve ordinary provider/Fleet functions
+pass. The macOS/RustFS supervision whole function remains failed: retained-restart
+reconciliation or original Delete expiry. Preserve both failures, earlier Read/
+Delete controls and their original IDs. Linux passes do not identify the macOS
+cause. Strict affected Clippy passes; candidate format/layout/dependency/docs,
+33 runner and 13 coverage-validator checks pass and the index matches tasks.
+
+Next implement real provider execution fencing and native Container/sandbox
+adapters, WebSocket ownership/reconnect/output gates, and complete the public
+API/feature/lifecycle/fault matrix. Failing business construction is covered;
+completely removed classes/redeployment and clock transitions remain required.
+Do not interpret native Docker's network-isolation fence as execution fencing,
+or invent persistence for its documented ephemeral disk. Other providers retain
+their declared volume contracts. All 32 formal CG-17 entrypoints remain required:
+13/17 tasks and 147/195 cases accepted, CG-17 0/32. The inventory is partial at
+18 entries/257 symbols. See the [current checkpoint](progress.md#current-integration-checkpoint).
 
 ## Previous provider journal delivery
 
