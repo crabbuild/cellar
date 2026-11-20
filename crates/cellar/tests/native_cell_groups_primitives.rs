@@ -2603,6 +2603,17 @@ async fn rustfs_ordinary_named_cell_bindings_use_shared_group_quorum() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: complete RustFS named-binding case with proof phases"]
+async fn rustfs_trace_named_binding_publication() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::sql_publish=trace,cellar::raft::group_archive=debug,cellar::raft::cell_groups::controller::effects=debug")
+        .with_test_writer()
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("trace subscriber: {error}"))?;
+    Box::pin(bindings::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn interrupted_named_bindings_recover_after_retained_restart() -> Result<()> {
     Box::pin(bindings::qualify_recovery(false)).await
 }
