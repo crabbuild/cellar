@@ -244,16 +244,24 @@ impl BindingJournal {
                     .is_some_and(|bindings| bindings.contains_key(self.name.as_ref())),
                 super::consensus::CommandFailure::UnsupportedCapability
             );
-            // A provider supervisor needs its own shared-work adapter. Never
-            // silently reinterpret a retained Fleet maintenance obligation.
-            ensure!(
-                context.container_supervision.is_none()
-                    && crate::storage::container_maintenance::list(
-                        crate::storage::RAFT_STORAGE_SCOPE
-                    )?
-                    .is_empty(),
-                super::consensus::CommandFailure::UnsupportedCapability
-            );
+            match &context.container_supervision {
+                Some(supervision) => ensure!(
+                    authority
+                        .resources
+                        .provider_supervision
+                        .get()
+                        .is_some_and(|installed| Arc::ptr_eq(installed, supervision)),
+                    super::consensus::CommandFailure::UnsupportedCapability
+                ),
+                None => ensure!(
+                    authority.resources.provider_supervision.get().is_none()
+                        && crate::storage::container_maintenance::list(
+                            crate::storage::RAFT_STORAGE_SCOPE
+                        )?
+                        .is_empty(),
+                    super::consensus::CommandFailure::UnsupportedCapability
+                ),
+            }
             return Ok(crate::storage::RAFT_STORAGE_SCOPE);
         }
         Ok(&context.identity().unwrap().scope)

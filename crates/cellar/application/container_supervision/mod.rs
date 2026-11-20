@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Host-selected maintenance for durable provider bindings. Every tick receives
-//! fresh native event authority; registration never retains an application turn.
+//! fresh owner event authority; registration never retains an application turn.
 pub(crate) mod controller;
 mod registry;
 pub(crate) use controller::{maintain, recover};
@@ -65,7 +65,7 @@ pub struct BackendIdentity {
     pub configuration_digest: String,
 }
 
-/// Executes one bounded native maintenance event. A backend must correlate the
+/// Executes one bounded maintenance event. A backend must correlate the
 /// expected checkpoint before any effect and use its exact resource/request.
 /// It may checkpoint observations with BindingJournal, but never create compute.
 /// A lost result is uncertainty, not permission to repeat a create or command.

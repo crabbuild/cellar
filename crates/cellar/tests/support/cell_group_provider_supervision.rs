@@ -125,6 +125,76 @@ impl MaintenanceBackend for Backend {
 
 struct Root(Storage);
 
+pub fn contracts() -> Result<()> {
+    let probe = Arc::new(Probe::default());
+    let backend: Arc<dyn MaintenanceBackend> = Arc::new(Backend(probe.clone()));
+    let application = |digest| -> Result<Arc<dyn Application>> {
+        let class = RaftClass::new("Counter", 1, [194; 32])?
+            .initializer([195; 32], |_, _| Ok(()))?
+            .json_cell_rpc("Run", [196; 32])?
+            .provider_binding("TOOL", "supervised-fixture", digest)?;
+        Ok(Arc::new(
+            Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+                .raft_cell(class, |context, _| Ok(Arc::new(Root(context.storage()?))))?,
+        ))
+    };
+    let policy = MaintenancePolicy {
+        inspect_interval_ms: 250,
+        maximum_lifetime_ms: 300_000,
+        attempt_timeout_ms: 3000,
+        idle_timeout_ms: None,
+    };
+    let registry = |policy| -> Result<Supervision> {
+        let mut registry = Supervision::default();
+        registry.register(backend.clone(), policy)?;
+        Ok(registry)
+    };
+    let plain = application([191; 32])?;
+    let supervised = supervise(plain.clone(), registry(policy)?);
+    let definition = supervised.resolve_raft_class("Counter")?;
+    ensure!(definition.schema_digest() != plain.resolve_raft_class("Counter")?.schema_digest());
+    ensure!(definition.contract("__sys_raft_native_work").is_none());
+    for changed in [
+        MaintenancePolicy {
+            inspect_interval_ms: 251,
+            ..policy
+        },
+        MaintenancePolicy {
+            maximum_lifetime_ms: 300_001,
+            ..policy
+        },
+        MaintenancePolicy {
+            attempt_timeout_ms: 3001,
+            ..policy
+        },
+        MaintenancePolicy {
+            idle_timeout_ms: Some(10),
+            ..policy
+        },
+    ] {
+        ensure!(
+            supervise(plain.clone(), registry(changed)?)
+                .resolve_raft_class("Counter")?
+                .schema_digest()
+                != definition.schema_digest()
+        );
+    }
+    ensure!(
+        supervise(supervised, registry(policy)?)
+            .resolve_raft_class("Counter")?
+            .schema_digest()
+            == definition.schema_digest()
+    );
+    ensure!(supervise(application([190; 32])?, registry(policy)?)
+        .resolve_raft_class("Counter")
+        .is_err());
+    ensure!(
+        probe.inspections.load(Ordering::Acquire) == 0
+            && probe.deletes.load(Ordering::Acquire) == 0
+    );
+    Ok(())
+}
+
 impl Cell for Root {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {

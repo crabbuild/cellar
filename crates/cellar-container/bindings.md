@@ -23,9 +23,18 @@ Updates and `ProviderAuthority::before_effect` wait for the namespace's required
 Quorum or S3 checkpoint, then recheck the original invocation fence and deadline.
 An unfinished checkpoint remains an uncertain command, even after S3 returns.
 
-This journal bridge does not enable the native Docker container, sandbox catalog
-or scheduled supervision on shared groups. Those adapters and real provider
-execution fencing remain required by [CG-17](../../docs/design/multi-raft/cell-groups/qualification.md#full-primitive-compatibility-cg-17).
+To enable scheduled cleanup, wrap the application with
+`cellar::sdk::containers::supervise(application, supervision)`. Matching backend
+identities and all retention-policy values participate in the namespace contract.
+Shared work and provider-task changes commit together; callbacks claim and prove
+their next attempt before backend I/O. Retained restart resumes those obligations
+without application traffic or granting the resource a new lifetime. A changed
+policy changes the class schema; an existing namespace refuses an incompatible
+definition rather than accepting a node-local override.
+
+The native Docker container and sandbox catalog still need shared-group adapters.
+Real provider execution fencing and volume recovery remain independent requirements
+of [CG-17](../../docs/design/multi-raft/cell-groups/qualification.md#full-primitive-compatibility-cg-17).
 
 ## Select a host-declared provider slot
 

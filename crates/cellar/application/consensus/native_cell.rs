@@ -418,7 +418,16 @@ impl NativeCellFactory {
         };
         let owned_wire = matches!(method, CellRpcMethod::Owned { .. } | CellRpcMethod::Event);
         let work = if matches!(method, CellRpcMethod::Work) {
-            anyhow::ensure!(self.callbacks, CommandFailure::UnsupportedCapability);
+            let supervised = transaction
+                .storage()?
+                .resources()
+                .provider_supervision
+                .get()
+                .is_some();
+            anyhow::ensure!(
+                self.callbacks || supervised,
+                CommandFailure::UnsupportedCapability
+            );
             anyhow::ensure!(input.len() <= 1024, CommandFailure::Overloaded);
             let work: super::native_work::Work = serde_json::from_slice(input)?;
             anyhow::ensure!(
@@ -428,7 +437,7 @@ impl NativeCellFactory {
                     || (work.reason == "stream-maintenance"
                         && self.class == crate::deploy::EVENT_STREAM_CLASS)
                     || (work.reason == "resource-reconciliation"
-                        && self.class == crate::deploy::EVENT_CATALOG_CLASS)
+                        && (self.class == crate::deploy::EVENT_CATALOG_CLASS || supervised))
                     || (work.reason == "queue" && self.class == crate::deploy::QUEUE_CLASS),
                 CommandFailure::UnsupportedCapability
             );
@@ -562,12 +571,16 @@ impl NativeCellFactory {
         let workflow = crate::deploy::is_workflow_class(&self.class);
         let retire = workflow.then(|| (instance.resources(), state.clone()));
         let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
+            if context.container_supervision.is_some() {
+                crate::application::container_supervision::recover(&context)?;
+            }
             if let Some((work, leased_until)) = work {
                 // Queue proves the claim with its lease before consumer entry
                 // or its DLQ intent before dispatch. Trusted catalog preparation
-                // likewise proves claim + binding intent before any child I/O;
-                // it never enters application code. Other callbacks still need
-                // their entry proof here. Final completion retains its minimum.
+                // likewise proves claim + binding intent before any child I/O.
+                // Provider maintenance proves its task claim before backend I/O.
+                // Other callbacks still need their entry proof here. Final
+                // completion retains its minimum.
                 if !matches!(work.reason.as_str(), "queue" | "resource-reconciliation") {
                     storage.sync().await?;
                 }
@@ -592,11 +605,21 @@ impl NativeCellFactory {
                                 .await?
                             }
                             cellar_logic::work::Reason::ResourceReconciliation => {
-                                crate::application::event_stream::catalog::maintain(
-                                    context,
-                                    installation,
-                                )
-                                .await?
+                                if context.identity().is_some_and(|identity| {
+                                    identity.class == crate::deploy::EVENT_CATALOG_CLASS
+                                }) {
+                                    crate::application::event_stream::catalog::maintain(
+                                        context,
+                                        installation,
+                                    )
+                                    .await?
+                                } else {
+                                    crate::application::container_supervision::maintain(
+                                        context,
+                                        installation,
+                                    )
+                                    .await?
+                                }
                             }
                             _ => anyhow::bail!(CommandFailure::UnsupportedCapability),
                         };
@@ -710,17 +733,18 @@ impl NativeCellFactory {
                 CommandFailure::UnsupportedCapability
             );
         }
-        storage
-            .resources
-            .durable_callbacks
-            .store(self.callbacks, std::sync::atomic::Ordering::Release);
+        let container_supervision = storage.resources.provider_supervision.get().cloned();
+        storage.resources.durable_callbacks.store(
+            self.callbacks || container_supervision.is_some(),
+            std::sync::atomic::Ordering::Release,
+        );
         storage.resources.delete_all_deletes_alarm.store(
             self.config.compat.delete_all_deletes_alarm,
             std::sync::atomic::Ordering::Release,
         );
         Ok(Context {
             raft_storage: Some(storage),
-            container_supervision: None,
+            container_supervision,
             rpc_catalog: None,
             event_authority: None,
             name_authority: None,

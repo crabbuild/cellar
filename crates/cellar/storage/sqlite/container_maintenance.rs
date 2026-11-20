@@ -116,6 +116,10 @@ pub(super) fn check_schema(connection: &Connection) -> anyhow::Result<()> {
 }
 
 fn rearm(connection: &Connection, scope: &str) -> anyhow::Result<()> {
+    let shared = scope == RAFT_STORAGE_SCOPE;
+    if shared {
+        connection.execute_batch(super::work::SCHEMA)?;
+    }
     let next: Option<i64> = connection.query_row(
         "SELECT min(due_ms) FROM __sys_container_binding_maintenance",
         [],
@@ -129,6 +133,20 @@ fn rearm(connection: &Connection, scope: &str) -> anyhow::Result<()> {
         )
         .optional()?;
     if next == current.flatten() {
+        if shared {
+            if let Some(next) = next {
+                crate::application::consensus::native_work::arm_maintenance(
+                    connection,
+                    "resource-reconciliation",
+                    next,
+                )?;
+            } else {
+                crate::application::consensus::native_work::cancel(
+                    connection,
+                    "resource-reconciliation",
+                )?;
+            }
+        }
         return Ok(());
     }
     if let Some(next) = next {
@@ -139,6 +157,22 @@ fn rearm(connection: &Connection, scope: &str) -> anyhow::Result<()> {
              WHERE scope=?1 AND reason='resource-reconciliation' AND at_ms IS NOT NULL",
             [scope],
         )?;
+    }
+    if shared {
+        // Both ledgers belong to this same private transaction. A claimed wake
+        // gets a new generation, so its completion cannot erase a replacement.
+        if let Some(next) = next {
+            crate::application::consensus::native_work::arm_maintenance(
+                connection,
+                "resource-reconciliation",
+                next,
+            )?;
+        } else {
+            crate::application::consensus::native_work::cancel(
+                connection,
+                "resource-reconciliation",
+            )?;
+        }
     }
     Ok(())
 }

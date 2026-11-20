@@ -2628,6 +2628,11 @@ async fn provider_supervision_recovers_without_application_requests() -> Result<
     provider_supervision::qualify(false).await
 }
 
+#[test]
+fn provider_supervision_policies_bind_the_namespace_contract() -> Result<()> {
+    provider_supervision::contracts()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_provider_supervision_recovers_without_application_requests() -> Result<()> {

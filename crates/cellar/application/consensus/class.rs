@@ -442,6 +442,7 @@ pub struct RaftClass {
     cell_factory: Option<Arc<CellRpcFactory>>,
     filesystem: Option<crate::application::filesystem::Policy>,
     providers: Arc<crate::application::container_bindings::ProviderDeclarations>,
+    provider_supervision: Option<Arc<crate::application::container_supervision::Supervision>>,
 }
 
 impl RaftClass {
@@ -573,6 +574,7 @@ impl RaftClass {
             cell_factory: None,
             filesystem: None,
             providers: Arc::default(),
+            provider_supervision: None,
         };
         class.bind_command_manifest();
         Ok(class)
@@ -819,6 +821,14 @@ impl RaftClass {
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
         self.validate_cell_factory()?;
+        if let Some(supervision) = &self.provider_supervision {
+            anyhow::ensure!(
+                supervision.max_attempt_timeout_ms().is_none_or(|timeout| {
+                    timeout <= host.effects.unwrap_or_default().callback_timeout_ms
+                }),
+                "provider maintenance timeout exceeds the callback budget"
+            );
+        }
         if !self.providers.is_empty() {
             // Provider records consume framework-generated SQLite mutations.
             // The producer also checks each complete encoded checkpoint.
@@ -1207,11 +1217,8 @@ impl RaftClass {
             .is_some_and(|factory| factory.allows_binding(scope))
     }
 
-    pub(in crate::application) fn configured_cell(
-        &self,
-        configuration: &super::AdmittedCellConfiguration,
-    ) -> Self {
-        let mut class = Self {
+    fn clone_definition(&self) -> Self {
+        Self {
             name: self.name.clone(),
             schema_version: self.schema_version,
             base_schema_digest: self.base_schema_digest,
@@ -1231,7 +1238,44 @@ impl RaftClass {
             cell_factory: self.cell_factory.clone(),
             filesystem: self.filesystem,
             providers: self.providers.clone(),
-        };
+            provider_supervision: self.provider_supervision.clone(),
+        }
+    }
+
+    pub(crate) fn with_provider_supervision(
+        self: &Arc<Self>,
+        registry: &Arc<crate::application::container_supervision::Supervision>,
+    ) -> Result<Arc<Self>, RegistrationError> {
+        let mut selected = registry
+            .select(&self.providers)
+            .map_err(|_| RegistrationError::Invalid("provider supervision configuration"))?;
+        if selected.is_empty() {
+            return Ok(self.clone());
+        }
+        // The event catalog already owns this reconciliation reason.
+        if !self.has_cell_factory() || self.name == crate::deploy::EVENT_CATALOG_CLASS {
+            return Err(RegistrationError::UnsupportedFactory(self.name.clone()));
+        }
+        if let Some(previous) = &self.provider_supervision {
+            selected
+                .merge(previous)
+                .map_err(|_| RegistrationError::Invalid("ambiguous provider supervision"))?;
+            if selected.same_registrations(previous) {
+                return Ok(self.clone());
+            }
+        }
+        let mut class = self.clone_definition();
+        class.provider_supervision = Some(Arc::new(selected));
+        class.install_native_callbacks();
+        class.bind_command_manifest();
+        Ok(Arc::new(class))
+    }
+
+    pub(in crate::application) fn configured_cell(
+        &self,
+        configuration: &super::AdmittedCellConfiguration,
+    ) -> Self {
+        let mut class = self.clone_definition();
         if !configuration.stream_bindings.is_empty() && !class.has_native_callbacks() {
             class.install_native_callbacks();
         }
@@ -1367,6 +1411,21 @@ impl RaftClass {
         }
         if !self.providers.is_empty() {
             let storage = transaction.storage()?;
+            if let Some(supervision) = &self.provider_supervision {
+                let installed = storage
+                    .resources()
+                    .provider_supervision
+                    .get_or_init(|| supervision.clone());
+                anyhow::ensure!(
+                    installed.same_registrations(supervision),
+                    "provider supervision changed within an activation"
+                );
+            } else {
+                anyhow::ensure!(
+                    storage.resources().provider_supervision.get().is_none(),
+                    "provider supervision was removed within an activation"
+                );
+            }
             let installed = storage
                 .resources()
                 .provider_bindings
@@ -1385,11 +1444,26 @@ impl RaftClass {
                     "retained provider journal has an undeclared backend configuration"
                 );
             }
-            anyhow::ensure!(
+            for task in
                 crate::storage::container_maintenance::list(crate::storage::RAFT_STORAGE_SCOPE)?
-                    .is_empty(),
-                "provider supervision requires its shared-work adapter"
-            );
+            {
+                let checkpoint = crate::storage::container_bindings::load(
+                    crate::storage::RAFT_STORAGE_SCOPE,
+                    &task.binding,
+                )?
+                .ok_or_else(|| anyhow::anyhow!("provider maintenance journal missing"))?;
+                anyhow::ensure!(
+                    checkpoint.record.generation == task.generation
+                        && self
+                            .provider_supervision
+                            .as_ref()
+                            .and_then(
+                                |supervision| supervision.find(&task.binding, &checkpoint.record)
+                            )
+                            .is_some_and(|registration| registration.policy == task.policy),
+                    "retained provider maintenance has an undeclared policy"
+                );
+            }
         }
         factory.start(target.cell, epoch, method, input, transaction, activation)
     }
@@ -2001,6 +2075,10 @@ impl RaftClass {
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
+        if let Some(supervision) = &self.provider_supervision {
+            hash.update(b"provider-supervision-1");
+            hash.update(supervision.contract_digest());
+        }
         if !self.providers.is_empty() {
             hash.update(b"provider-bindings-1");
             hash.update((self.providers.len() as u16).to_be_bytes());
