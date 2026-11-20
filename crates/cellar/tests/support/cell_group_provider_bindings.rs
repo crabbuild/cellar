@@ -58,6 +58,21 @@ impl Cell for Root {
             let journal = BindingJournal::open(&context, "TOOL")?;
             let _lifecycle = journal.lock_lifecycle(&context).await?;
             let result = match operation.as_str() {
+                "Proof" | "ProofFresh" => {
+                    let authority = context.container_provider_authority()?;
+                    if operation == "Proof" {
+                        self.0.put_json("proof", &json!(0))?;
+                    }
+                    authority.before_effect(&context).await?;
+                    authority.before_effect(&context).await?;
+                    if operation == "Proof" {
+                        self.0.put_json("proof", &json!(1))?;
+                        authority.before_effect(&context).await?;
+                        authority.before_effect(&context).await?;
+                    }
+                    self.1.effects.fetch_add(1, Ordering::AcqRel);
+                    self.0.get_json("proof")?.context("proven value")?
+                }
                 "Create" => {
                     ensure!(journal.load(&context)?.is_none());
                     self.0.put_json("before-provider", &json!(true))?;
@@ -234,6 +249,9 @@ async fn start(
             Ok(())
         })?
         .json_cell_rpc("Run", [213; 32])?
+        .query("PeekProof", [218; 32], |query, _| {
+            Ok(serde_json::to_vec(&query.storage().get_json("proof")?)?)
+        })?
         .provider_binding("TOOL", "docker", [19; 32])?;
     let application = Arc::new(
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
@@ -298,6 +316,94 @@ pub async fn qualify_small_input() -> Result<()> {
     // Caller input and framework-generated SQLite checkpoints have independent
     // bounds. A small request must not require a 64-KiB caller allowance.
     qualify_with_input_limit(false, 1024).await
+}
+
+pub async fn qualify_checkpoint_proof(real_rustfs: bool) -> Result<()> {
+    for rooted in [false, true] {
+        for minimum in [Durability::Quorum, Durability::S3] {
+            let backend = Arc::new(if real_rustfs {
+                catalog_fault::Store::around(rustfs::store(
+                    if minimum == Durability::S3 {
+                        "provider-checkpoint-proof-s3"
+                    } else {
+                        "provider-checkpoint-proof-quorum"
+                    },
+                    rooted,
+                )?)
+            } else {
+                catalog_fault::Store::default()
+            });
+            let probe = Arc::new(Probe::default());
+            let mut cluster = start(rooted, minimum, backend, probe.clone(), 64 * 1024).await?;
+            let domain = cluster.fixtures[0].domain.clone();
+            let work = domain
+                .run(async {
+                    let group = cluster.history;
+                    let history = CellHistory {
+                        cluster: group.cluster,
+                        namespace: group.namespace,
+                        cell: CellId::new("Counter:provider-proof")?,
+                        incarnation: IncarnationId::new([219; 16])?,
+                    };
+                    let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+                    let cell = cluster.hosts[leader].cell(history.clone())?;
+                    cell.enroll(
+                        CellEnrollmentRequest {
+                            creation: ProposalId::new([220; 16])?,
+                            durability: minimum,
+                        },
+                        TIMEOUT,
+                    )
+                    .await?;
+                    let contract = cell.contract("PeekProof")?;
+                    let read = |id| -> Result<_> {
+                        Ok(cell.query(
+                            ProposalId::new([id; 16])?,
+                            &contract,
+                            vec![],
+                            QueryOptions::default(),
+                        ))
+                    };
+                    let base = read(221)?.await?;
+                    let first = call(&cluster, &history, minimum, 1, "Proof").await?;
+                    ensure!(first.result == b"1" && first.durability >= minimum);
+                    ensure!(
+                        first.version.sequence.get() == base.version.sequence.get() + 3,
+                        "unchanged provider gates captured duplicate checkpoints: base={} actual={}",
+                        base.version.sequence.get(),
+                        first.version.sequence.get()
+                    );
+                    let observed = read(222)?.await?;
+                    ensure!(observed.result == b"1" && observed.version == first.version);
+                    let fresh = call(&cluster, &history, minimum, 2, "ProofFresh").await?;
+                    ensure!(
+                        fresh.version.sequence.get() == first.version.sequence.get() + 2,
+                        "a new invocation must record its own unfinished receipt"
+                    );
+                    ensure!(call(&cluster, &history, minimum, 1, "Proof").await?.result == first.result);
+                    ensure!(probe.effects.load(Ordering::Acquire) == 2);
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await
+                .map_err(anyhow::Error::from)
+                .and_then(std::convert::identity);
+            let closed = managed_fixture::close_group_nodes(
+                std::mem::take(&mut cluster.nodes),
+                &cluster.hosts,
+            )
+            .await;
+            for root in std::mem::take(&mut cluster.roots) {
+                eprintln!(
+                    "retained provider checkpoint disk: {}",
+                    root.keep().display()
+                );
+            }
+            domain.shutdown().await;
+            work.with_context(|| format!("provider proof extents={rooted} minimum={minimum:?}"))?;
+            closed?;
+        }
+    }
+    Ok(())
 }
 
 async fn qualify_with_input_limit(real_rustfs: bool, max_input_bytes: usize) -> Result<()> {

@@ -2624,6 +2624,17 @@ async fn rustfs_provider_binding_journals_use_shared_quorum() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_effects_reuse_only_unchanged_invocation_checkpoints() -> Result<()> {
+    provider_bindings::qualify_checkpoint_proof(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_provider_effects_reuse_only_unchanged_invocation_checkpoints() -> Result<()> {
+    provider_bindings::qualify_checkpoint_proof(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn provider_supervision_recovers_without_application_requests() -> Result<()> {
     provider_supervision::qualify(false).await
 }
