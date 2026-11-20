@@ -201,7 +201,7 @@
               "sequence": 46,
               "entity": 12,
               "identity": "f395be28eef4.0.4.read.0.46",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 45 }, ambiguous=true: Raft target attempt 1 started with 4996ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 45 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:3dd5780f1385c62537100b793218b75f16b1dde07ea01d105980efafaf7171bd], ambiguous=true: Raft target attempt 1 started with 4996ms remaining: cell command [command-id-sha256:3dd5780f1385c62537100b793218b75f16b1dde07ea01d105980efafaf7171bd] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
               "mutation_outcome": "read_failed"
             },
             {
@@ -209,7 +209,7 @@
               "sequence": 43,
               "entity": 1,
               "identity": "f395be28eef4.0.4.read.1.43",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 }, ambiguous=true: Raft target attempt 1 started with 4999ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:0507feaa2d41a12aa66e1b64f7dc0bed9d03c50f762b79da6dba11e98b71f2ba], ambiguous=true: Raft target attempt 1 started with 4999ms remaining: cell command [command-id-sha256:0507feaa2d41a12aa66e1b64f7dc0bed9d03c50f762b79da6dba11e98b71f2ba] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
               "mutation_outcome": "read_failed"
             },
             {
@@ -217,7 +217,7 @@
               "sequence": 36,
               "entity": 22,
               "identity": "f395be28eef4.0.4.read.2.36",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 42 }, ambiguous=true: Raft target attempt 1 started with 4975ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 42 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:96c385ad55a80c2ce16364a37869ba42738855bc287f8e26f04b1ce049456fd0], ambiguous=true: Raft target attempt 1 started with 4975ms remaining: cell command [command-id-sha256:96c385ad55a80c2ce16364a37869ba42738855bc287f8e26f04b1ce049456fd0] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
               "mutation_outcome": "read_failed"
             },
             {
@@ -225,7 +225,7 @@
               "sequence": 42,
               "entity": 23,
               "identity": "f395be28eef4.0.4.read.3.42",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 43 }, ambiguous=true: Raft runtime: DeadlineExceeded",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:9053cf58c8387f35bee716e5a2d1a236aed3afd817103a123dbbd2688065c584], ambiguous=true: Raft runtime: DeadlineExceeded",
               "mutation_outcome": "read_failed"
             }
           ],
@@ -418,7 +418,7 @@
               "sequence": 10,
               "entity": 9,
               "identity": "c2c7b1922104.0.1.read.0.10",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 13 }, ambiguous=true: Raft runtime: DeadlineExceeded",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:d8a3467b1b4b829a5f7afed0df752d68e2aeadb1584fef8636f80e0cceefcc14], ambiguous=true: Raft runtime: DeadlineExceeded",
               "mutation_outcome": "read_failed"
             }
           ],
@@ -565,7 +565,7 @@
               "sequence": 6,
               "entity": 20,
               "identity": "0ff78dc230d0.0.4.write.0.6",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 22 }, ambiguous=true: Raft target attempt 1 started with 4999ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 22 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 4999ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 22 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 22 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "error": "HTTP 503: cell binding call [command-id-sha256:f03661ebcabd086d9ce948042a16c6bb844349903af26bc0092be6fc1ee10497], ambiguous=true: Raft target attempt 1 started with 4999ms remaining: cell command [command-id-sha256:f03661ebcabd086d9ce948042a16c6bb844349903af26bc0092be6fc1ee10497] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 4999ms remaining: cell command [command-id-sha256:f03661ebcabd086d9ce948042a16c6bb844349903af26bc0092be6fc1ee10497] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:f03661ebcabd086d9ce948042a16c6bb844349903af26bc0092be6fc1ee10497] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -573,7 +573,7 @@
               "sequence": 7,
               "entity": 1,
               "identity": "0ff78dc230d0.0.4.write.1.7",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 25 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "error": "HTTP 503: cell binding call [command-id-sha256:ce681c664a7157cf88817f7449a0b65968e1315ae9f563b1dcc654a9f9c8709c], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -581,7 +581,7 @@
               "sequence": 7,
               "entity": 2,
               "identity": "0ff78dc230d0.0.4.write.2.7",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 26 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "error": "HTTP 503: cell binding call [command-id-sha256:c8c99e851b68199807ea0af2bf1d5cc2d88c43de46081dd04b712a4cf210ad1d], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -589,7 +589,7 @@
               "sequence": 8,
               "entity": 7,
               "identity": "0ff78dc230d0.0.4.write.3.8",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 26 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "error": "HTTP 503: cell binding call [command-id-sha256:c8c99e851b68199807ea0af2bf1d5cc2d88c43de46081dd04b712a4cf210ad1d], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
               "mutation_outcome": "unconfirmed"
             }
           ],
@@ -782,7 +782,7 @@
               "sequence": 4,
               "entity": 3,
               "identity": "b8f2f5e141f4.0.1.write.0.4",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 4 }, ambiguous=true: Raft target attempt 1 started with 4996ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 4 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 4996ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 4 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 4 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "error": "HTTP 503: cell binding call [command-id-sha256:65c7ff16deaeb38318b5dbfe614ed3f6859d0f5b328dbf59cea9a1194eea3d81], ambiguous=true: Raft target attempt 1 started with 4996ms remaining: cell command [command-id-sha256:65c7ff16deaeb38318b5dbfe614ed3f6859d0f5b328dbf59cea9a1194eea3d81] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 4996ms remaining: cell command [command-id-sha256:65c7ff16deaeb38318b5dbfe614ed3f6859d0f5b328dbf59cea9a1194eea3d81] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:65c7ff16deaeb38318b5dbfe614ed3f6859d0f5b328dbf59cea9a1194eea3d81] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
               "mutation_outcome": "unconfirmed"
             }
           ],
@@ -1035,7 +1035,7 @@
               "sequence": 3,
               "entity": 18,
               "identity": "fced2b3d84b4.0.16.warmup.10.3",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 18 }, ambiguous=true: Raft target attempt 1 started with 2048ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 18 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2048ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 18 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 18 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "error": "HTTP 503: cell binding call [command-id-sha256:62ad0c4d47286371850eacd340ca55b6d5b626aa8088384e5f6bdeec1db23e35], ambiguous=true: Raft target attempt 1 started with 2048ms remaining: cell command [command-id-sha256:62ad0c4d47286371850eacd340ca55b6d5b626aa8088384e5f6bdeec1db23e35] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2048ms remaining: cell command [command-id-sha256:62ad0c4d47286371850eacd340ca55b6d5b626aa8088384e5f6bdeec1db23e35] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:62ad0c4d47286371850eacd340ca55b6d5b626aa8088384e5f6bdeec1db23e35] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
               "mutation_outcome": "unconfirmed"
             }
           ],

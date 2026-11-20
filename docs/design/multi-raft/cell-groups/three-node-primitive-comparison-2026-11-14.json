@@ -1579,7 +1579,7 @@
               "sequence": 1,
               "entity": 0,
               "identity": "05365809bc9e.0.4.warmup.0.1",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 44 }, ambiguous=true: Raft target attempt 1 started with 4972ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 44 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564], ambiguous=true: Raft target attempt 1 started with 4972ms remaining: cell command [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -1587,7 +1587,7 @@
               "sequence": 1,
               "entity": 2,
               "identity": "05365809bc9e.0.4.warmup.2.1",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 44 }, ambiguous=true: Raft target attempt 1 started with 4972ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 44 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564], ambiguous=true: Raft target attempt 1 started with 4972ms remaining: cell command [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -1595,7 +1595,7 @@
               "sequence": 2,
               "entity": 7,
               "identity": "05365809bc9e.0.4.warmup.3.2",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 43 }, ambiguous=true: Raft target attempt 1 started with 4991ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 43 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:9053cf58c8387f35bee716e5a2d1a236aed3afd817103a123dbbd2688065c584], ambiguous=true: Raft target attempt 1 started with 4991ms remaining: cell command [command-id-sha256:9053cf58c8387f35bee716e5a2d1a236aed3afd817103a123dbbd2688065c584] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             }
           ],
@@ -3067,7 +3067,7 @@
               "sequence": 1,
               "entity": 0,
               "identity": "05365809bc9e.0.4.warmup.0.1",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 21 }, ambiguous=true: Raft target attempt 1 started with 4969ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 21 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:5dc78f6d83dfddd75f896947d71943e1b4da9cd535940ef1955fdb8ea4fc8606], ambiguous=true: Raft target attempt 1 started with 4969ms remaining: cell command [command-id-sha256:5dc78f6d83dfddd75f896947d71943e1b4da9cd535940ef1955fdb8ea4fc8606] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -3075,7 +3075,7 @@
               "sequence": 2,
               "entity": 5,
               "identity": "05365809bc9e.0.4.warmup.1.2",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 21 }, ambiguous=true: Raft target attempt 1 started with 4979ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 21 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:5dc78f6d83dfddd75f896947d71943e1b4da9cd535940ef1955fdb8ea4fc8606], ambiguous=true: Raft target attempt 1 started with 4979ms remaining: cell command [command-id-sha256:5dc78f6d83dfddd75f896947d71943e1b4da9cd535940ef1955fdb8ea4fc8606] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -3083,7 +3083,7 @@
               "sequence": 1,
               "entity": 2,
               "identity": "05365809bc9e.0.4.warmup.2.1",
-              "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 21 }, ambiguous=true: Raft target attempt 1 started with 4967ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 21 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:5dc78f6d83dfddd75f896947d71943e1b4da9cd535940ef1955fdb8ea4fc8606], ambiguous=true: Raft target attempt 1 started with 4967ms remaining: cell command [command-id-sha256:5dc78f6d83dfddd75f896947d71943e1b4da9cd535940ef1955fdb8ea4fc8606] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             }
           ],
@@ -6121,7 +6121,7 @@
               "sequence": 1,
               "entity": 0,
               "identity": "05365809bc9e.0.4.warmup.0.1",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 }, ambiguous=true: Raft target attempt 1 started with 4947ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4947ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: cell binding call [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147], ambiguous=true: Raft target attempt 1 started with 4947ms remaining: cell command [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4947ms remaining: cell command [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -6129,7 +6129,7 @@
               "sequence": 4,
               "entity": 13,
               "identity": "05365809bc9e.0.4.warmup.1.4",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 45 }, ambiguous=true: Raft target attempt 1 started with 4967ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 45 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4967ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 45 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 45 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: cell binding call [command-id-sha256:3dd5780f1385c62537100b793218b75f16b1dde07ea01d105980efafaf7171bd], ambiguous=true: Raft target attempt 1 started with 4967ms remaining: cell command [command-id-sha256:3dd5780f1385c62537100b793218b75f16b1dde07ea01d105980efafaf7171bd] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4967ms remaining: cell command [command-id-sha256:3dd5780f1385c62537100b793218b75f16b1dde07ea01d105980efafaf7171bd] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command [command-id-sha256:3dd5780f1385c62537100b793218b75f16b1dde07ea01d105980efafaf7171bd] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -6137,7 +6137,7 @@
               "sequence": 1,
               "entity": 2,
               "identity": "05365809bc9e.0.4.warmup.2.1",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 }, ambiguous=true: Raft target attempt 1 started with 4996ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4996ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: cell binding call [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147], ambiguous=true: Raft target attempt 1 started with 4996ms remaining: cell command [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4996ms remaining: cell command [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             }
           ],
@@ -7073,7 +7073,7 @@
               "sequence": 1,
               "entity": 0,
               "identity": "05365809bc9e.0.4.warmup.0.1",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 23 }, ambiguous=true: Raft target attempt 1 started with 4989ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 23 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4989ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 23 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 23 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: cell binding call [command-id-sha256:416bc99b5a095395c066e40c389314659ca87c893ffb2ec57eff96564cadb3a9], ambiguous=true: Raft target attempt 1 started with 4989ms remaining: cell command [command-id-sha256:416bc99b5a095395c066e40c389314659ca87c893ffb2ec57eff96564cadb3a9] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4989ms remaining: cell command [command-id-sha256:416bc99b5a095395c066e40c389314659ca87c893ffb2ec57eff96564cadb3a9] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command [command-id-sha256:416bc99b5a095395c066e40c389314659ca87c893ffb2ec57eff96564cadb3a9] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             },
             {
@@ -7081,7 +7081,7 @@
               "sequence": 1,
               "entity": 2,
               "identity": "05365809bc9e.0.4.warmup.2.1",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 23 }, ambiguous=true: Raft target attempt 1 started with 4997ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 23 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4997ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 23 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 23 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: cell binding call [command-id-sha256:416bc99b5a095395c066e40c389314659ca87c893ffb2ec57eff96564cadb3a9], ambiguous=true: Raft target attempt 1 started with 4997ms remaining: cell command [command-id-sha256:416bc99b5a095395c066e40c389314659ca87c893ffb2ec57eff96564cadb3a9] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4997ms remaining: cell command [command-id-sha256:416bc99b5a095395c066e40c389314659ca87c893ffb2ec57eff96564cadb3a9] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command [command-id-sha256:416bc99b5a095395c066e40c389314659ca87c893ffb2ec57eff96564cadb3a9] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             }
           ],
@@ -10180,7 +10180,7 @@
               "sequence": 2,
               "entity": 1,
               "identity": "05365809bc9e.0.1.warmup.0.2",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1 }, ambiguous=true: Raft target attempt 1 started with 4944ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4944ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: cell binding call [command-id-sha256:b0fdd7c43340982298cfc3fbbbbb16d1c897138c3108d45323685baa0c2d72f2], ambiguous=true: Raft target attempt 1 started with 4944ms remaining: cell command [command-id-sha256:b0fdd7c43340982298cfc3fbbbbb16d1c897138c3108d45323685baa0c2d72f2] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4944ms remaining: cell command [command-id-sha256:b0fdd7c43340982298cfc3fbbbbb16d1c897138c3108d45323685baa0c2d72f2] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command [command-id-sha256:b0fdd7c43340982298cfc3fbbbbb16d1c897138c3108d45323685baa0c2d72f2] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             }
           ],
@@ -11818,7 +11818,7 @@
               "sequence": 2,
               "entity": 1,
               "identity": "05365809bc9e.0.1.warmup.0.2",
-              "error": "HTTP 503: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1 }, ambiguous=true: Raft target attempt 1 started with 4979ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4979ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1 } (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
+              "error": "HTTP 503: cell binding call [command-id-sha256:b0fdd7c43340982298cfc3fbbbbb16d1c897138c3108d45323685baa0c2d72f2], ambiguous=true: Raft target attempt 1 started with 4979ms remaining: cell command [command-id-sha256:b0fdd7c43340982298cfc3fbbbbb16d1c897138c3108d45323685baa0c2d72f2] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): Raft target attempt 1 started with 4979ms remaining: cell command [command-id-sha256:b0fdd7c43340982298cfc3fbbbbb16d1c897138c3108d45323685baa0c2d72f2] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded)): cell command [command-id-sha256:b0fdd7c43340982298cfc3fbbbbb16d1c897138c3108d45323685baa0c2d72f2] (ambiguous=true): cell dispatch: Execution(Refused(Overloaded))",
               "mutation_outcome": "unconfirmed"
             }
           ],

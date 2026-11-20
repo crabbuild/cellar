@@ -36,6 +36,60 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Queue critical path: diagnostic follow-up
+
+The qualified production inputs remain `9748e402`; temporary instrumentation
+`66277653` was removed after both fresh native C4 cohorts closed normally and
+their originals, closed copies, source, executable and logs were independently
+verified. The fetched main remains `2f083f14`. This adds diagnosis, not a
+production change or a Queue repair. See the
+[source-bound diagnostic record](queue-critical-path-diagnostic-2026-11-20.json).
+
+Rooted and materialized C4 both fail, retaining **six ambiguous deadline producer
+errors**. All **1,541 trace events** parse with timestamps. Queue identity is
+derived using the production namespace/HMAC rules before matching command IDs;
+an ID alone is insufficient across cells. Five returned errors have one observed
+local preparation candidate. Those candidates enter preparation with only
+**0.46–2.41 seconds** left on the original five-second budget: four complete
+successful local settlement after their deadline, and one expires during writer
+admission. The sixth identity has multiple preparation scopes and lacks a traced
+normalized-input digest, so no unique request attribution is claimed for it.
+These observations do not retroactively establish a successful public response,
+authorize replay or replace the original exact drain oracle, which is not reached.
+
+Three native callback checkpoint proof scopes remain owned until shutdown drops
+them. Their scope lifetimes include shutdown and are not successful proof
+latencies. Temporary synchronous tracing can perturb scheduling; overlapping
+phase intervals are not added or reported as request latency or throughput.
+The cause of these missing terminal proofs remains unproven.
+
+The immediate **P0** work is to trace routing, ownership and authority before
+local preparation with the exact input digest, and resolve the retained callback
+checkpoint producers. Any production change needs a deterministic matched
+regression plus the original Queue C2/C4 drain and SDK writer-release/fencing
+controls within unchanged budgets. Recovery full-prefix, remaining primitive
+coverage, OPT-01–08 and SDK/release acceptance stay open as listed below.
+
+This cohort retains **2,514 files / 27,175,837 bytes**, including **two concrete
+synthetic-store snapshots / 1,670 objects / 6,939,415 bytes**. Copies are
+nontransactional diagnostics. Earlier unexported synthetic backends remain an
+irreparable historical evidence gap. Raw identities, keys, logs and paths stay
+private; failed histories are not reset or manually reissued.
+
+An additional privacy scan found **351 raw command-ID occurrences in ten older
+diagnostic JSON files**. The current tree replaces those Debug strings with
+SHA-256 fingerprints, preserving every other JSON value and all surrounding
+bytes. The original **1,439,465 bytes** are privately retained and hash-verified;
+the diagnostic record includes the original/redacted file-hash mapping.
+Fingerprints alone do not identify a cell/request. Prior Git history is unchanged.
+
+A fresh read-only original RustFS probe at
+**2026-11-20T13:45:15.206685+00:00** reports **zero available bytes**, below the
+unchanged **6 GiB reserve**. Identity, configuration and start still match the
+original with zero restarts; **no benchmark is admitted**. This is a RustFS-only
+probe, not a fresh resource witness for all three nodes. The original three-node
+1-vCPU/2-GiB SQL/KV/Queue durability/concurrency comparison remains open.
+
 ### Checkpoint submission: current qualification and gaps
 
 Source `beb4add4` includes main `2f083f14`; compiler inputs are

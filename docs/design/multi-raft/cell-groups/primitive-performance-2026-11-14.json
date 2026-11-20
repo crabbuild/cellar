@@ -337,7 +337,7 @@
             "concurrency": 1,
             "elapsedSeconds": 29.863547835,
             "errorSamples": [
-              "worker=0 operation=247: HTTP 503 Service Unavailable: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 453 }, ambiguous=false: Raft target attempt 1 started with 2246ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 453 } (ambiguous=false): cell dispatch: Execution(Refused(Unavailable))"
+              "worker=0 operation=247: HTTP 503 Service Unavailable: SQL_ERROR: cell binding call [command-id-sha256:3d900e2b69de7eec760885692666c3961e7083937bebd9e95356d0e546b5473c], ambiguous=false: Raft target attempt 1 started with 2246ms remaining: cell command [command-id-sha256:3d900e2b69de7eec760885692666c3961e7083937bebd9e95356d0e546b5473c] (ambiguous=false): cell dispatch: Execution(Refused(Unavailable))"
             ],
             "errors": 1,
             "latencyMicros": [
@@ -1386,7 +1386,7 @@
             "concurrency": 4,
             "elapsedSeconds": 5.554956689,
             "errorSamples": [
-              "worker=0 operation=4: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 563 }, ambiguous=true: Raft target attempt 1 started with 2739ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 563 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2739ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 563 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 563 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "worker=0 operation=4: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:f7020f3850e21d592d9ee053b13ab927f7d7bf4c6daf3f723e3453573d6dcc79], ambiguous=true: Raft target attempt 1 started with 2739ms remaining: cell command [command-id-sha256:f7020f3850e21d592d9ee053b13ab927f7d7bf4c6daf3f723e3453573d6dcc79] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2739ms remaining: cell command [command-id-sha256:f7020f3850e21d592d9ee053b13ab927f7d7bf4c6daf3f723e3453573d6dcc79] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:f7020f3850e21d592d9ee053b13ab927f7d7bf4c6daf3f723e3453573d6dcc79] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
               "worker=1 operation=5: HTTP 503 Service Unavailable: cell dispatch: Runtime(DeadlineExceeded)",
               "worker=2 operation=4: HTTP 503 Service Unavailable: cell dispatch: Runtime(DeadlineExceeded)",
               "worker=3 operation=4: HTTP 503 Service Unavailable: Raft runtime: DeadlineExceeded"
@@ -1471,10 +1471,10 @@
             "concurrency": 4,
             "elapsedSeconds": 4.031198683,
             "errorSamples": [
-              "worker=0 operation=1: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 577 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "worker=0 operation=1: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:4eaec9531d0264740abe01141fe80a453ce43be974cf56b038c1ca752944821c], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
               "worker=1 operation=1: HTTP 503 Service Unavailable: Raft runtime: DeadlineExceeded",
               "worker=2 operation=1: HTTP 503 Service Unavailable: Raft runtime: DeadlineExceeded",
-              "worker=3 operation=2: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 578 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded"
+              "worker=3 operation=2: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:ec4bdac92a6c958023ecd55e0a48278039645e7f6184bcafaa448c7151f62b4a], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded"
             ],
             "errors": 4,
             "latencyMicros": [
@@ -1550,7 +1550,7 @@
             "concurrency": 1,
             "elapsedSeconds": 15.57825221,
             "errorSamples": [
-              "worker=0 operation=60: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 653 }, ambiguous=true: Raft target attempt 1 started with 2999ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 653 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2999ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 653 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 653 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)"
+              "worker=0 operation=60: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:6f3f9ca6179af13e94806e0810ccd84947a1f4978e97730df862ced9eecdd1f8], ambiguous=true: Raft target attempt 1 started with 2999ms remaining: cell command [command-id-sha256:6f3f9ca6179af13e94806e0810ccd84947a1f4978e97730df862ced9eecdd1f8] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2999ms remaining: cell command [command-id-sha256:6f3f9ca6179af13e94806e0810ccd84947a1f4978e97730df862ced9eecdd1f8] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:6f3f9ca6179af13e94806e0810ccd84947a1f4978e97730df862ced9eecdd1f8] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)"
             ],
             "errors": 1,
             "latencyMicros": [
@@ -1656,7 +1656,7 @@
             "enqueueAndDrainSeconds": 8.384028187,
             "enqueueMessagesPerSecond": 1.9968616359044389,
             "errorSamples": [
-              "worker=0 operation=2: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 3 }, ambiguous=true: Raft target attempt 1 started with 2405ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 3 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2405ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 3 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 3 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)"
+              "worker=0 operation=2: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:42a5cad3194a08f820b0921d35a2f998b8a8078bd69f32aa1ba95a0c32a54cd0], ambiguous=true: Raft target attempt 1 started with 2405ms remaining: cell command [command-id-sha256:42a5cad3194a08f820b0921d35a2f998b8a8078bd69f32aa1ba95a0c32a54cd0] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2405ms remaining: cell command [command-id-sha256:42a5cad3194a08f820b0921d35a2f998b8a8078bd69f32aa1ba95a0c32a54cd0] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:42a5cad3194a08f820b0921d35a2f998b8a8078bd69f32aa1ba95a0c32a54cd0] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)"
             ],
             "errors": 1,
             "latencyMicros": [
@@ -1693,8 +1693,8 @@
             "enqueueAndDrainSeconds": 10.339649957,
             "enqueueMessagesPerSecond": 17.850248260329867,
             "errorSamples": [
-              "worker=0 operation=4: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 11 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
-              "worker=1 operation=3: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 9 }, ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded"
+              "worker=0 operation=4: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "worker=1 operation=3: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:9876e03cbbabfa49bcc8a7eac50e7b3a9993448b32e8f52d98379945ed0248d0], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded"
             ],
             "errors": 2,
             "latencyMicros": [
@@ -1742,7 +1742,7 @@
             "enqueueAndDrainSeconds": 13.58262759,
             "enqueueMessagesPerSecond": 17.83657687139452,
             "errorSamples": [
-              "worker=0 operation=3: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 25 }, ambiguous=true: Raft target attempt 1 started with 2705ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 25 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2705ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 25 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 25 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)"
+              "worker=0 operation=3: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:ce681c664a7157cf88817f7449a0b65968e1315ae9f563b1dcc654a9f9c8709c], ambiguous=true: Raft target attempt 1 started with 2705ms remaining: cell command [command-id-sha256:ce681c664a7157cf88817f7449a0b65968e1315ae9f563b1dcc654a9f9c8709c] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2705ms remaining: cell command [command-id-sha256:ce681c664a7157cf88817f7449a0b65968e1315ae9f563b1dcc654a9f9c8709c] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:ce681c664a7157cf88817f7449a0b65968e1315ae9f563b1dcc654a9f9c8709c] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)"
             ],
             "errors": 1,
             "latencyMicros": [
@@ -1809,7 +1809,7 @@
           "phase": "warmup",
           "primitive": "queue",
           "repeat": 1,
-          "verificationError": "empty quorum-jobs: Queue operator quorum-jobs: 503 Service Unavailable {\"error\":\"cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 38 }, ambiguous=true: Raft target attempt 1 started with 2932ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 38 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2932ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 38 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 38 } (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)\",\"outcome\":\"unknown\"}",
+          "verificationError": "empty quorum-jobs: Queue operator quorum-jobs: 503 Service Unavailable {\"error\":\"cell binding call [command-id-sha256:a5d59ae87419823715eb9901e9a39c2aa3c8657187930b14d75bc850014d7feb], ambiguous=true: Raft target attempt 1 started with 2932ms remaining: cell command [command-id-sha256:a5d59ae87419823715eb9901e9a39c2aa3c8657187930b14d75bc850014d7feb] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2932ms remaining: cell command [command-id-sha256:a5d59ae87419823715eb9901e9a39c2aa3c8657187930b14d75bc850014d7feb] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:a5d59ae87419823715eb9901e9a39c2aa3c8657187930b14d75bc850014d7feb] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)\",\"outcome\":\"unknown\"}",
           "verified": false,
           "voterProcesses": 1,
           "voters": 3
@@ -2962,7 +2962,7 @@
             "elapsedSeconds": 2.314406088,
             "errorSamples": [
               "worker=0 operation=8: HTTP 503 Service Unavailable: SQL_ERROR: cell dispatch: Runtime(GroupQuarantined)",
-              "worker=1 operation=7: HTTP 503 Service Unavailable: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1024 }, ambiguous=true: Raft target attempt 1 started with 2765ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1024 } (ambiguous=true): cell dispatch: Execution(Refused(Unavailable))",
+              "worker=1 operation=7: HTTP 503 Service Unavailable: SQL_ERROR: cell binding call [command-id-sha256:99b9ef5467d0fa5652d2588f7a94bfbb28ba121a9bbb66607a91be9a314dcf03], ambiguous=true: Raft target attempt 1 started with 2765ms remaining: cell command [command-id-sha256:99b9ef5467d0fa5652d2588f7a94bfbb28ba121a9bbb66607a91be9a314dcf03] (ambiguous=true): cell dispatch: Execution(Refused(Unavailable))",
               "worker=2 operation=7: HTTP 503 Service Unavailable: SQL_ERROR: cell dispatch: Runtime(GroupQuarantined)",
               "worker=3 operation=7: HTTP 503 Service Unavailable: SQL_ERROR: cell dispatch: Runtime(GroupQuarantined)"
             ],
@@ -4102,7 +4102,7 @@
             "concurrency": 4,
             "elapsedSeconds": 12.876822484,
             "errorSamples": [
-              "worker=0 operation=33: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1024 }, ambiguous=true: Raft target attempt 1 started with 2687ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1024 } (ambiguous=true): cell dispatch: Execution(Refused(Unavailable)): Raft target attempt 1 started with 2687ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1024 } (ambiguous=true): cell dispatch: Execution(Refused(Unavailable)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 1024 } (ambiguous=true): cell dispatch: Execution(Refused(Unavailable))",
+              "worker=0 operation=33: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:99b9ef5467d0fa5652d2588f7a94bfbb28ba121a9bbb66607a91be9a314dcf03], ambiguous=true: Raft target attempt 1 started with 2687ms remaining: cell command [command-id-sha256:99b9ef5467d0fa5652d2588f7a94bfbb28ba121a9bbb66607a91be9a314dcf03] (ambiguous=true): cell dispatch: Execution(Refused(Unavailable)): Raft target attempt 1 started with 2687ms remaining: cell command [command-id-sha256:99b9ef5467d0fa5652d2588f7a94bfbb28ba121a9bbb66607a91be9a314dcf03] (ambiguous=true): cell dispatch: Execution(Refused(Unavailable)): cell command [command-id-sha256:99b9ef5467d0fa5652d2588f7a94bfbb28ba121a9bbb66607a91be9a314dcf03] (ambiguous=true): cell dispatch: Execution(Refused(Unavailable))",
               "worker=1 operation=34: HTTP 503 Service Unavailable: cell dispatch: Runtime(GroupQuarantined)",
               "worker=2 operation=34: HTTP 503 Service Unavailable: cell dispatch: Runtime(GroupQuarantined)",
               "worker=3 operation=33: HTTP 503 Service Unavailable: cell dispatch: Runtime(GroupQuarantined)"
@@ -4587,7 +4587,7 @@
             "enqueueAndDrainSeconds": 19.842817377,
             "enqueueMessagesPerSecond": 32.67535751525346,
             "errorSamples": [
-              "worker=0 operation=21: HTTP 503 Service Unavailable: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 191 }, ambiguous=true: Raft target attempt 1 started with 2460ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 191 } (ambiguous=true): cell dispatch: Execution(Refused(Unavailable)): Raft target attempt 1 started with 2460ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 191 } (ambiguous=true): cell dispatch: Execution(Refused(Unavailable)): cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 191 } (ambiguous=true): cell dispatch: Execution(Refused(Unavailable))",
+              "worker=0 operation=21: HTTP 503 Service Unavailable: cell binding call [command-id-sha256:d5812ad62d93cf731625398cdfc7d18a7628f148b5cd80be963ddebb62d3ddf6], ambiguous=true: Raft target attempt 1 started with 2460ms remaining: cell command [command-id-sha256:d5812ad62d93cf731625398cdfc7d18a7628f148b5cd80be963ddebb62d3ddf6] (ambiguous=true): cell dispatch: Execution(Refused(Unavailable)): Raft target attempt 1 started with 2460ms remaining: cell command [command-id-sha256:d5812ad62d93cf731625398cdfc7d18a7628f148b5cd80be963ddebb62d3ddf6] (ambiguous=true): cell dispatch: Execution(Refused(Unavailable)): cell command [command-id-sha256:d5812ad62d93cf731625398cdfc7d18a7628f148b5cd80be963ddebb62d3ddf6] (ambiguous=true): cell dispatch: Execution(Refused(Unavailable))",
               "worker=1 operation=21: HTTP 503 Service Unavailable: cell dispatch: Runtime(GroupQuarantined)",
               "worker=2 operation=21: HTTP 503 Service Unavailable: cell dispatch: Runtime(GroupQuarantined)",
               "worker=3 operation=22: HTTP 503 Service Unavailable: cell dispatch: Runtime(GroupQuarantined)"

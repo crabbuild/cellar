@@ -352,7 +352,7 @@
             "sequence": 8,
             "entity": 4,
             "identity": "ebddff780d20.0.4.read.0.8",
-            "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 }, ambiguous=true: Raft target attempt 1 started with 3603ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 } (ambiguous=true): cell dispatch: Transport(Io(\"peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof\"))",
+            "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:0507feaa2d41a12aa66e1b64f7dc0bed9d03c50f762b79da6dba11e98b71f2ba], ambiguous=true: Raft target attempt 1 started with 3603ms remaining: cell command [command-id-sha256:0507feaa2d41a12aa66e1b64f7dc0bed9d03c50f762b79da6dba11e98b71f2ba] (ambiguous=true): cell dispatch: Transport(Io(\"peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof\"))",
             "mutation_outcome": "read_failed"
           },
           {
@@ -368,7 +368,7 @@
             "sequence": 8,
             "entity": 6,
             "identity": "ebddff780d20.0.4.read.2.8",
-            "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 }, ambiguous=true: Raft target attempt 1 started with 3564ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 } (ambiguous=true): cell dispatch: Runtime(Closed)",
+            "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:0507feaa2d41a12aa66e1b64f7dc0bed9d03c50f762b79da6dba11e98b71f2ba], ambiguous=true: Raft target attempt 1 started with 3564ms remaining: cell command [command-id-sha256:0507feaa2d41a12aa66e1b64f7dc0bed9d03c50f762b79da6dba11e98b71f2ba] (ambiguous=true): cell dispatch: Runtime(Closed)",
             "mutation_outcome": "read_failed"
           },
           {
@@ -376,7 +376,7 @@
             "sequence": 11,
             "entity": 19,
             "identity": "ebddff780d20.0.4.read.3.11",
-            "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 }, ambiguous=true: Raft target attempt 1 started with 2896ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 } (ambiguous=true): cell dispatch: Transport(Io(\"peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof\"))",
+            "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147], ambiguous=true: Raft target attempt 1 started with 2896ms remaining: cell command [command-id-sha256:8faaf5ab1f0c78f3bd0f1e7b5f2657dd91f462a1984db89c41ed9a47e5cb5147] (ambiguous=true): cell dispatch: Transport(Io(\"peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof\"))",
             "mutation_outcome": "read_failed"
           }
         ],
