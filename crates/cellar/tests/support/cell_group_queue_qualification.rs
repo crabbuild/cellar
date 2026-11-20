@@ -153,24 +153,27 @@ fn applications(signals: Arc<Signals>, minimums: Minimums) -> Result<Deployments
                     let args = cellar_native::clone::StructuredValue::from_json(
                         serde_json::from_slice(&bytes)?,
                     )?;
-                    let result = async {
-                        let reply = context
-                            .rpc_cell(
-                                cellar::engine_api::queue_cell_scope(DEAD),
-                                Some(DEAD.into()),
-                                "__queueDlqAcceptBatch".into(),
-                                cellar::sdk::encode_rpc(&args)?,
-                            )
-                            .await?;
-                        cellar::sdk::decode_rpc_result(&reply)?.to_json()
-                    }
-                    .await;
+                    let reply = context
+                        .rpc_cell(
+                            cellar::engine_api::queue_cell_scope(DEAD),
+                            Some(DEAD.into()),
+                            "__queueDlqAcceptBatch".into(),
+                            cellar::sdk::encode_rpc(&args)?,
+                        )
+                        .await;
+                    let (status, body) = match reply {
+                        Err(error) => (503, format!("{error:#}").into_bytes()),
+                        Ok(reply) => match cellar::sdk::decode_rpc_result(&reply)
+                            .and_then(|value| value.to_json())
+                        {
+                            Ok(value) => (200, value.to_string().into_bytes()),
+                            Err(error) => (409, format!("{error:#}").into_bytes()),
+                        },
+                    };
                     return Ok(Output::Http(cellar::engine_api::HttpResponse {
-                        status: if result.is_ok() { 200 } else { 409 },
+                        status,
                         headers: vec![],
-                        body: result
-                            .map(|value| value.to_string().into_bytes())
-                            .unwrap_or_else(|error| format!("{error:#}").into_bytes()),
+                        body,
                         stream: None,
                         websocket: None,
                         write_position: None,
