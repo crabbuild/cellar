@@ -113,6 +113,10 @@ impl Working {
         self.frozen == Some(base.pin().state())
     }
 
+    pub fn captured_image(&self) -> Option<LtxImage> {
+        self.frozen.map(image_position)
+    }
+
     pub fn trim(&self, options: &PrivateOptions, base: Option<&PublishedImage>) -> Result<()> {
         self.trim_through(
             options,

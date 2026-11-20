@@ -591,26 +591,39 @@ impl CellPrivateExecutor {
         {
             Ok(None)
         } else {
-            let database = self
-                .options
-                .images
-                .read_cell(&self.options, authority.image())
-                .map_err(storage)?;
-            if let Some(step) = pending.rpc_step {
-                receipts::lookup_rpc_identity(
-                    database.connection(),
-                    &pending.request,
-                    &self.options.limits,
-                )
-                .map(|receipt| {
-                    receipt.filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
-                })
+            let inspect = |connection: &rusqlite::Connection| {
+                if let Some(step) = pending.rpc_step {
+                    receipts::lookup_rpc_identity(
+                        connection,
+                        &pending.request,
+                        &self.options.limits,
+                    )
+                    .map(|receipt| {
+                        receipt
+                            .filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
+                    })
+                } else {
+                    receipts::lookup_identity(connection, &pending.request, &self.options.limits)
+                }
+            };
+            // The producer is frozen while pending. Reuse its captured data
+            // only when this independently checked applied view selects the
+            // exact result. Later images and unavailable or busy connections
+            // still use immutable inspection. Neither path supplies S3 proof.
+            let captured = self
+                .working
+                .as_ref()
+                .filter(|_| authority.cell().version == pending.result)
+                .and_then(|working| working.captured_connection(pending.result.image));
+            if let Some(connection) = captured {
+                inspect(connection)
             } else {
-                receipts::lookup_identity(
-                    database.connection(),
-                    &pending.request,
-                    &self.options.limits,
-                )
+                let database = self
+                    .options
+                    .images
+                    .read_cell(&self.options, authority.image())
+                    .map_err(storage)?;
+                inspect(database.connection())
             }
         };
         let resolution = match receipt {

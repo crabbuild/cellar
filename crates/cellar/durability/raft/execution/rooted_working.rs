@@ -153,6 +153,10 @@ impl RootWorking {
         self.frozen = None;
     }
 
+    pub fn captured_image(&self) -> Option<LtxImage> {
+        self.frozen.map(|state| state.image)
+    }
+
     pub fn observation_work(&self) -> Option<cellar_ltx::internal::db::ObservationWork> {
         self.observation.as_ref().map(ExtentObservation::work)
     }

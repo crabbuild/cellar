@@ -1007,6 +1007,13 @@ pub(super) async fn reconcile_sql_refusals(rooted: bool) -> Result<()> {
     sql::reconcile_refusals(rooted).await
 }
 
+pub(super) async fn reconcile_captured_receipt(
+    rooted: bool,
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    sql::reconcile_captured_receipt(rooted, store).await
+}
+
 pub(super) async fn initialize_cells(rooted: bool) -> Result<()> {
     sql::initialize_cells(rooted).await
 }

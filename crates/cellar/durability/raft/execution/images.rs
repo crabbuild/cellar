@@ -403,10 +403,30 @@ impl WorkingImage {
     }
 
     pub fn database_mut(&mut self) -> &mut crate::storage::CommandDatabase {
+        // Every writable borrow invalidates the captured cut, even if its
+        // caller later aborts. Reuse requires another successful capture.
+        self.begin_mutation();
         match self {
             Self::Materialized(working) => &mut working.database,
             Self::Rooted(working) => &mut working.database,
         }
+    }
+
+    /// Read a quiescent connection at its captured main/WAL cut. The caller
+    /// must retain the independently replayed preview and check authority;
+    /// this supplies data, never proof.
+    pub(super) fn captured_connection(
+        &self,
+        image: cellar_logic::cell_group::CellImage,
+    ) -> Option<&rusqlite::Connection> {
+        let captured = match self {
+            Self::Materialized(working) => working.captured_image(),
+            Self::Rooted(working) => working.captured_image(),
+        };
+        if captured.map(cellar_logic::cell_group::CellImage::from) != Some(image) {
+            return None;
+        }
+        self.database().quiescent()
     }
 
     pub fn begin_mutation(&mut self) {

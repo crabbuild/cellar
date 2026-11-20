@@ -817,6 +817,17 @@ impl CommandDatabase {
             .expect("working image owns its connection outside a command")
     }
 
+    /// A frozen-image reader must own the connection and have no transaction,
+    /// including a snapshot retained by an unfinished read cursor. The caller
+    /// separately binds its captured bytes to fresh consensus authority.
+    pub(crate) fn quiescent(&self) -> Option<&Connection> {
+        let connection = self.connection.as_ref()?;
+        // SAFETY: this live connection stays on its exclusive SQL owner. SQLite
+        // only inspects main's transaction state; no statement steps here.
+        let state = unsafe { ffi::sqlite3_txn_state(connection.handle(), c"main".as_ptr()) };
+        (connection.is_autocommit() && state == ffi::SQLITE_TXN_NONE).then_some(connection)
+    }
+
     pub(crate) fn transaction<T>(
         &mut self,
         inputs: CommandInputs,

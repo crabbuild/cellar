@@ -502,6 +502,16 @@ pub(super) async fn reconcile_refusals(rooted: bool) -> Result<()> {
     reconciliation::refusals(rooted).await
 }
 
+#[path = "cell_group_sql_receipt_reuse.rs"]
+mod receipt_reuse;
+
+pub(super) async fn reconcile_captured_receipt(
+    rooted: bool,
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    Box::pin(receipt_reuse::reconcile(rooted, store)).await
+}
+
 #[path = "cell_group_sql_submission.rs"]
 mod submission;
 

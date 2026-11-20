@@ -16,6 +16,9 @@ mod fault;
 #[allow(dead_code, unused_imports)]
 mod runtime_fixture;
 
+#[path = "support/cell_group_sql_receipt_retention.rs"]
+mod receipt_retention;
+
 #[path = "support/cell_group_checkpoint.rs"]
 mod checkpoint_fixture;
 
@@ -670,6 +673,16 @@ async fn cell_sql_reconciles_expired_and_conflicting_receipts() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_cell_sql_reconciles_expired_and_conflicting_receipts() -> Result<()> {
     runtime_fixture::reconcile_sql_refusals(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn materialized_reconciliation_reuses_captured_receipt_image() -> Result<()> {
+    receipt_retention::reconcile(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_reconciliation_reuses_captured_receipt_image() -> Result<()> {
+    receipt_retention::reconcile(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
