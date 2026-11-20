@@ -8,7 +8,7 @@ jobs:
   native_fleet:
     name: Native fleet (${{ matrix.revision }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -36,20 +36,34 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/fleet-control/source.txt"
           rustc -vV > "$RUNNER_TEMP/fleet-control/compiler.txt"
           sha256sum Cargo.lock crates/cellar/tests/native_raft_fleet_enrollment.rs > "$RUNNER_TEMP/fleet-control/inputs.sha256"
-      - name: Run all five native fleet cases in three fresh processes
+      - name: Repeat each of the five observed failures
         env:
           TMPDIR: ${{ runner.temp }}/native-failure-fixtures
         run: |
           set -euo pipefail
           export CARGO_TARGET_DIR="$RUNNER_TEMP/cellar-fleet-control-target"
+          cargo test -p cellar-main --all-features --locked --test native_raft_fleet_enrollment --no-run
+          cases=(
+            "hosts::initial_tests::evacuation::restart_gate::runtime::handoff::fleet_restart_handoff_observes_primary_and_preserves_sql"
+            "hosts::initial_tests::resources::movement_tests::completion_tests::restart_runtime::fleet_restart_handoff_moves_dynamic_leader_using_current_membership"
+            "hosts::initial_tests::resources::movement_tests::completion_tests::restart_runtime::fleet_restart_runtime_dynamic_voter_requires_both_current_survivors"
+            "hosts::initial_tests::resources::topology_tests::intents::service_cases::operator_cases::maintenance_cases::restart_cases::fleet_operator_extent_maintenance_full_restart_preserves_data_and_terminal_capacity"
+            "hosts::initial_tests::resources::topology_tests::intents::service_cases::operator_cases::maintenance_cases::restart_cases::fleet_operator_maintenance_full_restart_preserves_data_and_releases_only_terminal_capacity"
+          )
           failed=0
           for repetition in 1 2 3; do
-            set +e
-            cargo test -p cellar-main --all-features --locked --test native_raft_fleet_enrollment -- --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/fleet-control/repetition-$repetition.log"
-            code=${PIPESTATUS[0]}
-            set -e
-            printf 'repetition=%s exit=%s\n' "$repetition" "$code" >> "$RUNNER_TEMP/fleet-control/exits.txt"
-            if [ "$code" -ne 0 ]; then failed=1; fi
+            index=0
+            for case in "${cases[@]}"; do
+              index=$((index+1))
+              log="$RUNNER_TEMP/fleet-control/repetition-$repetition-case-$index.log"
+              set +e
+              cargo test -p cellar-main --all-features --locked --test native_raft_fleet_enrollment "$case" -- --exact --test-threads=1 --nocapture 2>&1 | tee "$log"
+              code=${PIPESTATUS[0]}
+              set -e
+              printf "repetition=%s case=%s exit=%s\n" "$repetition" "$case" "$code" >> "$RUNNER_TEMP/fleet-control/exits.txt"
+              if ! grep -F "running 1 test" "$log"; then failed=1; fi
+              if [ "$code" -ne 0 ]; then failed=1; fi
+            done
           done
           exit "$failed"
       - name: Retain every result including failures
