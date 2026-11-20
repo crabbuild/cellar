@@ -466,7 +466,11 @@ pub(super) async fn drive(
             }
             Err(error) => return Err(error.into()),
         }
-        store(context, execution, &record).await?;
+        // The already durable reservation intent reconciles this exact ticket,
+        // even across unrelated registry revisions. Immutable uploads need no
+        // second local checkpoint of that derived result. Failure/restart can
+        // replay Reserve; publication still persists its ticket and intent
+        // before CAS, then journals the selected head and predecessor debt.
     }
     let Pending::Upload(ticket) = record.pending else {
         return Err(Error::Invalid("archive upload stage"));
