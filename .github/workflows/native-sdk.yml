@@ -1,5 +1,5 @@
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
-name: Checkpoint native fleet control
+name: Checkpoint voter stage diagnostic
 on:
   workflow_dispatch:
 permissions:
@@ -36,6 +36,13 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/fleet-control/source.txt"
           rustc -vV > "$RUNNER_TEMP/fleet-control/compiler.txt"
           sha256sum Cargo.lock crates/cellar/tests/native_raft_fleet_enrollment.rs > "$RUNNER_TEMP/fleet-control/inputs.sha256"
+      - name: Instrument only replacement stages equally on both revisions
+        run: |
+          set -euo pipefail
+          python3 -c "import base64; exec(base64.b64decode('ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnA9UGF0aCgnY3JhdGVzL2NlbGxhci90ZXN0cy9zdXBwb3J0L3JhZnRfbW92ZW1lbnRfY29tcGxldGlvbi5ycycpCnM9cC5yZWFkX3RleHQoKTtzdGFydD1zLmluZGV4KCdhc3luYyBmbiByZXBsYWNlKCcpO2VuZD1zLmluZGV4KCdcbmFzeW5jIGZuIGNvbXBsZXRpb24oJyxzdGFydCk7Ym9keT1zW3N0YXJ0OmVuZF0KYW5jaG9ycz1bKCcgICAgbGV0IChjZWxscywgYXV0aG9yaXphdGlvbikgPSBydW5uaW5nKHMpLmF3YWl0PzsnLCdzdGFydC1ydW5uaW5nJyksKCcgICAgbGV0IChwLCByZXF1ZXN0KSA9IG1vdmVtZW50KHMsICZjZWxscywgMjEwKS5hd2FpdD87JywnbW92ZW1lbnQnKSwoJyAgICBsZXQgY3V0ID0gcy5mLmNhdGFsb2cucmVhZChUSU1FT1VUKS5hd2FpdD87JywncmVhZC1jYXRhbG9nJyksKCcgICAgbGV0IGFjY2VwdGVkID0nLCdyZXNlcnZlLW1vdmVtZW50JyksKCcgICAgbGV0IHRhcmdldCA9IHMnLCdyZWdpc3Rlci10YXJnZXQnKSwoJyAgICBkaXNjb3ZlcignLCdkaXNjb3ZlcicpLCgnICAgIGNlbGxzW3BdXG4nLCdiZWdpbi1yZXBhaXInKSwoJyAgICB0YXJnZXRcbicsJ2FjdGl2YXRlLWxlYXJuZXInKSwoJyAgICBlbnN1cmUhKFxuICAgICAgICBzdGVwKCZzLmYsICZjZWxsc1twXSwgJnBlcm1pdCwgUmVwYWlyU3RlcDo6UHJvbW90ZUFuZFJlbW92ZSknLCdwcm9tb3RlLXJlbW92ZScpLCgnICAgIGVuc3VyZSEoXG4gICAgICAgIHN0ZXAoJnMuZiwgJmNlbGxzW3BdLCAmcGVybWl0LCBSZXBhaXJTdGVwOjpGaW5pc2hKb2ludCknLCdmaW5pc2gtam9pbnQnKSwoJyAgICB3cml0ZV9yZWFkKCcsJ3dyaXRlLXJlYWQnKSwoJyAgICAvLyBXYXJtIG9ubHkgYWN0dWFsIHBoeXNpY2FsIG9ic2VydmF0aW9ucy4nLCdwaHlzaWNhbC1jb21wbGV0aW9uJyksKCcgICAgT2soUmVwbGFjZWQgeycsJ2NvbXBsZXRlJyldCmZvciBhbmNob3IsbGFiZWwgaW4gYW5jaG9yczoKIGFuY2hvcj0nXG4nK2FuY2hvcgogYXNzZXJ0IGJvZHkuY291bnQoYW5jaG9yKT09MSwobGFiZWwsYm9keS5jb3VudChhbmNob3IpKQogbWFya2VyPSdcbiAgICBlcHJpbnRsbiEoIltjaGVja3BvaW50LWNvbnRyb2wtc3RhZ2VdICcrbGFiZWwrJyIpOycKIGJvZHk9Ym9keS5yZXBsYWNlKGFuY2hvcixtYXJrZXIrYW5jaG9yLDEpCnAud3JpdGVfdGV4dChzWzpzdGFydF0rYm9keStzW2VuZDpdKQo='))"
+          test "$(git diff --name-only)" = crates/cellar/tests/support/raft_movement_completion.rs
+          git diff -- crates/cellar/tests/support/raft_movement_completion.rs > "$RUNNER_TEMP/fleet-control/diagnostic.patch"
+          sha256sum crates/cellar/tests/support/raft_movement_completion.rs > "$RUNNER_TEMP/fleet-control/instrumented-input.sha256"
       - name: Stress the intermittent dynamic voter replacement
         env:
           TMPDIR: ${{ runner.temp }}/native-failure-fixtures
@@ -45,7 +52,7 @@ jobs:
           cargo test -p cellar-main --all-features --locked --test native_raft_fleet_enrollment --no-run
           cases=("hosts::initial_tests::resources::movement_tests::completion_tests::restart_runtime::fleet_restart_runtime_dynamic_voter_requires_both_current_survivors")
           failed=0
-          for repetition in $(seq 1 20); do
+          for repetition in $(seq 1 100); do
             index=0
             for case in "${cases[@]}"; do
               index=$((index+1))
