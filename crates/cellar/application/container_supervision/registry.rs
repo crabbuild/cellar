@@ -1,6 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::{BackendIdentity, MaintenanceBackend, MaintenancePolicy};
+use super::{
+    BackendIdentity, DeleteSafety, FencedMaintenanceBackend, MaintenanceBackend, MaintenancePolicy,
+};
+use crate::application::container_execution::ExecutionFenceAuthority;
 use crate::application::{
     Application, Cell, CellIdentity, Context, HandlerFuture, Invocation, Output,
 };
@@ -10,8 +13,43 @@ use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Clone)]
 pub(crate) struct Registration {
-    pub backend: Arc<dyn MaintenanceBackend>,
+    pub(super) backend: Backend,
     pub policy: MaintenancePolicy,
+}
+
+#[derive(Clone)]
+pub(super) enum Backend {
+    Direct(Arc<dyn MaintenanceBackend>),
+    Fenced {
+        backend: Arc<dyn FencedMaintenanceBackend>,
+        authority: Arc<dyn ExecutionFenceAuthority>,
+    },
+}
+
+impl Backend {
+    fn same(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Direct(a), Self::Direct(b)) => Arc::ptr_eq(a, b),
+            (
+                Self::Fenced {
+                    backend: a,
+                    authority: aa,
+                },
+                Self::Fenced {
+                    backend: b,
+                    authority: ba,
+                },
+            ) => Arc::ptr_eq(a, b) && Arc::ptr_eq(aa, ba),
+            _ => false,
+        }
+    }
+
+    pub(super) fn delete_safety(&self) -> DeleteSafety {
+        match self {
+            Self::Direct(backend) => backend.delete_safety(),
+            Self::Fenced { backend, .. } => backend.delete_safety(),
+        }
+    }
 }
 
 /// Explicit host configuration. Original provider configurations may remain
@@ -28,6 +66,33 @@ impl Supervision {
         policy: MaintenancePolicy,
     ) -> Result<()> {
         let key = backend.identity();
+        self.insert(key, Backend::Direct(backend), policy)
+    }
+
+    /// Require framework-admitted execution fencing for this shared-group
+    /// backend. Registration pins the exact controller without contacting it.
+    /// Fencing and backend I/O share the configured attempt timeout. Existing
+    /// native/Fleet registrations continue to use `register`.
+    pub fn register_fenced(
+        &mut self,
+        backend: Arc<dyn FencedMaintenanceBackend>,
+        policy: MaintenancePolicy,
+    ) -> Result<()> {
+        let key = backend.identity();
+        let authority = backend.authority();
+        ensure!(
+            authority.identity() == key,
+            "maintenance execution authority configuration mismatch"
+        );
+        self.insert(key, Backend::Fenced { backend, authority }, policy)
+    }
+
+    fn insert(
+        &mut self,
+        key: BackendIdentity,
+        backend: Backend,
+        policy: MaintenancePolicy,
+    ) -> Result<()> {
         crate::storage::container_bindings::validate_name(&key.binding)?;
         crate::storage::container_bindings::validate_name(&key.provider)?;
         ensure!(
@@ -56,12 +121,16 @@ impl Supervision {
         for (key, registration) in &other.registrations {
             if let Some(prior) = self.registrations.get(key) {
                 ensure!(
-                    Arc::ptr_eq(&prior.backend, &registration.backend)
+                    prior.backend.same(&registration.backend)
                         && prior.policy == registration.policy,
                     "ambiguous cohosted maintenance backend"
                 );
             } else {
-                self.register(registration.backend.clone(), registration.policy)?;
+                ensure!(
+                    self.registrations.len() < 256,
+                    "maintenance backend registration limit exceeded"
+                );
+                self.registrations.insert(key.clone(), registration.clone());
             }
         }
         Ok(())
@@ -98,8 +167,7 @@ impl Supervision {
         self.registrations.len() == other.registrations.len()
             && self.registrations.iter().all(|(key, registration)| {
                 other.registrations.get(key).is_some_and(|other| {
-                    registration.policy == other.policy
-                        && Arc::ptr_eq(&registration.backend, &other.backend)
+                    registration.policy == other.policy && registration.backend.same(&other.backend)
                 })
             })
     }
@@ -130,6 +198,23 @@ impl Supervision {
             }
             hash.update([u8::from(policy.idle_timeout_ms.is_some())]);
             hash.update(policy.idle_timeout_ms.unwrap_or(0).to_be_bytes());
+        }
+        // Preserve the existing contract for direct registrations. An explicit
+        // fenced registration adds an unambiguous, sorted contract extension.
+        let fenced: Vec<_> = self
+            .registrations
+            .iter()
+            .filter(|(_, registration)| matches!(&registration.backend, Backend::Fenced { .. }))
+            .collect();
+        if !fenced.is_empty() {
+            hash.update(b"cellar-provider-maintenance-execution-1");
+            hash.update((fenced.len() as u16).to_be_bytes());
+            for (key, _) in fenced {
+                for text in [&key.binding, &key.provider, &key.configuration_digest] {
+                    hash.update((text.len() as u16).to_be_bytes());
+                    hash.update(text.as_bytes());
+                }
+            }
         }
         hash.finalize().into()
     }

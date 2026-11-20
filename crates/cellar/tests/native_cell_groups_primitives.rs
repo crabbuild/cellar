@@ -191,6 +191,8 @@ async fn kv_revision_conditions_cannot_cross_cell_histories() -> Result<()> {
 async fn rustfs_kv_revision_conditions_cannot_cross_cell_histories() -> Result<()> {
     kv_bindings::revision_scope(true).await
 }
+#[path = "support/cell_group_fenced_maintenance.rs"]
+mod fenced_maintenance;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
@@ -2648,6 +2650,22 @@ async fn rustfs_provider_effects_reuse_only_unchanged_invocation_checkpoints() -
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn provider_supervision_recovers_without_application_requests() -> Result<()> {
     provider_supervision::qualify(false).await
+}
+
+#[test]
+fn fenced_maintenance_registration_binds_the_namespace_contract() -> Result<()> {
+    fenced_maintenance::contracts()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fenced_provider_maintenance_recovers_without_application_requests() -> Result<()> {
+    fenced_maintenance::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS and an explicitly owned Docker socket/image"]
+async fn rustfs_docker_fenced_maintenance_recovers_without_application_requests() -> Result<()> {
+    fenced_maintenance::qualify(true, true).await
 }
 
 #[test]

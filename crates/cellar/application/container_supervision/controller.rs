@@ -1,5 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+use super::registry::Backend;
 use super::{DeleteSafety, MaintenanceAction};
 use crate::application::{
     containers::{BindingIntent, BindingJournal, BindingObservation},
@@ -134,19 +135,38 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
             journal.load(&context)?.as_ref() == Some(&expected),
             "maintenance checkpoint changed before dispatch"
         );
-        context
-            .container_provider_authority()?
-            .before_effect(&context)
-            .await?;
-        ensure!(
-            journal.load(&context)?.as_ref() == Some(&expected),
-            "maintenance checkpoint changed at effect admission"
-        );
+        let future: crate::application::HandlerFuture<()> = match registration.backend {
+            Backend::Direct(backend) => {
+                context
+                    .container_provider_authority()?
+                    .before_effect(&context)
+                    .await?;
+                ensure!(
+                    journal.load(&context)?.as_ref() == Some(&expected),
+                    "maintenance checkpoint changed at effect admission"
+                );
+                backend.maintain(context.clone(), expected, action)
+            }
+            Backend::Fenced { backend, authority } => {
+                let lifecycle = _lifecycle.retained();
+                let journal = journal.clone();
+                let context = context.clone();
+                Box::pin(async move {
+                    let grant = journal
+                        .fence_execution(&context, lifecycle, authority)
+                        .await?;
+                    ensure!(
+                        grant.claim().checkpoint() == &expected,
+                        "maintenance checkpoint changed during execution fencing"
+                    );
+                    grant.before_effect(&context).await?;
+                    backend.maintain(context, expected, action, grant).await
+                })
+            }
+        };
         crate::asyncrt::timeout(
             Duration::from_millis(claim.policy.attempt_timeout_ms),
-            registration
-                .backend
-                .maintain(context.clone(), expected, action),
+            future,
         )
         .await
         .map_err(|_| anyhow::anyhow!("provider maintenance outcome is unknown"))?

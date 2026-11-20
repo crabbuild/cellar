@@ -731,7 +731,14 @@
         "cellar::sdk::containers::ExecutionGrant",
         "cellar::sdk::containers::ExecutionGrant::claim",
         "cellar::sdk::containers::ExecutionGrant::check",
-        "cellar::sdk::containers::ExecutionGrant::before_effect"
+        "cellar::sdk::containers::ExecutionGrant::before_effect",
+        "cellar::sdk::containers::Supervision::register_fenced",
+        "cellar::sdk::containers::ExecutionGrant::refresh",
+        "cellar::sdk::containers::FencedMaintenanceBackend",
+        "cellar::sdk::containers::FencedMaintenanceBackend::identity",
+        "cellar::sdk::containers::FencedMaintenanceBackend::authority",
+        "cellar::sdk::containers::FencedMaintenanceBackend::delete_safety",
+        "cellar::sdk::containers::FencedMaintenanceBackend::maintain"
       ],
       "owners": [
         "crates/cellar/application/containers.rs",

@@ -9,8 +9,8 @@ pub use super::container_bindings::{
 };
 pub use super::container_execution::{ExecutionClaim, ExecutionFenceAuthority, ExecutionGrant};
 pub use super::container_supervision::{
-    supervise, BackendIdentity, DeleteSafety, MaintenanceAction, MaintenanceBackend,
-    MaintenancePolicy, RetentionExpired, Supervision,
+    supervise, BackendIdentity, DeleteSafety, FencedMaintenanceBackend, MaintenanceAction,
+    MaintenanceBackend, MaintenancePolicy, RetentionExpired, Supervision,
 };
 pub use super::sandbox_catalog::{
     SandboxAllocation, SandboxAllocationPage, SandboxAllocationState, SandboxCatalog,

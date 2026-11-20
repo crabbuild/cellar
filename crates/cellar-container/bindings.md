@@ -41,6 +41,12 @@ The native Docker container and sandbox catalog still need shared-group adapters
 Real provider execution fencing and volume recovery remain independent requirements
 of [CG-17](../../docs/design/multi-raft/cell-groups/qualification.md#full-primitive-compatibility-cg-17).
 
+When an execution-fenced operation checkpoints a binding change, its old grant
+becomes invalid. `ExecutionGrant::refresh` proves a new claim with the same
+controller and lifecycle admission. It does not retry the business operation or
+extend the invocation deadline. Framework-owned cleanup can use the same
+contract through [fenced maintenance](supervision.md#controller-fenced-shared-group-maintenance).
+
 ## Select a host-declared provider slot
 
 Applications can select additional providers declared by the host. `ctx.container`

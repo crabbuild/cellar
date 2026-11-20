@@ -7,7 +7,11 @@ mod registry;
 pub(crate) use controller::{maintain, recover};
 pub use registry::{supervise, Supervision};
 
-use super::{container_bindings::BindingCheckpoint, Context, HandlerFuture};
+use super::{
+    container_bindings::BindingCheckpoint,
+    container_execution::{ExecutionFenceAuthority, ExecutionGrant},
+    Context, HandlerFuture,
+};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 
@@ -83,6 +87,34 @@ pub trait MaintenanceBackend: Send + Sync + 'static {
         context: Context,
         expected: BindingCheckpoint,
         action: MaintenanceAction,
+    ) -> HandlerFuture<()>;
+}
+
+/// Shared-group maintenance whose provider requests enforce an execution claim.
+/// Register with `Supervision::register_fenced`. The framework selects and pins
+/// the controller, proves its claim before dispatch, and keeps lifecycle
+/// admission through result settlement. There is no direct-backend fallback.
+pub trait FencedMaintenanceBackend: Send + Sync + 'static {
+    fn identity(&self) -> BackendIdentity;
+
+    /// Immutable host configuration, with no I/O at registration. Its identity
+    /// must match this backend; the configuration digest covers the controller.
+    fn authority(&self) -> std::sync::Arc<dyn ExecutionFenceAuthority>;
+
+    fn delete_safety(&self) -> DeleteSafety {
+        DeleteSafety::InspectAfterSubmission
+    }
+
+    /// Correlate the exact resource and enforce the supplied claim on every
+    /// provider request. After changing the journal, refresh the grant and
+    /// await its effect gate before further I/O. Do not reacquire the lifecycle
+    /// mutex or create compute. Lost outcomes retain their original identities.
+    fn maintain(
+        self: std::sync::Arc<Self>,
+        context: Context,
+        expected: BindingCheckpoint,
+        action: MaintenanceAction,
+        grant: ExecutionGrant,
     ) -> HandlerFuture<()>;
 }
 

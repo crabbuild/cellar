@@ -192,12 +192,22 @@ pub struct BindingJournal {
 /// Dropping releases the slot. This supplies no remote fencing or rollback.
 #[must_use = "keep the guard until lifecycle I/O and checkpointing have settled"]
 pub struct BindingLifecycleGuard {
-    _guard: tokio::sync::OwnedMutexGuard<()>,
+    guard: Arc<tokio::sync::OwnedMutexGuard<()>>,
     name: Arc<str>,
     authority: Arc<ProviderAuthority>,
 }
 
 impl BindingLifecycleGuard {
+    /// Framework work retains its existing admission through both provider I/O
+    /// and result settlement. This does not acquire the mutex a second time.
+    pub(super) fn retained(&self) -> Self {
+        Self {
+            guard: self.guard.clone(),
+            name: self.name.clone(),
+            authority: self.authority.clone(),
+        }
+    }
+
     pub(super) fn check(&self, context: &Context, journal: &BindingJournal) -> Result<()> {
         self.authority.check(context)?;
         ensure!(
@@ -347,7 +357,7 @@ impl BindingJournal {
             };
             journal.check(&context)?;
             Ok(BindingLifecycleGuard {
-                _guard: guard,
+                guard: Arc::new(guard),
                 name: journal.name,
                 authority: journal.authority,
             })

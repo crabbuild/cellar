@@ -82,11 +82,24 @@ pub struct ExecutionGrant {
     journal: BindingJournal,
     claim: ExecutionClaim,
     lifecycle: Arc<BindingLifecycleGuard>,
+    authority: Arc<dyn ExecutionFenceAuthority>,
 }
 
 impl ExecutionGrant {
     pub fn claim(&self) -> &ExecutionClaim {
         &self.claim
+    }
+
+    /// Reconcile a fresh claim after checkpointing a binding change, retaining
+    /// this invocation's existing lifecycle admission and selected controller.
+    /// The old grant remains invalid for the changed checkpoint. No business
+    /// operation is retried; the controller reconciles the exact new claim.
+    pub fn refresh(&self, context: &Context) -> HandlerFuture<ExecutionGrant> {
+        if let Err(error) = self.lifecycle.check(context, &self.journal) {
+            return Box::pin(async move { Err(error) });
+        }
+        self.journal
+            .fence_execution(context, self.lifecycle.retained(), self.authority.clone())
     }
 
     /// Local publication check only. The provider must still reject stale
@@ -111,6 +124,7 @@ impl ExecutionGrant {
         let journal = self.journal.clone();
         let claim = self.claim.clone();
         let lifecycle = self.lifecycle.clone();
+        let authority = self.authority.clone();
         let context = context.clone();
         Box::pin(async move {
             gate.await?;
@@ -118,6 +132,7 @@ impl ExecutionGrant {
                 journal,
                 claim,
                 lifecycle,
+                authority,
             }
             .check(&context)
         })
@@ -195,16 +210,18 @@ impl BindingJournal {
                 claim,
             };
             let request = claim.clone();
+            let controller = authority.clone();
             // This owned I/O boundary proves the exact newly reserved claim and
             // parks its writer without lending SQLite authority to the controller.
             dispatch
-                .schedule_io(move |_| authority.activate(request))
+                .schedule_io(move |_| controller.activate(request))
                 .future
                 .await??;
             let grant = ExecutionGrant {
                 journal,
                 claim,
                 lifecycle: Arc::new(lifecycle),
+                authority,
             };
             grant.check(&context)?;
             Ok(grant)
