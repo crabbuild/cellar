@@ -4,7 +4,56 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current execution-claim delivery
+## Current fenced-maintenance delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `ac296178f`
+delivers `Supervision::register_fenced`, schema-bound controller selection and
+`ExecutionGrant::refresh`. Framework cleanup retains original lifecycle admission
+through exact Quorum/S3 proof, controller fencing, backend I/O and settlement.
+Fencing refusal cannot fall back to a direct backend. Original invocation and
+combined attempt budgets remain. Only provider reconciliation declines a busy
+writer before enqueueing; EventCatalog and other callbacks keep queued dependency
+admission, and authority is refreshed after reservation.
+
+The Linux/RustFS campaign passes 16 fixed functions and 54 configurations,
+including actual Docker cleanup after an accepted DELETE reply is lost, retained
+restart without business construction and no repeated DELETE. Owning/library/
+contract tests pass 53; ordinary native provider tests pass seven. **Fleet is
+4/5**, failing provider-outage cleanup's original 15-second notification wait.
+**Current macOS/RustFS cleanup fails after 1/4 complete:** materialized/S3 Create
+sequence 1 expires ambiguous; both extent configurations are unrun. Preserve the
+original IDs; do not repeat broad timing runs or extend deadlines to hide failures.
+The old `de7210c20` new-cleanup pass 4/4 and current Linux pass do not waive them.
+
+Evidence `CG-17-fenced-maintenance-ac296178f-2021/record.json` retains 54 native
+and 60 Linux voter roots, 15 frozen executables, seven source archives, Docker
+observations/file proofs and failed controls, with a second verified backup.
+The failed S3 Docker resource is independently stopped/retained. The pre-existing
+Fleet fixture deletes its failed temporary directory; raw failure/executable
+survive but that root does not. The owned Linux/RustFS/VM runtimes are stopped,
+with volumes and objects retained. Linux executable SHA-256:
+`db2f142d56c7c6c6300d26c17affe83f1b086ae7483a6fec42e4d044487e7737`.
+
+**Next priorities:** diagnose the Fleet failure with preserved task/wake deadlines,
+stage/counter observations and failed-root retention, and close the original S3
+Create/Read/Delete expiry paths without changing IDs, budgets or proofs. Then
+integrate normal native Container/sandbox operations: async activation prologue,
+request-bound provider transport and full logical history. Never let an old
+Context borrow a globally replaced grant. Qualify durable independent controller
+recovery, authenticated per-operation fences and permanent old-history revocation
+before fresh-history DR. Finish WebSockets and the entire primitive/provider/
+feature/lifecycle/fault/recovery matrix.
+
+RF3 still shares one Linux process/container (three CPUs/4 GiB, zero swap, ext4);
+RustFS has one CPU/2 GiB in the same VM. The volatile fixture controller survives
+voter restart; independent voter/controller faults are not qualified. Existing
+native Docker storage remains ephemeral. Formal acceptance stays **13/17 tasks,
+147/195 cases, CG-17 0/32**. Inventory is partial at 18 entries/279 symbols;
+historical CG-01 custody still blocks complete plan validation. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
+
+## Previous execution-claim delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `2ad84151f`
 adds durable provider execution claims and an explicit fencing-authority API.

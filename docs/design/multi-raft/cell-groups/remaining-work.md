@@ -41,32 +41,39 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `2ad84151f` passes all fifteen fixed Linux/RustFS binding/provider
-functions and fifty image/minimum/fault configurations, including a real Docker
-execution-claim oracle. It adds durable claim sequences and an explicit fencing
-authority boundary, retaining exact original-invocation lifecycle guards and
-Quorum/S3 proofs. Four native protocol and four macOS/RustFS/Docker configurations
-also pass, with independent file reads and verified old/new process non-overlap.
-Existing SQL, container and Fleet regressions and strict affected Clippy pass.
+Runtime `ac296178f` passes all sixteen fixed Linux/RustFS binding/provider
+functions and 54 image/minimum/fault configurations. Framework-owned cleanup now
+uses an explicitly registered execution fence, retains its original lifecycle
+admission through settlement, refreshes claims after binding changes and
+reconciles a lost accepted DELETE reply without submitting another DELETE.
+Provider cleanup declines a busy writer before enqueueing; catalog dependency
+admission, fresh authority, original budgets and Quorum/S3 proofs remain.
 
-**The next feature is adapter integration.** Wire fencing into framework-owned
-provider cleanup and normal native Container/sandbox dispatch. Cleanup already
-owns its lifecycle guard; the framework must fence and pass a verified claim to
-the backend. Native Container needs an async activation prologue and a
-request-bound provider transport using the full logical cell history. Qualify an
-independent controller with durable high-water recovery and authenticated
-per-operation enforcement; the current volatile fixture stays alive through
-voter restart. Then close WebSockets and the complete public primitive,
-feature/lifecycle/fault/recovery matrix. A fresh cell incarnation cannot bypass
-revocation of old provider execution.
+**Close the current failures first.** Existing ordinary Fleet supervision passes
+4/5 functions but fails provider-outage cleanup's notification wait. Current
+macOS/RustFS fenced cleanup completes 1/4 configurations: materialized/S3 Create
+sequence 1 expires ambiguous and both extent configurations are unrun. Earlier
+native extent/S3 Read and macOS S3 supervision failures also remain open. Preserve
+original IDs, failed state and budgets; a Linux pass or another source's pass
+cannot waive them. Add failed-root and task/wake observations to the old Fleet
+fixture before diagnosing its failure; it currently deletes that temporary root.
 
-RF3 shares a three-CPU/4-GiB Linux process/container with zero swap and ext4 disks;
-RustFS has one CPU/2 GiB. Earlier macOS S3 supervision failures remain unresolved.
-The scoped Linux pass does not isolate their cause or qualify independent voter
-faults. Native Docker's disk stays explicitly ephemeral; other providers keep
-their declared volume contracts. Inventory remains partial at 18 entries/272
-symbols. All 32 formal CG-17 cases and historical CG-01 custody remain required.
-See the current checkpoint for exact results and retained controls.
+**Then deliver normal native Container/sandbox adapters.** Native Container needs
+an async activation prologue and request-bound provider transport using full
+logical history; old contexts must never borrow a newer global grant. Qualify an
+independent controller with durable high-water recovery, authenticated operation
+enforcement and permanent old-history revocation. The current volatile fixture
+stays alive through voter restart. Then close WebSockets and every public
+primitive/provider, feature, deployment/clock, retention, cancellation and recovery
+ledger. A fresh cell incarnation cannot bypass revocation of old execution.
+
+RF3 shares one three-CPU/4-GiB Linux process/container with zero swap and ext4
+disks; RustFS has one CPU/2 GiB in the same VM. This does not qualify independent
+voter faults or isolate the macOS failures. Native Docker's disk stays explicitly
+ephemeral; other providers keep their declared volume contracts. Inventory remains
+partial at 18 entries/279 symbols. All 32 formal CG-17 cases and historical CG-01
+custody remain required. See the current checkpoint for exact results and retained
+controls.
 
 Runtime `feb22476c` delivers declared provider journals and local invocation/proof
 authority through shared-group storage. Twelve RF3 configurations pass: eight

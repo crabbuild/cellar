@@ -32,6 +32,88 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 framework-owned fenced maintenance
+
+**CG-17 remains open.** Runtime `ac296178f` delivers explicit controller-fenced
+background provider cleanup. The combined constrained Linux/RustFS campaign
+passes all 16 fixed functions and 54 image/minimum/fault configurations. Current
+macOS and ordinary Fleet regressions fail as recorded below; this is not a full
+primitive-family or task acceptance.
+
+`Supervision::register_fenced` pins the backend and its execution authority,
+checks their identity, and binds the requirement to the namespace contract.
+The framework retains the original lifecycle admission through fencing, provider
+I/O and settlement. It proves the invocation's Quorum/S3 minimum before controller
+I/O; refusal leaves durable cleanup pending without direct-backend fallback.
+Fencing and maintenance share one configured attempt timeout and retain the
+original native-event deadline. `ExecutionGrant::refresh` proves a new claim
+after a binding CAS using the same controller and admission; the old grant fails.
+See the [maintenance contract](../../../../crates/cellar-container/supervision.md#controller-fenced-shared-group-maintenance).
+
+Provider cleanup also declines a busy writer before enqueueing, without marking
+foreground contention or consuming its durable installation. Discovery retries
+the obligation. The directed earlier materialized/S3 Create trace showed cleanup
+checkpointing its wait behind the foreground lifecycle guard and forcing extra
+source proofs. Only System provider reconciliation uses this reservation policy;
+EventCatalog and other callbacks retain queued dependency admission. Fresh
+authority lookup, original deadlines and all output proofs remain after admission.
+
+| Current-source qualification | Result |
+| --- | --- |
+| Constrained Linux/RustFS binding, Consume/Ack, provider and execution/cleanup gate | **16/16 functions, 54 configurations pass** |
+| Owning, container library and declaration/registration contracts | 53 selected tests pass |
+| Existing native provider journals and supervision | 7 selected functions pass |
+| Existing ordinary Fleet supervision | **4/5 pass; provider-outage recovery fails** waiting for its first failed cleanup notification within the original 15 seconds |
+| macOS/RustFS/Docker fenced cleanup | **Whole gate fails: 1/4 complete.** Materialized/Quorum passes; materialized/S3 original Create sequence 1 expires ambiguous; both extent configurations are unrun |
+| Locked builds, strict affected Clippy, format/layout/dependency/docs/catalog checks | Pass; inventory remains partial at 18 entries/279 symbols |
+| Independent coverage-validator negative fixtures | 13 tests pass; synthetic reports do not qualify the runtime |
+
+The new Linux cleanup case covers all four image/minimum combinations, controller
+refusal, autonomous expiry, deletion-intent claim refresh and a lost reply after
+actual DELETE acceptance. Retained voters restart while business construction
+refuses. The successor inspects the original resource's absence, confirms its
+tombstone without another DELETE, preserves business state and returns the exact
+original Create receipt on replay. Actual Docker observations verify pinned image,
+0.1 CPU, 64 MiB, zero swap, network disabled and restart disabled. Independent
+reads verify the four execution-claim file effects and old/new process non-overlap.
+
+Linux RF3 shares **one** process/container at three CPUs/4 GiB, zero swap, with
+ext4 voter disks. RustFS has one CPU/2 GiB in the same six-CPU/12-GiB VM. The frozen
+Linux executable SHA-256 is
+`db2f142d56c7c6c6300d26c17affe83f1b086ae7483a6fec42e4d044487e7737`.
+The fixture controller keeps volatile state and remains live during voter restart.
+These checks do not qualify independent voter faults, controller crashes, provider
+volume restoration, normal Container/sandbox adapters or the full load matrix.
+
+Earlier controls remain failures: native-model `05dcc5f4e` completes 3/4 but misses
+extent/S3 Read sequence 2; its directed trace at `de7210c20` passes one configuration
+without establishing a fix. At that source the new macOS/Docker cleanup gate
+passes 4/4, but existing supervision fails extent/S3 Delete sequence 3. Neither
+those passes nor the current Linux pass waive current macOS or Fleet failures.
+The current ambiguous S3 Create is not retried under a new identity. Its original
+Docker resource is independently stopped with exit 137 and retained. The Fleet
+fixture removes its temporary root on failure; its raw log and frozen executable
+remain, but that failed Fleet root is unavailable.
+
+Evidence: `CG-17-fenced-maintenance-ac296178f-2021/record.json`, outside the Cargo
+target with a second verified backup. It retains 54 native and 60 Linux voter
+roots, 15 frozen executables, seven source archives, failed/stopped build controls
+and independent Docker observations. Byte-identical compiler inputs reuse only
+verified timestamps; every runtime case is rerun. All owned runtimes are stopped;
+volumes and objects remain. Previous evidence is retained separately.
+
+**Next close the failed Fleet and original S3 deadline paths, then deliver normal
+native Container/sandbox adapters with request-bound transport and full logical
+history.** An old context must never borrow a newer global execution grant.
+Qualify independently durable controller high-water recovery and permanent
+old-history revocation, then WebSockets and every public primitive/provider,
+feature, deployment/clock, retention, cancellation and recovery ledger. Existing
+native Docker disk remains explicitly ephemeral. Formal acceptance remains
+**13/17 tasks, 147/195 cases and CG-17 0/32**. Historical CG-01 evidence custody
+still prevents whole-plan validation; the generated implementation index matches
+the task ledger and is not advanced by these selected passes.
+
+
 ### CG-17 execution claims and real Docker revocation
 
 **Runtime `2ad84151f` passes the combined Linux/RustFS gate: 15/15 fixed

@@ -144,6 +144,10 @@ existing lifecycle admission; do not acquire another lifecycle guard. The
 framework retains admission through result settlement. Maintenance must inspect
 or retire the original resource and must never create compute.
 
+When a shared writer is busy, provider cleanup defers before claiming work or
+dispatching the backend. Its durable installation remains available for discovery;
+this does not extend the resource lifetime or the attempt's invocation deadline.
+
 This explicit registration does not upgrade the existing E2B, Vercel or native
 Docker adapters. Their execution fences and shared-group adapters need their
 own implementation and qualification.
