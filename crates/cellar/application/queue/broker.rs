@@ -537,7 +537,9 @@ impl Broker {
         graph: &StructuredValue,
         body: &CloneValue,
     ) -> Result<Value> {
-        let transfers = wire::array(graph, wire::field(graph, body, "transfers"))?;
+        use super::transfer::Refusal;
+        let transfers =
+            wire::array(graph, wire::field(graph, body, "transfers")).map_err(Refusal::invalid)?;
         ensure!(
             !transfers.is_empty()
                 && transfers.len() <= usize::from(self.config.limits.max_batch_messages),
@@ -555,18 +557,34 @@ impl Broker {
             .collect::<Result<Vec<_>>>()?;
         let at = now();
         self.open()?;
-        self.storage.transaction_sync(|_| {
+        // Validate the entire batch before its first write, in the same
+        // transaction on both backends. A known refusal is returned only after
+        // that read-only transaction closes successfully. SQL/rollback/proof
+        // failures keep their original host-failure path.
+        let refusal = self.storage.transaction_sync(|_| {
+            let mut fingerprints = HashMap::new();
+            let mut pending = Vec::new();
             for transfer in transfers {
+                if let Some(previous) = fingerprints.insert(transfer.id.clone(), transfer.fingerprint) {
+                    if previous != transfer.fingerprint {
+                        return Ok(Some(Refusal::Conflict));
+                    }
+                    continue;
+                }
                 if let Some(receipt) = self.exec(
                     "SELECT message_id,dead_letter_source,payload_fingerprint FROM __sys_queue_transfer_receipts WHERE transfer_id=?",
                     &[transfer.id.clone().into()],
                 )?.first() {
-                    ensure!(text(receipt, "message_id")? == transfer.message
-                        && optional_text(receipt, "dead_letter_source")? == transfer.source
-                        && blob(receipt, "payload_fingerprint")?.as_slice() == transfer.fingerprint.as_slice(),
-                        "QUEUE_ERROR: a DLQ transfer collided with another message payload or identity");
+                    if text(receipt, "message_id")? != transfer.message
+                        || optional_text(receipt, "dead_letter_source")? != transfer.source
+                        || blob(receipt, "payload_fingerprint")?.as_slice() != transfer.fingerprint.as_slice() {
+                        return Ok(Some(Refusal::Conflict));
+                    }
                     continue;
                 }
+                pending.push(transfer);
+            }
+            for transfer in pending {
                 self.exec(
                     "INSERT INTO __sys_queue_transfer_receipts(transfer_id,message_id,dead_letter_source,payload_fingerprint,expires_at) VALUES (?,?,?,?,?)",
                     &[transfer.id.clone().into(), transfer.message.clone().into(), sql_text(transfer.source.clone()),
@@ -580,8 +598,11 @@ impl Broker {
                       size.into(), at.into(), at.into(), transfer.id.into(), sql_text(transfer.source)],
                 )?;
             }
-            Ok(())
+            Ok(None)
         })?;
+        if let Some(refusal) = refusal {
+            return Err(refusal.into());
+        }
         self.rearm(context, at, false).await?;
         self.metrics(at, false)
     }
@@ -984,7 +1005,9 @@ impl Cell for Broker {
                 {
                     Ok(reply) => Ok(Output::Rpc(reply)),
                     Err(error)
-                        if !self.storage.is_raft() && matches!(args, RpcData::Structured(_)) =>
+                        if error.is::<super::transfer::Refusal>()
+                            || (!self.storage.is_raft()
+                                && matches!(args, RpcData::Structured(_))) =>
                     {
                         Ok(Output::Rpc(RpcData::Structured(
                             cellar_native::rpc::encode_error(&error.to_string(), "Error", None)?

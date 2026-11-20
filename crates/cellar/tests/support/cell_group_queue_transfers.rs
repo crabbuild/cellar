@@ -72,7 +72,7 @@ async fn exercise(s: &mut Scenario) -> Result<()> {
         let (status, body) = submit(&s.cluster, json!([collision])).await?;
         ensure!(
             status == 409 && body.contains("collided"),
-            "changed {field} acknowledged: {status} {body}"
+            "changed {field} did not return a settled conflict: {status} {body}"
         );
         s.empty(DEAD).await?;
     }
@@ -81,13 +81,30 @@ async fn exercise(s: &mut Scenario) -> Result<()> {
     let (status, body) = submit(&s.cluster, json!([collision.clone()])).await?;
     ensure!(
         status == 409 && body.contains("collided"),
-        "changed provenance acknowledged: {body}"
+        "changed provenance did not return a settled conflict: {body}"
     );
+
+    let mut invalid = transfer.clone();
+    invalid["entry"]["size"] = json!(2.5);
+    let (status, body) = submit(&s.cluster, json!([invalid])).await?;
+    ensure!(
+        status == 409 && body.contains("size does not match"),
+        "invalid size was not a settled refusal: {status} {body}"
+    );
+    s.empty(DEAD).await?;
 
     // A collision later in one batch must roll back both a preceding message
     // and its receipt, allowing that preceding transfer to be submitted again.
     let fresh = json!({"transferId":"fresh-transfer", "deadLetterSource":null,
         "entry":{"id":"fresh-message","body":[1,2,3],"contentType":"bytes","size":3}});
+    let mut changed = fresh.clone();
+    changed["entry"]["body"] = json!([1, 2, 4]);
+    let (status, body) = submit(&s.cluster, json!([fresh.clone(), changed])).await?;
+    ensure!(
+        status == 409 && body.contains("collided"),
+        "in-batch conflict was not settled: {status} {body}"
+    );
+    s.empty(DEAD).await?;
     let (status, body) = submit(&s.cluster, json!([fresh.clone(), collision])).await?;
     ensure!(
         status == 409 && body.contains("collided"),
