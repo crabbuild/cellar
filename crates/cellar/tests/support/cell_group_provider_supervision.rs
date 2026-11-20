@@ -21,6 +21,7 @@ struct Probe {
     lose_delete_reply: AtomicBool,
     hold_delete: AtomicBool,
     delete_entered: AtomicBool,
+    refuse_factory: AtomicBool,
     changed: Notify,
     release: Notify,
     observations: Mutex<Vec<(String, u64, String)>>,
@@ -248,13 +249,22 @@ async fn started(
     backend: Arc<catalog_fault::Store>,
     probe: Arc<Probe>,
 ) -> Result<ManagedCluster> {
+    let factory_probe = probe.clone();
     let class = RaftClass::new("Counter", 1, [194; 32])?
         .initializer([195; 32], |_, _| Ok(()))?
         .json_cell_rpc("Run", [196; 32])?
         .provider_binding("TOOL", "supervised-fixture", [191; 32])?;
     let application = Arc::new(
-        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
-            .raft_cell(class, |context, _| Ok(Arc::new(Root(context.storage()?))))?,
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+            class,
+            move |context, _| {
+                ensure!(
+                    !factory_probe.refuse_factory.load(Ordering::Acquire),
+                    "fixture business constructor is unavailable"
+                );
+                Ok(Arc::new(Root(context.storage()?)))
+            },
+        )?,
     );
     let mut supervision = Supervision::default();
     supervision.register(
@@ -400,10 +410,12 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                     call(&cluster, &history, minimum, 3, "Delete").await?;
                     wait(&probe, &probe.delete_entered, "delete admission").await?;
                     ensure!(probe.deletes.load(Ordering::Acquire) == 0);
+                    probe.refuse_factory.store(true, Ordering::Release);
                     bindings::restart(&mut cluster).await?;
                     probe.hold_delete.store(false, Ordering::Release);
                     probe.release.notify_waiters();
                     wait(&probe, &probe.retired, "restart/lost-delete reconciliation").await?;
+                    probe.refuse_factory.store(false, Ordering::Release);
                     let retired = call(&cluster, &history, minimum, 4, "Read").await?;
                     let value: serde_json::Value = serde_json::from_slice(&retired.result)?;
                     ensure!(

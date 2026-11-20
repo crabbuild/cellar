@@ -538,7 +538,50 @@ impl NativeCellFactory {
                 self.accepts(cached) && Arc::ptr_eq(&cached.resources(), &authority.resources),
                 "Raft activation factory or storage changed"
             );
-        } else {
+        }
+        if let Some((work, leased_until)) = work.as_ref().filter(|(work, _)| {
+            work.reason == "resource-reconciliation"
+                && self.class != crate::deploy::EVENT_CATALOG_CLASS
+                && authority.resources.provider_supervision.get().is_some()
+        }) {
+            // Cleanup owns a fresh framework invocation, not a business cell.
+            // A broken constructor after restart must not strand provider debt.
+            let context = self.context(identity, authority)?;
+            let resources = context.raft_storage.as_ref().unwrap().resources.clone();
+            let state = context.state.clone();
+            let workflow = crate::deploy::is_workflow_class(&self.class);
+            let work = work.clone();
+            let leased_until = *leased_until;
+            let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
+                crate::application::container_supervision::recover(&context)?;
+                let storage = context.storage()?;
+                if let Some(installation) =
+                    storage.work_installation(cellar_logic::work::Reason::ResourceReconciliation)?
+                {
+                    let output =
+                        crate::application::container_supervision::maintain(context, installation)
+                            .await?;
+                    anyhow::ensure!(
+                        matches!(output, Output::Done),
+                        CommandFailure::UnsupportedCapability
+                    );
+                }
+                crate::storage::raft_native_work(|db| {
+                    super::native_work::complete(db, &work, leased_until)
+                })?;
+                Ok(vec![1])
+            });
+            return Ok(if workflow {
+                Box::pin(WorkflowTurn {
+                    future,
+                    resources,
+                    state,
+                })
+            } else {
+                future
+            });
+        }
+        if activation.is_none() {
             let context = self.context(identity.clone(), authority.activation())?;
             let instance = (self.factory)(context, &identity)?;
             *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
@@ -605,21 +648,12 @@ impl NativeCellFactory {
                                 .await?
                             }
                             cellar_logic::work::Reason::ResourceReconciliation => {
-                                if context.identity().is_some_and(|identity| {
-                                    identity.class == crate::deploy::EVENT_CATALOG_CLASS
-                                }) {
-                                    crate::application::event_stream::catalog::maintain(
-                                        context,
-                                        installation,
-                                    )
-                                    .await?
-                                } else {
-                                    crate::application::container_supervision::maintain(
-                                        context,
-                                        installation,
-                                    )
-                                    .await?
-                                }
+                                // Provider cleanup returned before construction.
+                                crate::application::event_stream::catalog::maintain(
+                                    context,
+                                    installation,
+                                )
+                                .await?
                             }
                             _ => anyhow::bail!(CommandFailure::UnsupportedCapability),
                         };
