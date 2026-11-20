@@ -12,6 +12,40 @@ use std::{
 pub const MAX_BINDINGS: usize = 64;
 pub const MAX_BINDING_BYTES: usize = 16 * 1024;
 
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ProviderDeclaration {
+    pub(crate) provider: String,
+    pub(crate) configuration_digest: String,
+}
+
+pub(crate) type ProviderDeclarations = std::collections::BTreeMap<String, ProviderDeclaration>;
+
+impl ProviderDeclaration {
+    pub(crate) fn new(provider: String, configuration_digest: [u8; 32]) -> Result<Self> {
+        ensure!(valid_provider(&provider), "invalid binding provider");
+        ensure!(
+            configuration_digest != [0; 32],
+            "empty provider configuration digest"
+        );
+        Ok(Self {
+            provider,
+            configuration_digest: hex::encode(configuration_digest),
+        })
+    }
+
+    pub(crate) fn accepts(&self, record: &BindingRecord) -> bool {
+        record.provider == self.provider && record.configuration_digest == self.configuration_digest
+    }
+}
+
+fn valid_provider(provider: &str) -> bool {
+    !provider.is_empty()
+        && provider.len() <= 128
+        && provider
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BindingIntent {
@@ -55,15 +89,7 @@ impl BindingRecord {
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         };
-        ensure!(
-            !self.provider.is_empty()
-                && self.provider.len() <= 128
-                && self
-                    .provider
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')),
-            "invalid binding provider"
-        );
+        ensure!(valid_provider(&self.provider), "invalid binding provider");
         ensure!(
             hex(&self.configuration_digest, 64)
                 && hex(&self.parameters_digest, 64)

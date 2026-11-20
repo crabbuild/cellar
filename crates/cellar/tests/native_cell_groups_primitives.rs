@@ -198,6 +198,8 @@ pub mod managed_fixture;
 mod named_service;
 #[path = "support/cell_group_names.rs"]
 mod names;
+#[path = "support/cell_group_provider_bindings.rs"]
+mod provider_bindings;
 #[path = "support/cell_group_queue.rs"]
 mod queues;
 #[path = "support/cell_group_resume_progress.rs"]
@@ -2596,6 +2598,22 @@ async fn rustfs_storage_reads_and_writes_exact_cell_versions() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
     Box::pin(bindings::qualify(false)).await
+}
+
+#[test]
+fn provider_binding_declarations_are_bounded_and_schema_bound() -> Result<()> {
+    provider_bindings::declarations()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_binding_journals_use_shared_quorum() -> Result<()> {
+    provider_bindings::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_provider_binding_journals_use_shared_quorum() -> Result<()> {
+    provider_bindings::qualify(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

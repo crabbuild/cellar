@@ -441,6 +441,7 @@ pub struct RaftClass {
     outbox: Option<Arc<super::RaftOutbox>>,
     cell_factory: Option<Arc<CellRpcFactory>>,
     filesystem: Option<crate::application::filesystem::Policy>,
+    providers: Arc<crate::application::container_bindings::ProviderDeclarations>,
 }
 
 impl RaftClass {
@@ -571,6 +572,7 @@ impl RaftClass {
             outbox: None,
             cell_factory: None,
             filesystem: None,
+            providers: Arc::default(),
         };
         class.bind_command_manifest();
         Ok(class)
@@ -709,6 +711,35 @@ impl RaftClass {
         Ok(self)
     }
 
+    /// Declare one host-owned provider journal for ordinary cell invocations.
+    /// The credential-free provider/configuration identity participates in the
+    /// namespace schema. This grants no remote execution fencing or automatic
+    /// provider retry; adapters must reconcile their original pending operation.
+    pub fn provider_binding(
+        mut self,
+        name: impl Into<String>,
+        provider: impl Into<String>,
+        configuration_digest: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
+        let name = name.into();
+        crate::storage::container_bindings::validate_name(&name)
+            .map_err(|_| RegistrationError::Invalid("provider binding name"))?;
+        let declaration = crate::application::container_bindings::ProviderDeclaration::new(
+            provider.into(),
+            configuration_digest,
+        )
+        .map_err(|_| RegistrationError::Invalid("provider binding declaration"))?;
+        if self.providers.contains_key(&name) {
+            return Err(RegistrationError::Duplicate(name));
+        }
+        if self.providers.len() == crate::application::container_bindings::MAX_BINDINGS {
+            return Err(RegistrationError::Limit);
+        }
+        Arc::make_mut(&mut self.providers).insert(name, declaration);
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
     pub fn alarms(mut self, limits: super::RaftAlarmLimits) -> Result<Self, RegistrationError> {
         limits
             .validate()
@@ -788,6 +819,18 @@ impl RaftClass {
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
         self.validate_cell_factory()?;
+        if !self.providers.is_empty() {
+            let metadata = self.providers.len()
+                * (crate::application::container_bindings::MAX_BINDING_BYTES + 1024)
+                + 128 * 1024;
+            anyhow::ensure!(
+                self.has_cell_factory()
+                    && host.max_input_bytes >= 64 * 1024
+                    && host.execution.max_image_bytes >= metadata as u64
+                    && host.archive.limits.max_capture_bytes >= metadata,
+                "provider journals require an ordinary cell factory and bounded command/image/archive capacity"
+            );
+        }
         if self.has_native_callbacks() {
             anyhow::ensure!(
                 host.effects
@@ -1180,6 +1223,7 @@ impl RaftClass {
             outbox: self.outbox.clone(),
             cell_factory: self.cell_factory.clone(),
             filesystem: self.filesystem,
+            providers: self.providers.clone(),
         };
         if !configuration.stream_bindings.is_empty() && !class.has_native_callbacks() {
             class.install_native_callbacks();
@@ -1924,6 +1968,20 @@ impl RaftClass {
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
+        if !self.providers.is_empty() {
+            hash.update(b"provider-bindings-1");
+            hash.update((self.providers.len() as u16).to_be_bytes());
+            for (name, declaration) in self.providers.iter() {
+                for text in [
+                    name,
+                    &declaration.provider,
+                    &declaration.configuration_digest,
+                ] {
+                    hash.update((text.len() as u16).to_be_bytes());
+                    hash.update(text.as_bytes());
+                }
+            }
+        }
         if let Some(policy) = self.filesystem {
             hash.update(b"filesystem-1");
             hash.update(policy.creation_mask.to_be_bytes());
