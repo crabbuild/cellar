@@ -650,14 +650,20 @@ async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durabilit
                     let contract = source.contract("Run")?;
                     let input = serde_json::to_vec("StageOutput")?;
                     let options = bindings::options(3, minimum)?;
+                    let denied_before = store.denied_group_archive_writes.load(Ordering::Acquire);
                     let staged = source
                         .command(&contract, input.clone(), options.clone())
                         .await;
+                    let denied_output_writes = store
+                        .denied_group_archive_writes
+                        .load(Ordering::Acquire)
+                        .saturating_sub(denied_before);
                     store.deny_group_archive_writes.store(false, Ordering::Release);
                     ensure!(control.staged_observations.load(Ordering::Acquire) == 1);
                     if minimum == Durability::S3 {
                         let error = staged.err().context("prepared observation escaped S3 output gate")?;
                         ensure!(error.command == options.id && error.ambiguous);
+                        ensure!(denied_output_writes > 0, "output fault refused no actual archive write");
                         eprintln!("retained prepared provider output command: {:?}", options.id);
                     } else {
                         ensure!(staged?.durability >= minimum);
@@ -694,6 +700,7 @@ async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durabilit
                         "deletes": control.deletes.load(Ordering::Acquire),
                         "refreshes": control.refreshes.load(Ordering::Acquire),
                         "staged_observations": control.staged_observations.load(Ordering::Acquire),
+                        "denied_output_archive_writes": denied_output_writes,
                         "resource": control.state.lock().await.resource.clone(),
                         "claim_sequences": control.claims.lock().unwrap().iter().map(ExecutionClaim::sequence).collect::<Vec<_>>()
                     }));

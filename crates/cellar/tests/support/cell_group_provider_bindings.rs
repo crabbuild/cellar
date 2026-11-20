@@ -609,6 +609,10 @@ async fn qualify_with_input_limit(real_rustfs: bool, max_input_bytes: usize) -> 
                             probe.effects.load(Ordering::Acquire) == 1,
                             "unproven source entered provider work"
                         );
+                        ensure!(
+                            backend.denied_group_archive_writes.load(Ordering::Acquire) > 0,
+                            "provider gate fault refused no actual archive write"
+                        );
                         eprintln!("retained provider gate unknown command: {:?}", options.id);
                     }
                     // This reads only the original receipt. Absence stays ambiguous;
