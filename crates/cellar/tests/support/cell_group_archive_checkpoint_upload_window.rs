@@ -192,7 +192,7 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
     // generation; conditional-create conflicts must reconcile exact bytes.
     let upload = start_upload(&cluster, &upload, "checkpoint-create-window").await?;
     let objects = paths(prefix, &encoded, upload.ticket().generation())?;
-    let hold = store.hold_entry_reads(objects.clone());
+    let hold = store.hold_object_reads(objects.clone());
     let mut pending =
         Box::pin(upload.upload_checkpoint(&cluster.domain, source(&sources, &cluster)?));
     cellar::asyncrt::select! {

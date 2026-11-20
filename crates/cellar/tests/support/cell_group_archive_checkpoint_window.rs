@@ -70,7 +70,7 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
 
     // Hold both headers. A completed second download must wait for the first
     // before physical append, and must not open a third download slot.
-    let hold = store.hold_entry_reads(paths.clone());
+    let hold = store.hold_object_reads(paths.clone());
     let mut pending = Box::pin(archive.verify_checkpoint(
         &cluster.domain,
         &reference,
@@ -116,7 +116,7 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
     let mut corrupt = original.to_vec();
     *corrupt.last_mut().context("empty checkpoint chunk")? ^= 1;
     store.inner.put(&paths[0], corrupt.into()).await?;
-    let hold = store.hold_entry_reads(paths.clone());
+    let hold = store.hold_object_reads(paths.clone());
     let mut pending = Box::pin(archive.verify_checkpoint(
         &cluster.domain,
         &reference,

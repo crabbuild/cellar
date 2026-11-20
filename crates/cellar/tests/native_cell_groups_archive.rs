@@ -46,6 +46,31 @@ mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::registry_reads_overlap_and_preserve_validation(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::registry_reads_overlap_and_preserve_validation(
+            rooted,
+            rustfs::store("registry-read-window", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_checkpoint_creates_overlap_with_bounded_ordered_confirmation() -> Result<()> {
     for rooted in [false, true] {
         checkpoint_upload_window_fixture::qualify(

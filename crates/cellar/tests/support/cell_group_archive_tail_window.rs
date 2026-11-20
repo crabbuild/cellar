@@ -66,7 +66,7 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
 
     // The first two headers are held independently. Completing the second must
     // neither expose a proof nor refill past the ordered two-read window.
-    let hold = store.hold_entry_reads(paths.clone());
+    let hold = store.hold_object_reads(paths.clone());
     let mut pending = Box::pin(archive.verify_tail(
         &cluster.domain,
         &tails,
@@ -111,7 +111,7 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
     let mut corrupt = original.to_vec();
     *corrupt.last_mut().context("empty tail entry")? ^= 1;
     store.inner.put(&paths[0], corrupt.into()).await?;
-    let hold = store.hold_entry_reads(paths.clone());
+    let hold = store.hold_object_reads(paths.clone());
     let mut pending = Box::pin(archive.verify_tail(
         &cluster.domain,
         &tails,

@@ -5,6 +5,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "cell_group_archive_registry_window.rs"]
+mod registry_window;
+pub(super) use registry_window::registry_reads_overlap_and_preserve_validation;
+
 pub(super) async fn create_then_confirm(rooted: bool, remote: Arc<dyn ObjectStore>) -> Result<()> {
     for confirmation_denied in [false, true] {
         let store = archive_store::Store::around(Arc::new(object_store::prefix::PrefixStore::new(

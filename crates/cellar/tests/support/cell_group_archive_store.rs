@@ -88,7 +88,7 @@ pub struct Store {
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
     held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
-    entry_reads: Mutex<Option<Arc<ObjectIoGate>>>,
+    object_reads: Mutex<Option<Arc<ObjectIoGate>>>,
     chunk_creates: Mutex<Option<Arc<ObjectIoGate>>>,
     pub deny_chunk_creates: AtomicBool,
     pub denied_chunk_creates: AtomicUsize,
@@ -126,7 +126,7 @@ impl Store {
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
             held: Mutex::new(None),
-            entry_reads: Mutex::new(None),
+            object_reads: Mutex::new(None),
             chunk_creates: Mutex::new(None),
             deny_chunk_creates: AtomicBool::new(false),
             denied_chunk_creates: AtomicUsize::new(0),
@@ -179,9 +179,9 @@ impl Store {
         self.hold_after(path, 0)
     }
 
-    pub fn hold_entry_reads(&self, paths: Vec<Path>) -> ObjectIoHold {
+    pub fn hold_object_reads(&self, paths: Vec<Path>) -> ObjectIoHold {
         let hold = ObjectIoGate::hold(paths);
-        *self.entry_reads.lock().unwrap() = Some(hold.0.clone());
+        *self.object_reads.lock().unwrap() = Some(hold.0.clone());
         hold
     }
 
@@ -404,7 +404,7 @@ impl ObjectStore for Store {
             }
         }
         self.available()?;
-        let entries = self.entry_reads.lock().unwrap().clone();
+        let entries = self.object_reads.lock().unwrap().clone();
         if let Some(entries) = entries {
             entries.wait(path).await;
         }
