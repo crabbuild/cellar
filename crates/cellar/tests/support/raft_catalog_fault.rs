@@ -8,32 +8,66 @@ use object_store::{
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-/// Observe complete payload bodies, including cancellation, without buffering or
+/// Observe complete selected bodies, including cancellation, without buffering or
 /// changing the real store's stream, conditional requests or error delivery.
-struct PayloadObservation {
+struct StoreObservation {
     started: std::time::Instant,
     operation: &'static str,
     ownership: bool,
+    archive_kind: Option<&'static str>,
     bytes: usize,
     outcome: &'static str,
 }
 
-impl PayloadObservation {
+impl StoreObservation {
+    // This external backend also observes catalog setup before a host domain
+    // exists. Instrument elapsed process time without installing a new owner.
+    #[allow(clippy::disallowed_methods)]
     fn start(store: &Store, path: &Path, operation: &'static str) -> Option<Self> {
-        (store.observe_cell_payloads.load(Ordering::Acquire)
+        let archive_kind = (store.observe_group_archive_io.load(Ordering::Acquire)
+            && path.as_ref().contains("/cell-group-archives/"))
+        .then(|| match path.filename() {
+            Some("identity") => "identity",
+            Some("registry") => "registry",
+            _ => [
+                ("chunks", "/chunks/"),
+                ("indexes", "/indexes/"),
+                ("entries", "/entries/"),
+                ("tails", "/tails/"),
+                ("roots", "/roots/"),
+            ]
+            .into_iter()
+            .find(|(_, part)| path.as_ref().contains(*part))
+            .map_or("other-control", |(kind, _)| kind),
+        });
+        ((store.observe_cell_payloads.load(Ordering::Acquire)
             && path.as_ref().contains("/cell-payloads-1/"))
+            || archive_kind.is_some())
         .then(|| Self {
-            started: cellar::asyncrt::instant(),
+            started: std::time::Instant::now(),
             operation,
             ownership: path.as_ref().contains("/ownership/"),
+            archive_kind,
             bytes: 0,
             outcome: "cancelled",
         })
     }
 }
 
-impl Drop for PayloadObservation {
+impl Drop for StoreObservation {
     fn drop(&mut self) {
+        if let Some(kind) = self.archive_kind {
+            eprintln!(
+                "[DEBUG-cg17-archive-io] op={} kind={} bytes={} outcome={} elapsed_us={} at_ms={}",
+                self.operation,
+                kind,
+                self.bytes,
+                self.outcome,
+                self.started.elapsed().as_micros(),
+                cellar::asyncrt::wall_ms()
+            );
+            return;
+        }
         eprintln!(
             "payload observation op={} ownership={} bytes={} outcome={} elapsed_us={}",
             self.operation,
@@ -284,6 +318,7 @@ pub struct Store {
     pub cell_payload_get_calls: AtomicUsize,
     pub cell_payload_chunk_bytes: AtomicUsize,
     pub observe_cell_payloads: AtomicBool,
+    pub observe_group_archive_io: AtomicBool,
     pub deny_cell_payload_reads: AtomicBool,
     pub denied_cell_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
@@ -506,7 +541,7 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
-        let mut observation = PayloadObservation::start(self, path, "put");
+        let mut observation = StoreObservation::start(self, path, "put");
         if let Some(observation) = &mut observation {
             observation.bytes = payload.iter().map(|bytes| bytes.len()).sum();
         }
@@ -840,7 +875,7 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
-        let mut observation = PayloadObservation::start(self, path, "get");
+        let mut observation = StoreObservation::start(self, path, "get");
         if path.as_ref().ends_with("/cell-groups/head") {
             self.group_head_read.pause().await;
         }

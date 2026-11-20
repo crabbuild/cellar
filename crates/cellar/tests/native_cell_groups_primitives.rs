@@ -30,6 +30,8 @@ mod activations;
 mod alarms;
 #[path = "support/cell_group_binding_enrollment.rs"]
 mod binding_enrollment;
+#[path = "support/cell_group_binding_profile.rs"]
+mod binding_profile;
 #[path = "support/cell_group_binding_reads.rs"]
 mod binding_reads;
 #[path = "support/cell_group_binding_recovery.rs"]
@@ -2611,6 +2613,18 @@ async fn rustfs_trace_named_binding_publication() -> Result<()> {
         .try_init()
         .map_err(|error| anyhow::anyhow!("trace subscriber: {error}"))?;
     Box::pin(bindings::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: requires owned RustFS and the stack-sampling driver"]
+async fn rustfs_profile_materialized_named_bindings() -> Result<()> {
+    Box::pin(binding_profile::run(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: requires owned RustFS and the stack-sampling driver"]
+async fn rustfs_profile_extent_named_bindings() -> Result<()> {
+    Box::pin(binding_profile::run(true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
