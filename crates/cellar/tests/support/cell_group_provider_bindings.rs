@@ -100,6 +100,8 @@ impl Cell for Root {
                 }
                 "Refusals" => {
                     ensure!(BindingJournal::open(&context, "UNDECLARED").is_err());
+                    ensure!(cellar::sdk::containers::SandboxCatalog::open(&context).is_err());
+                    ensure!(context.container().is_err());
                     let prior = journal.load(&context)?.context("confirmed provider")?;
                     for kind in 0..3 {
                         let mut record = prior.record.clone();
@@ -207,6 +209,13 @@ pub fn declarations() -> Result<()> {
         .provider_binding("B", "docker", [18; 32])?
         .provider_binding("A", "docker", [19; 32])?;
     ensure!(forward.schema_digest() == reverse.schema_digest());
+    let mut full = class()?;
+    for index in 0..cellar::sdk::containers::MAX_BINDINGS {
+        full = full.provider_binding(format!("tool-{index}"), "docker", [19; 32])?;
+    }
+    ensure!(full
+        .provider_binding("overflow", "docker", [19; 32])
+        .is_err());
     Ok(())
 }
 
@@ -215,6 +224,7 @@ async fn start(
     minimum: Durability,
     backend: Arc<catalog_fault::Store>,
     probe: Arc<Probe>,
+    max_input_bytes: usize,
 ) -> Result<ManagedCluster> {
     let class = RaftClass::new("Counter", 1, [211; 32])?
         .initializer([212; 32], |_, tx| {
@@ -249,7 +259,7 @@ async fn start(
     )
     .await?;
     fixture.configuration = Some(configuration);
-    fixture.max_input_bytes = 64 * 1024;
+    fixture.max_input_bytes = max_input_bytes;
     fixture.sql_workers = 1;
     Box::pin(ManagedCluster::start_with_applications(
         fixture,
@@ -281,6 +291,16 @@ async fn call(
 }
 
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    qualify_with_input_limit(real_rustfs, 64 * 1024).await
+}
+
+pub async fn qualify_small_input() -> Result<()> {
+    // Caller input and framework-generated SQLite checkpoints have independent
+    // bounds. A small request must not require a 64-KiB caller allowance.
+    qualify_with_input_limit(false, 1024).await
+}
+
+async fn qualify_with_input_limit(real_rustfs: bool, max_input_bytes: usize) -> Result<()> {
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
             let backend = if real_rustfs {
@@ -296,7 +316,14 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                 Arc::new(catalog_fault::Store::default())
             };
             let probe = Arc::new(Probe::default());
-            let mut cluster = start(rooted, minimum, backend.clone(), probe.clone()).await?;
+            let mut cluster = start(
+                rooted,
+                minimum,
+                backend.clone(),
+                probe.clone(),
+                max_input_bytes,
+            )
+            .await?;
             let domain = cluster.fixtures[0].domain.clone();
             let work = domain
                 .run(async {
@@ -441,8 +468,30 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                             },
                             TIMEOUT,
                         )
-                        .await?;
-                    ensure!(receipt.command() == options.id && receipt.durability() >= minimum);
+                        .await;
+                    if minimum == Durability::Quorum {
+                        let receipt = receipt?;
+                        ensure!(
+                            receipt.command() == options.id
+                                && receipt.durability() >= minimum
+                                && receipt.receipt().is_some_and(|row| row.result() == b"true")
+                        );
+                    } else {
+                        // The denied output checkpoint can already be committed
+                        // to quorum when the original invocation expires. That
+                        // partial RPC must remain uncertain: backend restoration
+                        // cannot fabricate its final result or rerun its body.
+                        let error = receipt
+                            .err()
+                            .context("partial provider RPC became complete")?;
+                        ensure!(
+                            matches!(
+                                error.as_ref(),
+                                CellDispatchError::Execution(ExecutionError::Uncertain)
+                            ),
+                            "original provider checkpoint lost its typed uncertainty: {error}"
+                        );
+                    }
                     ensure!(
                         probe.effects.load(Ordering::Acquire)
                             == if minimum == Durability::Quorum { 2 } else { 1 },

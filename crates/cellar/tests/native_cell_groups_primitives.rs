@@ -2611,6 +2611,11 @@ async fn provider_binding_journals_use_shared_quorum() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_journals_keep_checkpoint_and_caller_input_limits_separate() -> Result<()> {
+    provider_bindings::qualify_small_input().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_provider_binding_journals_use_shared_quorum() -> Result<()> {
     provider_bindings::qualify(true).await

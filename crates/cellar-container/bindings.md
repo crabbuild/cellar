@@ -13,6 +13,20 @@ This is the persistence contract for remote providers. Add explicit host
 [supervision](supervision.md) for scheduled expiry and cleanup. The journal
 alone does not schedule work or supply remote fencing.
 
+For shared Raft groups, declare each journal on the class with
+`RaftClass::provider_binding(name, provider, configuration_digest)` before
+registering its ordinary cell factory. The declaration contains no credentials,
+participates in the namespace schema and binds every journal record to that
+backend configuration. Open the journal from the executing invocation; a factory
+constructor, retained event handle or storage transaction callback cannot open it.
+Updates and `ProviderAuthority::before_effect` wait for the namespace's required
+Quorum or S3 checkpoint, then recheck the original invocation fence and deadline.
+An unfinished checkpoint remains an uncertain command, even after S3 returns.
+
+This journal bridge does not enable the native Docker container, sandbox catalog
+or scheduled supervision on shared groups. Those adapters and real provider
+execution fencing remain required by [CG-17](../../docs/design/multi-raft/cell-groups/qualification.md#full-primitive-compatibility-cg-17).
+
 ## Select a host-declared provider slot
 
 Applications can select additional providers declared by the host. `ctx.container`

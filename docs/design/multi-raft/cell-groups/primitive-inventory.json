@@ -682,11 +682,36 @@
         "cellar::sdk::containers::Container::read_file",
         "cellar::sdk::containers::Container::write_file",
         "cellar::sdk::containers::Container::port",
-        "cellar::sdk::containers::ProviderAuthority::before_effect"
+        "cellar::sdk::containers::ProviderAuthority::before_effect",
+        "cellar::sdk::RaftClass::provider_binding",
+        "cellar::sdk::Context::invocation_authority",
+        "cellar::sdk::InvocationAuthority",
+        "cellar::sdk::InvocationAuthority::check",
+        "cellar::sdk::containers::ProviderAuthority",
+        "cellar::sdk::containers::ProviderAuthority::check",
+        "cellar::sdk::containers::BindingJournal",
+        "cellar::sdk::containers::BindingJournal::open",
+        "cellar::sdk::containers::BindingJournal::load",
+        "cellar::sdk::containers::BindingJournal::compare_exchange",
+        "cellar::sdk::containers::BindingJournal::lock_lifecycle",
+        "cellar::sdk::containers::BindingJournal::activity",
+        "cellar::sdk::containers::BindingJournal::check_retention",
+        "cellar::sdk::containers::BindingCheckpoint",
+        "cellar::sdk::containers::BindingRecord",
+        "cellar::sdk::containers::BindingRecord::is_retired",
+        "cellar::sdk::containers::BindingIntent",
+        "cellar::sdk::containers::BindingObservation",
+        "cellar::sdk::containers::BindingLifecycleGuard",
+        "cellar::sdk::containers::MAX_BINDINGS",
+        "cellar::sdk::containers::MAX_BINDING_BYTES"
       ],
       "owners": [
         "crates/cellar/application/containers.rs",
-        "crates/cellar/storage/sqlite/container_bindings.sql"
+        "crates/cellar/storage/sqlite/container_bindings.sql",
+        "crates/cellar/application/authority.rs",
+        "crates/cellar/application/container_bindings.rs",
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/storage/sqlite/container_bindings.rs"
       ],
       "schemas": [
         "Desired state, supervision and provider volumes"
