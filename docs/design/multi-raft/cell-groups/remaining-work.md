@@ -55,6 +55,20 @@ the candidate drains exactly two messages in both image modes. This qualifies
 less background work, not constrained throughput, percentiles or a Fleet/Bucket
 comparison. A final-source replay also passes both modes.
 
+Two subsequent targeted diagnostic captures reproduce all **eight original C4
+invocations** and retain all **26 returned producer failures**. The first probe
+lacks full cell-history correlation and cannot attribute individual failures.
+The refined probe uses canonical Queue identities: completed writer waits reach
+**1,608 ms**, entry rebase maxima are **13–98 ms**, and SQL-worker queue medians
+are zero with nonzero tails. Submission/settlement add cost. These are instrumented
+phase observations including setup/teardown, not business latency or a causal
+repair. Tracing-interleaved failure records are reconstructed in a separate copy;
+original bytes and verified node/copy manifests remain retained. All probes are
+removed and exact published compiler inputs restored. Next investigate measured
+same-cell writer/persistence/finalization work while preserving every proof;
+missed-wake and retry-policy changes lack supporting evidence. See the
+[diagnostic record](queue-writer-diagnostics-2026-11-20.json).
+
 Full library **1,266 passed / 2 existing ignores**, including three independent
 effect/alarm/KV-capability guards. The fifteen selected native cases are **9
 passed / 6 failed**; the original eleven-case subset remains **6 / 5**. Ordinary
@@ -91,7 +105,7 @@ Remaining priorities:
    ReadIndex/archive batching; physical shared-file release and once-only credit;
    reserve-aware placement; interrupted lifecycle and fenced recovery.
 4. **P2 — Original constrained comparison:** read-only inspection at
-   **2026-11-20T01:41:56Z** reports **zero available bytes** against the unchanged
+   **2026-11-20T03:11:34Z** reports **zero available bytes** against the unchanged
    **6,442,450,944-byte reserve**, with original identity/resources/start and zero
    restarts. No case is admitted. Preserve three 1-vCPU/2-GiB Colima nodes,
    RF3/three groups/shared RustFS; SQL/KV/Queue ×
