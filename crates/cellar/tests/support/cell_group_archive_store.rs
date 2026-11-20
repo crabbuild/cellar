@@ -18,7 +18,7 @@ pub struct Gate {
 }
 
 #[derive(Debug)]
-pub struct EntryReadGate {
+pub struct ObjectIoGate {
     paths: Vec<Path>,
     pub started: AtomicU64,
     released: AtomicU64,
@@ -26,7 +26,18 @@ pub struct EntryReadGate {
     resume: Notify,
 }
 
-impl EntryReadGate {
+impl ObjectIoGate {
+    fn hold(paths: Vec<Path>) -> ObjectIoHold {
+        assert!(!paths.is_empty() && paths.len() <= 64);
+        ObjectIoHold(Arc::new(Self {
+            paths,
+            started: AtomicU64::new(0),
+            released: AtomicU64::new(0),
+            entered: Notify::new(),
+            resume: Notify::new(),
+        }))
+    }
+
     pub fn release(&self, index: usize) {
         self.released.fetch_or(1 << index, Ordering::Release);
         self.resume.notify_waiters();
@@ -51,9 +62,9 @@ impl EntryReadGate {
     }
 }
 
-pub struct EntryReadHold(pub Arc<EntryReadGate>);
+pub struct ObjectIoHold(pub Arc<ObjectIoGate>);
 
-impl Drop for EntryReadHold {
+impl Drop for ObjectIoHold {
     fn drop(&mut self) {
         self.0.released.store(u64::MAX, Ordering::Release);
         self.0.resume.notify_waiters();
@@ -77,7 +88,9 @@ pub struct Store {
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
     held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
-    entry_reads: Mutex<Option<Arc<EntryReadGate>>>,
+    entry_reads: Mutex<Option<Arc<ObjectIoGate>>>,
+    chunk_creates: Mutex<Option<Arc<ObjectIoGate>>>,
+    pub deny_chunk_creates: AtomicBool,
     held_put: Mutex<Option<(Path, Arc<Gate>)>>,
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
     publication: Mutex<Option<(u64, Arc<Gate>)>>,
@@ -113,6 +126,8 @@ impl Store {
             lose_delete_response: AtomicBool::new(false),
             held: Mutex::new(None),
             entry_reads: Mutex::new(None),
+            chunk_creates: Mutex::new(None),
+            deny_chunk_creates: AtomicBool::new(false),
             held_put: Mutex::new(None),
             held_delete: Mutex::new(None),
             publication: Mutex::new(None),
@@ -162,17 +177,16 @@ impl Store {
         self.hold_after(path, 0)
     }
 
-    pub fn hold_entry_reads(&self, paths: Vec<Path>) -> EntryReadHold {
-        assert!(!paths.is_empty() && paths.len() <= 64);
-        let gate = Arc::new(EntryReadGate {
-            paths,
-            started: AtomicU64::new(0),
-            released: AtomicU64::new(0),
-            entered: Notify::new(),
-            resume: Notify::new(),
-        });
-        *self.entry_reads.lock().unwrap() = Some(gate.clone());
-        EntryReadHold(gate)
+    pub fn hold_entry_reads(&self, paths: Vec<Path>) -> ObjectIoHold {
+        let hold = ObjectIoGate::hold(paths);
+        *self.entry_reads.lock().unwrap() = Some(hold.0.clone());
+        hold
+    }
+
+    pub fn hold_chunk_creates(&self, paths: Vec<Path>) -> ObjectIoHold {
+        let hold = ObjectIoGate::hold(paths);
+        *self.chunk_creates.lock().unwrap() = Some(hold.0.clone());
+        hold
     }
 
     pub fn hold_after(&self, path: Path, puts: usize) -> Arc<Gate> {
@@ -226,6 +240,18 @@ impl ObjectStore for Store {
             });
         }
         self.puts.fetch_add(1, Ordering::AcqRel);
+        if matches!(opts.mode, PutMode::Create) && path.as_ref().contains("/chunks/") {
+            let gate = self.chunk_creates.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate.wait(path).await;
+            }
+            if self.deny_chunk_creates.load(Ordering::Acquire) {
+                return Err(Error::Generic {
+                    store: "archive chunk creates denied",
+                    source: "injected before conditional create".into(),
+                });
+            }
+        }
         let gate = self
             .held_put
             .lock()

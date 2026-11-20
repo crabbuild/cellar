@@ -6,7 +6,7 @@ use super::*;
 use anyhow::ensure;
 use std::sync::atomic::Ordering;
 
-async fn entered(gate: &archive_store::EntryReadGate) {
+async fn entered(gate: &archive_store::ObjectIoGate) {
     loop {
         let changed = gate.entered.notified();
         tokio::pin!(changed);
