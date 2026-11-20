@@ -96,10 +96,9 @@ pub(in crate::application) fn queue_service(
     initializer.update(b"cellar-raft-queue-initializer-with-schema-1");
     initializer.update(include_str!("../queue/schema.sql").as_bytes());
     let mut class = RaftClass::queue_service()?
-        .initializer(
-            initializer.finalize().into(),
-            |_, tx| crate::application::queue::provision_storage(&tx.storage()?),
-        )?
+        .initializer(initializer.finalize().into(), |_, tx| {
+            crate::application::queue::provision_storage(&tx.storage()?)
+        })?
         .durable_callbacks()?;
     for method in [
         "__queueSend",
