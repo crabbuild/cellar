@@ -232,6 +232,7 @@ pub fn contracts() -> Result<()> {
     let class = RaftClass::new("Counter", 1, [229; 32])?
         .initializer([230; 32], |_, _| Ok(()))?
         .json_cell_rpc("Run", [231; 32])?
+        .query("Version", [234; 32], |_, _| Ok(vec![]))?
         .provider_binding("TOOL", "fenced-maintenance", [226; 32])?;
     let application: Arc<dyn Application> = Arc::new(
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
@@ -556,7 +557,22 @@ async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durabilit
                             TIMEOUT,
                         )
                         .await?;
+                    let cell = cluster.hosts[leader].cell(history.clone())?;
+                    let before = cell
+                        .query(
+                            ProposalId::new([235; 16])?,
+                            &cell.contract("Version")?,
+                            vec![],
+                            QueryOptions::default(),
+                        )
+                        .await?;
                     let first = call(&cluster, &history, minimum, 1, "Create").await?;
+                    ensure!(
+                        first.version.sequence.get() == before.version.sequence.get() + 2,
+                        "provider creation must use one intent/claim checkpoint plus its final receipt: before={} actual={}",
+                        before.version.sequence.get(),
+                        first.version.sequence.get()
+                    );
                     wait(&control, &control.refused, "authority refusal").await?;
                     ensure!(
                         control.calls.load(Ordering::Acquire) == 0,
