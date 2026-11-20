@@ -927,16 +927,22 @@ impl CellGroupSqlPool {
                     &attempt.request.operation,
                     input,
                 );
-            if class.is_cell_rpc(&attempt.request.operation) && !maintenance {
+            if class.is_cell_rpc(&attempt.request.operation) {
                 let fence = authority.activation_fence();
                 let domain = self.inner.workers[0].domain.clone();
                 let timeout = domain.sleep_until(deadline).map_err(|_| unavailable())?;
                 let waiting = async {
-                    let reserved = self
-                        .inner
-                        .admission
-                        .reserve_queued(&cell, group, bytes)
-                        .await?;
+                    let reserved = if maintenance {
+                        // Background cleanup cannot make a foreground lifecycle
+                        // owner park merely to wait for that same guard. A
+                        // pre-enqueue refusal leaves its installation untouched.
+                        self.inner.admission.reserve(&cell, group, bytes)?
+                    } else {
+                        self.inner
+                            .admission
+                            .reserve_queued(&cell, group, bytes)
+                            .await?
+                    };
                     self.admit()?;
                     // The old writer may have proven several roots while this
                     // request waited. Rebase only before any application entry,
