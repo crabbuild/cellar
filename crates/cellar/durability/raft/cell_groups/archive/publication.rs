@@ -190,7 +190,21 @@ impl CoverageUse {
 #[derive(Clone)]
 pub struct CellGroupArchiveCoverage(Arc<Coverage>);
 
+/// A thin observation of actual verification custody. Unlike a hold descriptor,
+/// it cannot outlive physical verification and cannot mint coverage on upgrade.
+pub(in crate::raft::cell_groups) struct WeakCoverage(std::sync::Weak<Coverage>);
+
+impl WeakCoverage {
+    pub(in crate::raft::cell_groups) fn retain(&self) -> Option<CellGroupArchiveCoverage> {
+        self.0.upgrade().map(CellGroupArchiveCoverage)
+    }
+}
+
 impl CellGroupArchiveCoverage {
+    pub(in crate::raft::cell_groups) fn downgrade(&self) -> WeakCoverage {
+        WeakCoverage(Arc::downgrade(&self.0))
+    }
+
     pub(in crate::raft) fn retain_transition_source(mut self) -> Result<Self> {
         Arc::get_mut(&mut self.0)
             .ok_or(CellGroupArchiveError::Busy)?

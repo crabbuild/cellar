@@ -11,6 +11,7 @@ mod queue;
 #[cfg(test)]
 mod retry_tests;
 pub(in crate::raft::cell_groups::controller) mod seed;
+pub(super) mod source_read;
 pub(crate) use provision::Provisioning;
 pub(crate) use seed::{Client as ArchiveSeedClient, Descriptor as ArchiveSeedDescriptor};
 pub(in crate::raft::cell_groups::controller) mod settlement;

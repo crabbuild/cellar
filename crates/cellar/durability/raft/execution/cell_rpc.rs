@@ -473,6 +473,7 @@ impl CellPrivateExecutor {
         if self.pending.is_some() || turn.preparation.is_some() {
             return Err(ExecutionError::Invalid("RPC checkpoint remains pending"));
         }
+        let read_source = turn.transaction.take_s3_read_source();
         let log_reservation = self
             .authority
             .reserve_log(self.options.limits.envelope)
@@ -499,6 +500,17 @@ impl CellPrivateExecutor {
         turn.transaction.mark_quorum_read_base(
             turn.step != 0 && turn.attempt.request.durability == Durability::Quorum,
         );
+        // Park can rebase onto another client's commit. SQLite counters alone
+        // cannot establish S3 coverage of that image; retain only the exact
+        // archived source version, and recheck birth/fence at each read.
+        if turn.step != 0 && turn.attempt.request.durability == Durability::S3 {
+            if let Some(proof) = read_source.filter(|proof| {
+                proof.version() == &self.authority.cell().version
+                    && proof.route() == self.authority.route()
+            }) {
+                turn.transaction.mark_s3_read_base(proof);
+            }
+        }
         turn.preparation = Some(StagePreparation {
             sequence,
             log_reservation,
@@ -519,6 +531,24 @@ impl CellPrivateExecutor {
             .park(&turn.transaction)
             .map_err(private_failure)?;
         turn.preparation = None;
+        Ok(())
+    }
+
+    pub(crate) fn bind_rpc_s3_read_source(
+        &self,
+        turn: &CellRpcTurn,
+        proof: Arc<crate::raft::cell_groups::S3ReadSourceProof>,
+    ) -> Result<(), ExecutionError> {
+        self.check_rpc()?;
+        if turn.step == 0
+            || turn.preparation.is_none()
+            || turn.attempt.request.durability != Durability::S3
+            || proof.version() != &self.authority.cell().version
+            || proof.route() != self.authority.route()
+        {
+            return Err(ExecutionError::Invalid("S3 read source version"));
+        }
+        turn.transaction.mark_s3_read_base(proof);
         Ok(())
     }
 

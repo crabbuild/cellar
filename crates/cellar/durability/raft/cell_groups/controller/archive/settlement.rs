@@ -20,6 +20,8 @@ pub(crate) struct OutputProof {
     _journal: Arc<journal::Journal>,
     _permit: Arc<Mutex<Permit>>,
     authority: Arc<job::Authority>,
+    tails: CellGroupArchiveTailPool,
+    checkpoints: CellGroupCheckpointPool,
 }
 
 impl OutputProof {
@@ -28,33 +30,67 @@ impl OutputProof {
         domain: &crate::asyncrt::DomainToken,
         deadline: u64,
     ) -> std::result::Result<(), CellDispatchError> {
-        let now = domain
-            .mono_ms()
-            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
-        if now >= deadline {
-            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
-        }
-        let timer = domain
-            .sleep_until(deadline)
-            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
-        let result = crate::asyncrt::select! {
-            result = domain.run(self.authority.require_current()) => result.map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?,
-            _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
-        };
-        if domain
-            .mono_ms()
-            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
-            >= deadline
-        {
-            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
-        }
-        result.map_err(|error| CellDispatchError::Archive(Arc::new(error)))
+        require_current(&self.authority, domain, deadline).await
     }
+}
+
+pub(super) async fn require_current(
+    authority: &Arc<job::Authority>,
+    domain: &crate::asyncrt::DomainToken,
+    deadline: u64,
+) -> std::result::Result<(), CellDispatchError> {
+    let now = domain
+        .mono_ms()
+        .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+    if now >= deadline {
+        return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+    }
+    let timer = domain
+        .sleep_until(deadline)
+        .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+    let result = crate::asyncrt::select! {
+        result = domain.run(authority.require_current()) => result.map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?,
+        _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+    };
+    if domain
+        .mono_ms()
+        .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
+        >= deadline
+    {
+        return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+    }
+    result.map_err(|error| CellDispatchError::Archive(Arc::new(error)))
 }
 
 pub(crate) struct CommandSettled {
     pub receipt: Box<CellSqlReceipt>,
     pub proof: Box<OutputProof>,
+}
+
+impl CommandSettled {
+    /// Transfer only verified source custody; the result and S3 request permit
+    /// are released. Physical verification stays charged to its existing bank.
+    pub(crate) fn into_read_source(self) -> Arc<super::source_read::SourceReadProof> {
+        let version = self.receipt.receipt().version.clone();
+        let OutputProof {
+            _coverage,
+            _journal,
+            _permit,
+            authority,
+            tails,
+            checkpoints,
+        } = *self.proof;
+        drop(self.receipt);
+        drop(_permit);
+        super::source_read::SourceReadProof::new(
+            version,
+            _coverage,
+            _journal,
+            authority,
+            &tails,
+            &checkpoints,
+        )
+    }
 }
 
 pub(crate) struct EnrollmentSettled {
@@ -834,6 +870,8 @@ pub(super) async fn prove(
                         _journal: context.journal.clone(),
                         _permit: permit,
                         authority: context.authority.clone(),
+                        tails: registration.tails.clone(),
+                        checkpoints: registration.checkpoints.clone(),
                     }),
                 }));
             }

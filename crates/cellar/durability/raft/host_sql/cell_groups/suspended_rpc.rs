@@ -58,7 +58,12 @@ struct SubmittedCheckpoint {
 
 enum CheckpointPhase {
     Applying(BoxFuture<'static, Result<CheckpointProof, ExecutionError>>),
-    Archiving(BoxFuture<'static, Result<(), ExecutionError>>),
+    Archiving(
+        BoxFuture<
+            'static,
+            Result<Option<Arc<crate::raft::cell_groups::S3ReadSourceProof>>, ExecutionError>,
+        >,
+    ),
 }
 
 impl Suspended {
@@ -239,13 +244,13 @@ impl Suspended {
                                             .require_current(&domain, commits.deadline)
                                             .await
                                             .map_err(crate::raft::execution::storage)?;
-                                        Ok(())
+                                        Ok(Some(settled.into_read_source()))
                                     }));
                                 self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
                                 self.ready.0.store(true, Ordering::Release);
                                 return Poll::Pending;
                             }
-                            Ok(())
+                            Ok(None)
                         }
                         Err(error) => Err(error),
                     }
@@ -259,28 +264,38 @@ impl Suspended {
                 Poll::Ready(result) => result,
             },
         };
-        if let Err(error) = result {
-            if matches!(
-                error,
-                ExecutionError::Uncertain | ExecutionError::Refused(CommandFailure::Unavailable)
-            ) && self
-                .executor
-                .as_ref()
-                .is_some_and(|executor| executor.rpc_checkpoint_version().is_ok())
-            {
-                checkpoint.phase =
-                    self.applying(&checkpoint.prepared, &checkpoint.expected, domain)?;
-                self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
-                self.ready.0.store(true, Ordering::Release);
-                return Poll::Pending;
+        let source = match result {
+            Ok(source) => source,
+            Err(error) => {
+                if matches!(
+                    error,
+                    ExecutionError::Uncertain
+                        | ExecutionError::Refused(CommandFailure::Unavailable)
+                ) && self
+                    .executor
+                    .as_ref()
+                    .is_some_and(|executor| executor.rpc_checkpoint_version().is_ok())
+                {
+                    checkpoint.phase =
+                        self.applying(&checkpoint.prepared, &checkpoint.expected, domain)?;
+                    self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
+                    self.ready.0.store(true, Ordering::Release);
+                    return Poll::Pending;
+                }
+                return Poll::Ready(Err(error));
             }
-            return Poll::Ready(Err(error));
-        }
+        };
         self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
         self.executor
             .as_mut()
             .ok_or_else(unavailable)?
             .continue_rpc_checkpoint(&mut self.turn)?;
+        if let Some(source) = source {
+            self.executor
+                .as_ref()
+                .ok_or_else(unavailable)?
+                .bind_rpc_s3_read_source(&self.turn, source)?;
+        }
         tracing::debug!(target: "cellar::raft::checkpoint", phase = "continued",
             history = ?self.cell, sequence = checkpoint.expected.sequence.get(),
             at_ms = ?domain.mono_ms().ok());

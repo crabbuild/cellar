@@ -88,6 +88,12 @@ source checkpoints and the original request deadline still gate completion.
 Ordinary Fleet polling retains its existing status/read path. This protocol
 change still requires the complete public lifecycle/recovery qualification.
 
+An already verified S3 source can reuse live, evictable physical coverage for an
+unchanged pure query. Exact route/version, current birth/fence, dirty state and
+original-deadline checks still apply; target proof and final output remain
+independent. Eviction requires a fresh source checkpoint. See
+[named binding source proofs](named-bindings.md) for the ownership contract.
+
 A verified binding child completes only protected intent/receipt and lane
 bookkeeping in its source. If the source was already clean at Quorum, that
 successful completion preserves its application-state read watermark. A following

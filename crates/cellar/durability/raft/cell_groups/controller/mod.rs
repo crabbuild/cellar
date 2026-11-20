@@ -9,6 +9,7 @@ pub(crate) use archive::foreground::Invocation as S3Invocation;
 pub(crate) use archive::settlement::{
     Client as S3Client, LookupPrepared as S3LookupPrepared, OutputProof as S3OutputProof,
 };
+pub(crate) use archive::source_read::SourceReadProof as S3ReadSourceProof;
 pub(crate) use archive::Provisioning as CellGroupArchiveProvisioning;
 pub(crate) use archive::{ArchiveSeedClient, ArchiveSeedDescriptor};
 mod calls;

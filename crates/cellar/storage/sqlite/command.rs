@@ -123,9 +123,15 @@ struct CommandFrame {
     // Minted by the SQL owner at Quorum entry or after an applied Quorum
     // checkpoint. Reads reuse it only while the private image is unchanged.
     quorum_read_base: Cell<Option<(u64, i64)>>,
+    s3_read_base: RefCell<Option<S3ReadBase>>,
     // Invocation-local, so cached constructor Storage follows the current
     // callback without hiding another command's or immutable reader's alarm.
     native_alarm: Cell<Option<[u8; 16]>>,
+}
+
+struct S3ReadBase {
+    marker: (u64, i64),
+    proof: Arc<crate::raft::cell_groups::S3ReadSourceProof>,
 }
 
 struct Work {
@@ -184,9 +190,30 @@ pub(crate) struct ActiveCommand {
 
 impl ActiveCommand {
     pub(crate) fn mark_quorum_read_base(&self, proven: bool) {
+        self.frame.s3_read_base.borrow_mut().take();
         self.frame
             .quorum_read_base
             .set(proven.then(|| *self.baseline.borrow()));
+    }
+
+    pub(crate) fn mark_s3_read_base(
+        &self,
+        proof: Arc<crate::raft::cell_groups::S3ReadSourceProof>,
+    ) {
+        *self.frame.s3_read_base.borrow_mut() = Some(S3ReadBase {
+            marker: *self.baseline.borrow(),
+            proof,
+        });
+    }
+
+    pub(crate) fn take_s3_read_source(
+        &self,
+    ) -> Option<Arc<crate::raft::cell_groups::S3ReadSourceProof>> {
+        self.frame
+            .s3_read_base
+            .borrow_mut()
+            .take()
+            .map(|base| base.proof)
     }
 
     fn install(&self) -> Result<InstalledCommand> {
@@ -385,6 +412,7 @@ impl ActiveCommand {
     }
 
     pub(crate) fn cancel_work(&self) -> Result<()> {
+        self.frame.s3_read_base.borrow_mut().take();
         let mut tasks = {
             let mut work = self.frame.work.borrow_mut();
             work.active = 0;
@@ -701,6 +729,9 @@ pub(crate) fn commit_work(resources: &RaftStorageAuthority) -> HandlerFuture<()>
             let frame = current
                 .as_ref()
                 .context("storage is outside its Raft command")?;
+            // A new root must prove its complete state. Do not retain a prior
+            // idle verification while its replacement needs the same bank.
+            frame.s3_read_base.borrow_mut().take();
             let mut work = frame.work.borrow_mut();
             ensure!(
                 work.checkpoint.is_none(),
@@ -724,39 +755,65 @@ pub(crate) fn commit_work(resources: &RaftStorageAuthority) -> HandlerFuture<()>
 }
 
 /// A pure remote query needs proof of preceding application writes, not a new
-/// source mutation of its own. S3 turns, new roots, live write cursors and
-/// connection-local state retain the ordinary checkpoint path. A verified
+/// source mutation of its own. New roots, live write cursors and connection-local
+/// state retain the ordinary checkpoint path. S3 additionally requires live,
+/// physically verified custody of this exact unchanged source and a current
+/// birth check. Eviction returns to the ordinary checkpoint path. A verified
 /// binding completion may preserve the existing clean Quorum read watermark
 /// through its protected bookkeeping; the full source still gates output.
 pub(crate) fn confirm_read_work(resources: &RaftStorageAuthority) -> HandlerFuture<()> {
-    let clean = (|| -> Result<bool> {
+    let confirmed = (|| -> Result<Option<HandlerFuture<()>>> {
         require_storage(resources, true)?;
         CURRENT_COMMAND.with(|current| {
             let current = current.borrow();
             let frame = current.as_ref().context("missing read source command")?;
+            let dispatch = frame
+                .dispatch
+                .get()
+                .ok_or(crate::application::consensus::CommandFailure::Unavailable)?;
             ensure!(
-                frame
-                    .dispatch
-                    .get()
-                    .is_some_and(|dispatch| dispatch.fence.continuation_current()),
+                dispatch.fence.continuation_current(),
                 crate::application::consensus::CommandFailure::Unavailable
             );
-            let Some(base) = frame.quorum_read_base.get() else {
-                return Ok(false);
-            };
             if !frame.cursors.parkable()?
                 || !resources.resources.raft_can_park()
                 || frame.work.borrow().checkpoint.is_some()
             {
-                return Ok(false);
+                return Ok(None);
             }
             let connection = frame.connection()?;
-            Ok(command_marker(&connection)? == base && without_application_temps(&connection)?)
+            if !without_application_temps(&connection)? {
+                return Ok(None);
+            }
+            let marker = command_marker(&connection)?;
+            if frame.quorum_read_base.get() == Some(marker) {
+                return Ok(Some(Box::pin(async { Ok(()) })));
+            }
+            let base = frame.s3_read_base.borrow();
+            let Some(base) = base.as_ref().filter(|base| base.marker == marker) else {
+                return Ok(None);
+            };
+            let Some(proof) = base
+                .proof
+                .confirm(dispatch.domain.clone(), dispatch.deadline)
+            else {
+                return Ok(None);
+            };
+            let fence = dispatch.fence.clone();
+            Ok(Some(Box::pin(async move {
+                proof.await?;
+                ensure!(
+                    fence.continuation_current(),
+                    crate::application::consensus::CommandFailure::Unavailable
+                );
+                Ok(())
+            })))
         })
     })();
-    match clean {
-        Ok(false) => commit_work(resources),
-        result => Box::pin(async move { result.map(|_| ()) }),
+    match confirmed {
+        Ok(Some(proof)) => proof,
+        Ok(None) => commit_work(resources),
+        Err(error) => Box::pin(async move { Err(error) }),
     }
 }
 
@@ -919,6 +976,7 @@ impl CommandDatabase {
                 binding_serial: Cell::new(0),
                 parked_io: Cell::new(false),
                 quorum_read_base: Cell::new(None),
+                s3_read_base: RefCell::new(None),
                 native_alarm: Cell::new(None),
             }),
             inputs,
@@ -943,6 +1001,7 @@ impl CommandDatabase {
     }
 
     pub(crate) fn continue_checkpoint(&mut self, active: &ActiveCommand) -> Result<()> {
+        active.frame.s3_read_base.borrow_mut().take();
         ensure!(
             active.frame.connection.borrow().is_none(),
             "RPC writer already installed"
@@ -962,6 +1021,9 @@ impl CommandDatabase {
             self.connection.is_none() && active.can_park()?,
             "RPC writer is not quiescent"
         );
+        // Preserve the capability, never reuse this connection's marker after
+        // rebase. The SQL owner must compare the exact committed cell version
+        // before installing a new read baseline on resume.
         // Idle cached statements also refer to this connection. A resumed RPC
         // may use a different working image, so none can cross a park.
         active.frame.cursors.park();

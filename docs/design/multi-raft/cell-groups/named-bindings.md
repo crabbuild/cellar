@@ -283,6 +283,22 @@ The target checks its current incarnation and independent minimum durability.
 Every live lookup, enrollment, proof, retry and dispatch consumes the original
 monotonic request deadline.
 
+A pure query after an S3 checkpoint may reuse that exact source only while its
+physical archive verification remains live. This is a separate typed capability,
+not the clean Quorum watermark or a published-index sample. It binds the complete
+archive route and cell version; each read captures real verification custody and
+checks current group birth, the continuation fence and the original deadline.
+
+The verification is idle and evictable in both checkpoint and tail banks. A
+following S3 operation can reclaim its one-slot workspace; a later source read
+then takes the ordinary checkpoint path. Its S3 request/result reservation is
+released before dependent I/O. A parked callback can restore the read baseline
+only for the same route and exact committed cell version. A newer source image,
+private data/schema writes, new checkpoint, cursor or local-state restriction
+requires fresh proof. Protected binding completion does not refresh an S3
+baseline. Unproven S3 sources, mutations and final parent output retain their
+independent proof requirements.
+
 After the source proof, framework-owned enrollment, lookup and child command
 I/O may progress while the source SQLite writer stays parked. Before selecting
 a competing creator, recording completion or recording a known refusal, the
