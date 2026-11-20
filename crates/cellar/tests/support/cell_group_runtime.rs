@@ -38,6 +38,10 @@ pub(super) use snapshot_owner::{
 mod checkpoint_pressure;
 pub(super) use checkpoint_pressure::transfer_pressure;
 
+#[path = "cell_group_ready_runtime.rs"]
+mod ready_runtime;
+pub(super) use ready_runtime::append_during_sync;
+
 #[path = "cell_group_checkpoint_receive.rs"]
 mod checkpoint_receive;
 pub(super) use checkpoint_receive::{install_checkpoint, refuse_checkpoint};

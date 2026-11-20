@@ -1,10 +1,47 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::reconciliation::apply_through;
 use super::*;
 use futures_util::{future::BoxFuture, FutureExt};
 use raft::Storage;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+// These rejection phases deliberately have one ordinary request slot. Applied
+// publication does not join peer frames accepted by admit_step in that pump.
+// Join those frame owners within the original apply-through deadline before
+// the next independent phase; every original overload/seal assertion remains.
+async fn apply_through(fixture: &mut RuntimeCluster, index: LogIndex) -> Result<()> {
+    let group = fixture.cluster.birth.route().history;
+    let mut observed = false;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            if fixture.applied[&group].iter().all(|applied| *applied >= index) {
+                let ordinary: Vec<_> = fixture
+                    .runtimes
+                    .iter()
+                    .map(|runtime| runtime.usage().ordinary)
+                    .collect();
+                if !observed {
+                    eprintln!(
+                        "SUBMISSION_FRAME_DRAIN {}",
+                        serde_json::json!({
+                            "ordinaryItems": ordinary.iter().map(|usage| usage.items).collect::<Vec<_>>(),
+                            "pendingFrames": fixture.network.len(),
+                        })
+                    );
+                    observed = true;
+                }
+                if fixture.network.is_empty()
+                    && ordinary.iter().all(|usage| usage.items == 0 && usage.bytes == 0)
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?
+}
 
 /// Exercise queued prepared producers, not the legacy byte-only proposal API.
 /// The held first sync makes the following queue prefix deterministic.
@@ -312,7 +349,14 @@ async fn mutation(
 }
 
 pub(super) async fn rejections(rooted: bool) -> Result<()> {
-    let mut fixture = RuntimeCluster::with_limits(256, 1, 2).await?;
+    let mut fixture = RuntimeCluster::with_limits(256, 1, 2)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     if rooted {
         for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
             voter.extents = Some(NodeExtentStore::open(
@@ -323,8 +367,21 @@ pub(super) async fn rejections(rooted: bool) -> Result<()> {
         }
     }
     let route = fixture.cluster.birth.route().clone();
-    fixture.runtimes[0].campaign(route.history).await?;
-    fixture.drive(None).await?;
+    fixture.runtimes[0]
+        .campaign(route.history)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    fixture.drive(None).await.with_context(|| {
+        format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        )
+    })?;
     let limits = CellSqlLimits {
         workers: 2,
         queue_per_worker: 4,
@@ -337,16 +394,42 @@ pub(super) async fn rejections(rooted: bool) -> Result<()> {
     let a = history(&route, "submission-a")?;
     let b = history(&route, "submission-b")?;
     let c = history(&route, "submission-c")?;
-    let pa = initial(&fixture, &pool, &a, 181, 181).await?;
-    let pb = initial(&fixture, &pool, &b, 182, 182).await?;
+    let pa = initial(&fixture, &pool, &a, 181, 181)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    let pb = initial(&fixture, &pool, &b, 182, 182)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
 
     // Drop the acceptance response, then hold real engine sync so a queued
     // ReadIndex occupies the only ordinary request slot. Queue overload must
     // not produce a false owner rejection for B.
     let gate = fixture.cluster.voters[0].gate.clone();
     let release = gate.arm(fault::HOLD_SYNC);
-    drop(pa.submit(&fixture.runtimes[0]).await?);
-    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+    drop(pa.submit(&fixture.runtimes[0]).await.with_context(|| {
+        format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        )
+    })?);
+    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified())
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     let mut waiting = Box::pin(fixture.runtimes[0].read_index(route.history, vec![77]));
     assert!(
         tokio::time::timeout(Duration::from_millis(30), waiting.as_mut())
@@ -361,12 +444,38 @@ pub(super) async fn rejections(rooted: bool) -> Result<()> {
     assert!(pa.rejection()?.is_none());
     assert_eq!(pool.usage()?.active_cells, 2);
     drop(release);
-    tokio::time::timeout(Duration::from_secs(5), waiting).await??;
-    let accepted_a = accepted_sql(&fixture.runtimes[0], &pa).await?;
+    tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    let accepted_a = accepted_sql(&fixture.runtimes[0], &pa)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert!(pa.rejection()?.is_none());
     let state = fixture.runtimes[0]
         .enrollment_state(route.history, b.clone())
-        .await?;
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert!(matches!(
         pool.resolve_enrollment(pb.proposal(), state).await,
         Err(ExecutionError::Uncertain)
@@ -374,18 +483,35 @@ pub(super) async fn rejections(rooted: bool) -> Result<()> {
 
     // The actual owner now refuses B against A's retained acceptance slot.
     // Discard the response and recover its irreversible seal from the producer.
-    drop(pb.submit(&fixture.runtimes[0]).await?);
+    drop(pb.submit(&fixture.runtimes[0]).await.with_context(|| {
+        format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        )
+    })?);
     let proof_b = pb.rejection()?.context("sealed B")?;
     assert!(pool.reject(a.clone(), proof_b.clone()).await.is_err());
     assert_eq!(pool.usage()?.active_cells, 2);
     let foreign = CellGroupSqlPool::start(&fixture.cluster.voters[1].log, limits)?;
     assert!(foreign.reject(b.clone(), proof_b.clone()).await.is_err());
-    foreign.close().await?;
+    foreign.close().await.with_context(|| {
+        format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        )
+    })?;
     assert!(matches!(
         pb.submit(&fixture.runtimes[1]).await,
         Err(RuntimeError::Invalid(_))
     ));
-    pool.reject(b.clone(), proof_b.clone()).await?;
+    pool.reject(b.clone(), proof_b.clone())
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(pool.usage()?.active_cells, 1);
     assert!(pool.usage()?.retained_bytes > 0);
     assert!(matches!(
@@ -394,34 +520,107 @@ pub(super) async fn rejections(rooted: bool) -> Result<()> {
             .await,
         Err(RuntimeError::Invalid(_))
     ));
-    apply_through(&mut fixture, accepted_a.position.index).await?;
-    drop(super::enrollment::resolved(&fixture, &pool, 0, &a, pa.proposal()).await?);
+    apply_through(&mut fixture, accepted_a.position.index)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    drop(
+        super::enrollment::resolved(&fixture, &pool, 0, &a, pa.proposal())
+            .await
+            .with_context(|| {
+                format!(
+                    "submission rejection at line {} (extents={rooted})",
+                    line!()
+                )
+            })?,
+    );
 
     // Retrying after capacity returns must still reject every old clone. A fresh
     // producer of the same creation identity gets a distinct submission seal.
-    let fresh_b = initial(&fixture, &pool, &b, 182, 183).await?;
+    let fresh_b = initial(&fixture, &pool, &b, 182, 183)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(pb.proposal(), fresh_b.proposal());
     assert!(pool.reject(b.clone(), proof_b.clone()).await.is_err());
     assert_eq!(pool.usage()?.active_cells, 1);
     assert!(matches!(
-        pb.submit(&fixture.runtimes[0]).await?,
+        pb.submit(&fixture.runtimes[0])
+            .await
+            .with_context(|| format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            ))?,
         CellSqlSubmission::Rejected(_)
     ));
-    let accepted_b = accepted_sql(&fixture.runtimes[0], &fresh_b).await?;
+    let accepted_b = accepted_sql(&fixture.runtimes[0], &fresh_b)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(
         accepted_b.position.index.get(),
         accepted_a.position.index.get() + 1
     );
-    apply_through(&mut fixture, accepted_b.position.index).await?;
-    drop(super::enrollment::resolved(&fixture, &pool, 0, &b, fresh_b.proposal()).await?);
-    let pc = initial(&fixture, &pool, &c, 184, 184).await?;
-    drop(pc.submit(&fixture.runtimes[0]).await?);
+    apply_through(&mut fixture, accepted_b.position.index)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    drop(
+        super::enrollment::resolved(&fixture, &pool, 0, &b, fresh_b.proposal())
+            .await
+            .with_context(|| {
+                format!(
+                    "submission rejection at line {} (extents={rooted})",
+                    line!()
+                )
+            })?,
+    );
+    let pc = initial(&fixture, &pool, &c, 184, 184)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    drop(pc.submit(&fixture.runtimes[0]).await.with_context(|| {
+        format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        )
+    })?);
     pool.reject(c.clone(), pc.rejection()?.context("full group rejection")?)
-        .await?;
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(pool.usage()?.active_cells, 0);
     assert!(fixture.runtimes[0]
         .enrollment_state(route.history, c)
-        .await?
+        .await
+        .with_context(|| format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        ))?
         .record()
         .is_none());
 
@@ -433,44 +632,150 @@ pub(super) async fn rejections(rooted: bool) -> Result<()> {
     assert_eq!(pool.usage()?.retained_operations, 0);
     assert_eq!(pool.usage()?.retained_bytes, 0);
 
-    let ma = mutation(&fixture, &pool, &a, 185, 185).await?;
-    let mb = mutation(&fixture, &pool, &b, 186, 186).await?;
-    drop(ma.submit(&fixture.runtimes[0]).await?);
-    let accepted_ma = accepted_sql(&fixture.runtimes[0], &ma).await?;
-    drop(mb.submit(&fixture.runtimes[0]).await?);
+    let ma = mutation(&fixture, &pool, &a, 185, 185)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    let mb = mutation(&fixture, &pool, &b, 186, 186)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    drop(ma.submit(&fixture.runtimes[0]).await.with_context(|| {
+        format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        )
+    })?);
+    let accepted_ma = accepted_sql(&fixture.runtimes[0], &ma)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    drop(mb.submit(&fixture.runtimes[0]).await.with_context(|| {
+        format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        )
+    })?);
     let proof_mb = mb.rejection()?.context("mutation seal")?;
     assert!(pool.reject(a.clone(), proof_mb.clone()).await.is_err());
-    pool.reject(b.clone(), proof_mb.clone()).await?;
-    apply_through(&mut fixture, accepted_ma.position.index).await?;
+    pool.reject(b.clone(), proof_mb.clone())
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
+    apply_through(&mut fixture, accepted_ma.position.index)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     let authority = fixture.runtimes[0]
         .execution_authority(route.history, a.clone())
-        .await?;
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(
-        pool.finish(authority).await?.receipt().receipt.result(),
+        pool.finish(authority)
+            .await
+            .with_context(|| format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            ))?
+            .receipt()
+            .receipt
+            .result(),
         b"committed"
     );
-    let cached = accepted_sql(&fixture.runtimes[0], &ma).await?;
+    let cached = accepted_sql(&fixture.runtimes[0], &ma)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(cached.position, accepted_ma.position);
     assert_eq!(cached.digest, accepted_ma.digest);
     assert!(ma.rejection()?.is_none());
-    let fresh_mb = mutation(&fixture, &pool, &b, 186, 187).await?;
+    let fresh_mb = mutation(&fixture, &pool, &b, 186, 187)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(mb.proposal(), fresh_mb.proposal());
     assert!(pool.reject(b.clone(), proof_mb.clone()).await.is_err());
     assert!(matches!(
-        mb.submit(&fixture.runtimes[0]).await?,
+        mb.submit(&fixture.runtimes[0])
+            .await
+            .with_context(|| format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            ))?,
         CellSqlSubmission::Rejected(_)
     ));
-    let accepted_mb = accepted_sql(&fixture.runtimes[0], &fresh_mb).await?;
+    let accepted_mb = accepted_sql(&fixture.runtimes[0], &fresh_mb)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(
         accepted_mb.position.index.get(),
         accepted_ma.position.index.get() + 1
     );
-    apply_through(&mut fixture, accepted_mb.position.index).await?;
+    apply_through(&mut fixture, accepted_mb.position.index)
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     let authority = fixture.runtimes[0]
         .execution_authority(route.history, b.clone())
-        .await?;
+        .await
+        .with_context(|| {
+            format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            )
+        })?;
     assert_eq!(
-        pool.finish(authority).await?.receipt().receipt.result(),
+        pool.finish(authority)
+            .await
+            .with_context(|| format!(
+                "submission rejection at line {} (extents={rooted})",
+                line!()
+            ))?
+            .receipt()
+            .receipt
+            .result(),
         b"committed"
     );
     assert_eq!(pool.usage()?.active_cells, 0);
@@ -478,12 +783,23 @@ pub(super) async fn rejections(rooted: bool) -> Result<()> {
         for cell in [&a, &b] {
             let proof = fixture.runtimes[node]
                 .reconciliation_authority(route.history, cell.clone())
-                .await?;
+                .await
+                .with_context(|| {
+                    format!(
+                        "submission rejection at line {} (extents={rooted})",
+                        line!()
+                    )
+                })?;
             assert_eq!(proof.cell().version.sequence.get(), 2);
         }
     }
     drop((ma, mb, fresh_mb, proof_mb));
-    pool.close().await?;
+    pool.close().await.with_context(|| {
+        format!(
+            "submission rejection at line {} (extents={rooted})",
+            line!()
+        )
+    })?;
     assert_eq!(pool.usage()?.retained_bytes, 0);
     assert_eq!(pool.usage()?.running_workers, 0);
     if rooted {

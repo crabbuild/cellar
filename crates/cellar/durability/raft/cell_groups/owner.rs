@@ -77,12 +77,26 @@ impl CellGroupTicket {
     }
 }
 
+/// Exact bounded-worker admission, never a sync or output proof.
+#[derive(Clone)]
+pub(super) struct PersistAdmission {
+    queued: Arc<AtomicU64>,
+    sequence: u64,
+}
+
+impl PersistAdmission {
+    pub(super) fn queued(self) {
+        self.queued.store(self.sequence, Ordering::Release);
+    }
+}
+
 /// Physical work retains the owner lease even if its awaiting client is dropped.
 /// The engine request also retains that lease until sync/publication finishes.
 pub struct CellGroupPersist {
     log: ReplicaLog,
     pub(super) ticket: CellGroupTicket,
     pub(super) write: GroupWrite<GroupHistory>,
+    pub(super) admission: Option<PersistAdmission>,
 }
 
 pub struct CellGroupPersisted {
@@ -95,7 +109,15 @@ impl CellGroupPersist {
     /// cannot advance the owner; its pending work must settle or restart recover.
     pub async fn run(self) -> Result<CellGroupPersisted, RuntimeError> {
         let operation = OperationId::new(self.ticket.sequence);
-        let receipt = self.log.persist_cells(operation, vec![self.write]).await?;
+        let admission = self.admission.clone();
+        let receipt = self
+            .log
+            .persist_cells_with_admission(operation, vec![self.write], move || {
+                if let Some(admission) = admission {
+                    admission.queued();
+                }
+            })
+            .await?;
         Ok(CellGroupPersisted {
             ticket: self.ticket,
             sequence: receipt.sequence,
@@ -270,6 +292,7 @@ pub struct CellGroupOwner {
     options: RaftRuntimeOptions,
     phase: Option<Phase>,
     waiting: Option<CellGroupTicket>,
+    persistence_admitted: Arc<AtomicU64>,
     effects: VecDeque<CellGroupEffect>,
     deliveries: Vec<Weak<crate::raft::budget::Permit>>,
     configuration_fence: Option<ConfigurationFence>,
@@ -406,6 +429,7 @@ impl CellGroupOwner {
             options,
             phase: None,
             waiting: None,
+            persistence_admitted: Arc::new(AtomicU64::new(0)),
             effects: VecDeque::new(),
             deliveries: Vec::new(),
             configuration_fence: None,
@@ -2747,8 +2771,10 @@ impl CellGroupOwner {
         Ok(())
     }
 
-    /// Return one bounded effect. No Ready-dependent message or applied event is
-    /// released until its exact physical persistence completion is consumed.
+    /// Return one bounded effect. Replication-only Ready append messages may
+    /// overlap local sync after bounded worker admission of that exact ticket.
+    /// Persisted responses, read states and applied publication still require
+    /// its exact physical completion; queue admission grants no output proof.
     pub fn poll(&mut self) -> Result<Option<CellGroupEffect>, RuntimeError> {
         self.poll_budget(true, true)
     }
@@ -2781,6 +2807,19 @@ impl CellGroupOwner {
 
     pub(super) fn waiting(&self) -> bool {
         self.waiting.is_some()
+    }
+
+    pub(super) fn replication_admitted(&self) -> bool {
+        matches!(&self.phase, Some(Phase::Ready(..)))
+            && self.waiting.as_ref().is_some_and(|ticket| {
+                self.persistence_admitted.load(Ordering::Acquire) == ticket.sequence
+            })
+    }
+
+    pub(super) fn replication_pending(&self) -> bool {
+        self.replication_admitted()
+            && (!self.effects.is_empty()
+                || matches!(&self.phase, Some(Phase::Ready(ready, _)) if !ready.messages().is_empty()))
     }
 
     pub(super) fn control_pending(&self) -> bool {
@@ -2895,11 +2934,34 @@ impl CellGroupOwner {
         let ticket = self.ticket(LogPosition::default(), [0; 32])?;
         write.log_reservations = self.log_admission.persistence(&write.entries)?;
         write.consensus_pin = Some(self.lease.clone());
+        let durable = self.group.initial_state()?.hard_state;
+        let election_stable = write.snapshot.is_none()
+            && write
+                .hard_state
+                .as_ref()
+                .is_none_or(|hard| hard.term == durable.term && hard.vote == durable.vote);
+        let admission = match &self.phase {
+            Some(Phase::Ready(ready, _))
+                if election_stable
+                    && !ready.messages().is_empty()
+                    && ready
+                        .messages()
+                        .iter()
+                        .all(|message| message.get_msg_type() == MessageType::MsgAppend) =>
+            {
+                Some(PersistAdmission {
+                    queued: self.persistence_admitted.clone(),
+                    sequence: ticket.sequence,
+                })
+            }
+            _ => None,
+        };
         self.waiting = Some(ticket.clone());
         Ok(Box::new(CellGroupPersist {
             log: self.log.clone(),
             ticket,
             write,
+            admission,
         }))
     }
 
@@ -3033,7 +3095,22 @@ impl CellGroupOwner {
         emit: bool,
     ) -> Result<Option<CellGroupEffect>, RuntimeError> {
         loop {
-            if self.waiting.is_some() {
+            if let Some(ticket) = &self.waiting {
+                if emit && self.persistence_admitted.load(Ordering::Acquire) == ticket.sequence {
+                    let messages = match &mut self.phase {
+                        Some(Phase::Ready(ready, _))
+                            if ready.messages().iter().all(|message| {
+                                message.get_msg_type() == MessageType::MsgAppend
+                            }) =>
+                        {
+                            ready.take_messages()
+                        }
+                        _ => Vec::new(),
+                    };
+                    if !messages.is_empty() {
+                        self.messages(messages)?;
+                    }
+                }
                 return Ok(if emit { self.effects.pop_front() } else { None });
             }
             match self.phase.take() {

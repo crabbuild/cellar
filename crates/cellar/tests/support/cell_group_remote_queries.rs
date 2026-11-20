@@ -243,12 +243,21 @@ pub(crate) async fn remote_queries() -> Result<()> {
                 Ok(context.identity().cell.as_str().as_bytes().to_vec())
             },
         )?);
-        let (mut fixture, route, a, b) = Box::pin(registered::setup(rooted, &class)).await?;
-        let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
-        let mut gateways = gateways(&fixture, &controllers, class.clone()).await?;
+        let (mut fixture, route, a, b) = Box::pin(registered::setup(rooted, &class))
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
+        let controllers = controller::start_with_limits(&mut fixture, controller::limits())
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
+        let mut gateways = gateways(&fixture, &controllers, class.clone())
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
         assert_eq!(gateways[0].namespace(), (a.cluster, a.namespace));
-        let options = fixture.cell_options(&a).await?;
+        let options = fixture
+            .cell_options(&a)
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert!(matches!(
             fixture.transports[0].install_cell_query_gateway(
                 dispatch.clone(),
@@ -279,9 +288,13 @@ pub(crate) async fn remote_queries() -> Result<()> {
             Duration::from_secs(5),
             b"",
         )
-        .await?;
+        .await
+        .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         let attempt = first.attempt().context("attempt")?.clone();
-        let response = first.execute_remote(source, leader).await?;
+        let response = first
+            .execute_remote(source, leader)
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert_eq!(response.result(), a.cell.as_str().as_bytes());
         assert_eq!(response.observation().version.history, a);
         assert_eq!(response.observation().version.sequence.get(), 1);
@@ -296,14 +309,21 @@ pub(crate) async fn remote_queries() -> Result<()> {
         ));
         drop(response);
         assert_eq!(source.usage().query_items, 0);
-        first.retry().await?;
+        first
+            .retry()
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert_eq!(
             first.attempt().context("retry")?.deadline_ms(),
             attempt.deadline_ms()
         );
         assert_eq!(first.attempt().context("retry")?.ordinal(), 2);
         assert_eq!(
-            *first.execute_remote(source, leader).await?.observation(),
+            *first
+                .execute_remote(source, leader)
+                .await
+                .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?
+                .observation(),
             expected
         );
         assert!(matches!(
@@ -326,8 +346,12 @@ pub(crate) async fn remote_queries() -> Result<()> {
                 Duration::from_secs(5),
                 b"",
             )
-            .await?;
-            let response = query.execute_remote(source, member).await?;
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
+            let response = query
+                .execute_remote(source, member)
+                .await
+                .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
             assert_eq!(response.result(), cell.cell.as_str().as_bytes());
             assert_eq!(response.observation().version.history, *cell);
             assert_eq!(response.observation().version.sequence.get(), 1);
@@ -352,16 +376,32 @@ pub(crate) async fn remote_queries() -> Result<()> {
                         Duration::from_secs(5),
                         b"",
                     )
-                    .await?;
+                    .await
+                    .with_context(|| {
+                        format!("remote query at line {} (extents={rooted})", line!())
+                    })?;
                     barrier.wait().await;
-                    let response = query.execute_remote(&source, leader).await?;
+                    let response =
+                        query
+                            .execute_remote(&source, leader)
+                            .await
+                            .with_context(|| {
+                                format!("remote query at line {} (extents={rooted})", line!())
+                            })?;
                     assert_eq!(response.result(), cell.cell.as_str().as_bytes());
                     assert_eq!(response.observation().version.history, cell);
                     Ok::<_, anyhow::Error>(())
                 })?);
             }
             for waiter in waiters {
-                waiter.await??;
+                waiter
+                    .await
+                    .with_context(|| {
+                        format!("remote query at line {} (extents={rooted})", line!())
+                    })?
+                    .with_context(|| {
+                        format!("remote query at line {} (extents={rooted})", line!())
+                    })?;
             }
         }
         assert_eq!(source.usage().query_items, 0);
@@ -374,7 +414,8 @@ pub(crate) async fn remote_queries() -> Result<()> {
             Duration::from_secs(5),
             b"",
         )
-        .await?;
+        .await
+        .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert!(matches!(
             wrong.execute_remote(source, leader).await,
             Err(CellDispatchError::Transport(TransportError::Query(
@@ -392,7 +433,8 @@ pub(crate) async fn remote_queries() -> Result<()> {
             Duration::from_secs(5),
             b"",
         )
-        .await?;
+        .await
+        .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert!(wrong.execute_remote(source, leader).await.is_err());
         drop(wrong);
         assert_eq!(calls.load(Ordering::SeqCst), before);
@@ -406,7 +448,8 @@ pub(crate) async fn remote_queries() -> Result<()> {
             Duration::from_secs(5),
             b"",
         )
-        .await?;
+        .await
+        .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert!(matches!(
             wrong.execute_remote(source, leader).await,
             Err(CellDispatchError::Transport(TransportError::Authentication))
@@ -424,7 +467,8 @@ pub(crate) async fn remote_queries() -> Result<()> {
             Duration::from_secs(5),
             b"",
         )
-        .await?;
+        .await
+        .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert!(absent.execute_remote(source, leader).await.is_err());
         assert_eq!(calls.load(Ordering::SeqCst), before);
         let replacement = fixture.transports[0].install_cell_query_gateway(
@@ -432,9 +476,16 @@ pub(crate) async fn remote_queries() -> Result<()> {
             controllers[0].clone(),
             cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(options)?,
         )?;
-        absent.retry().await?;
+        absent
+            .retry()
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert_eq!(
-            absent.execute_remote(source, leader).await?.result(),
+            absent
+                .execute_remote(source, leader)
+                .await
+                .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?
+                .result(),
             a.cell.as_str().as_bytes()
         );
         drop(absent);
@@ -449,7 +500,8 @@ pub(crate) async fn remote_queries() -> Result<()> {
             Duration::from_secs(5),
             b"",
         )
-        .await?;
+        .await
+        .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         let original_deadline = stale.attempt().context("original")?.deadline_ms();
         let directory = fixture.cluster.directory.clone();
         let next = directory.prepare_group_birth(CellGroupBirthSpec {
@@ -467,8 +519,16 @@ pub(crate) async fn remote_queries() -> Result<()> {
             .cluster
             .domain
             .run(directory.reserve_group_birth(&next))
-            .await??;
-        let view = fixture.cluster.domain.run(directory.observe()).await??;
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
+        let view = fixture
+            .cluster
+            .domain
+            .run(directory.observe())
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         let publish = directory.prepare_replacement(
             &view,
             ProposalId::new([205; 16])?,
@@ -479,7 +539,9 @@ pub(crate) async fn remote_queries() -> Result<()> {
             .cluster
             .domain
             .run(directory.publish(&publish))
-            .await??;
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         let before = calls.load(Ordering::SeqCst);
         assert!(matches!(
             stale.execute_remote(source, leader).await,
@@ -488,7 +550,10 @@ pub(crate) async fn remote_queries() -> Result<()> {
             )))
         ));
         assert_eq!(calls.load(Ordering::SeqCst), before);
-        stale.redirect(next.route()).await?;
+        stale
+            .redirect(next.route())
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         assert_eq!(
             stale.attempt().context("redirect")?.deadline_ms(),
             original_deadline
@@ -506,11 +571,17 @@ pub(crate) async fn remote_queries() -> Result<()> {
             assert_eq!(transport.usage().peers, 2);
         }
         for controller in controllers {
-            controller.close().await?;
+            controller
+                .close()
+                .await
+                .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
         }
         drop(replacement);
         drop(gateways);
-        fixture.close().await?;
+        fixture
+            .close()
+            .await
+            .with_context(|| format!("remote query at line {} (extents={rooted})", line!()))?;
     }
     Ok(())
 }

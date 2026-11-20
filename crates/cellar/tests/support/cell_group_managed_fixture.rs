@@ -20,6 +20,8 @@ pub mod archives;
 mod cluster;
 #[path = "cell_group_managed_diagnostics.rs"]
 pub mod diagnostics;
+#[path = "cell_group_memory_retention.rs"]
+pub mod memory;
 pub use crate::catalog_fault as fault;
 #[path = "html.rs"]
 pub mod graph;

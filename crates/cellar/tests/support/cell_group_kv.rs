@@ -471,7 +471,15 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
                     .cell_payload_chunk_bytes
                     .store(16 * 1024, Ordering::Release);
             }
-            Box::pin(run(rooted, store, backend.as_ref(), external, coverage)).await
+            let result = Box::pin(run(
+                rooted,
+                store.clone(),
+                backend.as_ref(),
+                external,
+                coverage,
+            ))
+            .await;
+            managed_fixture::memory::preserve_result(&store.inner, "kv-bindings", result).await
         }
         .await;
         match result {
@@ -882,17 +890,9 @@ async fn run(
         }
         Ok(())
     })();
-    // The successful archive-fault case still owns an ambiguous write history.
-    // Keep its exact original disks for receipt/media verification as well.
-    if work.is_err()
-        || joined.is_err()
-        || http_joined.is_err()
-        || payloads_joined.is_err()
-        || coverage == Coverage::InlineReadBoundaries
-    {
-        for root in std::mem::take(&mut cluster.roots) {
-            eprintln!("retained KV binding disk: {}", root.keep().display());
-        }
+    // Keep every independent history, including successful fault controls.
+    for root in std::mem::take(&mut cluster.roots) {
+        eprintln!("retained KV binding disk: {}", root.keep().display());
     }
     work?;
     joined?;

@@ -371,7 +371,8 @@ impl Scenario {
             cohosted,
         } = applications(signals.clone(), minimums)?;
         let mut fixture =
-            Fixture::with_definition_policies(rooted, definitions, application, store).await?;
+            Fixture::with_definition_policies(rooted, definitions, application, store.clone())
+                .await?;
         fixture.configuration = Some(options);
         fixture.cohosted = cohosted;
         fixture.effects = Some(RaftEffectOptions {
@@ -398,9 +399,16 @@ impl Scenario {
         .await;
         let cluster = match started {
             Ok(c) => c,
-            Err(error) => {
+            Err(mut error) => {
                 if let Some(http) = http {
-                    http.close().await?;
+                    if let Err(cleanup) = http.close().await {
+                        error = error.context(format!("Queue startup HTTP cleanup: {cleanup:#}"));
+                    }
+                }
+                if let Err(retention) =
+                    managed_fixture::memory::retain(&store.inner, "queue-startup").await
+                {
+                    error = error.context(format!("Queue startup memory retention: {retention:#}"));
                 }
                 return Err(error);
             }
@@ -457,6 +465,11 @@ impl Scenario {
                         errors.push(error.to_string());
                     }
                 }
+                if let Err(error) =
+                    managed_fixture::memory::retain(&store.inner, "queue-setup").await
+                {
+                    errors.push(format!("Queue setup memory retention: {error:#}"));
+                }
                 if !errors.is_empty() {
                     eprintln!("Queue failed-setup cleanup: {errors:?}");
                 }
@@ -467,6 +480,7 @@ impl Scenario {
     }
 
     async fn close(self, retain: bool) -> Result<()> {
+        let store = self.cluster.fixtures[0].store.clone();
         let mut errors = Vec::new();
         for node in self.cluster.nodes {
             if let Err(e) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
@@ -483,19 +497,26 @@ impl Scenario {
                 errors.push(e.to_string());
             }
         }
-        if retain || !errors.is_empty() {
-            for root in self.cluster.roots {
-                eprintln!(
-                    "retained failed Queue qualification disk: {}",
-                    root.keep().display()
-                );
-            }
+        // Successful fault controls can also own ambiguous producer histories.
+        for root in self.cluster.roots {
+            eprintln!(
+                "retained Queue qualification disk: {}",
+                root.keep().display()
+            );
         }
-        ensure!(
-            errors.is_empty(),
-            "Queue qualification joined cleanup: {errors:?}"
-        );
-        Ok(())
+        let phase = if retain || !errors.is_empty() {
+            "queue-failed"
+        } else {
+            "queue-complete"
+        };
+        let result = (|| {
+            ensure!(
+                errors.is_empty(),
+                "Queue qualification joined cleanup: {errors:?}"
+            );
+            Ok(())
+        })();
+        managed_fixture::memory::preserve_result(&store.inner, phase, result).await
     }
 
     async fn empty(&self, queue: &str) -> Result<()> {

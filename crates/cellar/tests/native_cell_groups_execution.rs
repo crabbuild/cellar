@@ -22,6 +22,14 @@ mod checkpoint_fixture;
 #[path = "support/cell_group_startup_read.rs"]
 mod startup_read;
 
+#[path = "support/cell_group_ready_network.rs"]
+mod ready_network;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn runtime_replicates_append_while_its_sync_is_pending() -> Result<()> {
+    Box::pin(runtime_fixture::append_during_sync()).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn retained_read_starts_one_normal_election_without_idle_ticks() -> Result<()> {
     startup_read::retained_read_election(true).await
@@ -1247,6 +1255,20 @@ async fn physical_owner_retains_lease_through_cancelled_sync() -> Result<()> {
         futures_util::future::Either::Left(_) => anyhow::bail!("sync did not enter held gate"),
         futures_util::future::Either::Right(_) => (),
     }
+    let early = (|| -> Result<usize> {
+        let mut messages = 0;
+        for _ in 0..32 {
+            match cluster.voters[0].owner.as_mut().unwrap().poll()? {
+                Some(CellGroupEffect::Message(message)) => {
+                    anyhow::ensure!(message.get_msg_type() == MessageType::MsgAppend);
+                    messages += 1;
+                }
+                None => break,
+                _ => anyhow::bail!("application authority escaped a held append sync"),
+            }
+        }
+        Ok(messages)
+    })();
     drop(write);
     drop(cluster.voters[0].owner.take());
     let duplicate = cluster
@@ -1272,7 +1294,16 @@ async fn physical_owner_retains_lease_through_cancelled_sync() -> Result<()> {
         ))
         .await??;
     cluster.voters[0].owner = Some(owner);
-    cluster.close().await
+    cluster.close().await?;
+    let early = early?;
+    eprintln!(
+        "READY_NETWORK_CANCEL {{\"earlyAppendMessages\":{early},\"physicalLeaseRetained\":true}}"
+    );
+    anyhow::ensure!(
+        early > 0,
+        "eligible append messages waited for physical completion"
+    );
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]

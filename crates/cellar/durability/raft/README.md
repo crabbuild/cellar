@@ -19,8 +19,15 @@ is under implementation. `verification::cell_groups::CellGroupOwner` now owns on
 real RawNode for a physical group history and consumes a verified complete root
 plus a revalidated initial-member bootstrap permit. It emits persistence,
 transport and ordered application effects; it performs no SQLite I/O or
-per-cell task creation. The existing node log worker syncs each write before
-the owner releases dependent messages or advances the selected group root.
+per-cell task creation. Ordinary Ready append messages may overlap local disk
+sync once the bounded node log worker owns the exact persistence ticket. This
+requires an append-only message batch, no snapshot, and already durable term and
+vote. An atomic ticket notice wakes the existing node loop, which schedules only
+eligible histories from that batch on its fair runnable queue. Waiting groups
+sleep once their append output drains. This grants no durability proof or extra
+admission. Persistence-dependent responses, read states and selected
+group-root publication still wait for the exact synced completion. LightReady
+commit persistence keeps its existing gate.
 The exclusive ownership lease remains with queued engine work after cancellation,
 so a replacement owner cannot start while that write is still in flight.
 

@@ -957,9 +957,25 @@ impl ReplicaLog {
         operation: OperationId,
         writes: Vec<GroupWrite<GroupHistory>>,
     ) -> Result<SyncReceipt<GroupHistory>, LogError> {
-        let bytes = self.write_bytes(operation, &writes)?;
-        self.request(bytes, |reply| Work::PersistCells(operation, writes, reply))
+        self.persist_cells_with_admission(operation, writes, || {})
             .await
+    }
+
+    /// Notify only after the bounded worker owns the complete request. This
+    /// grants no durability proof; the exact SyncReceipt still follows sync.
+    pub(crate) async fn persist_cells_with_admission(
+        &self,
+        operation: OperationId,
+        writes: Vec<GroupWrite<GroupHistory>>,
+        admitted: impl FnOnce() + Send,
+    ) -> Result<SyncReceipt<GroupHistory>, LogError> {
+        let bytes = self.write_bytes(operation, &writes)?;
+        self.request_with_admission(
+            bytes,
+            |reply| Work::PersistCells(operation, writes, reply),
+            admitted,
+        )
+        .await
     }
 
     /// Enable a local irreversible retention requirement before archive I/O.
@@ -1125,6 +1141,15 @@ impl ReplicaLog {
         bytes: usize,
         build: impl FnOnce(Reply<T>) -> Work,
     ) -> Result<T, LogError> {
+        self.request_with_admission(bytes, build, || {}).await
+    }
+
+    async fn request_with_admission<T>(
+        &self,
+        bytes: usize,
+        build: impl FnOnce(Reply<T>) -> Work,
+        admitted: impl FnOnce() + Send,
+    ) -> Result<T, LogError> {
         self.admit()?;
         let permit = Permit::acquire(
             self.inner.pending.clone(),
@@ -1143,6 +1168,7 @@ impl ReplicaLog {
                 mpsc::TrySendError::Full(_) => LogError::Overloaded,
                 mpsc::TrySendError::Disconnected(_) => LogError::Closed,
             })?;
+        admitted();
         let result = wait.await.map_err(|_| LogError::Closed)?;
         if self.inner.domain.mono_ms().is_err() {
             return Err(LogError::Closed);

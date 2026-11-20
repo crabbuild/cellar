@@ -339,7 +339,8 @@ async fn qualify_host(real_rustfs: bool, external: bool) -> Result<()> {
             } else {
                 Arc::new(catalog_fault::Store::default())
             };
-            Box::pin(run(rooted, store, backend.as_ref(), external)).await
+            let result = Box::pin(run(rooted, store.clone(), backend.as_ref(), external)).await;
+            managed_fixture::memory::preserve_result(&store.inner, "sql-bindings", result).await
         }
         .await;
         match result {
@@ -557,10 +558,9 @@ async fn run(
         Some(http) => http.close().await,
         None => Ok(()),
     };
-    if work.is_err() || joined.is_err() || http_joined.is_err() {
-        for root in std::mem::take(&mut cluster.roots) {
-            eprintln!("retained SQL binding disk: {}", root.keep().display());
-        }
+    // Successful fault controls can also own ambiguous histories.
+    for root in std::mem::take(&mut cluster.roots) {
+        eprintln!("retained SQL binding disk: {}", root.keep().display());
     }
     domain.shutdown().await;
     work?;

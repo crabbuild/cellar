@@ -120,7 +120,13 @@ impl Group {
     }
 
     fn wake(&mut self, history: GroupHistory, order: &mut VecDeque<GroupHistory>) {
-        if !self.queued && (!self.owner.waiting() || self.failed.is_some()) {
+        if !self.queued
+            && (!self.owner.waiting()
+                || self.failed.is_some()
+                || self.owner.replication_pending()
+                || (self.pending.is_some() || self.settled.is_some())
+                    && self.owner.replication_admitted())
+        {
             self.queued = true;
             order.push_back(history);
         }
@@ -209,6 +215,7 @@ pub(super) struct Worker {
     proposals: Arc<Budget>,
     inflight: Option<BoxFuture<'static, Batch>>,
     inflight_bytes: usize,
+    replication_admissions: Vec<GroupHistory>,
     sequence: u64,
     retry_at: u64,
     ready: usize,
@@ -242,6 +249,7 @@ impl Worker {
             outbox: VecDeque::new(),
             inflight: None,
             inflight_bytes: 0,
+            replication_admissions: Vec::new(),
             sequence: 0,
             retry_at: 0,
             ready: 0,
@@ -715,6 +723,30 @@ impl Worker {
             .map(|deadline| now.saturating_add(deadline.saturating_sub(wall))))
     }
 
+    /// Schedule only eligible histories in the current physical batch, once
+    /// their exact tickets are admitted. Empty waiting groups stay asleep.
+    fn wake_admitted_replication(&mut self) -> Result<(), RuntimeError> {
+        let groups = &mut self.groups;
+        let order = &mut self.order;
+        let mut missing = false;
+        self.replication_admissions
+            .retain(|history| match groups.get_mut(history) {
+                Some(group) if group.failed.is_some() || group.owner.replication_admitted() => {
+                    group.wake(*history, order);
+                    false
+                }
+                Some(_) => true,
+                None => {
+                    missing = true;
+                    false
+                }
+            });
+        if missing {
+            return Err(RuntimeError::NotFound);
+        }
+        Ok(())
+    }
+
     fn progress(&mut self) -> Result<bool, RuntimeError> {
         let mut made = false;
         for _ in 0..self.order.len() {
@@ -1143,10 +1175,33 @@ impl Worker {
         }
         let operation = self.operation()?;
         let log = self.log.clone();
+        // Notices fit the existing per-job metadata allowance and retain no
+        // authority or extra physical work. Wake the existing node loop once
+        // after enqueue, so eligible replication need not wait for a tick.
+        let admissions: Vec<_> = jobs
+            .iter()
+            .filter_map(|job| job.work.admission.clone())
+            .collect();
+        self.replication_admissions.clear();
+        self.replication_admissions.extend(
+            jobs.iter()
+                .filter(|job| job.work.admission.is_some())
+                .map(|job| job.history),
+        );
+        let output = self.output.clone();
         self.inflight_bytes = bytes;
         self.inflight = Some(Box::pin(async move {
             let writes = jobs.iter().map(|job| job.work.write.clone()).collect();
-            let result = log.persist_cells(operation, writes).await;
+            let result = log
+                .persist_cells_with_admission(operation, writes, move || {
+                    if !admissions.is_empty() {
+                        for admission in admissions {
+                            admission.queued();
+                        }
+                        output.wake.notify_one();
+                    }
+                })
+                .await;
             (jobs, operation, result)
         }));
         Ok(true)
@@ -1155,6 +1210,7 @@ impl Worker {
     fn finish_batch(&mut self, batch: Batch) -> Result<(), RuntimeError> {
         self.inflight = None;
         self.inflight_bytes = 0;
+        self.replication_admissions.clear();
         let (jobs, operation, result) = batch;
         match result {
             Ok(receipt) => {
@@ -1280,6 +1336,7 @@ impl Worker {
                 return Ok(());
             }
             let wake_at = self.schedule_park_wakes()?;
+            self.wake_admitted_replication()?;
             let mut made = self.progress()? | self.start_batch()? | self.flush();
             let now = self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
             made |= self.cell_reads.progress(
