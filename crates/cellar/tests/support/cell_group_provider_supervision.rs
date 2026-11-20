@@ -62,6 +62,7 @@ impl MaintenanceBackend for Backend {
         action: MaintenanceAction,
     ) -> HandlerFuture<()> {
         Box::pin(async move {
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "provider-enter", action = ?action, revision = expected.revision);
             let authority = context.container_provider_authority()?;
             authority.check(&context)?;
             let journal = BindingJournal::open(&context, "TOOL")?;
@@ -113,6 +114,7 @@ impl MaintenanceBackend for Backend {
             let checkpoint = journal
                 .compare_exchange(&context, Some(expected.revision), record)
                 .await?;
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "provider-record-proven", revision = checkpoint.revision);
             if checkpoint.record.is_retired() {
                 self.0.retired.store(true, Ordering::Release);
             } else {
@@ -208,7 +210,9 @@ impl Cell for Root {
             };
             let operation: String = serde_json::from_str(&input)?;
             let journal = BindingJournal::open(&context, "TOOL")?;
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "lifecycle-wait", operation = %operation);
             let _lifecycle = journal.lock_lifecycle(&context).await?;
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "lifecycle-held", operation = %operation);
             let checkpoint = match operation.as_str() {
                 "Create" => {
                     self.0.put_json("business", &json!(7))?;
@@ -313,6 +317,7 @@ async fn call(
     sequence: u64,
     op: &str,
 ) -> Result<CommandReceipt> {
+    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "request", operation = op, sequence, minimum = ?minimum);
     let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
     let cell = cluster.hosts[leader].cell(cell.clone())?;
     Ok(cell
