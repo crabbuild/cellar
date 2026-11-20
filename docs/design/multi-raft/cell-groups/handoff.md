@@ -4,7 +4,44 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current S3-source and Queue integration
+## Current bounded-checkpoint delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `4eb298a85`
+adds a bounded two-chunk download window within the unchanged archive workspace.
+All remote digests and ordered physical receiver checks remain. The owning red
+baseline reproduces serialization; native/RustFS overlap, error joins, admission
+and unchanged-serving-state controls pass. Test-only `784df7f3a` adds a full-case
+EventStream publication trace and changes no production code or original oracle.
+
+Build, strict affected-target Clippy and 11 archive checks pass. Current selected
+functions are **FAILED, 16/20 pass**. Complete S3-source reads pass all 16 native/
+RustFS configurations. Queue native/Axum transfer identity passes all four image/
+ingress configurations. The fault case instead fails starting its fresh retention
+cluster (`Transport(Timeout)`, closed-resource cleanup errors). Native named
+bindings pass 4/4; RustFS passes Quorum sources but fails materialized/S3 sequence 7
+after restart and extent/S3 sequence 1. Native EventStream extent Consume still
+fails after Ack submission. Its unchanged instrumented case later passes; that
+is not a fix. Materialized live recovery passes 3/4; the S3 checkpoint path fails
+source enrollment before recovery. Preserve unknown identities and original gates.
+
+The extent live-recovery preflight did not run: the owned RustFS profile/VM
+folders, Docker context and endpoint became absent. No owned stop/delete command
+occurred during that interval. Cause/time are unknown. Old S3 objects cannot be
+verified or claimed retained. Raw voter disks, logs, frozen binaries and source
+archives remain on the workspace volume. Restore a separately identified owned
+lab; do not silently reuse its old identity or convert this interruption to a pass.
+
+Next priorities: compound S3 binding/enrollment completion, Ack target settlement,
+managed cold startup and joined cleanup, then complete recovery and family/public/
+provider/feature/lifecycle qualification. Recovery/sealing implementations already
+exist; distinguish their unqualified paths from missing implementations. Do not
+repeat broad timing campaigns without a causal regression. Keep all 32 formal
+cases and independent coverage requirements. Evidence:
+`CG-17-bounded-checkpoint-4eb298a85-1805/record.json`. Acceptance remains 13/17 tasks,
+147/195 cases and 0/32 formal CG-17 entry points; historical CG-01 custody is missing.
+See the [current checkpoint](progress.md#current-integration-checkpoint).
+
+## Previous S3-source and Queue integration
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Combined runtime
 `4fd16eca3` contains typed, evictable physical S3 source-read custody and the Queue

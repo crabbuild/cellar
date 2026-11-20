@@ -32,7 +32,66 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-### CG-17 verified S3 source custody and Queue transfer identity
+### CG-17 bounded checkpoint verification and public-path results
+
+**CG-17 remains open.** Runtime `4eb298a85` overlaps two checkpoint chunk GETs
+inside the existing eight-chunk archive workspace. Every remote object still
+passes its length/digest check and the ordinary physical receiver, in descriptor
+order. A failure stops further admission and drains entered reads before joining
+the receiver. No request deadline, quota, durability proof or final-output gate
+changed. Test-only `784df7f3a` adds an explicitly ignored EventStream publication
+trace; its production sources and original owning fixtures match this runtime.
+
+The new actual-byte regression fails on unchanged runtime at `fd60da670` because
+the second chunk cannot start while the first is held. It passes after the change
+on native and real RustFS, with both image modes, ordered backpressure, digest
+refusal, retained admission, physical cleanup and unchanged serving manifests.
+The locked build, focused strict Clippy, 11 selected archive checks and the
+coverage-validator checks pass. This establishes bounded overlap, not a measured
+speedup or an exclusive cause for earlier deadline failures.
+
+The selected public/archive campaign remains **FAILED: 16/20 whole functions
+pass**. Earlier failed results are retained and are not superseded by new passes.
+
+| Owning check | Current result |
+| --- | --- |
+| Complete S3-source read case | All 16 native/RustFS image-and-mode configurations pass, including dirty state, eviction and the separate final parent S3 receipt |
+| Native/Axum Queue transfer identity | Real RustFS passes all four image/ingress configurations, including archive readiness, purge, retained restart, exact replay and negative mixed-batch checks |
+| Queue fault and retention case | Fails while starting the fresh retention cluster after the first fault scenario; managed startup reports `Transport(Timeout)` and cleanup reports closed resources; full image configurations remain unqualified |
+| Ordinary named cell bindings | Native passes 4/4; RustFS passes both Quorum-source configurations, but materialized/S3 fails at sequence 7 after retained restart and extent/S3 at sequence 1, both ambiguous deadlines |
+| Ordinary native EventStream | Materialized completes; extent Consume fails after Ack submission with an ambiguous parent deadline. A test-only full-case trace later passes without a runtime change and does not establish a fix |
+| Materialized live binding recovery | Quorum checkpoint recovery and Quorum/S3 unused-sequence sealing pass, 3/4 configurations. S3 checkpoint coverage fails during source enrollment, before recovery begins |
+
+No compiler processes were recorded at the starts of these selected public cases;
+this is not an exclusive resource or latency attribution. The voters still share
+a native process; independent Linux voter limits and the release matrix remain
+required. Preserve all ambiguous command identities and the original budgets.
+
+The owned RustFS lab subsequently became unavailable: its profile/VM directories,
+Docker context and endpoint were absent at the extent-recovery preflight. No
+fixture executed in that attempt. Cause and exact interruption time are unknown;
+no owned stop/delete command occurred in that interval. Old object-store contents
+cannot currently be verified or claimed retained. Voter disks, frozen executables,
+source archives and raw logs remain on the workspace volume. Do not replace this
+preflight with a pass or attribute preceding failures to the interruption without
+evidence.
+
+Next close compound S3 binding/enrollment settlement, EventStream Ack and managed
+startup/cleanup on the original contracts. Autonomous binding recovery and sealing
+already have implementations; complete their public qualification and fix the
+observed failures. Restore a separately identified owned RustFS lab, then deliver
+the remaining primitive/provider/feature/lifecycle cases and actual per-API
+acceptance ledgers. All 32 formal cases remain required.
+
+Evidence: `CG-17-bounded-checkpoint-4eb298a85-1805/record.json`, including the red
+baseline, exact frozen binaries, four failed owning functions, the separate
+passing diagnostic and the unrun infrastructure preflight. Its predecessor
+`CG-17-queue-source-4fd16eca3-1785/record.json` remains failed and retained.
+Acceptance remains **13/17 tasks, 147/195 cases and 0/32 formal CG-17 entry-point
+functions**. The generated implementation index is current; the inventory is
+partial and historical CG-01 custody remains missing.
+
+### Previous S3 source custody and Queue transfer checkpoint
 
 **CG-17 remains open.** Combined runtime `4fd16eca3` adds two behaviors:
 

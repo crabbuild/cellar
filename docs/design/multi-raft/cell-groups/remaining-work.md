@@ -41,32 +41,37 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Combined runtime `4fd16eca3` delivers exact, physically verified S3 source-read
-reuse and payload-bound Queue transfer receipts with typed durable refusals.
-Forty owning units, three Fleet/schema tests and focused strict Clippy pass.
-The selected public campaign is **FAILED, 9/11 whole functions pass**: complete
-native source reuse passes eight configurations, but its RustFS parent deadline
-fails. Directed eviction and 24 read guards pass. Real RustFS Queue is **5/6 image
-configurations**; Axum extent fails archive readiness after delivery/purge.
-The separate Queue-source six-configuration pass does not supersede this failure.
-See the [current checkpoint](progress.md#current-integration-checkpoint).
+Runtime `4eb298a85` adds bounded ordered checkpoint downloads with full remote
+and physical verification under the existing workspace. The regression reproduces the baseline failure and
+11 archive safety checks pass. Complete source-read S3 custody now passes all 16
+native/RustFS configurations, and Queue native/Axum transfer replay passes all four
+image/ingress configurations. These are selected results, not family closure.
 
-The immediate feature priorities are **final S3 parent settlement and extent
-Queue archive advancement within the original budgets**, then public binding,
-Consume/Ack and cold activation. Preserve full physical verification, target and
-final output gates, original identities and unknown outcomes. Investigate the
-actual verification/admission/retirement phases in a controlled Linux/RustFS
-profile. Post-timeout samples and loaded-host observations do not establish an
-exclusive cause. The source capability is implemented; do not widen the Quorum
-boolean or retain an active one-slot verification across dependent I/O.
-Strong-target-S3 Consume has a Quorum source, so diagnose its Ack/archive path
-independently. Avoid another broad timing campaign without a causal delivery.
+The current campaign is **FAILED, 16/20 whole functions pass**. Close these exact
+remaining blockers first:
 
-Then complete autonomous interrupted binding recovery and safe sequence sealing,
-real per-family acceptance drivers/ledgers and every primitive/provider/feature/
-lifecycle case. All 32 formal cases remain required. Existing failures, unknown
-identities, original budgets and complete source/target proofs remain mandatory.
-The new error context is a correctness delivery, not full public closure.
+1. Compound S3-source named bindings: materialized sequence 7 after retained
+   restart and extent sequence 1 miss the original budget. Quorum sources pass
+   both images; do not weaken source, child or final parent proofs.
+2. EventStream extent Consume: Ack is submitted after source proof but the parent
+   expires without a target result. A later test-only publication trace passes
+   without a runtime change; retain the original failure and unknown identity.
+3. Managed startup and joined cleanup: the Queue fault fixture fails starting its
+   fresh retention cluster with transport timeout and closed-resource errors.
+4. Complete autonomous recovery/sealing qualification. Their implementations
+   exist; materialized live checks pass 3/4, while S3 checkpoint recovery is not
+   reached because source enrollment times out. The extent attempt is unrun.
+
+The owned RustFS lab's profile/VM directories, Docker context and endpoint later
+became absent. Cause and timing are unknown; do not attribute earlier failures to
+it or claim old objects remain. Retain voter disks/logs/binaries and restore a
+separately identified owned lab before the remaining real-S3 qualification.
+
+Then deliver complete primitive/provider/feature/lifecycle cases and actual
+per-API acceptance ledgers. All 32 formal cases remain required. The inventory is
+partial and the generated implementation index retains the correct in-progress
+status. See the [current checkpoint](progress.md#current-integration-checkpoint)
+for source pins, original failures, diagnostics and qualification limits.
 
 Earlier runtime `ee2452a94` bounds incomplete primitive operator uploads with the
 original deadline and closes their connection before dispatch. The old runtime
@@ -118,8 +123,8 @@ remain required work.
 
 Deliver next in this order:
 
-1. Close source/target S3 completion, Consume/Ack and cold activation within their
-   original request deadlines. Measure apply, publication and verification on
+1. Close compound S3 binding/enrollment settlement, Consume/Ack and managed cold
+   startup/cleanup within their original request deadlines. Measure apply, publication and verification on
    the actual accepted proposal; share only exact independently verified work
    under the existing admission limits. Then close original-deadline S3-source
    `Read`/`Consume` and autonomous interrupted bindings with safe sequence sealing.
