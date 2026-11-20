@@ -36,6 +36,76 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Checkpoint submission: current qualification and gaps
+
+Source `beb4add4` includes main `2f083f14`; compiler inputs are
+`9748e4020fa3b595ed4d034d143d9c0e3955de8e58a37b8ce7b88a5a6d84d9b9`.
+A staged RPC checkpoint now polls its existing owned submission future once
+before unrelated queued SQL occupies the worker. Pending work keeps its wake;
+a ready proof or error remains owned until normal checkpoint and reply-bridge
+processing. Logical writer release, live authority, exact applied receipts,
+required S3 coverage, deadlines and resource banks remain unchanged.
+
+The byte-identical host-native RF3 regression changes from **no complete peer
+checkpoint progress in four configurations** to **both peer views reaching the
+exact checkpoint while source SQL remains held**, in both image modes with
+Quorum/S3. Leader apply and the caller remain gated. Final value, original receipt
+replay, single callback execution and joined cleanup pass. This fixture has one
+shared group and one SQL worker per node; it qualifies the ordering mechanism.
+Its elapsed time is not workload throughput or a request latency percentile.
+
+The final source passes both ready/pending future lifecycle tests, all four
+original SDK source-proof/fencing configurations and all four original checkpoint
+reply controls: exactly **two handler polls for each of three commands**. Full
+library: **1,268 passed / 0 failed / 2 existing ignores**.
+Full execution: **234 passed / 0 failed / 2 existing ignores**.
+Strict all-feature/all-target Clippy and repository checks pass.
+The original sixteen application selections report **12 passed / 4 failed**;
+see the [source-bound record](checkpoint-submission-qualification-2026-11-20.json)
+for every stage and artifact/profile hash.
+
+All four Queue load selections still fail. Rooted and materialized C4 fail
+producer calls; combined C2 completes the materialized **528-message exact drain**
+then fails rooted producers, and combined C4 fails its first materialized phase.
+**8 returned producer errors** and their original histories/media remain
+retained. These failures do not establish data loss; their final drain oracle is
+not reached. Earlier same-source C4 passes and failures remain intermittent
+observations. This scheduling change does not establish a causal Queue repair.
+
+The earlier uncontended-writer retention experiment passed its new eight-case
+control but failed the original SDK writer-release-before-fencing assertion.
+That experiment was removed; the original assertion and deadline stay intact.
+Its old failing SDK fixture did not export all synthetic backend/error evidence;
+later custody fixes do not repair that historical gap. New SDK/checkpoint controls
+retain concrete synthetic memory, passing/failing disks and returned command
+errors after joined cleanup. Copies are nontransactional diagnostics.
+The failed five-second observation run and compile preflights remain recorded
+separately from the valid matched regression.
+
+Remaining priorities:
+
+1. **P0 — Repeatable delivery:** original-bound Queue C2/C4 producer/source-RPC/
+   consumer progress and exact acknowledged-message drain; complete historical,
+   large and streaming KV and remaining primitive/backend-fault coverage.
+2. **P0 — Recovery and SDK:** reverify the earlier recovered-voter shutdown cut
+   (committed **7**, applied/archived **6**, no unresolved local producers), then
+   close full-prefix/fenced recovery and current-source SDK/routing/read-refusal,
+   feature/daemon and release gates. No complete recovery repair follows here.
+3. **P1 — OPT-01–08:** measured persistence/ReadIndex/archive batching and hot/cold
+   fairness, physical shared-file release/once-only credits and repeated
+   reserve-aware interrupted placement/lifecycle.
+4. **P2 — Original comparison:** original RustFS has **10,493,952 available bytes**
+   below its unchanged **6 GiB reserve** at **2026-11-20T13:18:33.719286+00:00**;
+   original container identity/configuration/start match with zero restarts.
+   No benchmark is admitted. Preserve the original three 1-vCPU/2-GiB nodes,
+   RF3/three groups/shared RustFS; SQL/KV/Queue x Quorum/Quorum+S3/Fleet/Bucket x
+   C1/4/16, 256-byte values, Queue batch eight, reversed repetitions and original
+   60-second windows. This probe is not a fresh three-node runtime-resource witness.
+
+Full OPT/remaining CG/SDK/release/performance acceptance remains open. No
+constrained throughput, latency-percentile or Fleet/Bucket conclusion is claimed.
+Earlier sections retain their original source boundaries.
+
 ### Append replication overlap: current qualification and gaps
 
 Source `691c6d87` includes main `2f083f14`; compiler inputs are
