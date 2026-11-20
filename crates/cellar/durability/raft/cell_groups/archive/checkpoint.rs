@@ -1,7 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::{objects::Object, *};
+use futures_util::{stream::FuturesOrdered, StreamExt};
 use std::io::Write;
+
+const CHECKPOINT_READ_WINDOW: usize = 2;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -339,24 +342,45 @@ impl CellGroupArchive {
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?;
         let download: Result<()> = async {
-            for chunk in index.chunks {
-                let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
-                if sender
-                    .send(wire::Chunk {
-                        part: chunk.part,
-                        offset: chunk.offset,
-                        length: chunk.length,
-                        bytes,
-                    })
-                    .await
-                    .is_err()
-                {
-                    // The consumer owns the checkpoint failure. Join it below
-                    // so a rejected chunk keeps its typed cause.
+            // The existing eight-chunk workspace covers two GETs (including
+            // transport copies), an ordered result, the one-slot channel and
+            // the physical consumer. FuturesOrdered bounds both in-flight and
+            // completed reads while preserving the validated descriptor order.
+            let mut remaining = index.chunks.into_iter();
+            let mut reads = FuturesOrdered::new();
+            let mut failure = None;
+            let mut receiving = true;
+            loop {
+                while failure.is_none() && receiving && reads.len() < CHECKPOINT_READ_WINDOW {
+                    let Some(chunk) = remaining.next() else {
+                        break;
+                    };
+                    reads.push_back(async move {
+                        let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
+                        Ok(wire::Chunk {
+                            part: chunk.part,
+                            offset: chunk.offset,
+                            length: chunk.length,
+                            bytes,
+                        })
+                    });
+                }
+                let Some(result) = reads.next().await else {
                     break;
+                };
+                match result {
+                    Ok(chunk) if failure.is_none() && receiving => {
+                        // Preserve the consumer's typed checkpoint failure.
+                        receiving = sender.send(chunk).await.is_ok();
+                    }
+                    Err(error) if failure.is_none() && receiving => failure = Some(error),
+                    _ => (),
                 }
             }
-            Ok(())
+            // A download or consumer failure stops admission, but already
+            // entered reads must finish before their buffers/permits are freed.
+            drop(reads);
+            failure.map_or(Ok(()), Err)
         }
         .await;
         drop(sender);
