@@ -31,6 +31,16 @@ Implementation starts from `d0c2873f` (the shared cell-group runtime merged into
 execution, archive/lifecycle ownership and persistence work. None of OPT-01
 through OPT-08 is accepted as complete by this record.
 
+The latest bounded runtime change, `4e779bd1`, reuses an exact captured producer
+connection for receipt inspection under fresh authority and quiescence checks.
+Both native image modes pass the matched read-dependency tests, the full library
+and execution suites, and original SDK proof/fencing controls. Combined primitive
+qualification still fails Queue load, rooted large-KV and ordinary Queue callback
+controls. Earlier/candidate artifact controls retain their distinct failure
+boundaries. See the [scoped record](captured-receipt-reuse-qualification-2026-11-20.json)
+and [current priorities](remaining-work.md#captured-receipt-image-reuse); this
+checkpoint closes no complete OPT package or constrained performance gate.
+
 ### Authenticated read permission refusal
 
 Published `bf1bbc68` passes all four hosted Typed RPC jobs, all three JavaScript

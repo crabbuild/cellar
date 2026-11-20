@@ -1,0 +1,1078 @@
+{
+  "format": 1,
+  "date": "2026-11-20",
+  "purpose": "Remove repeated immutable SQLite opens from exact captured-image receipt reconciliation while retaining required durability and fencing proofs.",
+  "scope": "Matched receipt fixture: native RF3, one physical group, materialized and extents. Broader controls retain their own native fixture topologies. Not the original constrained Colima throughput/latency matrix or physical failure-domain qualification.",
+  "runtime_code_commit": "4e779bd10b4357cf691ac7811c87db756fe7eddc",
+  "main_included": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+  "runtime_input_changes_from_matched_baseline": [
+    "crates/cellar/durability/raft/execution/cell.rs",
+    "crates/cellar/durability/raft/execution/images.rs",
+    "crates/cellar/durability/raft/execution/rooted_working.rs",
+    "crates/cellar/durability/raft/working.rs",
+    "crates/cellar/storage/sqlite/command.rs"
+  ],
+  "all_test_inputs_byte_identical": true,
+  "behavior": [
+    "Reuse only the live producer connection whose captured full main/WAL image matches the exact fresh applied CellVersion. Pending producer retains the independently replayed sealed preview.",
+    "Any writable WorkingImage database borrow invalidates captured reuse. Active transactions or retained main read snapshots take the existing immutable-image path.",
+    "Original receipt identity/contract/fingerprint/result limits, RPC unfinished-step filtering, before/after authority checks, preview retirement, log reservations, logical-writer release and S3 output gates remain. No additional result cache or bank."
+  ],
+  "baseline": {
+    "source_digest": "7e0c31a553c961240df915918ec7a92159b609729a0e05eba3eeaf584ab6694c",
+    "scope": "Real RF3 native receipt reconciliation with held immutable image read. Original budgets/fences/banks, fresh independent stores, no RustFS writes. Not original constrained throughput/latency qualification.",
+    "source_comparison": null,
+    "record_sha256": "f27d2b59ce653779e631593b99829cd49eec7f948201f5b878ff0a1833232cac",
+    "status": "VERIFIED_FAILED",
+    "source_and_executables_and_logs_verified": true,
+    "stages": [
+      {
+        "name": "compile-native",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 346.36738904204685,
+        "log_sha256": "f1c8de6d0c72a7887586bfb6429331e73472c2475da695aa56bbdcc35439e621",
+        "footers": [],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "materialized_reconciliation_reuses_captured_receipt_image",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 3.469178583007306,
+        "log_sha256": "1aea0b1879ffbb4562ec6ed9967402ff11d374e5c2f62747d4aa8219c8a900f6",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "rooted_reconciliation_reuses_captured_receipt_image",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 3.5677582090138458,
+        "log_sha256": "b7cd73073ba9d0ea60610c361917b7f55541dc4ea1299b71cff5e1e9668494a1",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      }
+    ],
+    "executables": {
+      "native_cell_groups_execution": {
+        "sha256": "81af349a0d61b0a8619f29cfb57d58d848588c94a2af47b27e8c27984b88ed4a",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "compiled_source_digest": "7e0c31a553c961240df915918ec7a92159b609729a0e05eba3eeaf584ab6694c",
+        "original_record_sha256": "f27d2b59ce653779e631593b99829cd49eec7f948201f5b878ff0a1833232cac"
+      }
+    },
+    "receipt_reuse_cases": [
+      {
+        "stage": "materialized_reconciliation_reuses_captured_receipt_image",
+        "rooted": false,
+        "beforeRelease": false,
+        "heldRead": true,
+        "observationMicros": 1001244
+      },
+      {
+        "stage": "rooted_reconciliation_reuses_captured_receipt_image",
+        "rooted": true,
+        "beforeRelease": false,
+        "heldRead": true,
+        "observationMicros": 1001365
+      }
+    ],
+    "queue_producer_errors": [],
+    "queue_cleanup": [],
+    "queue_load_markers": 0,
+    "queue_load_completed_phases": [],
+    "retained_originals_and_matching_closed_copies": {
+      "files": 130,
+      "bytes": 361973,
+      "manifest_sha256": "03ac6df07ebb9c84459c6c823e24be6f2445d3e3f4947205e67c1848f749380e",
+      "closed_copy_matches": true
+    },
+    "memory_exports": {
+      "memory_snapshots": 2,
+      "memory_objects": 40,
+      "memory_bytes": 21282
+    }
+  },
+  "candidate": {
+    "source_digest": "2e0ae2093c50028012fab58b8b43f345169c6d6a30efc80ec090bc47ecfe8440",
+    "scope": "Real RF3 native receipt reconciliation with held immutable image read. Original budgets/fences/banks, fresh independent stores, no RustFS writes. Not original constrained throughput/latency qualification.",
+    "source_comparison": null,
+    "record_sha256": "1041dd60f08726d84b66fde4f1606774daaf6a8ae49367b1a88fe248c193fac6",
+    "status": "VERIFIED_FAILED",
+    "source_and_executables_and_logs_verified": true,
+    "stages": [
+      {
+        "name": "format",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 126.36962524999399,
+        "log_sha256": "3eef4381c89dd7953b709371c5fab43bd22120ad2ab909fc0e67c9668e61edbd",
+        "footers": [],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 740.5451617910294,
+        "log_sha256": "e04cf2c5da49594ab5cc793601f1e7193b11f474b68b02a3028667779eec2815",
+        "footers": [],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "compile-native",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1424.5661452499917,
+        "log_sha256": "aa2664eed2f73195c7bf4617b4a2551820f509e9d8be30d559e4d7603de068ec",
+        "footers": [],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "materialized_reconciliation_reuses_captured_receipt_image",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.435113999992609,
+        "log_sha256": "a61c6491dd60f22578598c88eea392499ee1b66cd181b177dbe44216a463a49f",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "rooted_reconciliation_reuses_captured_receipt_image",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.7080887500196695,
+        "log_sha256": "b2ab52f44b3cb106fca76fd9f5436e53cd142087d13bbf696dbd04f83757228b",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "test-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 232.84908704203553,
+        "log_sha256": "f5d16337c568df31ba4f3de33a6263e7e29747a7fefd45065ef1c9840813b359",
+        "footers": [
+          [
+            "ok",
+            "1268",
+            "0",
+            "2"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "test-native_cell_groups_execution",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1241.0421430830029,
+        "log_sha256": "152519da69a4d28ee97d5c085a226ddd2459eeb7c500a487c1e0caee45855d1c",
+        "footers": [
+          [
+            "ok",
+            "237",
+            "0",
+            "2"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-01",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 40.53757266601315,
+        "log_sha256": "371b75ad5b9a25f9ec2e79f1b4505ae4734431f07a23e854836cc9cf02604906",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-02",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 80.35833249997813,
+        "log_sha256": "68aa8a47a7b0f530a212a8aed473d9cb183f5f4ecd26debc07f5e01a1bd04bc2",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-03",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 38.74981675000163,
+        "log_sha256": "d172df227ee5ed92f39fc1102ec97c5cb4b30559ff5d37af06273fc62a50fb05",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-04",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 29.344045000034384,
+        "log_sha256": "2868426155d422fa8fd883d28d6d0c39372baf72910987cfe257a6b7f1f01de4",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-05",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 78.03721920901444,
+        "log_sha256": "9a49c889bc2582f33d92e5e1d67a3a72674d2f925af5f7da4e9cbc80031eaa14",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-06",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 177.01943291700445,
+        "log_sha256": "c561519c8cec75fead038d8b7b79930e283934e188fd21d858e05151e3280bfb",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-07",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 67.40087233297527,
+        "log_sha256": "9d795ae88f5aa3579115a97558f18704ffff2569e7a3c5a8246c52553d9c3068",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-08",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 20.354515750019345,
+        "log_sha256": "f473d84c52d6c1b20c4c2fbbcc614dafacd15e526de76da4eecdd93fcfed0329",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-09",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 70.76211041701026,
+        "log_sha256": "9bf73ad6a6bc552390c05feff23b8ae6c9821d7005153c911897e566e728277e",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-10",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 154.70633629104123,
+        "log_sha256": "53c6326b5e7a4c69070f1e22ff14ecfc3ea9549df9befa95b1042dcd4e219c90",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-11",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 155.6583886660519,
+        "log_sha256": "09a695f2f0211e6d6d423389642dfa235c27a1a4f37e84beafdf18b44d6cbecc",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-12",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 310.01563499995973,
+        "log_sha256": "6612b32f05b5c36d845e04d5f6181b7d72f2079f75f08bf1714da40dc62563fa",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-13",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 369.5077912499546,
+        "log_sha256": "105e22d2824bcc0fbb046c5c5471025bad1ec4e8e85aac4853c5503667de3364",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-14",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 56.473369124985766,
+        "log_sha256": "510788b14c24d0052cb0ed2e9713570e3eddce7362cee77e2e8c7885710bb9a5",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-15",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 39.22451958298916,
+        "log_sha256": "20d218253caafee3dc9ac2fcb5be34b8c22c4060804c25ca543f4d34ae6846a0",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-16",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 137.96590308402665,
+        "log_sha256": "ad8322f47b8d24b6ef7125a965205d5406c06cc09930ed5ce53ee7384f19398b",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-17",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 167.45045266702073,
+        "log_sha256": "03a58d2dfeaf9ae487cf4b55381b00197402136f35ef6fb4baf5ae0df711969b",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-18",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 207.66246391704772,
+        "log_sha256": "eb517cdb1cd1ad1fc37c0c815b723b2fdc76719c35f50b0674304eda8f3546a3",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      },
+      {
+        "name": "primitive-19",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 39.064883499988355,
+        "log_sha256": "a792458f2b0a8f75648289e3ede14a09b9a4436ee25daa3393ee69ee1d384a90",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": null,
+        "compiled_source_digest": null
+      }
+    ],
+    "executables": {
+      "native_cell_groups_primitives": {
+        "sha256": "f511b0eca164ee9f054252e71b072d45d7f5d32a7f6d3ac36825197a9014f055",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "compiled_source_digest": "2e0ae2093c50028012fab58b8b43f345169c6d6a30efc80ec090bc47ecfe8440",
+        "original_record_sha256": "1041dd60f08726d84b66fde4f1606774daaf6a8ae49367b1a88fe248c193fac6"
+      },
+      "native_cell_groups_execution": {
+        "sha256": "917341984b8229e831fbca5d8be230397e2aba6e130526aca5371232baebe2f4",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "compiled_source_digest": "2e0ae2093c50028012fab58b8b43f345169c6d6a30efc80ec090bc47ecfe8440",
+        "original_record_sha256": "1041dd60f08726d84b66fde4f1606774daaf6a8ae49367b1a88fe248c193fac6"
+      },
+      "cellar": {
+        "sha256": "bfe9c3daaa6767b4d53b2602cb6009ee5ffcb0677c74f9cfc151c8286a59bdc3",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "compiled_source_digest": "2e0ae2093c50028012fab58b8b43f345169c6d6a30efc80ec090bc47ecfe8440",
+        "original_record_sha256": "1041dd60f08726d84b66fde4f1606774daaf6a8ae49367b1a88fe248c193fac6"
+      }
+    },
+    "receipt_reuse_cases": [
+      {
+        "stage": "materialized_reconciliation_reuses_captured_receipt_image",
+        "rooted": false,
+        "beforeRelease": true,
+        "heldRead": false,
+        "observationMicros": 1704
+      },
+      {
+        "stage": "rooted_reconciliation_reuses_captured_receipt_image",
+        "rooted": true,
+        "beforeRelease": true,
+        "heldRead": false,
+        "observationMicros": 16910
+      },
+      {
+        "stage": "test-native_cell_groups_execution",
+        "rooted": false,
+        "beforeRelease": true,
+        "heldRead": false,
+        "observationMicros": 1463
+      },
+      {
+        "stage": "test-native_cell_groups_execution",
+        "rooted": true,
+        "beforeRelease": true,
+        "heldRead": false,
+        "observationMicros": 14257
+      }
+    ],
+    "queue_producer_errors": [
+      {
+        "stage": "primitive-04",
+        "error_sha256": "91260078c4685fd7e17f4966a1356cff5ec4c86aa580f01626bf111121e30848",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-04",
+        "error_sha256": "27aa80b1a26d67b98bfd9f1ec40bb7a2cca767ccb03e872503efa9308e5ae765",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-04",
+        "error_sha256": "9bd7c54778873676466db0a675cc3b3aa0bb420a3d209bd8381d7b350199a537",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-04",
+        "error_sha256": "358a8b34a8f91309558c17c0ce129b4c1336f0926cc7b014b96350320986c5d9",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-05",
+        "error_sha256": "fa243d99dc8cdc9c9d343067cf1c1cb6662192b85a4ad05e57ed811de15927b6",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-05",
+        "error_sha256": "108aae8e5f571768e347e2146a54e707e20c8dff68d178f0213b11813cb1e62e",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-05",
+        "error_sha256": "1cfaaa354824c617cc6ef0e2c0565bfe401fccf222d81763fbfa2d971b3f7fe9",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-06",
+        "error_sha256": "f16e96ab076d3abfefb96b09722d33648ca3918ea928982662b2ca01fbe840f5",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-06",
+        "error_sha256": "0f4e56a9e72471c36921ba47347f74e19475a874989bf6f13cb5717eddbf4495",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-06",
+        "error_sha256": "f42f717cc40461e6fe01819bd1ddf2d45454e816e2ba7b256386d9fa44d21c12",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-07",
+        "error_sha256": "efc45e8a0a5583a823f3f0e60436d96805217e205286d28bf8504824518611e4",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-07",
+        "error_sha256": "11986c8ec67d5042e431fa9ccd6a8d6e58ea3b41c34a608de28ee798efc34d40",
+        "deadline": true,
+        "ambiguous": true
+      },
+      {
+        "stage": "primitive-07",
+        "error_sha256": "e48024ed923469cfde0389a392829775e47d57c8d91d3437edbb15650f1b20bb",
+        "deadline": true,
+        "ambiguous": true
+      }
+    ],
+    "queue_cleanup": [
+      {
+        "stage": "primitive-04",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-05",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-06",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-06",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-07",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-14",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-14",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-15",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-15",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-17",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-17",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-18",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-18",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-18",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-18",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-19",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "stage": "primitive-19",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      }
+    ],
+    "queue_load_markers": 1,
+    "queue_load_completed_phases": [
+      {
+        "stage": "primitive-06",
+        "realRustFS": false,
+        "extents": false,
+        "inFlightRequests": 2,
+        "perQueueInFlight": 1,
+        "delivered": 528,
+        "uniqueMessageIds": 528
+      }
+    ],
+    "retained_originals_and_matching_closed_copies": {
+      "files": 62769,
+      "bytes": 1974924942,
+      "manifest_sha256": "c4eaedac830449b06ab527fc6fe0f6ec4121be30358e6f460f87a6342479df38",
+      "closed_copy_matches": true
+    },
+    "memory_exports": {
+      "memory_snapshots": 47,
+      "memory_objects": 24228,
+      "memory_bytes": 341610397
+    }
+  },
+  "paired_application_controls": {
+    "source_digest": "2e0ae2093c50028012fab58b8b43f345169c6d6a30efc80ec090bc47ecfe8440",
+    "scope": "Fresh independent native ordinary-KV and ordinary-Queue controls using two preserved, independently qualified primitive executables. Workspace remains candidate inputs; each executable records its own original compiled inputs. All owning primitive fixture inputs are byte-identical; the five changed execution-only fixture files are absent from primitive depinfo. Native false selects in-memory stores and never enters the optional real-store CLI branch. Original deadlines/banks/fences and assertions. Not an end-to-end performance comparison; failed cleanup API results can be hidden by existing primary-error precedence and are not retroactively known.",
+    "source_comparison": {
+      "changed_paths": [
+        "crates/cellar/durability/raft/execution/cell.rs",
+        "crates/cellar/durability/raft/execution/images.rs",
+        "crates/cellar/durability/raft/execution/rooted_working.rs",
+        "crates/cellar/durability/raft/working.rs",
+        "crates/cellar/storage/sqlite/command.rs",
+        "crates/cellar/tests/native_cell_groups_execution.rs",
+        "crates/cellar/tests/support/cell_group_runtime.rs",
+        "crates/cellar/tests/support/cell_group_sql.rs",
+        "crates/cellar/tests/support/cell_group_sql_receipt_retention.rs",
+        "crates/cellar/tests/support/cell_group_sql_receipt_reuse.rs"
+      ],
+      "changed_test_files_not_primitive_dependencies": true,
+      "primitive_depinfo_sha256": "3f8111796d609d04c889e7f384cbbb92d3e882b5dd0265a710d9ea22adc5b363",
+      "owning_fixture_inputs_byte_identical": true
+    },
+    "record_sha256": "f3b8777525f7673fd14a8564ca93534f612ca137dfd8d4976d13744ed14f8d00",
+    "status": "VERIFIED_FAILED",
+    "source_and_executables_and_logs_verified": true,
+    "stages": [
+      {
+        "name": "baseline-kv",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 300.80182908300776,
+        "log_sha256": "6832611e33961a22af92ff32717b2351e97f815044daba8ceca63fa483774aa8",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": "baseline",
+        "compiled_source_digest": "7f24000764aa14ddf95b19f8b000d869c7a135e0cfb97fd693db495d9e74c5d8"
+      },
+      {
+        "name": "candidate-kv",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 295.2259424169897,
+        "log_sha256": "92932373a5f2fae6d19b2394b124342a148e419a9184ae9eca80ad67ab88163e",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "artifact": "candidate",
+        "compiled_source_digest": "2e0ae2093c50028012fab58b8b43f345169c6d6a30efc80ec090bc47ecfe8440"
+      },
+      {
+        "name": "candidate-queue",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 164.52749499998754,
+        "log_sha256": "fa2fd3c8939e81556d7a395842f47dd7b176d586dffce56313cde8aaf090512f",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": "candidate",
+        "compiled_source_digest": "2e0ae2093c50028012fab58b8b43f345169c6d6a30efc80ec090bc47ecfe8440"
+      },
+      {
+        "name": "baseline-queue",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 105.2751705829869,
+        "log_sha256": "7bb9d36525829ca44ed0729652b08bc8a11aa5c9a797170521b4e6e6303cc691",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "artifact": "baseline",
+        "compiled_source_digest": "7f24000764aa14ddf95b19f8b000d869c7a135e0cfb97fd693db495d9e74c5d8"
+      }
+    ],
+    "executables": {
+      "baseline": {
+        "sha256": "c9a2f0bfd00a80bdd1bfd29903215ad0782e689680917b1428e3739d0d25da6f",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "compiled_source_digest": "7f24000764aa14ddf95b19f8b000d869c7a135e0cfb97fd693db495d9e74c5d8",
+        "original_record_sha256": "9453657e7dce63a13dafd73a56e1288c32f6c91498f24f68b044a8a98a0e26a6"
+      },
+      "candidate": {
+        "sha256": "f511b0eca164ee9f054252e71b072d45d7f5d32a7f6d3ac36825197a9014f055",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        },
+        "compiled_source_digest": "2e0ae2093c50028012fab58b8b43f345169c6d6a30efc80ec090bc47ecfe8440",
+        "original_record_sha256": "1041dd60f08726d84b66fde4f1606774daaf6a8ae49367b1a88fe248c193fac6"
+      }
+    },
+    "receipt_reuse_cases": [],
+    "queue_producer_errors": [],
+    "queue_cleanup": [],
+    "queue_load_markers": 0,
+    "queue_load_completed_phases": [],
+    "retained_originals_and_matching_closed_copies": {
+      "files": 15040,
+      "bytes": 899610957,
+      "manifest_sha256": "4441be04ee06b692d24f40184ea5a921ac013a420774989703e75e051941bc6c",
+      "closed_copy_matches": true
+    },
+    "memory_exports": {
+      "memory_snapshots": 4,
+      "memory_objects": 7540,
+      "memory_bytes": 276780363
+    }
+  },
+  "paired_control_interpretation": [
+    "The earlier runtime fails rooted ordinary KV at ReadLarge with an ambiguous deadline and 2977 ms remaining at the first target attempt. The candidate passes the fresh ordinary KV control in both image modes, while its earlier broad PublicLarge failure remains retained. These differing boundaries do not establish a repair of repeatability or the cause of PublicLarge.",
+    "Both preserved runtimes fail the fresh rooted ordinary Queue callback path with an explicit ambiguous deadline. This establishes the failure on the earlier runtime too; it does not establish a new causal regression or a repaired Queue."
+  ],
+  "other_application_failure_boundaries": [
+    {
+      "stage": "primitive-12",
+      "boundary": "Rooted ordinary KV PublicLarge returned HTTP 503 with an explicitly ambiguous RPC deadline; first target attempt had 2957 ms remaining."
+    },
+    {
+      "stage": "primitive-16",
+      "boundary": "Rooted ordinary Queue callback path returned an explicitly ambiguous deadline."
+    }
+  ],
+  "preliminary_retained_attempts": [
+    {
+      "note": "Initial fixture compile failed on closure ownership; no native case ran.",
+      "source_digest": "405e96a5c5ca062358dfd5f3c6e50408ded6c243e58f8c1743ea9239016f2823",
+      "scope": "Real RF3 native receipt reconciliation with held immutable image read. Original budgets/fences/banks, fresh independent stores, no RustFS writes. Not original constrained throughput/latency qualification.",
+      "source_comparison": null,
+      "record_sha256": "c0ac96d96b16efc86e768462a5d835f0b421e05c8cd01106bb1198cf014d6231",
+      "status": "VERIFIED_FAILED",
+      "retained_originals_and_matching_closed_copies": {
+        "files": 0,
+        "bytes": 0,
+        "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+        "closed_copy_matches": true
+      }
+    },
+    {
+      "note": "Both original read-hold cases reached expected baseline failure and settled successfully; shared fixture imports were subsequently corrected for all targets.",
+      "source_digest": "3175d163b56fe029f6bccc158574f7baa7cb088219b9a0508d315d2f13718d63",
+      "scope": "Real RF3 native receipt reconciliation with held immutable image read. Original budgets/fences/banks, fresh independent stores, no RustFS writes. Not original constrained throughput/latency qualification.",
+      "source_comparison": null,
+      "record_sha256": "9cf72e5d96d80e362191d99e27b0b158df9789c99e2b41121eb0d0cbbf149fa2",
+      "status": "VERIFIED_FAILED",
+      "retained_originals_and_matching_closed_copies": {
+        "files": 130,
+        "bytes": 362093,
+        "manifest_sha256": "4970909f2b5a58b45744be938a72bfb85b3d73ef11ad95fe2a9a8974f44ea38d",
+        "closed_copy_matches": true
+      }
+    },
+    {
+      "note": "All-target checking rejected shared fixture imports and duplicate memory export module; no native case ran.",
+      "source_digest": "2bfcab42f31e82d866078e08b1c7c1d981af400f2d3609b0269eb2dc84971d9a",
+      "scope": "Real RF3 native receipt reconciliation with held immutable image read. Original budgets/fences/banks, fresh independent stores, no RustFS writes. Not original constrained throughput/latency qualification.",
+      "source_comparison": null,
+      "record_sha256": "d12724f99d0c11232593cee14f7f21b8fc51a0b0e75274f87b3a6adfea1b10ec",
+      "status": "VERIFIED_FAILED",
+      "retained_originals_and_matching_closed_copies": {
+        "files": 0,
+        "bytes": 0,
+        "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+        "closed_copy_matches": true
+      }
+    }
+  ],
+  "interpretation": [
+    "The injected one-second immutable read hold is a deterministic I/O dependency test, not a request percentile or throughput measurement.",
+    "Baseline operation is always released and settled before the expected assertion fails. Exact receipt/replay, callback count, all three replica values and cleanup/export are checked.",
+    "Successful fixture cleanup and synthetic byte exports do not establish full-prefix recovery acceptance. Broader historical/unexported fixture stores remain incomplete evidence. Failed KV work returns before separately returned joined/payload cleanup errors, so those cleanup API results are not retroactively known.",
+    "Fresh isolated application controls cannot erase earlier broad-run failures or qualify repeatable load delivery. Each preserved executable retains its own compiled input digest; the workspace remains at candidate inputs."
+  ],
+  "capacity": {
+    "observed_at_utc": "2026-11-20T18:34:45.092185+00:00",
+    "available_bytes": 6905856,
+    "reserve_bytes": 6442450944,
+    "cases_admitted": 0,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "restarts": 0,
+    "record_sha256": "9f878ea8fd879be8db833cb1b31ab2736e90147a35a4d597057ec20aea51f0cb",
+    "scope": "Only original RustFS container identity/configuration/resources/start and mounted filesystem; not a fresh three-node runtime-resource witness."
+  },
+  "remaining": [
+    "Original-bound Queue C2/C4 producer/source-RPC/consumer and exact drain qualification, and current rooted PublicLarge KV RPC deadline. Stateless RPC 3000 ms, callback 5000 ms; no deadline increase.",
+    "Current-source recovery, full SDK/hosted release and feature/backend/fault acceptance.",
+    "Remaining OPT-01\u201308 routing/read negative paths, measured shared-worker/persistence/ReadIndex/archive batching and fairness, physical reclamation and once-only capacity credit, reserve-aware movement and interrupted lifecycle coverage.",
+    "Original 3 nodes x 1 vCPU/2 GiB, RF3/3 groups/shared RustFS SQL/KV/Queue durability comparison, C1/4/16, original payload/batch sizes, 60-second windows and reversed repetitions."
+  ],
+  "whole_goal_complete": false
+}

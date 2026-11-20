@@ -36,6 +36,67 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Captured receipt-image reuse
+
+Code `4e779bd1` removes a redundant SQLite reopen during receipt reconciliation.
+The SQL owner may inspect its live captured connection only when fresh applied
+authority selects the exact pending result and the connection has no active
+transaction or retained read snapshot. Writable access invalidates reuse. Later
+images use immutable inspection. Receipt validation, before/after authority
+checks, logical-writer release, retirement and S3 output gates remain unchanged;
+no result cache, worker, bank or deadline is added. Main `2f083f14` remains included.
+See the [qualification record](captured-receipt-reuse-qualification-2026-11-20.json).
+
+At compiler inputs `2e0ae209`, byte-identical native RF3 tests pass in both image
+modes while the corresponding unchanged runtime waits on an injected immutable
+read. Exact receipts, stale-proof refusal, replay, one callback, all three voter
+values and cleanup/export are checked. This qualifies removal of that I/O
+dependency, not a workload percentile. The full library passes **1,268 tests /
+two existing ignores** and execution passes **237 / two existing ignores**.
+Strict all-feature/all-target Clippy, format, layout and native dependencies pass.
+Original checkpoint submission, SDK source-proof/fencing and reply-bridge controls
+also pass.
+
+**Combined qualification remains FAILED:** thirteen of nineteen selected primitive
+controls pass. All four original Queue load selections fail with **13 explicitly
+ambiguous deadline producer errors**. One materialized C2 phase completes the
+unchanged **528-message drain / 528 unique IDs**, then its rooted phase fails.
+The combined C4 selection fails before its rooted phase. All five load phases
+report successful three-node/three-host cleanup and complete synthetic exports;
+this does not establish full-prefix recovery acceptance.
+
+The broad run also fails rooted ordinary KV `PublicLarge` with an ambiguous RPC
+deadline (**2,957 ms remained at its first target attempt**) and the rooted
+ordinary Queue callback path. Fresh controls use preserved earlier/candidate
+executables with identical owning fixture inputs. The earlier runtime fails KV
+at `ReadLarge` (**2,977 ms remained**), while the candidate passes both image
+modes in isolation. Both runtimes fail the rooted ordinary Queue callback path.
+These observations neither erase broad-run failures nor establish a causal
+repair or new regression. Failed KV work can hide a separately returned cleanup
+error under its primary error; its successful cleanup is not retroactively known.
+The main and paired-control original inventories retain **77,809 files /
+2,874,535,899 bytes**, verified closed copies and **51 memory exports / 31,768
+objects / 618,390,760 bytes**. Earlier attempts and their media remain retained.
+
+Remaining priorities, in order:
+
+1. **P0 — Repeatable service:** profile and reduce target service and shared-worker
+   interference for large KV, Queue callbacks and C2/C4 delivery/drain. Keep the
+   original 3,000-ms stateless RPC and 5,000-ms callback windows, source proofs,
+   admission banks and ambiguous command identities.
+2. **P0 — Recovery and release:** reverify retained recovery failures on current
+   source and complete SDK, hosted, feature/backend and fault acceptance.
+3. **P1 — Complete OPT-01–08:** finish routing/read negative paths, measured
+   persistence/ReadIndex/archive batching and fairness, physical reclamation with
+   once-only credit, reserve-aware movement and interrupted lifecycle coverage.
+4. **P1 — Constrained comparison:** run the original three-node, 1-vCPU/2-GiB,
+   RF3/three-group SQL/KV/Queue matrix on shared RustFS with original workload
+   sizes, C1/4/16, 60-second windows and reversed repetitions. A read-only probe at
+   **2026-11-20T18:34:45.092185+00:00** reports **6,905,856 available bytes**, below
+   the unchanged **6 GiB reserve**. Original identity, configuration, start and
+   zero restarts match; no case is admitted. This is not a fresh three-node
+   resource witness. Complete OPT and combined release gates remain open.
+
 ### Queue ingress: current deadline boundary
 
 Two further source-frozen native diagnostic cohorts reproduce **14 ambiguous
