@@ -429,8 +429,9 @@ original target minimum. Source and target response admission are released befor
 loopback work needs the same SQL/archive slot.
 
 A final source command settles only the claimed metadata digest and exact lane
-serial at the original source minimum. It removes the obligation and preserves
-the parent outcome as unknown. A self-call rereads the private system allocator
+serial at the original source minimum. It releases that lane, discards the
+expired business argument bytes and retains bounded confirmation metadata;
+the parent outcome stays unknown. A self-call rereads the private system allocator
 before settlement. The allocator reads only its fixed-size counter through the
 existing SQL query owner, under a linearizable barrier and exact route/history.
 It takes no command-byte reservation and decodes no pending effect payloads.
@@ -445,6 +446,43 @@ it never resumes an arbitrary Rust callback. The retained-restart binding gate
 passes all eight native/RustFS configurations at `25d81992`; see the
 [current checkpoint](progress.md#cg-17-binding-deadlines-and-archive-tails).
 Full primitive-family and combined recovery qualification remain open.
+
+## Settlement output confirmation
+
+Quorum commitment of private settlement can precede its S3 acknowledgement.
+The settled row therefore enters confirmation-only phase 5, retaining the exact
+maintenance command, retry horizon, effective minimum and settlement input
+identity. This phase cannot enroll a target, invoke a business callback or create
+another claim. Its lane is already logically settled, as for a completed ordinary
+child; business-state erasure may proceed. Manifest summaries still count the
+remaining physical confirmation work, so it cannot silently become idle or park.
+
+The shared scheduler rediscovers the row after a lost response or retained
+restart. One receipt-only read per ordinary bounded turn must prove that exact
+command at its original effective Quorum/S3 minimum. Absence, expired floors,
+wrong identity, weaker proof or changed authority cannot confirm it. The receipt
+lookup is private; ordinary command discovery and public receipt APIs continue
+to refuse system contracts. Other groups retain their scheduling opportunity;
+there is no long retry loop or per-cell background task.
+
+The row pins its exact maintenance receipt against pruning until confirmation.
+After actual proof, private confirmation GC removes only that row and never
+releases a lane reused by a later call. Dropping the proof releases response
+admission before GC needs the same SQL/archive capacity. Confirmation preserves
+normal namespace minima, original business ambiguity and stop/term/route fences.
+The historical settlement counter records observed proof, including when a later
+physical-GC response is lost; it grants no serving authority.
+
+This is an internal hard cutover: the source binding schema and compiled private
+contract now include confirmation ownership. Matching binaries and fresh
+compatible namespaces are required. Markers remain 1, without legacy readers,
+automatic migration or deletion of older data. See [current progress](progress.md)
+for executed qualification. At `5b3cd177e`, all eleven fixed RustFS settlement
+functions and 34 image/minimum/fault configurations pass on Linux/ext4, including
+native/Axum original-budget completion and live/retained interrupted Ack. The
+three voters share one three-CPU/four-GiB container; independent-voter faults,
+load and complete primitive families remain separate gates. Earlier macOS
+parent-deadline and activation failures remain recorded; CG-17 stays open.
 
 ## SQL writer and maintenance progress
 
