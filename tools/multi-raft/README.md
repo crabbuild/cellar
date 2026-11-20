@@ -172,6 +172,9 @@ target S3 minima, live and retained-restart recovery, unused sequence sealing,
 interruption after a proven child Ack, and loss of a private S3 settlement output.
 Both image modes and original request/maintenance budgets remain in force.
 
+The focused `binding-ack-recovery` suite reruns both interrupted-Ack functions
+without replacing the original public binding/Consume deadline gates.
+
 The focused `binding-settlement-output-loss` suite first confirms an actual
 settlement archive write was denied, holds the fault beyond the admitted
 maintenance window, then restores the store without application traffic. It
