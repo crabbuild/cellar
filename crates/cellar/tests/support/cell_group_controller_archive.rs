@@ -10,6 +10,9 @@ pub(crate) use payload_retry::archive_controller_payload_outage;
 #[path = "cell_group_archive_reservation.rs"]
 mod reservation;
 pub(crate) use reservation::archive_reservation_retries_from_durable_intent;
+#[path = "cell_group_archive_retirement.rs"]
+mod retirement;
+pub(crate) use retirement::archive_retirement_joins_next_intent;
 
 use super::*;
 use cellar_logic::consensus::OperationId;

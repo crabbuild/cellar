@@ -24,6 +24,31 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_retirement_shares_next_intent_without_early_allocation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_retirement_joins_next_intent(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_retirement_shares_next_intent_without_early_allocation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_retirement_joins_next_intent(
+            rooted,
+            rustfs::store("archive-retirement-intent", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_reservation_intent_recovers_failed_chunk_io_without_ticket_rewrite() -> Result<()>
 {
     for rooted in [false, true] {

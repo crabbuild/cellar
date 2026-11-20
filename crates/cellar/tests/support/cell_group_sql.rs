@@ -589,6 +589,7 @@ pub(crate) use archive_controller::{
 pub(crate) use archive_controller::{
     archive_controller_payload_outage, archive_controller_publish_store,
     archive_controller_reconcile_store, archive_reservation_retries_from_durable_intent,
+    archive_retirement_joins_next_intent,
 };
 pub(crate) use effects::{alarms_without_clients, hot_and_cold_alarms, shutdown_joins_alarm};
 pub(crate) use outbox_effects::{
