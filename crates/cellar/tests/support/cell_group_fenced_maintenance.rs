@@ -502,8 +502,8 @@ pub async fn qualify(real_rustfs: bool, docker: bool) -> Result<()> {
     selected(real_rustfs, docker, None).await
 }
 
-pub async fn trace(rooted: bool) -> Result<()> {
-    selected(false, false, Some((rooted, Durability::S3))).await
+pub async fn trace(rooted: bool, real_rustfs: bool, docker: bool) -> Result<()> {
+    selected(real_rustfs, docker, Some((rooted, Durability::S3))).await
 }
 
 async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durability)>) -> Result<()> {
