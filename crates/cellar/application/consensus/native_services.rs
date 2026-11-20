@@ -108,6 +108,9 @@ pub(in crate::application) fn queue_service(
     ] {
         let mut hash = Sha256::new();
         hash.update(b"cellar-raft-queue-operation-1");
+        if method == "__queueDlqAcceptBatch" {
+            hash.update(b"payload-fingerprint-refusal-1");
+        }
         hash.update(method);
         class = class.cell_rpc(method, hash.finalize().into())?;
     }

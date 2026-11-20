@@ -121,8 +121,9 @@ must exactly match the bytes. No second full-body serialization is required.
 
 An exact retry uses this retained fingerprint even after purge, redrive or
 retention has removed the destination message. Changing a used field refuses
-instead of acknowledging the earlier payload. A collision later in a transfer
-batch rolls back every earlier message and receipt from that batch. Existing
+instead of acknowledging the earlier payload. The complete batch is checked in one transaction before its first write, so a
+conflict leaves no message or receipt from that batch. Expected refusals return
+only after the read-only transaction closes successfully. Existing
 receipt expiry and source transfer IDs remain unchanged; an uncertain source
 must retain its original transfer identity and payload.
 
@@ -138,6 +139,12 @@ native and Axum ingress. The existing native cross-deployment fault case also
 checks a lost target-S3 reply, partial retries, stale generations, active purge
 and retention. Full Queue lifecycle/load and independent-voter qualification
 remain separate gates.
+
+Known payload conflicts and malformed payload fields become ordinary RPC error
+results protected by the selected Quorum/S3 command receipt. Node-local capacity,
+SQL, rollback and durability failures retain their host-failure and ambiguity
+semantics. The adapter classifies a private refusal type, never an error string.
+The transfer operation digest binds this response contract as well as the schema.
 
 ## Shared writer admission
 
