@@ -36,6 +36,73 @@ full disaster profile remain open.
 
 ## Optimization completion priorities
 
+### Queue ingress: current deadline boundary
+
+Two further source-frozen native diagnostic cohorts reproduce **14 ambiguous
+deadline producer errors** across materialized/rooted C4. All fourteen match a
+unique Queue cell, command ID, normalized-input digest and offered batch.
+Temporary inputs `76318ae0` and `dad293ff` are retained privately; they were
+removed and inputs restored to `9748e402` before the qualification-only cleanup
+reporting change below. Runtime code still includes main `2f083f14`. See the
+[source-bound ingress record](queue-ingress-diagnostic-2026-11-20.json).
+
+The unchanged fixture has a **3,000-ms stateless RPC operation deadline** and a
+separate **5,000-ms callback deadline**. Earlier generic five-second descriptions
+of these public Queue RPCs were incorrect and are corrected in the prior
+diagnostic record. Downstream commands receive only the remaining RPC window;
+no deadline or resource limit has changed. Explicit five-second SDK/checkpoint
+controls remain separate evidence.
+
+The eight calls with ingress spans spend **0.58–2.03 seconds in the local FIFO**
+before command service. Four use the existing positive-receipt successor hint;
+four perform a fresh sequence observation taking **59–389 ms** after an earlier
+failure cleared that hint. There is no history-lookup span for these failed
+calls. Controller queueing, pending-invocation construction and routing are
+short after dispatch. These instrumented phase ranges overlap other work and
+are not request percentiles or throughput. The four inherited-hint failures
+also mean that eliminating the fallback observation alone is not an established
+repair.
+
+All four newly observed checkpoint proof scopes dropped at shutdown **begin
+after the failed load enters cleanup**. They repeatedly receive reconciliation
+views without the expected exact version; they are not waiting on one hung
+mailbox reply. Their shutdown lifetimes do not establish a steady-state
+checkpoint scheduling cause. Retain the exact-proof/newer-term/joined-closure
+rules; no producer may be retired merely because its response deadline expired.
+This does not accept full-prefix shutdown or recovery.
+
+The immediate **P0** is to reduce measured command/image service work and FIFO
+interference, with a deterministic matched boundary test before a production
+change. Preserve positive-receipt handoff, fresh-quorum consumed-other proof and
+the original 3,000/5,000-ms windows. Then pass the unchanged Queue C2/C4 exact
+drain and SDK fencing controls, remaining primitives, recovery and release gates.
+OPT-01–08 and the full constrained comparison remain open. These diagnostic
+cohorts reach neither the final 528-message drain nor a causal performance fix.
+
+Code `26f539a3` also closes a reporting gap: the original producer error could
+hide a separately returned cleanup/export error. The Queue fixture now retains
+those errors and a final cleanup result without changing calls, order, primary
+failure or assertions. Current compiler inputs are `7f240007`; only that test
+helper differs from `9748e402`, and runtime inputs are unchanged. Strict Clippy
+for the library/native primitive target and its build pass. All four original
+load selections still fail with **12 ambiguous deadline producer errors**, but
+each now independently reports successful three-node/three-host cleanup and
+complete memory export, with zero cleanup errors. Neither combined selection
+reaches its rooted phase; no final exact drain is reached. These new markers do
+not retroactively prove earlier cleanup success, and cleanup fault/error branches
+are not injected by this cohort. The new original inventory retains **5,964
+files / 61,194,407 bytes**, with verified closed copies and **four memory exports /
+3,949 objects / 16,808,511 bytes**. Full-prefix recovery stays open.
+
+The two diagnostic cohorts' original inventories total **4,845 files / 55,036,594
+bytes**, with verified closed copies and **four synthetic-store snapshots / 3,185 objects / 13,358,111
+bytes**. Copies are nontransactional diagnostics; older unexported backends stay
+incomplete evidence. A read-only original RustFS probe at
+**2026-11-20T15:52:33.990177+00:00** still reports **zero available bytes**, below
+the unchanged **6 GiB reserve**, with original identity/configuration/start and
+zero restarts. No matrix case is admitted; this is not a fresh three-node
+resource witness.
+
 ### Queue critical path: diagnostic follow-up
 
 The qualified production inputs remain `9748e402`; temporary instrumentation
@@ -50,7 +117,7 @@ errors**. All **1,541 trace events** parse with timestamps. Queue identity is
 derived using the production namespace/HMAC rules before matching command IDs;
 an ID alone is insufficient across cells. Five returned errors have one observed
 local preparation candidate. Those candidates enter preparation with only
-**0.46–2.41 seconds** left on the original five-second budget: four complete
+**0.46–2.41 seconds** left in the original three-second stateless RPC window: four complete
 successful local settlement after their deadline, and one expires during writer
 admission. The sixth identity has multiple preparation scopes and lacks a traced
 normalized-input digest, so no unique request attribution is claimed for it.
@@ -63,9 +130,10 @@ latencies. Temporary synchronous tracing can perturb scheduling; overlapping
 phase intervals are not added or reported as request latency or throughput.
 The cause of these missing terminal proofs remains unproven.
 
-The immediate **P0** work is to trace routing, ownership and authority before
-local preparation with the exact input digest, and resolve the retained callback
-checkpoint producers. Any production change needs a deterministic matched
+That checkpoint called for tracing routing, ownership and authority before
+local preparation with the exact input digest, and investigating retained callback
+checkpoint producers. The later ingress record above narrows that diagnosis.
+Any production change needs a deterministic matched
 regression plus the original Queue C2/C4 drain and SDK writer-release/fencing
 controls within unchanged budgets. Recovery full-prefix, remaining primitive
 coverage, OPT-01–08 and SDK/release acceptance stay open as listed below.

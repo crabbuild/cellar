@@ -22,7 +22,7 @@
   },
   "topology": "Host-native RF3, three shared groups, one SQL worker per node, fresh synthetic object stores. Not the requested constrained Colima/RustFS comparison.",
   "unchanged_controls": [
-    "Original five-second command and callback budgets, ordinary admission eight, two callback slots, original byte/item banks and Queue batch eight.",
+    "Original 3,000-ms stateless RPC operation deadline and 5,000-ms callback deadline, ordinary admission eight, two callback slots, original byte/item banks and Queue batch eight. Downstream commands retain only the remaining RPC budget.",
     "Original rooted/materialized C4 selections and 528-message exact ID/body drain assertions. No assertion relaxed, failed history reset or mutation manually reissued.",
     "Logical writer release, FIFO admission, term/activation/image checks, exact receipts and quorum/S3 proof rules."
   ],
@@ -239,5 +239,14 @@
     "file_count": 10,
     "command_id_occurrences": 351,
     "original_bytes": 1439465
+  },
+  "budget_correction": {
+    "reason": "The earlier generic five-second command-budget description was incorrect for these public Queue RPCs. The unchanged fixture configures operation_deadline_ms=3000 and callback_timeout_ms=5000. Actual remaining-window observations and all pass/fail results are unchanged.",
+    "source_node_configuration": "crates/cellar/tests/support/cell_group_managed_fixture_node.rs",
+    "source_node_configuration_sha256": "95ae76ba2f6faf199955f9d7766e2a689cda28710c73d41b8396fec6c5dff5fd",
+    "source_queue_configuration": "crates/cellar/tests/support/cell_group_queue_qualification.rs",
+    "source_queue_configuration_sha256": "243849bf90c1e314ea4c85a852457faa5b10af19479a11e0d53862b86b011ea8",
+    "prior_public_record_sha256": "667571ec877eaa0d8b9aa230b0d1878247a22ddcab70bed43817b5feb54a7c11",
+    "later_diagnostic": "queue-ingress-diagnostic-2026-11-20.json"
   }
 }
