@@ -157,7 +157,6 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         *target.lock().unwrap() = Some(cluster.hosts[(leader+1)%3].cell(target_history.clone())?);
         let target_writer = cluster.hosts[leader].cell(target_history)?;
         for mode in 0_u8..4 {
-            eprintln!("S3-read-source mode={mode} starting");
             let history = CellHistory {
                 cluster: group.cluster, namespace: group.namespace,
                 cell: CellId::new(format!("Counter:s3-read-source-{mode}"))?,
@@ -173,7 +172,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             let before = before.version.clone();
             for gate in gates.iter() { gate.arm(); }
             let mut options = CommandOptions::new(
-                CommandId::new(ClientId::new([231;16])?, u64::from(mode)+1)?,
+                CommandId::new(ClientId::new([231;16])?, 1)?,
                 u64::try_from(cellar::asyncrt::wall_ms())?+60_000,
             );
             options.durability = Durability::S3;
@@ -185,7 +184,6 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                     for (index, gate) in gates.iter().enumerate() {
                         cellar::asyncrt::timeout(TIMEOUT, gate.entered.notified()).await
                             .context("target read did not enter after S3 sync")?;
-                        eprintln!("S3-read-source mode={mode} read={index} entered");
                         let during = observer.query(ProposalId::new([232+index as u8;16])?,
                             &observer.contract("Peek")?, vec![], QueryOptions::default()).await?;
                         let dirty = mode == 1 || (mode == 2 || mode == 3) && index == 1;
@@ -214,7 +212,6 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                     Ok::<_,anyhow::Error>(last)
                 },
             ).await;
-            eprintln!("S3-read-source mode={mode} observed={observed:?} response={response:?}");
             let last = observed?;
             let response = response?;
             ensure!(response.result == b"0" && response.durability == Durability::S3);

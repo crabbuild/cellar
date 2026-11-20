@@ -464,16 +464,6 @@ async fn rustfs_s3_read_sources_reuse_only_verified_unchanged_checkpoints() -> R
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "diagnostic only; enables archive and source-read phase tracing"]
-async fn trace_s3_read_source_settlement() -> Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::group_archive=debug,cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug")
-        .with_test_writer()
-        .try_init();
-    Box::pin(s3_read_source::qualify(false)).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
 }
