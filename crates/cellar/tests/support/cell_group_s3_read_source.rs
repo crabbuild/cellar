@@ -212,7 +212,9 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                     Ok::<_,anyhow::Error>(last)
                 },
             ).await;
-            let last = observed?;
+            let last = observed.with_context(|| {
+                format!("S3 read-source mode={mode}, parent error={:?}", response.as_ref().err())
+            })?;
             let response = response?;
             ensure!(response.result == b"0" && response.durability == Durability::S3);
             ensure!(response.version.sequence > last, "source checkpoint substituted for final receipt");
