@@ -41,25 +41,26 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `31ac1dec4` preserves original enrollment uncertainty and separately typed
-fresh-name lookup failures in all four owning paths. All 37 owning tests and
-strict Cellar library/test Clippy, format/layout and initial docs/dependency
-checks pass. The unchanged public campaign remains **FAILED, 1/8 whole functions**:
-native named bindings pass; native/Axum EventStream Consume, RustFS bindings and
-stronger-target-S3 activation remain failing. Continuing foreign compilation load
-is recorded, so no clean-machine timing or exclusive causal claim follows. See
-the [current checkpoint](progress.md#current-integration-checkpoint).
+Combined runtime `4fd16eca3` delivers exact, physically verified S3 source-read
+reuse and payload-bound Queue transfer receipts with typed durable refusals.
+Forty owning units, three Fleet/schema tests and focused strict Clippy pass.
+The selected public campaign is **FAILED, 9/11 whole functions pass**: complete
+native source reuse passes eight configurations, but its RustFS parent deadline
+fails. Directed eviction and 24 read guards pass. Real RustFS Queue is **5/6 image
+configurations**; Axum extent fails archive readiness after delivery/purge.
+The separate Queue-source six-configuration pass does not supersede this failure.
+See the [current checkpoint](progress.md#current-integration-checkpoint).
 
-The next feature priority is original-budget **source/target S3 completion and
-Consume/Ack settlement**, including cold activation. The fresh baseline already
-passes native named bindings and basic native/Axum RustFS EventStream functions;
-do not keep treating the older native retained sequence-7 failure as the current
-reproduction. A new exact-base S3 read-source proof must originate from physical
-archive verification, bind actual history/version/fence and invalidate on dirty
-writes, rebase or authority changes. Do not reinterpret the Quorum watermark.
-Strong-target-S3 Consume has a Quorum Counter source, so source proof reuse alone
-cannot be assumed to resolve its Ack/archive critical path. Implement against an
-owning causal regression before repeating broad timing matrices.
+The immediate feature priorities are **final S3 parent settlement and extent
+Queue archive advancement within the original budgets**, then public binding,
+Consume/Ack and cold activation. Preserve full physical verification, target and
+final output gates, original identities and unknown outcomes. Investigate the
+actual verification/admission/retirement phases in a controlled Linux/RustFS
+profile. Post-timeout samples and loaded-host observations do not establish an
+exclusive cause. The source capability is implemented; do not widen the Quorum
+boolean or retain an active one-slot verification across dependent I/O.
+Strong-target-S3 Consume has a Quorum source, so diagnose its Ack/archive path
+independently. Avoid another broad timing campaign without a causal delivery.
 
 Then complete autonomous interrupted binding recovery and safe sequence sealing,
 real per-family acceptance drivers/ledgers and every primitive/provider/feature/

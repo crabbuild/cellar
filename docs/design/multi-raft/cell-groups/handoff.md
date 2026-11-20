@@ -4,7 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current binding reconciliation correctness delivery
+## Current S3-source and Queue integration
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Combined runtime
+`4fd16eca3` contains typed, evictable physical S3 source-read custody and the Queue
+payload-fingerprint/typed-refusal stack resolved over `376eec61c`. The Queue core
+matches separately qualified `3500e49c5`; the combined qualification is distinct.
+
+Build, 40 owning units, three Fleet/schema tests, strict library/two-target
+Clippy, format, 30 harness tests and 13 coverage-validator tests pass. Selected
+public functions are **FAILED, 9/11 pass**. Complete native source reuse passes
+all eight configurations; the RustFS materialized parent misses its original
+five-second deadline. Directed eviction passes both images on both backends,
+and all 24 unchanged initial-read/bookkeeping guards pass. Queue native replay
+and the original S3 fault case pass both images; Axum materialized passes and
+extent fails archive readiness before restart. Queue is **5/6 configurations**.
+
+Do not weaken the failing gates or interpret late local apply as S3 output.
+Foreign load is recorded. A post-timeout readiness snapshot is insufficient to
+infer a leader-selection bug or exclusive timing cause. Next instrument the
+actual verification/admission/retirement path and qualify in the controlled Linux
+profile, then close binding/Consume/Ack and cold activation. Finish autonomous
+interrupted calls, safe sequence sealing and every primitive/provider/feature/
+lifecycle gate. Queue's internal schema/op-digest cutover requires matching
+binaries and fresh compatible roots/namespaces; format markers remain 1.
+
+Evidence `CG-17-queue-source-4fd16eca3-1785/record.json` links the source-read
+predecessor with 21 failed roots/1,054 files/nine executables. All current failures
+are retained. Owned backend/VM are stopped; objects remain. Formal acceptance
+stays 13/17 tasks, 147/195 cases and 0/32 CG-17 entry points. Historical CG-01
+custody remains missing. See the [current checkpoint](progress.md#current-integration-checkpoint).
+Executor state: `.cellar/cg17-payload-01/cg17-queue-integration-state-1775.json`.
+
+## Previous binding reconciliation correctness delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `31ac1dec4`
 retains original typed enrollment identity/ambiguity and separate typed name-lookup

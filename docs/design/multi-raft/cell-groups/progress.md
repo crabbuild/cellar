@@ -32,6 +32,77 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 verified S3 source custody and Queue transfer identity
+
+**CG-17 remains open.** Combined runtime `4fd16eca3` adds two behaviors:
+
+- An unchanged S3 source can reuse an actually verified intermediate checkpoint
+  for dependent reads. The typed capability binds its complete cell version and
+  route, checks current birth and continuation fences, and tracks SQLite changes.
+  Eviction, dirty state or a changed resume image requires another checkpoint.
+  Idle custody stays charged to both existing physical banks and can be evicted;
+  active verification is released before target I/O. Target proofs and the final
+  parent receipt retain their independent gates.
+- A Queue DLQ transfer receipt now binds payload bytes, content type, message ID
+  and provenance after purge or redrive. Complete-batch validation precedes writes.
+  Expected conflicts become durable RPC error results; capacity, SQL, rollback
+  and proof failures retain their host-failure and ambiguity semantics. The schema
+  and operation digest use an internal hard cutover, requiring matching binaries
+  and fresh compatible Queue roots/namespaces, without migration or data deletion.
+
+The canonical locked build, **40 owning units**, **three Fleet Queue/schema
+checks**, strict library/two-integration-target Clippy, format check, 30 harness
+checks and 13 coverage-validator checks pass. The selected public campaign remains
+**FAILED: 9/11 whole functions pass**, including two directed diagnostics:
+
+| Owning check | Combined-source result |
+| --- | --- |
+| Complete four-mode S3 source case | Native: all eight image/mode configurations pass; RustFS materialized final parent deadline fails, extent is unrun |
+| Directed S3 eviction diagnostic | Native and real RustFS pass both images; the next read requires fresh proof and final S3 output is separate |
+| Original initial-read and binding-bookkeeping guards | Native and real RustFS pass all 24 configurations |
+| Queue transfer identity through native ingress | Real RustFS passes both images, including purge, retained restart, exact replay and negative mixed-batch checks |
+| Queue transfer identity through Axum | Materialized passes; extent fails archive readiness after delivery/purge, before retained restart and its replay checks |
+| Original Queue S3 fault/retention case | Real RustFS passes both images, including lost target reply, partial retries, stale generations and active purge |
+
+The three Queue selections therefore pass **5/6 image configurations**, not the
+complete Queue gate. The separately qualified `3500e49c5` integration passes all
+six on its own source; that result cannot replace the failed combined-source case.
+No deadline, quota, proof gate or original assertion was weakened. Earlier fixture
+mistakes and compiler failures remain retained. The new source fixture initially
+used sequences 2–4 as the first command in fresh cells; these correctly refused.
+They now start at 1. Its original mode-0 baseline still reproduces the redundant
+checkpoint count, while the complete native case now passes on combined source.
+
+Foreign compiler load is recorded for the runtime observations; owned compilers
+and formatters had joined. These results establish no clean-machine latency,
+stability or exclusive performance cause. One older trace spends 2.335 seconds
+inside independent verification. The failed Queue readiness snapshot sees an
+applied prefix of 10 and archived prefix 6 on two replicas, while another has
+published 10 by snapshot time. Sampling occurs after timeout; this does not prove
+leadership latching or the exact blocking resource. Do not change the readiness
+oracle or remove final physical barriers based on that snapshot.
+
+Next close **final S3 parent settlement and Queue extent archive advancement**
+within the original budgets, using phase-specific causal regressions and the
+controlled Linux/RustFS profile. Then finish original public binding/Consume/Ack
+and cold-activation gates, autonomous interrupted-call reconciliation and safe
+sequence sealing, followed by all remaining primitive/provider/feature/lifecycle
+cases. The prepared named-binding rerun was not executed after the owning RustFS
+source case failed; it supplies no qualification.
+
+Evidence `CG-17-queue-source-4fd16eca3-1785/record.json` retains the combined
+source, frozen executables, logs and failed disks. Its predecessor
+`CG-17-s3-read-source-d3465d0e4-1774/record.json` retains 21 failed baseline/candidate
+roots, 1,054 files and nine executables. The owned backend and VM are stopped;
+objects remain. Voters share a native process; independent voter cgroups and the
+release matrix remain required.
+
+Acceptance stays **13/17 tasks, 147/195 cases and 0/32 formal CG-17 entry-point
+functions**. The inventory is partial, and historical CG-01 evidence remains
+missing. The generated implementation index reflects these unchanged statuses.
+
+### Previous binding-reconciliation checkpoint
+
 **CG-17 remains open.** Runtime `31ac1dec4` preserves failed fresh-name
 reconciliation alongside its original typed enrollment error. Stateless SDK
 bindings, stateful bindings, resource genesis and broker preparation retain the

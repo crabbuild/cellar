@@ -188,6 +188,7 @@
         "crates/cellar/application/queue/mod.rs",
         "crates/cellar/application/queue/broker.rs",
         "crates/cellar/application/queue/schema.sql",
+        "crates/cellar/application/queue/transfer.rs",
         "crates/cellar/application/consensus/native_work.rs",
         "crates/cellar/application/consensus/native_services.rs",
         "crates/cellar/node/queue_operator.rs",
@@ -195,7 +196,8 @@
       ],
       "schemas": [
         "Messages, due times, lease generations and dead-letter state",
-        "Shared native work reason, generation, due time and fenced claim attempt"
+        "Shared native work reason, generation, due time and fenced claim attempt",
+        "Retained transfer receipts bind a complete 32-byte payload/metadata fingerprint; incompatible schemas refuse without migration"
       ],
       "bindings": [
         "Named producer",
@@ -211,7 +213,7 @@
       "permission": "Separate publish, consume and admin grants",
       "proof": "Broker mutation and settlement receipts",
       "ordering": "Message identity, fenced batches and retention",
-      "recovery": "Discover pending and ambiguous deliveries with original identities",
+      "recovery": "Discover pending and ambiguous deliveries with original identities; exact DLQ retries retain payload and provenance identity after message removal, with complete-batch refusal before writes and durable typed conflicts",
       "case": "primitives_queue_leases_ack_retry_and_dead_letter",
       "refusals": {}
     },

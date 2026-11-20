@@ -146,6 +146,13 @@ SQL, rollback and durability failures retain their host-failure and ambiguity
 semantics. The adapter classifies a private refusal type, never an error string.
 The transfer operation digest binds this response contract as well as the schema.
 
+The combined `4fd16eca3` transfer campaign passes five of six real RustFS image
+configurations. Native replay and the original S3 fault case pass both forms;
+Axum materialized passes, while extent archive readiness fails after purge and
+before retained restart. The separate `3500e49c5` six-configuration pass remains
+source-specific. See the [current checkpoint](progress.md#current-integration-checkpoint)
+for frozen evidence and remaining gates; this is not full Queue acceptance.
+
 ### Immutable operator inspection
 
 On shared-group durability, authenticated `info` and `peek` inspect an existing
