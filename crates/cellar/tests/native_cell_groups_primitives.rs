@@ -2663,6 +2663,17 @@ async fn fenced_provider_maintenance_recovers_without_application_requests() -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only: materialized S3 fenced maintenance settlement"]
+async fn trace_fenced_maintenance_s3_settlement() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
+        .with_ansi(false)
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("initialize fenced maintenance diagnostic: {error}"))?;
+    fenced_maintenance::trace().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS and an explicitly owned Docker socket/image"]
 async fn rustfs_docker_fenced_maintenance_recovers_without_application_requests() -> Result<()> {
     fenced_maintenance::qualify(true, true).await

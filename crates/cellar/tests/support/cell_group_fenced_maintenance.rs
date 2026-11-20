@@ -77,6 +77,7 @@ impl ExecutionFenceAuthority for Control {
                 self.changed.notify_waiters();
                 anyhow::bail!("fixture fencing authority unavailable");
             }
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "fence-activate", sequence = claim.sequence(), revision = claim.checkpoint().revision);
             let mut state = self.state.lock().await;
             if let Some(previous) = &state.active {
                 ensure!(
@@ -293,6 +294,7 @@ impl FencedMaintenanceBackend for Backend {
         grant: ExecutionGrant,
     ) -> HandlerFuture<()> {
         Box::pin(async move {
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "maintenance-enter", action = ?action, revision = expected.revision);
             self.0.calls.fetch_add(1, Ordering::AcqRel);
             ensure!(grant.claim().checkpoint() == &expected);
             grant.check(&context)?;
@@ -365,13 +367,18 @@ impl Cell for Root {
             let result = match op.as_str() {
                 "Create" => {
                     self.0.put_json("business", &json!(17))?;
+                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-begin");
                     journal.compare_exchange(&context, None, pending()).await?;
+                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-proven");
                     let grant = journal
                         .fence_execution(&context, lifecycle, self.1.clone())
                         .await?;
+                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "fence-proven");
                     journal.check_retention(&context)?;
                     grant.before_effect(&context).await?;
+                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-admitted");
                     let id = self.1.create(grant.claim()).await?;
+                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-accepted");
                     let current = journal.load(&context)?.context("reserved resource")?;
                     let mut record = current.record;
                     record.resource_id = Some(id);
@@ -379,6 +386,7 @@ impl Cell for Root {
                     let confirmed = journal
                         .compare_exchange(&context, Some(current.revision), record)
                         .await?;
+                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-confirmed");
                     self.1.refuse.store(true, Ordering::Release);
                     confirmed
                 }
@@ -463,6 +471,7 @@ async fn call(
 ) -> Result<CommandReceipt> {
     let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
     let cell = cluster.hosts[leader].cell(history.clone())?;
+    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "request", sequence = seq, minimum = ?minimum, operation = op);
     Ok(cell
         .command(
             &cell.contract("Run")?,
@@ -487,8 +496,19 @@ async fn wait(control: &Control, flag: &AtomicBool, stage: &str) -> Result<()> {
 }
 
 pub async fn qualify(real_rustfs: bool, docker: bool) -> Result<()> {
+    selected(real_rustfs, docker, None).await
+}
+
+pub async fn trace() -> Result<()> {
+    selected(false, false, Some((false, Durability::S3))).await
+}
+
+async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durability)>) -> Result<()> {
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
+            if only.is_some_and(|selected| selected != (rooted, minimum)) {
+                continue;
+            }
             let engine = if docker {
                 Some(Docker::configured(rooted, minimum)?)
             } else {
