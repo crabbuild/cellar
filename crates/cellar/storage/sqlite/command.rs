@@ -120,6 +120,9 @@ struct CommandFrame {
     dispatch: OnceCell<RaftDispatchContext>,
     binding_serial: Cell<u64>,
     parked_io: Cell<bool>,
+    // Entry/read authority does not prove this invocation's unfinished receipt.
+    // Only the RPC owner sets this after a checkpoint's required proof succeeds.
+    checkpoint_base: Cell<Option<(u64, i64)>>,
     // Minted by the SQL owner at Quorum entry or after an applied Quorum
     // checkpoint. Reads reuse it only while the private image is unchanged.
     quorum_read_base: Cell<Option<(u64, i64)>>,
@@ -189,6 +192,12 @@ pub(crate) struct ActiveCommand {
 }
 
 impl ActiveCommand {
+    pub(crate) fn mark_checkpoint_proven(&self) {
+        self.frame
+            .checkpoint_base
+            .set(Some(*self.baseline.borrow()));
+    }
+
     pub(crate) fn mark_quorum_read_base(&self, proven: bool) {
         self.frame.s3_read_base.borrow_mut().take();
         self.frame
@@ -412,6 +421,7 @@ impl ActiveCommand {
     }
 
     pub(crate) fn cancel_work(&self) -> Result<()> {
+        self.frame.checkpoint_base.set(None);
         self.frame.s3_read_base.borrow_mut().take();
         let mut tasks = {
             let mut work = self.frame.work.borrow_mut();
@@ -754,6 +764,30 @@ pub(crate) fn commit_work(resources: &RaftStorageAuthority) -> HandlerFuture<()>
     })
 }
 
+/// Framework effect gates may reuse an unchanged proof only after this exact
+/// invocation has a proven unfinished receipt. A Quorum entry/read watermark
+/// alone cannot authorize its first effect or make its writer resumable.
+pub(crate) fn confirm_checkpoint_work(resources: &RaftStorageAuthority) -> HandlerFuture<()> {
+    let proven = require_storage(resources, true).and_then(|()| {
+        CURRENT_COMMAND.with(|current| {
+            let current = current.borrow();
+            let frame = current.as_ref().context("missing checkpoint source command")?;
+            let Some(base) = frame.checkpoint_base.get() else {
+                return Ok(false);
+            };
+            // Binding receipt bookkeeping can advance a pure-read watermark.
+            // An effect must still prove the complete private checkpoint image.
+            let connection = frame.connection()?;
+            Ok(base == command_marker(&connection)?)
+        })
+    });
+    match proven {
+        Ok(true) => confirm_read_work(resources),
+        Ok(false) => commit_work(resources),
+        Err(error) => Box::pin(async move { Err(error) }),
+    }
+}
+
 /// A pure remote query needs proof of preceding application writes, not a new
 /// source mutation of its own. New roots, live write cursors and connection-local
 /// state retain the ordinary checkpoint path. S3 additionally requires live,
@@ -977,6 +1011,7 @@ impl CommandDatabase {
                 dispatch: OnceCell::new(),
                 binding_serial: Cell::new(0),
                 parked_io: Cell::new(false),
+                checkpoint_base: Cell::new(None),
                 quorum_read_base: Cell::new(None),
                 s3_read_base: RefCell::new(None),
                 native_alarm: Cell::new(None),

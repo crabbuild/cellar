@@ -155,7 +155,7 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     context.container_provider_authority()?.check(&context)?;
     tasks::finish(&scope, &claim, result.is_ok())?;
     publish(&context)?;
-    db.sync().await?;
+    db.confirm_checkpoint().await?;
     if result.is_err() {
         // Provider exception text can contain credentials; persist only bounded
         // failure accounting. The exact obligation remains in protected state.

@@ -76,7 +76,7 @@ impl ProviderAuthority {
         }
         if context.raft_storage.is_some() {
             let flush = match context.storage() {
-                Ok(storage) => storage.sync(),
+                Ok(storage) => storage.confirm_checkpoint(),
                 Err(error) => return Box::pin(async move { Err(error) }),
             };
             let authority = self.authority.clone();

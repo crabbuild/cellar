@@ -400,6 +400,21 @@ impl Storage {
     /// frame owner supplies the exact durability proof, even if the caller
     /// abandons this result future. Savepoints must remain atomic.
     pub(super) fn raft_sync(&self) -> HandlerFuture<()> {
+        self.raft_sync_inner(false)
+    }
+
+    /// Framework gates can share the exact unchanged checkpoint of the current
+    /// invocation. Public sync still requests its own checkpoint. A first gate,
+    /// changed image or invalidated proof follows the ordinary proof path.
+    pub(in crate::application) fn confirm_checkpoint(&self) -> HandlerFuture<()> {
+        if self.is_raft() {
+            self.raft_sync_inner(true)
+        } else {
+            self.sync()
+        }
+    }
+
+    fn raft_sync_inner(&self, reuse_proven: bool) -> HandlerFuture<()> {
         let prepared = (|| -> Result<_> {
             self.write_scope()?;
             let Owner::RaftCommand(authority) = &self.0 else {
@@ -420,7 +435,11 @@ impl Storage {
                 let result = async {
                     slot.admission.clone().await.map_err(anyhow::Error::msg)?;
                     storage.write_scope()?;
-                    crate::storage::commit_raft_work(&committer).await
+                    if reuse_proven {
+                        crate::storage::confirm_raft_checkpoint_work(&committer).await
+                    } else {
+                        crate::storage::commit_raft_work(&committer).await
+                    }
                 }
                 .await;
                 drop(slot);

@@ -497,6 +497,7 @@ impl CellPrivateExecutor {
             .database_mut()
             .continue_checkpoint(&turn.transaction)
             .map_err(private_failure)?;
+        turn.transaction.mark_checkpoint_proven();
         turn.transaction.mark_quorum_read_base(
             turn.step != 0 && turn.attempt.request.durability == Durability::Quorum,
         );
