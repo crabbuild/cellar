@@ -232,7 +232,6 @@ pub fn contracts() -> Result<()> {
     let class = RaftClass::new("Counter", 1, [229; 32])?
         .initializer([230; 32], |_, _| Ok(()))?
         .json_cell_rpc("Run", [231; 32])?
-        .query("Version", [234; 32], |_, _| Ok(vec![]))?
         .provider_binding("TOOL", "fenced-maintenance", [226; 32])?;
     let application: Arc<dyn Application> = Arc::new(
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
@@ -416,6 +415,7 @@ async fn start(
     let class = RaftClass::new("Counter", 1, [229; 32])?
         .initializer([230; 32], |_, _| Ok(()))?
         .json_cell_rpc("Run", [231; 32])?
+        .query("Version", [234; 32], |_, _| Ok(vec![]))?
         .provider_binding("TOOL", "fenced-maintenance", [226; 32])?;
     let factory_control = control.clone();
     let application = Arc::new(
