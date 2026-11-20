@@ -4,7 +4,43 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current upload and reservation delivery
+## Current registry and retirement delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `8fa46e7f1`
+overlaps fresh bounded identity/state reads and combines confirmed predecessor
+retirement with the next required durable intent. Quiet and shutdown cleanup
+still persist. Failed pre-intent work leaves idempotently replayable debt;
+allocation, publication and head-selection barriers remain. All physical checks,
+quotas, original deadlines and final parent proofs remain.
+
+Both owning regressions fail before their changes and pass native/real RustFS in
+both image modes. The held journal barrier refuses early allocation; failed chunk
+writes recover the exact reservation and pass a cold byte audit. Twenty selected
+archive/controller functions, the locked build and strict affected Clippy pass.
+This does not qualify process-kill, power-loss or the complete primitive matrix.
+
+The original named-binding gates remain **FAILED, 2/4 on each backend**. Native
+S3 sources fail sequence 1 in both images; RustFS materialized/S3 fails sequence
+1 and extent/S3 sequence 3. Both Quorum sources pass. Earlier registry-only RustFS
+passes 3/4 but fails extent/S3 sequence 7 after retained restart. Its full trace
+and the focused extent I/O/stack diagnostic also fail. No deadline fix or exclusive
+latency cause is established. Preserve original unknown IDs and failed disks.
+
+Next deliver exact maintenance-command recovery/settlement and compound final
+parent proofs, then Consume/Ack and managed startup/cleanup. Do not repeat broad
+timing runs without a causal implementation change. Finish complete family,
+provider, feature and lifecycle cases with actual per-API ledgers. All 32 CG-17
+cases remain mandatory; acceptance stays 13/17 tasks, 147/195 cases and 0/32 formal
+entry points. The generated index is current; inventory and historical CG-01
+custody remain incomplete.
+
+Evidence: `CG-17-registry-retirement-8fa46e7f1-1865/record.json`. The separately
+owned RustFS backend/VM are stopped after qualification with objects retained;
+old lab objects remain unavailable. RustFS has one CPU/2 GiB; native in-process
+RF3 does not qualify independent Linux voter limits. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
+## Previous upload and reservation delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `85901c941`
 overlaps two conditional checkpoint creates and their exact GET confirmations

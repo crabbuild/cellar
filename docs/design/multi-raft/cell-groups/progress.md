@@ -32,7 +32,66 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-### CG-17 bounded uploads and durable reservation recovery
+### CG-17 registry validation and retirement intents
+
+**CG-17 remains open.** Runtime `8fa46e7f1` overlaps fresh bounded identity and
+versioned-registry reads. Both bodies still pass the existing size, encoding,
+identity and state checks; ordinary errors join both reads before releasing
+admission. It also carries confirmed predecessor retirement into the next required
+durable intent. Failure before that checkpoint leaves replayable retirement debt.
+Quiet completion and shutdown still persist cleanup; remote allocation still
+waits for the intent barrier. Publication and selected-head barriers are unchanged.
+No request deadline, quota, digest, physical recovery or output proof is removed.
+
+Both owning red regressions reproduce. The registry regression at `b0db56d4c`
+detects serialized control reads; `b154477be` writes standalone retirement cleanup
+before the next intent. Both pass native and real RustFS in both image modes on
+the combined runtime. Coverage includes held-peer/error joins, corrupted controls,
+cancellation, lost reservation replies, the held journal barrier, exact-ticket
+retry after failed chunk writes and independent cold image-byte verification.
+This does not qualify hard process-kill or power-loss recovery.
+
+Twenty selected archive/controller functions pass on this runtime: ten native and
+ten RustFS. They cover current registry validation, uncertain publication, pending
+and retained ownership, warm-cache corruption, replay, checkpoint I/O, reservation
+recovery, joined close, exact S3 results, deadlines and compaction fencing. The
+locked three-target build and strict affected library/three-target Clippy pass.
+Final repository-check results are retained with the evidence below.
+
+The unchanged public binding gates remain **FAILED**:
+
+| Backend | Passing configurations | Remaining ambiguous deadlines |
+| --- | --- | --- |
+| Native | Both Quorum sources, 2/4 | Materialized/S3 sequence 1; extent/S3 sequence 1 |
+| Real RustFS | Both Quorum sources, 2/4 | Materialized/S3 sequence 1; extent/S3 sequence 3 |
+
+Child replies return before the parent response expires. These logs do not
+establish which final commit/proof stage exhausts the budget. Preserve client
+`[121; 16]`, the original sequences, raw outcomes and voter disks. Earlier
+registry-only `89de7d20c` passes 3/4 RustFS configurations but fails extent/S3
+sequence 7 after retained restart. Its separate full-case phase trace also fails.
+Test-only `4897f5a50` repeats the extent/S3 sequence-7 failure with opt-in I/O
+observations and two one-second samples of the exact owned process. The samples
+include journal, manifest-page and extent staging syncs; they span multiple
+threads and do not establish an exclusive latency cause. The original fixtures
+and budgets remain unchanged. No deadline fix, speedup or stability is established.
+
+Evidence: `CG-17-registry-retirement-8fa46e7f1-1865/record.json`, including both red
+controls, earlier failed comparisons, the diagnostic, frozen binaries, source
+archives and retained disks. The separately identified RustFS lab uses one CPU
+and 2 GiB; its voters remain native in-process. The owned backend/VM are stopped
+after qualification with objects retained. Previous lab objects remain unavailable;
+independent constrained Linux voter qualification remains required.
+
+Next close exact-command recovery/sequence settlement and compound binding/final
+parent proofs, then Consume/Ack and managed startup/cleanup. Complete the public
+primitive/provider/feature/lifecycle drivers and per-API ledgers; selected archive
+passes cannot substitute for them. All 32 formal CG-17 cases remain required.
+Acceptance stays **13/17 tasks, 147/195 cases and 0/32 formal CG-17 entry points**.
+The generated index is current; inventory and historical CG-01 custody remain
+incomplete. The earlier checkpoints below remain retained qualification history.
+
+### Previous bounded uploads and durable reservation recovery
 
 **CG-17 remains open.** Runtime `85901c941` adds bounded, ordered checkpoint
 creates and removes one redundant local ticket checkpoint. Two conditional

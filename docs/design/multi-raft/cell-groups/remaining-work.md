@@ -41,26 +41,26 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `85901c941` adds two bounded checkpoint creates with exact GET
-confirmation and recovers failed uploads from their durable reservation intent,
-without a redundant ticket fsync. Both red regressions reproduce; native and real
-RustFS correctness branches pass in both image modes. Fifteen archive functions
-pass at pipeline source `0d2de06bb`; six selected RustFS controller functions and
-the native reservation regression pass at final runtime `85901c941`. Every remote
-digest, physical recovery and output proof remains. These are selected results.
+Runtime `8fa46e7f1` overlaps fresh bounded registry control reads and carries
+confirmed retirement cleanup in the next required durable intent. Quiet and
+shutdown cleanup still persist; every allocation and publication keeps its
+barrier. Both owning red regressions reproduce, then pass native/real RustFS in
+both image modes. Twenty selected archive/controller functions, the locked build
+and strict affected Clippy pass. Every physical and output proof remains.
 
-The original public binding gate remains **FAILED, 2/4 configurations pass**.
-Both Quorum sources pass; materialized/S3 sequence 1 and extent/S3 sequence 3
-expire. The older-runtime comparison passes 3/4 on this same new RustFS lab;
-pipeline-only passes 2/4. No deadline fix or speedup is established. The separate
-test-only complete fixture trace passes 1/4 and preserves all failures. It shows
-two serial source checkpoints taking about 1.4–1.5 seconds each, plus enrollment
-and child settlement. Optimize the complete accepted-proposal path with causal
-regressions, retaining the original source, child and final parent proof gates.
+The original public binding gates remain **FAILED, 2/4 configurations pass on
+each backend**. Quorum sources pass. Native materialized/S3 and extent/S3 sequence
+1 fail; RustFS materialized/S3 sequence 1 and extent/S3 sequence 3 fail. Child
+replies precede parent response expiry; the exact final failing stage is unproven.
+Earlier registry-only RustFS
+passes 3/4 but fails extent/S3 sequence 7 after restart. Its diagnostic and the
+focused I/O/stack profile also fail; they do not establish an exclusive cause or
+deadline fix. Preserve the original IDs, budgets and final proof gates. Do not
+repeat broad timing runs without a new causal implementation change.
 
-Then complete autonomous recovery/sealing qualification, EventStream Consume/Ack
-and managed startup/joined cleanup. Their prior failures and unknown identities
-remain required work. The recovery/sealing implementations exist; their complete
+Close autonomous recovery/sealing and exact maintenance-command settlement,
+EventStream Consume/Ack and managed startup/joined cleanup. Their prior failures
+and unknown identities remain required work. The recovery/sealing implementations exist; their complete
 public matrix has not passed. The separately owned replacement RustFS lab is
 qualified for these scoped checks and stopped with its volume retained. Old lab
 contents remain unavailable; native in-process voters do not qualify independent
