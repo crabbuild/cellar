@@ -496,6 +496,17 @@ async fn ordinary_event_streams_activate_deliver_and_recover_through_shared_quor
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: complete EventStream case with target publication phases"]
+async fn trace_event_stream_target_publication() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=trace,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::sql_publish=trace,cellar::raft::cell_groups::controller::effects=debug")
+        .with_test_writer()
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("trace subscriber: {error}"))?;
+    Box::pin(events::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn axum_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
     Box::pin(events::qualify_axum(false)).await
 }
