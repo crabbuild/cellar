@@ -4,7 +4,44 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current registry and retirement delivery
+## Current provider journal delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `feb22476c`
+connects declared protected provider journals and exact local invocation authority
+to the existing shared-group checkpoint path. Quorum/S3 proof, original deadlines,
+record identity and post-await fencing remain. Constructor/stale handles,
+undeclared or changed configurations, application SQL/clear and premature resource
+generation replacement refuse. Native Container, SandboxCatalog and supervised
+maintenance stay closed until their shared adapters exist.
+
+Five actual functions pass: declaration validation, canonical native journal
+qualification, the same native workload with a 1-KiB input cap, canonical RustFS
+qualification and the existing ordinary Fleet journal/recovery regression. The
+shared workloads cover 12 RF3 configurations across both image forms and minima.
+Locked build, strict affected library/public-test Clippy and repository checks
+pass. Baseline `c6162aad6` refuses the first journal operation after enrollment.
+Initial green controls retain their failures: the new fixture incorrectly
+expected a completed receipt after an unfinished S3 checkpoint. The corrected
+oracle requires typed uncertainty and no provider poll, preserves the original
+ID and never reruns the application body. Original formal gates and budgets do
+not change.
+
+This is journal/local proof qualification; the fixture does not execute a real
+provider. Next close exact-command autonomous binding settlement and compound S3
+parent proofs, then real provider fencing/reconciliation, supervisor/sandbox and
+WebSocket adapters and the full public primitive/lifecycle matrix. Do not borrow
+passes from a separately qualified recovery source before integrated testing.
+All 32 CG-17 cases remain mandatory: 13/17 tasks, 147/195 cases and 0/32 formal
+entry points accepted. The generated index is current; inventory remains partial
+at 18 entries/244 symbols and historical CG-01 evidence remains incomplete.
+
+Evidence: `CG-17-provider-journals-feb22476c-1889/record.json`, with earlier failed
+controls, source archives, frozen binaries and retained disks. The owned RustFS
+backend/VM are stopped with objects retained. RustFS uses one CPU/2 GiB; native
+in-process RF3 does not qualify independent Linux voter limits. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
+## Previous registry and retirement delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `8fa46e7f1`
 overlaps fresh bounded identity/state reads and combines confirmed predecessor

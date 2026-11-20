@@ -32,7 +32,57 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-### CG-17 registry validation and retirement intents
+### CG-17 provider journals and local invocation authority
+
+**CG-17 remains open.** Runtime `feb22476c` adds
+`RaftClass::provider_binding` and connects the public `BindingJournal` and
+`ProviderAuthority` to shared-group storage and checkpoint proofs. Declarations
+are bounded, schema-bound and checked against retained records. Journal access
+requires the original root invocation; checkpoint completion rechecks its
+deadline and activation fence. Native Container, SandboxCatalog and supervised
+maintenance remain refused until their own shared adapters exist.
+
+Five selected owning functions pass on this source. The canonical journal
+workload passes four native and four real-RustFS configurations: both image
+modes and Quorum/S3 namespace minima. The same native workload also passes all
+four configurations with a 1-KiB caller-input limit; framework checkpoint bounds
+remain separate. Coverage includes two cells sharing a group, duplicate receipts,
+protected metadata, invalid configuration/revision transitions, stale handles,
+retained RF3 restart, confirmed retirement and archive-write refusal. Declaration
+bounds and the existing ordinary Fleet journal/recovery regression also pass.
+The locked two-target build, strict affected library/public-test Clippy,
+format/layout, dependency/docs and inventory checks pass. Thirteen synthetic
+coverage-validator tests pass; they qualify report rejection, not the runtime.
+
+The owning baseline `c6162aad6` reaches the enrolled cell and refuses journal
+creation with `UnsupportedCapability`. Initial green `860e0a314` passes the
+materialized Quorum workload but fails the new test's S3 receipt expectation on
+both backends. Inspection confirms that an unfinished RPC checkpoint must return
+`Execution(Uncertain)`. The corrected scoped oracle requires that exact outcome,
+the original command identity and zero provider polls after denied proof; Quorum
+still requires the completed receipt and exact result. Backend restoration does
+not fabricate completion or authorize replay. Both earlier failed controls and
+their disks remain retained. No original formal case or named-binding oracle,
+deadline, quota or proof changes.
+
+The provider name in this fixture is metadata and its effect counter observes
+entry into potential provider work. It does **not** execute Docker or establish
+remote execution fencing, supervisor recovery or provider-volume restoration.
+Interrupted external work still requires authenticated reconciliation. Evidence
+`CG-17-provider-journals-feb22476c-1889/record.json` retains controls, sources,
+frozen executables and voter disks. RustFS uses one CPU/2 GiB; voters share a
+native process. The owned backend/VM are stopped with objects retained.
+
+Next close autonomous binding/maintenance settlement and compound S3 parent
+proofs, then complete real provider/sandbox/supervisor adapters, WebSocket
+lifecycle and every primitive's public/recovery matrix. The earlier named-binding
+deadline failures below remain open on their recorded sources. Acceptance stays
+**13/17 tasks, 147/195 cases and 0/32 formal CG-17 entry points**. The generated
+index is current; inventory remains partial at 18 entries/244 public symbols.
+Full provider, feature, lifecycle and independently constrained voter evidence
+remain mandatory.
+
+### Previous registry validation and retirement intents
 
 **CG-17 remains open.** Runtime `8fa46e7f1` overlaps fresh bounded identity and
 versioned-registry reads. Both bodies still pass the existing size, encoding,

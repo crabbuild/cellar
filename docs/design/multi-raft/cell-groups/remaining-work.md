@@ -41,6 +41,17 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
+Runtime `feb22476c` delivers declared provider journals and local invocation/proof
+authority through shared-group storage. Twelve RF3 configurations pass: eight
+native, including small caller-input limits, and four real RustFS. Declaration
+checks, the existing Fleet journal/recovery test, locked build, strict affected
+Clippy and repository checks pass. An unfinished S3 checkpoint stays explicitly
+uncertain and never enters provider work. Real provider execution fencing,
+supervision, sandbox and native Container adapters remain required; this is their
+journal foundation. Inventory expands to 244 public symbols and remains partial.
+See the [current checkpoint](progress.md#current-integration-checkpoint) for exact
+controls, the corrected new-test expectation and limits.
+
 Runtime `8fa46e7f1` overlaps fresh bounded registry control reads and carries
 confirmed retirement cleanup in the next required durable intent. Quiet and
 shutdown cleanup still persist; every allocation and publication keeps its
