@@ -2959,3 +2959,31 @@ async fn rustfs_queue_operator_reads_require_selected_s3_coverage_after_bare_enr
 ) -> Result<()> {
     Box::pin(queues::qualify_metadata_s3(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn committed_event_ack_survives_interrupted_quorum_parent() -> Result<()> {
+    event_streams::qualify_ack_recovery(false, Durability::Quorum).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn committed_event_ack_survives_interrupted_s3_parent() -> Result<()> {
+    event_streams::qualify_ack_recovery(false, Durability::S3).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_committed_event_ack_survives_interrupted_quorum_parent() -> Result<()> {
+    event_streams::qualify_ack_recovery(true, Durability::Quorum).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_committed_event_ack_survives_interrupted_s3_parent() -> Result<()> {
+    event_streams::qualify_ack_recovery(true, Durability::S3).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only; exact extent/S3 checkpoint recovery, not the full gate"]
+async fn rustfs_trace_interrupted_s3_binding_settlement() -> Result<()> {
+    live_binding_recovery::trace_checkpoint_s3().await
+}
