@@ -18,6 +18,7 @@ pub struct CellReceiptInvocation {
     dispatcher: CellGroupDispatcher,
     cell: CellHistory,
     request: CellReceiptRequest,
+    system: bool,
     session: CellRoutingSession,
     attempt: Option<CellRouteAttempt>,
     dispatched: bool,
@@ -215,6 +216,7 @@ impl CellGroupDispatcher {
             dispatcher: self.clone(),
             cell,
             request,
+            system,
             session,
             attempt: None,
             dispatched: false,
@@ -400,8 +402,8 @@ impl CellReceiptInvocation {
         if authority.route() != attempt.route() || authority.cell().version.history != self.cell {
             return Err(CellDispatchError::Invalid("receipt destination route"));
         }
-        let selected = sql
-            .lookup_receipt_registered(
+        let selected = if self.system {
+            sql.lookup_system_receipt_registered(
                 options,
                 authority,
                 self.dispatcher.class.clone(),
@@ -409,7 +411,17 @@ impl CellReceiptInvocation {
                 self.request.input.clone(),
             )
             .await
-            .map_err(CellDispatchError::Execution)?;
+        } else {
+            sql.lookup_receipt_registered(
+                options,
+                authority,
+                self.dispatcher.class.clone(),
+                request.clone(),
+                self.request.input.clone(),
+            )
+            .await
+        }
+        .map_err(CellDispatchError::Execution)?;
         self.session
             .validate_attempt(&attempt)
             .map_err(CellDispatchError::Routing)?;

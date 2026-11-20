@@ -154,6 +154,39 @@ The runner retains source, executable and log hashes. It does not accept the
 complete CG-17 primitive matrix or qualify declared bindings, other automatic
 output/dispatch gates, independent voter processes or disk loss.
 
+## Binding settlement and interrupted Consume/Ack
+
+Run the fixed settlement campaign against an owned RustFS backend:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite binding-settlement \
+  --backend /tmp/cellar-raft-local-001 \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-MY-CHECKOUT" \
+  --output /tmp/cellar-binding-settlement-001 --keep-going
+```
+
+Commit runtime and runner changes first; use fresh compatible namespaces after
+the binding confirmation schema/contract hard cutover. The eleven exact tests
+cover ordinary named bindings, native/Axum EventStream Consume/Ack, independent
+target S3 minima, live and retained-restart recovery, unused sequence sealing,
+interruption after a proven child Ack, and loss of a private S3 settlement output.
+Both image modes and original request/maintenance budgets remain in force.
+
+The focused `binding-settlement-output-loss` suite first confirms an actual
+settlement archive write was denied, holds the fault beyond the admitted
+maintenance window, then restores the store without application traffic. It
+must observe autonomous confirmation, preserve the original unknown parent,
+avoid business redispatch and safely use the next target sequence. The separate
+`binding-settlement-diagnostic` suite traces one extent/S3 configuration only;
+its pass cannot replace the complete gate. Failures retain their original
+identities, logs, executable hashes and voter disks.
+
+The RF3 voters share a native process with one SQL worker each. RustFS uses the
+recorded container limits; this campaign does not qualify independent voter
+limits, sustained load, deployment/clock faults, all-voter disk loss or complete
+primitive families. See the [binding contract](../../docs/design/multi-raft/cell-groups/named-bindings.md#settlement-output-confirmation)
+and [CG-17 progress](../../docs/design/multi-raft/cell-groups/progress.md).
+
 ## EventStream publishing, subscriptions and outbox
 
 The shared-group [EventStream adapter](../../docs/design/multi-raft/cell-groups/event-stream-durable-work.md)

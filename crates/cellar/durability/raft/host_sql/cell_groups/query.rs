@@ -28,6 +28,7 @@ enum Callback {
         class: Arc<crate::application::consensus::RaftClass>,
         request: crate::raft::execution::CommandRequest,
         input: Box<[u8]>,
+        system: bool,
     },
     Verification(VerificationCallback),
     Registered {
@@ -311,8 +312,36 @@ impl CellGroupSqlPool {
         options: CellSqlOptions,
         authority: CellReadAuthority,
         class: Arc<crate::application::consensus::RaftClass>,
+        request: crate::raft::execution::CommandRequest,
+        input: Vec<u8>,
+    ) -> Result<CellSqlReceiptLookup, ExecutionError> {
+        self.lookup_receipt_admitted(options, authority, class, request, input, false)
+            .await
+    }
+
+    /// Private reconciliation retains the registered system contract and exact
+    /// system client checks on the physical SQL worker. Public reads cannot
+    /// select this admission, and neither path invokes a command callback.
+    pub(crate) async fn lookup_system_receipt_registered(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        class: Arc<crate::application::consensus::RaftClass>,
+        request: crate::raft::execution::CommandRequest,
+        input: Vec<u8>,
+    ) -> Result<CellSqlReceiptLookup, ExecutionError> {
+        self.lookup_receipt_admitted(options, authority, class, request, input, true)
+            .await
+    }
+
+    async fn lookup_receipt_admitted(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        class: Arc<crate::application::consensus::RaftClass>,
         mut request: crate::raft::execution::CommandRequest,
         input: Vec<u8>,
+        system: bool,
     ) -> Result<CellSqlReceiptLookup, ExecutionError> {
         if authority.barrier().is_none() {
             return Err(ExecutionError::Invalid(
@@ -333,6 +362,7 @@ impl CellGroupSqlPool {
                     class,
                     request,
                     input: input.into_boxed_slice(),
+                    system,
                 },
             )
             .await?
@@ -550,6 +580,7 @@ pub(super) fn run(
             class,
             request,
             input,
+            system,
         } => {
             crate::raft::execution::validate_registered_command(
                 query.options.limits(),
@@ -558,7 +589,7 @@ pub(super) fn run(
                 &request,
                 &class,
                 &input,
-                false,
+                system,
             )?;
             let receipt = crate::raft::receipts::lookup_cell_identity(
                 database.connection(),
