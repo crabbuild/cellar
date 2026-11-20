@@ -7,6 +7,9 @@ pub(crate) use fairness::archived_groups_reclaim_independently;
 #[path = "cell_group_archive_retry.rs"]
 mod payload_retry;
 pub(crate) use payload_retry::archive_controller_payload_outage;
+#[path = "cell_group_archive_reservation.rs"]
+mod reservation;
+pub(crate) use reservation::archive_reservation_retries_from_durable_intent;
 
 use super::*;
 use cellar_logic::consensus::OperationId;

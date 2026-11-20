@@ -91,6 +91,7 @@ pub struct Store {
     entry_reads: Mutex<Option<Arc<ObjectIoGate>>>,
     chunk_creates: Mutex<Option<Arc<ObjectIoGate>>>,
     pub deny_chunk_creates: AtomicBool,
+    pub denied_chunk_creates: AtomicUsize,
     held_put: Mutex<Option<(Path, Arc<Gate>)>>,
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
     publication: Mutex<Option<(u64, Arc<Gate>)>>,
@@ -128,6 +129,7 @@ impl Store {
             entry_reads: Mutex::new(None),
             chunk_creates: Mutex::new(None),
             deny_chunk_creates: AtomicBool::new(false),
+            denied_chunk_creates: AtomicUsize::new(0),
             held_put: Mutex::new(None),
             held_delete: Mutex::new(None),
             publication: Mutex::new(None),
@@ -246,6 +248,7 @@ impl ObjectStore for Store {
                 gate.wait(path).await;
             }
             if self.deny_chunk_creates.load(Ordering::Acquire) {
+                self.denied_chunk_creates.fetch_add(1, Ordering::AcqRel);
                 return Err(Error::Generic {
                     store: "archive chunk creates denied",
                     source: "injected before conditional create".into(),
