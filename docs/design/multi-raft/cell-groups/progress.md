@@ -32,7 +32,148 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-### CG-17 bounded uploads and durable reservation recovery
+### CG-17 binding settlement and Linux qualification
+
+**The scoped Linux settlement gate passes: 11/11 functions and 34 configurations**
+at `5b3cd177e`. Ordinary S3 bindings and native/Axum Consume/Ack meet their
+original budgets with independent target S3 minima against real RustFS.
+Interrupted calls retain their unknown parents while live/restart recovery,
+unused-sequence sealing and lost-response settlement finish autonomously.
+Full CG-17 and macOS qualification remain open.
+
+Runtime `9dbdc597d` retains bounded confirmation work
+when a private binding settlement commits but loses its required S3 response.
+Logical settlement releases the exact old lane and discards expired business
+arguments; phase 5 retains the maintenance command, input identity, effective
+minimum and retry horizon. It cannot enroll a target or replay a business
+callback. Published summaries keep this debt runnable and prevent silent park.
+The exact receipt stays pinned against pruning until proof-gated private cleanup,
+which never changes a lane reused by a later call.
+
+The existing shared worker rediscovers confirmation without application traffic.
+Each turn performs one ordinary bounded receipt read at the original effective
+Quorum/S3 minimum, under current route/term authority. Missing, conflicting,
+expired or weaker observations cannot confirm it. Private system admission now
+reaches the physical SQL reader, where exact contract, input digest and system
+client validation still apply. Public receipt lookup remains restricted to public
+contracts; neither lookup executes a command callback. Response admission is
+released before cleanup needs the same SQL/archive capacity.
+
+The controlled regression denies actual archive writes containing private
+settlement beyond the admitted five-second maintenance window, restores RustFS,
+and observes recovery without sending an application request. At `a30c7abfb`,
+materialized recovery fails its unchanged 60-second confirmation ceiling; extent
+is unrun. At `0f008ab00`, durable confirmation exists but the same control still
+fails: code inspection finds the SQL receipt callback always validates public
+admission. At `9dbdc597d`, carrying private admission through that worker makes
+the unchanged control pass **both image configurations** in 51.13 seconds total.
+The parent remains unknown; target business state, no redispatch, real source
+proof and safe next-sequence use are still checked. Captured SQLite files alone
+are never treated as serving-manifest selection or successful S3 output.
+
+| Check | Current result |
+| --- | --- |
+| Controlled lost S3 settlement output, both images | PASS, runtime `9dbdc597d` |
+| Recovery, receipt pin/pruning, reused lane, seal, summary, private-contract and discovery units | 21 pass at `0f008ab00`; those implementations are unchanged by the private-read fix |
+| Strict affected library/public-target Clippy | PASS at `9dbdc597d`, `fe4ca5fe8` and `5b3cd177e` |
+| Interrupted target-S3 Ack with lost parent | Linux 8/8 PASS; macOS 7/8 at `5b3cd177e`, whole macOS gate FAILED before the remaining fault cut |
+| Complete Linux `binding-settlement` RustFS campaign | PASS: 11/11 functions, all 34 configurations, `5b3cd177e` |
+| Earlier macOS full settlement campaign | FAILED: five functions pass, six fail at `9dbdc597d`, retained |
+| Live checkpoint/unused-sequence recovery | PASS, all eight image/minimum/cut configurations |
+| Interrupted named calls after retained restart | PASS, all four image/minimum configurations |
+
+The earlier macOS campaign retains six failed functions. Both ordinary Quorum-source
+binding configurations pass; materialized/S3 expires on sequence 7 after retained
+restart and extent/S3 expires on sequence 1. Native EventStream passes
+materialized but extent Consume expires at the original three-second public
+budget after the child Ack returned; this is not a successful parent receipt.
+Ordinary Axum EventStream passes both images. Both independent-target-S3
+functions fail during materialized initial event activation; extent is unrun.
+The two new Ack functions initially fail all eight configurations before
+startup because their fixture skipped configuration validation, leaving the
+built-in stream class unregistered. Test-only `fe4ca5fe8` restores the ordinary
+validation and adds the exact `binding-ack-recovery` runner. One live Quorum case
+then reaches every work oracle but fails teardown's erroneous single-group
+expectation. `5b3cd177e` checks the actual three-group roster and makes the shared
+test close helper attempt every voter/host even after a failure, preserving every
+stop, group-count and unresolved-producer assertion. This does not establish an
+exclusive cause for the separate startup or latency failures.
+
+The focused corrected macOS Ack campaign passes **7/8 configurations** at `5b3cd177e`:
+all four S3-source image/live/restart combinations and three Quorum-source
+combinations. Quorum/extent/live fails during initial resource activation on
+node 0, before the Ack cut. The whole campaign remains FAILED, 1/2 functions.
+Its seven completed cases preserve the independently proven target S3 Ack,
+unknown parent, one callback/inbox effect, safe subsequent sequence and joined
+three-group stop. No failed identity, deadline, voter disk or original assertion
+is removed.
+
+The eleven fixed functions pass on frozen `5b3cd177e` Linux source, all **34
+image/minimum/fault configurations**. The original case oracles, five-second
+command/maintenance budgets, three-second public ingress budgets and CI profile
+remain unchanged. Exact nonzero selection, source hashes and a frozen executable
+are checked. The eleven test functions take 530.318 seconds in total; this is a
+functional qualification duration, without a throughput or latency claim.
+
+Cargo artifacts stay in this checkout's workspace target. Pinned Rust 1.98.1
+uses test opt-level 1, assertions and overflow checks. The first Linux build is
+retained as FAILED: its 5-GiB build-only cgroup kills `rustc` at roughly 4.97 GiB
+anonymous RSS, confirmed by the guest OOM log; no test ran. A single-job retry
+uses the same frozen source and checkout-specific cache with a 9-GiB build cap.
+Runtime limits are then reset and independently read from cgroup v2:
+`cpu.max=300000 100000`, `memory.max=4294967296`, `memory.swap.max=0`.
+Voter disks use an owned ext4 volume. RF3 shares that 3-CPU/4-GiB process container;
+RustFS retains its separate one-CPU/two-GiB cap in the same owned VM. Independent
+voter cgroups/hosts remain unqualified.
+
+The same RustFS image, container identity and object volume survive the owned VM
+mount/restart. The Linux run changes the kernel/filesystem and S3 network path;
+it supplies no exclusive explanation for the recorded macOS deadline failures.
+The two later commits change test setup/teardown and the focused runner only;
+production Rust inputs match `9dbdc597d`. Earlier failed gates remain retained.
+The Linux container and owned RustFS/VM are stopped after all cases and artifact
+capture. Object, voter and registry volumes are retained.
+
+The campaign adds interrupted Ack cuts after an independently proven target S3
+acknowledgement. Live and retained-restart recovery must preserve the unknown
+parent, one callback/inbox effect and a fresh `AlreadyAcknowledged` result. Its
+full eleven-function campaign also includes ordinary bindings, native/Axum
+Consume/Ack, independent target S3 minima, unused sequence sealing and original
+request budgets. The [runner guide](../../../../tools/multi-raft/README.md#binding-settlement-and-interrupted-consumeack)
+provides the exact command and diagnostic limits.
+
+This internal schema/private-contract change requires matching binaries and
+fresh compatible namespaces. Markers stay 1; no legacy reader, migration or
+older-data deletion is introduced. See the
+[binding contract](named-bindings.md#settlement-output-confirmation).
+
+Evidence is retained under the checkout-owned workspace artifacts:
+`cellar-s3-binding-settlement-delivery-20261120-01`,
+`cellar-binding-settlement-output-loss-red-20261120-01`,
+`cellar-binding-settlement-output-loss-0f008ab00-20261120-01`,
+`cellar-binding-settlement-output-loss-9dbdc597d-20261120-01` and
+`cellar-binding-settlement-full-9dbdc597d-20261120-01`,
+`cellar-binding-ack-recovery-fe4ca5fe8-20261120-01`,
+`cellar-binding-ack-recovery-5b3cd177e-20261120-01` and
+`cellar-binding-linux-5b3cd177e-20261120-01` (build OOM) and
+`cellar-binding-linux-5b3cd177e-20261120-02` (complete Linux PASS). Records retain source and
+executable hashes, the causal failed controls, logs, signed store probes and
+failed voter disks. The earlier `4897f5a50` live-recovery gate remains FAILED
+7/8 configurations; a later one-configuration diagnostic pass did not replace it.
+
+RF3 voters share one native process with one SQL worker each. The separate owned
+RustFS container retains its pinned image, one CPU and 2 GiB. These checks do not
+qualify independent voter cgroups/crashes, sustained load, deployment/clock
+changes, all-voter disk loss or full primitive families. Formal acceptance stays
+**13/17 tasks, 147/195 cases and 0/32 CG-17 entry points**. The implementation index
+is current; the inventory is partial and full plan validation still lacks the
+historical CG-01 evidence file. Next integrate this source with the provider and
+durable-work changes, qualify the combined source and complete the public-family
+API/lifecycle ledgers. macOS original-budget qualification, independent voter
+fault/load tests and the full primitive matrix remain required before broad
+compatibility or default-backend release claims.
+
+### Previous bounded uploads and durable reservation recovery
 
 **CG-17 remains open.** Runtime `85901c941` adds bounded, ordered checkpoint
 creates and removes one redundant local ticket checkpoint. Two conditional

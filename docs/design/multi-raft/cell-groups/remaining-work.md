@@ -41,6 +41,39 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
+**The Linux binding/Consume/Ack settlement slice now passes:** all eleven fixed
+RustFS functions and 34 image/minimum/fault configurations at `5b3cd177e`.
+The original public/command/maintenance budgets and proof gates are unchanged.
+Linux voters share a cgroup capped at three CPUs/four GiB with swap disabled;
+RustFS has a separate one-CPU/two-GiB cap, and voter files use ext4. The frozen
+binary, source and actual cgroup/mount observations are retained. This accepts
+the scoped Linux delivery, without closing a full primitive family or CG-17.
+
+Runtime `9dbdc597d` fixes lost private S3 settlement outputs: durable confirmation
+metadata, receipt pins and private receipt-only recovery now survive the original
+response deadline without replaying business work. The controlled red fails
+before physical SQL admission is carried through; the unchanged RustFS control
+passes both images afterward. Live checkpoint/unused-sequence recovery passes
+all eight configurations and retained named-call recovery passes all four.
+
+The earlier **macOS** full `binding-settlement` campaign remains **FAILED,
+5/11 functions pass**, at `9dbdc597d`. Ordinary Quorum-source bindings pass both images, but S3 sources miss
+sequence 7 after restart or sequence 1. Native extent Consume returns an ambiguous
+parent after the child Ack; ordinary Axum passes both images. Independent-target
+S3 cases fail initial materialized event activation, leaving extent unrun. New
+interrupted-Ack cases first failed fixture class registration and a wrong
+single-group teardown check. Corrected test source `5b3cd177e` passes 7/8
+configurations, including all four S3-source live/restart/image combinations;
+the remaining Quorum/extent/live case fails initial node-0 activation before the
+fault. Its whole macOS Ack gate remains failed. Linux passes all eight Ack cuts
+and the entire settlement campaign. Keep the macOS failures open; the Linux
+comparison does not isolate their cause. Next qualify the merged provider/work
+source and complete the API/lifecycle matrix. See the
+[current checkpoint](progress.md#current-integration-checkpoint) for sources,
+counts, failed controls and scope. Selected recovery passes do not close CG-17.
+
+### Previous archive and public-path results
+
 Runtime `85901c941` adds two bounded checkpoint creates with exact GET
 confirmation and recovers failed uploads from their durable reservation intent,
 without a redundant ticket fsync. Both red regressions reproduce; native and real
@@ -122,8 +155,11 @@ remain required work.
 
 Deliver next in this order:
 
-1. Close compound S3 binding/enrollment settlement, Consume/Ack and managed cold
-   startup/cleanup within their original request deadlines. Measure apply, publication and verification on
+1. Integrate the Linux-qualified binding/Consume/Ack and recovery slice with the
+   provider/journal and durable-work changes, then qualify that combined source.
+   Preserve the earlier macOS final-parent deadline and cold-activation failures
+   as open gates. Complete managed cold startup/cleanup on the qualified release
+   platforms within their original request deadlines. Measure apply, publication and verification on
    the actual accepted proposal; share only exact independently verified work
    under the existing admission limits. Then close original-deadline S3-source
    `Read`/`Consume` and autonomous interrupted bindings with safe sequence sealing.
@@ -421,7 +457,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. Runtime `31ac1dec4` preserves typed enrollment/reconciliation causes; 37 owning tests pass. The unchanged public campaign remains FAILED, 1/8 whole functions under recorded foreign compilation load. | Implement original-budget S3 completion and Consume/Ack settlement, then complete interrupted bindings and every unchanged family/provider/feature/lifecycle case. See the [current checkpoint](progress.md#current-integration-checkpoint). |
+| CG-17 | In progress. Runtime `9dbdc597d` retains exact settlement confirmation and receipt pins. Linux test source `5b3cd177e` passes all eleven fixed RustFS binding/Consume/Ack functions and 34 image/minimum/fault configurations, within original budgets. Earlier macOS full and current Ack gates remain failed. | Qualify the merged provider/work source, complete every public-family API/feature/lifecycle ledger and resolve supported-platform deadline gates. Independent voter fault/load and the full 32-case matrix remain required. See the [current checkpoint](progress.md#current-integration-checkpoint). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 
