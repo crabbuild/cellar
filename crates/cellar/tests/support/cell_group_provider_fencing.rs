@@ -376,8 +376,11 @@ pub(super) async fn qualify(real_rustfs: bool, docker: bool) -> Result<()> {
                         .await
                         .err()
                         .context("unavailable controller admitted a grant")?;
+                    let refused = refused
+                        .downcast_ref::<Arc<CellCommandError>>()
+                        .context("controller failure lost its typed command error")?;
                     ensure!(
-                        refused.ambiguous,
+                        refused.ambiguous && refused.command == bindings::options(6, minimum)?.id,
                         "controller failure erased the original command uncertainty"
                     );
                     ensure!(
