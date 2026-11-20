@@ -351,7 +351,11 @@ fn application_with_selector(
 fn application_with_ack_cut(
     cut: Option<Arc<ack_recovery::AckCut>>,
 ) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
-    application_for_selector(false, cut)
+    let (app, options) = application_for_selector(false, cut)?;
+    // Configuration validation installs the compiled stream/catalog classes,
+    // exactly as in the ordinary application fixture, before resolving them.
+    app.validate_configuration(&options)?;
+    Ok((app, options))
 }
 
 fn application_for_selector(
