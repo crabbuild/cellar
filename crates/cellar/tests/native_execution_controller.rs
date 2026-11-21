@@ -104,8 +104,9 @@ impl ExecutionControllerBackend for Provider {
                 .lock()
                 .unwrap()
                 .insert(operation.id, payload.clone());
+            let held = self.hold.load(Ordering::Acquire);
             self.entered.notify_one();
-            if self.hold.load(Ordering::Acquire) {
+            if held {
                 self.released.notified().await;
             }
             Ok(ExecutionOutcome::Completed(payload))
@@ -989,6 +990,7 @@ async fn held_observations_leave_control_capacity_and_cannot_rewind_new_receipts
             .run(async {
                 cellar::asyncrt::timeout(std::time::Duration::from_secs(1), async {
                     controller.clone().activate(current.clone()).await?;
+                    assert_eq!(controller.pending(current.clone()).await?.len(), 1);
                     assert!(controller
                         .lifecycle(current.clone(), ExecutionOperationKind::Delete)
                         .await?
