@@ -248,6 +248,14 @@ impl Cell for NativeRoot {
                     ensure!(self.storage.get_json("business")? == Some(json!(99)));
                     output = json!({"run":run});
                 }
+                "RetiredUnsubmitted" => {
+                    let current = BindingJournal::open(&context, "TOOL")?
+                        .load(&context)?
+                        .context("unsubmitted replacement disappeared")?;
+                    ensure!(current.record.generation == 2 && current.record.is_retired());
+                    ensure!(!self.container.running(&context)?);
+                    ensure!(self.storage.get_json("business")? == Some(json!(99)));
+                }
                 "Invalid" => {
                     let before = self.peers.calls();
                     ensure!(self
@@ -453,11 +461,16 @@ async fn restart(
     peers: &Peers,
     track: &Track,
     archive: Option<&Arc<catalog_fault::Store>>,
+    controller: &Arc<ExecutionController>,
 ) -> Result<()> {
     let [a, b] = histories;
     let first = peers.cell(a.cell.as_str())?;
     call(cluster, a, minimum, 2, "Write").await?;
-    call(cluster, a, minimum, 3, "Read").await?;
+    let before = call(cluster, a, minimum, 3, "Read")
+        .await?
+        .version
+        .sequence
+        .get();
     let original_resource = first.resource.lock().unwrap().id.clone();
     if let Some(store) = archive {
         let denied = store.denied_group_archive_writes.load(Ordering::Acquire);
@@ -490,9 +503,44 @@ async fn restart(
             .store(false, Ordering::Release);
         track.restarted.store(true, Ordering::Release);
         bindings::restart(cluster).await?;
-        call(cluster, a, minimum, 5, "Status").await?;
+        call(
+            cluster,
+            a,
+            minimum,
+            5,
+            if minimum == Durability::S3 {
+                "RetiredUnsubmitted"
+            } else {
+                "Status"
+            },
+        )
+        .await?;
         call(cluster, b, minimum, 2, "Status").await?;
         if minimum == Durability::S3 {
+            let active = first
+                .active
+                .lock()
+                .unwrap()
+                .clone()
+                .context("replacement claim missing")?;
+            ensure!(active.checkpoint().record.generation == 2);
+            let original = controller
+                .lifecycle(active.clone(), ExecutionOperationKind::Create)
+                .await?
+                .context("unsubmitted Create was not sealed")?;
+            ensure!(
+                original.claim == active
+                    && original.operation.kind == ExecutionOperationKind::Create
+                    && original.operation.expires_unix_ms == 1
+                    && hex::encode(original.operation.id) == active.checkpoint().record.request_id
+            );
+            ensure!(
+                matches!(
+                    controller.reconcile(active, original).await?,
+                    ExecutionOutcome::Refused
+                ),
+                "unsubmitted generation lacks authoritative no-effect proof"
+            );
             ensure!(
                 first.creates.load(Ordering::Acquire) == 1
                     && !first.resource.lock().unwrap().exists,
@@ -507,7 +555,12 @@ async fn restart(
                 && first.deletes.load(Ordering::Acquire) == 2
         );
     } else {
-        call(cluster, a, minimum, 4, "Restart").await?;
+        let replaced = call(cluster, a, minimum, 4, "Restart").await?;
+        ensure!(
+            replaced.version.sequence.get() == before + 4,
+            "replacement added an intermediate retirement checkpoint: before={before} after={}",
+            replaced.version.sequence.get()
+        );
         ensure!(
             first.creates.load(Ordering::Acquire) == 2
                 && first.deletes.load(Ordering::Acquire) == 1
@@ -695,7 +748,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                     }
                     ensure!(peers.resources.lock().unwrap().len()==2,"shared cells borrowed one provider resource");
                     if matches!(scenario, Scenario::Restart | Scenario::RestartArchive) {
-                        restart(&mut cluster, [&a, &b], minimum, &peers, &track, (scenario == Scenario::RestartArchive).then_some(&store)).await?;
+                        restart(&mut cluster, [&a, &b], minimum, &peers, &track, (scenario == Scenario::RestartArchive).then_some(&store), &controller).await?;
                     } else {
                     let first=peers.cell(a.cell.as_str())?;
                     first.lose_write.store(true,Ordering::Release);first.hide_data_receipt.store(true,Ordering::Release);
