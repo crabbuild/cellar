@@ -106,6 +106,8 @@ mod erase;
 mod event_streams;
 #[path = "support/cell_group_events.rs"]
 mod events;
+#[path = "support/cell_group_private_cleanup.rs"]
+mod private_cleanup;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
@@ -3145,6 +3147,21 @@ async fn prepared_checkpoints_replicate_before_unrelated_queued_sql() -> Result<
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn checkpoint_proofs_advance_before_unrelated_queued_sql() -> Result<()> {
     Box::pin(checkpoint_proof::qualify()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_cleanup_releases_the_single_sql_worker() -> Result<()> {
+    Box::pin(private_cleanup::qualify()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_cleanup_waiter_deadline_retains_physical_custody() -> Result<()> {
+    Box::pin(private_cleanup::qualify_cancel()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_cleanup_io_failure_retains_committed_outcome() -> Result<()> {
+    Box::pin(private_cleanup::qualify_failure()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

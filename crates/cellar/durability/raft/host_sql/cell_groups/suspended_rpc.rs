@@ -751,6 +751,9 @@ impl Cells {
         stopped: &Arc<AtomicBool>,
         performance: &Arc<crate::raft::performance::Registry>,
     ) -> bool {
+        if self.poll_retiring() {
+            return true;
+        }
         let Ok(now) = domain.mono_ms() else {
             return false;
         };

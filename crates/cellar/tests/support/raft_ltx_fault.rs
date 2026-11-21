@@ -55,6 +55,8 @@ pub struct Faults {
     pub before_snapshot_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub read_open: Mutex<Option<ReadOpenHook>>,
     pub lock_open: Mutex<Option<ReadOpenHook>>,
+    /// Selected disposable-file removal after its SQLite owner has closed.
+    pub private_cleanup: Mutex<Option<ReadOpenHook>>,
     pub signal: Option<PathBuf>,
 }
 
@@ -82,6 +84,7 @@ impl Faults {
             before_snapshot_close: Mutex::new(None),
             read_open: Mutex::new(None),
             lock_open: Mutex::new(None),
+            private_cleanup: Mutex::new(None),
             signal,
         })
     }
@@ -426,6 +429,15 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
+        if path
+            .file_name()
+            .is_some_and(|name| name == "working.sqlite")
+        {
+            let hook = self.faults.private_cleanup.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook(path)?;
+            }
+        }
         if path.parent() == Some(self.faults.directory.as_path()) && self.faults.take(FAIL_REMOVE) {
             return Err(io::Error::other("injected image removal failure"));
         }
@@ -443,6 +455,10 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn remove_dir_batch(&self, path: &Path, limit: usize) -> io::Result<bool> {
+        let hook = self.faults.private_cleanup.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(path)?;
+        }
         DirectFileSystem.remove_dir_batch(path, limit)
     }
 

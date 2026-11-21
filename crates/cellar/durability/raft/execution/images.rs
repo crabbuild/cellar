@@ -474,12 +474,16 @@ impl WorkingImage {
     pub(super) fn close_cell(self, options: &Options) -> anyhow::Result<()> {
         // Close SQLite/WAL capture before removing any path, including when its
         // close reports an error. The caller still owns the private lock.
-        let closed = match self {
-            Self::Materialized(working) => (*working).close_for_discard(),
-            Self::Rooted(working) => (*working).close(),
-        };
+        let closed = self.close_cell_writer();
         options.discard_cell_scratch()?;
         closed
+    }
+
+    pub(super) fn close_cell_writer(self) -> anyhow::Result<()> {
+        match self {
+            Self::Materialized(working) => (*working).close_for_discard(),
+            Self::Rooted(working) => (*working).close(),
+        }
     }
 
     pub(super) fn trim_cell(

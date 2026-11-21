@@ -5,6 +5,10 @@ use super::rpc_cache::RpcActivation;
 use super::*;
 use std::collections::{BTreeMap, VecDeque};
 
+#[path = "cleanup.rs"]
+mod cleanup;
+use cleanup::Retiring;
+
 #[path = "suspended_rpc.rs"]
 mod rpc;
 #[path = "stage.rs"]
@@ -144,6 +148,7 @@ pub(in crate::raft::host_sql) struct Cells {
     pending: BTreeMap<CellHistory, Pending>,
     suspended: VecDeque<rpc::Suspended>,
     preparing: VecDeque<Preparing>,
+    retiring: VecDeque<Retiring>,
     activations: Arc<RpcCache>,
     wake: Arc<crate::raft::host_sql::WorkerWake>,
     performance: Arc<crate::raft::performance::Registry>,
@@ -161,6 +166,7 @@ impl Cells {
             pending: BTreeMap::new(),
             suspended: VecDeque::new(),
             preparing: VecDeque::new(),
+            retiring: VecDeque::new(),
             activations,
             wake,
             performance,
@@ -220,6 +226,20 @@ impl Cells {
                         timer.finish(self.start_stage(cell, *stage, reply, max, domain, now));
                         return;
                     }
+                    action @ (Action::Finish(_) | Action::Reconcile(..)) => {
+                        self.start_settlement(
+                            cell,
+                            action,
+                            cleanup::Completion {
+                                reply,
+                                slot: _slot,
+                                timer,
+                                at: now,
+                            },
+                            domain,
+                        );
+                        return;
+                    }
                     Action::Query(query) => {
                         // Retirement requires every same-cell private frame to
                         // join. Its discovery must not mask runnable callbacks.
@@ -227,10 +247,11 @@ impl Cells {
                             && !self
                                 .preparing
                                 .iter()
-                                .any(|preparation| preparation.cell == cell);
+                                .any(|preparation| preparation.cell == cell)
+                            && !self.retiring.iter().any(|frame| frame.cell == cell);
                         super::query::run(*query, domain, binding_ready)
                     }
-                    action => self.run(cell, action, max, now),
+                    action => self.run(cell, action, max),
                 }
             }
             _ => {
@@ -260,7 +281,6 @@ impl Cells {
         cell: CellHistory,
         action: Action,
         max: usize,
-        now: u64,
     ) -> Result<CellSqlOutcome, ExecutionError> {
         match action {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
@@ -397,103 +417,22 @@ impl Cells {
                 }
                 Ok(CellSqlOutcome::Submitted)
             }
-            Action::Finish(authority) => {
-                let fence = authority.activation_fence();
-                let pending = self
-                    .pending
-                    .get_mut(&cell)
-                    .ok_or(ExecutionError::Uncertain)?;
-                let receipt = pending.producer.command()?.finish(*authority)?;
-                let pending = self
-                    .pending
-                    .remove(&cell)
-                    .ok_or(ExecutionError::Invalid("cell producer changed"))?;
-                pending.producer.close()?;
-                if let Some(mut activation) = pending.activation {
-                    activation.fence = fence;
-                    activation.committed(&receipt.receipt);
-                    self.activations.put(cell, activation, now)?;
-                }
-                Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
-                    receipt,
-                    _retention: OutputRetention::Sql {
-                        _bytes: pending.prepared._bytes,
-                    },
-                })))
-            }
-            Action::Reconcile(proposal, authority) => {
-                let pending = self
-                    .pending
-                    .get_mut(&cell)
-                    .ok_or(ExecutionError::Uncertain)?;
-                let expected = pending.producer.command()?.prepared_final_version();
-                let resolution = match pending
-                    .producer
-                    .command()?
-                    .observe_reconciliation(proposal, *authority)
-                {
-                    Ok(CellReconciliationObservation::Resolved(resolution)) => resolution,
-                    Ok(CellReconciliationObservation::Pending) => {
-                        return Ok(CellSqlOutcome::ReconciliationPending);
-                    }
-                    Err(ExecutionError::Uncertain) if pending.prepared.proposal() == proposal => {
-                        // This is exactly the ownership check performed by
-                        // Resume. It does not validate the observed image or
-                        // authorize caching, output or producer retirement.
-                        return Ok(CellSqlOutcome::ReconciliationRetained);
-                    }
-                    Err(error) => return Err(error),
-                };
-                let pending = self
-                    .pending
-                    .remove(&cell)
-                    .ok_or(ExecutionError::Invalid("cell producer changed"))?;
-                pending.producer.close()?;
-                if let Some(mut activation) = pending.activation {
-                    // Normal public settlement also uses reconciliation. A
-                    // committed final image can retain native state while the
-                    // original leader fence survives; a later image or term
-                    // cannot establish that this instance matches the cell.
-                    let fence = match &resolution {
-                        CellReconciliation::Committed(receipt)
-                            if expected.as_ref() == Some(&receipt.version) =>
-                        {
-                            activation.fence.advanced(&receipt.version)
-                        }
-                        _ => None,
-                    };
-                    if let Some(fence) = fence {
-                        activation.fence = fence;
-                        if let CellReconciliation::Committed(receipt) = &resolution {
-                            activation.committed(&receipt.receipt);
-                        }
-                        self.activations.put(cell, activation, now)?;
-                    } else {
-                        activation.close()?;
-                    }
-                }
-                let resolution = match resolution {
-                    CellReconciliation::Committed(receipt) => {
-                        CellSqlReconciliation::Committed(Box::new(CellSqlReceipt {
-                            receipt: *receipt,
-                            _retention: OutputRetention::Sql {
-                                _bytes: pending.prepared._bytes,
-                            },
-                        }))
-                    }
-                    CellReconciliation::NotCommitted => CellSqlReconciliation::NotCommitted,
-                    CellReconciliation::Refused(failure) => CellSqlReconciliation::Refused(failure),
-                };
-                Ok(CellSqlOutcome::Reconciled(resolution))
+            Action::Finish(_) | Action::Reconcile(..) => {
+                Err(ExecutionError::Invalid("settlement worker dispatch"))
             }
         }
     }
 
     fn check_capacity(&self, cell: &CellHistory, max: usize) -> Result<(), ExecutionError> {
-        if self.pending.contains_key(cell) || self.preparing.iter().any(|p| &p.cell == cell) {
+        if self.pending.contains_key(cell)
+            || self.preparing.iter().any(|p| &p.cell == cell)
+            || self.retiring.iter().any(|frame| &frame.cell == cell)
+        {
             return Err(ExecutionError::Busy);
         }
-        if self.pending.len() + self.suspended.len() + self.preparing.len() >= max {
+        if self.pending.len() + self.suspended.len() + self.preparing.len() + self.retiring.len()
+            >= max
+        {
             return Err(overloaded());
         }
         Ok(())
@@ -574,6 +513,11 @@ impl Cells {
 
     pub fn close(&mut self) -> Result<(), ExecutionError> {
         let mut result = Ok(());
+        for retiring in std::mem::take(&mut self.retiring) {
+            if let Err(error) = retiring.close(&self.activations) {
+                result = Err(error);
+            }
+        }
         for preparing in std::mem::take(&mut self.preparing) {
             if let Err(error) = preparing.close() {
                 result = Err(error);

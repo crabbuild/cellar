@@ -11,6 +11,7 @@ pub(super) use rpc_cache::RpcCache;
 pub(crate) use rpc_commit::RpcCommitContext;
 mod apply;
 mod checkpoint_task;
+mod cleanup_task;
 mod preparation;
 pub use apply::CellGroupPreparedApply;
 pub(in crate::raft::host_sql) use apply::{ApplyRequest, ApplyTasks};

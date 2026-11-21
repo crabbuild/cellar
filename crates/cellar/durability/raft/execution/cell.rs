@@ -100,6 +100,67 @@ pub struct CellPrivateExecutor {
     _lock: PrivateLock,
 }
 
+/// Disposable physical custody after SQLite and capture have closed on their
+/// SQL owner. No connection, continuation or application callback leaves it.
+pub(crate) struct CellPrivateCleanup {
+    options: Options,
+    lock: PrivateLock,
+    closed: Result<(), ExecutionError>,
+    discard: bool,
+}
+
+impl CellPrivateCleanup {
+    #[cfg(test)]
+    pub(crate) fn closed_workspace_for_test(
+        options: RootPrivateOptions,
+    ) -> Result<Self, ExecutionError> {
+        // Custody tests start with a real disposable workspace and no SQLite
+        // connection. Native integration separately covers SQL-owner closure.
+        let options = Options::rooted(options, None);
+        let lock = PrivateLock {
+            _lock: options
+                .host
+                .filesystem()
+                .lock_file(&options.directory.join("working.lock"))
+                .map_err(storage)?,
+            _workspace: options.images.workspace().cloned(),
+        };
+        Ok(Self {
+            options,
+            lock,
+            closed: Ok(()),
+            discard: false,
+        })
+    }
+
+    pub(crate) fn finish(self) -> Result<(), ExecutionError> {
+        let Self {
+            options,
+            lock,
+            closed,
+            discard,
+        } = self;
+        let store = options.images.root_store().cloned();
+        let discarded = if discard {
+            options.discard_cell_scratch().map_err(storage)
+        } else {
+            Ok(())
+        };
+        // The final rooted pin removes the workspace and syncs its parent
+        // before refunding. Failure keeps the charge and quarantines admission.
+        drop(options);
+        drop(lock);
+        // Preserve close_cell's cleanup-before-close error precedence.
+        discarded.and(closed)?;
+        if let Some(store) = store {
+            if store.usage().map_err(storage)?.quarantined {
+                return Err(storage(cellar_ltx::internal::StoreError::Quarantined));
+            }
+        }
+        Ok(())
+    }
+}
+
 enum PreparationOwner {
     Local(std::sync::Arc<()>),
     Checkpoint(std::sync::Arc<()>),
@@ -670,6 +731,25 @@ impl CellPrivateExecutor {
             }
         }
         Ok(())
+    }
+
+    /// Split only a settled writer's physical cleanup from its SQL closure.
+    /// The caller retains its reply, writer lease and bytes until finish joins.
+    pub(crate) fn close_writer(mut self) -> Result<CellPrivateCleanup, ExecutionError> {
+        if self.pending.is_some() || self.preparing.is_some() {
+            self.close()?;
+            return Err(ExecutionError::Invalid("unsettled private cleanup"));
+        }
+        let discard = self.working.is_some();
+        let closed = self.working.take().map_or(Ok(()), |working| {
+            working.close_cell_writer().map_err(storage)
+        });
+        Ok(CellPrivateCleanup {
+            options: self.options,
+            lock: self._lock,
+            closed,
+            discard,
+        })
     }
 }
 

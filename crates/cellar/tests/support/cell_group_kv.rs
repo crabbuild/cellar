@@ -645,25 +645,34 @@ async fn run(
         max_payload_bytes: 64 * 1024 * 1024 + 4096,
         io_timeout: Duration::from_secs(10),
     });
-    let started = Box::pin(ManagedCluster::start_with_applications(
-        fixture,
-        &[],
-        ArchiveSetup::Initialized,
-        false,
-        None,
-        FirstGroupSetup::Normal,
-    ))
+    let domain = fixture.domain.clone();
+    let started = async {
+        let mut roots = Vec::new();
+        for _ in 0..3 {
+            let mut root = tempfile::Builder::new()
+                .prefix("cellar-kv-bindings-")
+                .tempdir()?;
+            root.disable_cleanup(true);
+            eprintln!("retained KV binding disk: {}", root.path().display());
+            roots.push(root);
+        }
+        Box::pin(ManagedCluster::start_with_roots(fixture, roots)).await
+    }
     .await;
     let mut cluster = match started {
         Ok(cluster) => cluster,
         Err(error) => {
-            if let Some(http) = http {
-                http.close().await?;
+            let closed = match http {
+                Some(http) => http.close().await,
+                None => Ok(()),
+            };
+            domain.shutdown().await;
+            if let Err(close) = closed {
+                return Err(error.context(format!("joining KV startup HTTP: {close:#}")));
             }
             return Err(error);
         }
     };
-    let domain = cluster.fixtures[0].domain.clone();
     let work = domain
         .run(async {
             let kv_group = named_service::activate(&cluster, "kv-archive").await?;
@@ -759,8 +768,8 @@ async fn run(
                             serde_json::to_vec(part)?,
                             options,
                         )
-                        .await
-                        .with_context(|| format!("source KV contract phase {part}"))?;
+                        .await;
+                    let reply = reply.with_context(|| format!("source KV contract phase {part}"))?;
                     eprintln!(
                         "source KV contract phase {part}: elapsed_ms={}",
                         cellar::asyncrt::mono_ms() - start
@@ -999,9 +1008,14 @@ async fn run(
         }
         Ok(())
     })();
-    // Keep every independent history, including successful fault controls.
-    for root in std::mem::take(&mut cluster.roots) {
-        eprintln!("retained KV binding disk: {}", root.keep().display());
+    for (owner, result) in [
+        ("nodes-and-hosts", &joined),
+        ("payloads", &payloads_joined),
+        ("http", &http_joined),
+    ] {
+        if let Err(error) = result {
+            eprintln!("KV_CLEANUP_FAILURE owner={owner}: {error:#}");
+        }
     }
     work?;
     joined?;

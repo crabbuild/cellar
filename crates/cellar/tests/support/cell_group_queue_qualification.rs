@@ -5,6 +5,9 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::AtomicUsize;
 
+#[path = "cell_group_queue_drain.rs"]
+mod drain;
+
 #[path = "cell_group_queue_operator_read.rs"]
 mod operator_read;
 pub use operator_read::qualify as qualify_operator_read_boundaries;
@@ -634,13 +637,15 @@ impl Scenario {
     }
 
     async fn empty(&self, queue: &str) -> Result<()> {
+        let mut observation = drain::Observation::new();
         let mut last = None;
         let result = cellar::asyncrt::timeout(Duration::from_secs(30), async {
             loop {
-                let value = admin(&self.cluster, queue, json!({"op":"info"}))
+                let value = observation
+                    .info(&self.cluster, queue)
                     .await
                     .with_context(|| format!("empty {queue}"))?;
-                let rows = admin(&self.cluster, queue, json!({"op":"peek","limit":100})).await?;
+                let rows = observation.peek(&self.cluster, queue).await?;
                 let empty = value["backlogCount"] == 0.0
                     && rows["messages"].as_array().is_some_and(Vec::is_empty);
                 last = Some((value, rows));
@@ -651,6 +656,7 @@ impl Scenario {
             }
         })
         .await;
+        observation.finish(self, queue, &last, matches!(&result, Ok(Ok(()))));
         result
             .with_context(|| format!("Queue {queue} empty wait; last strong reads: {last:?}"))??;
         Ok(())
