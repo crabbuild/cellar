@@ -585,6 +585,10 @@ pub async fn qualify_native_container(real: bool, outage: bool) -> Result<()> {
     native_container::qualify(real, outage).await
 }
 
+pub async fn qualify_native_restart(real: bool, archive: bool) -> Result<()> {
+    native_container::qualify_restart(real, archive).await
+}
+
 pub async fn qualify_expiry(real: bool) -> Result<()> {
     selected(real, Scenario::Expired).await
 }

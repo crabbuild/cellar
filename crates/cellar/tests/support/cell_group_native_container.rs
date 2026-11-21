@@ -5,11 +5,18 @@ use super::*;
 use cellar::sdk::containers::{Container, ContainerAdapter, FilePath, StartOptions};
 
 #[derive(Default)]
-struct Peers(Mutex<BTreeMap<String, (String, Arc<Peer>)>>);
+struct Peers {
+    resources: Mutex<BTreeMap<String, (String, Arc<Peer>)>>,
+    capture_delete: AtomicBool,
+    lost_delete: Mutex<Option<ExecutionPendingOperation>>,
+    hide_delete: AtomicBool,
+    delete_lookups: AtomicUsize,
+    archive_after_delete: Mutex<Option<(String, Arc<catalog_fault::Store>)>>,
+}
 
 impl Peers {
     fn select(&self, claim: &ExecutionClaim) -> Arc<Peer> {
-        self.0
+        self.resources
             .lock()
             .unwrap()
             .entry(hex::encode(claim.resource_key()))
@@ -24,7 +31,7 @@ impl Peers {
     }
 
     fn cell(&self, scope: &str) -> Result<Arc<Peer>> {
-        self.0
+        self.resources
             .lock()
             .unwrap()
             .values()
@@ -34,7 +41,7 @@ impl Peers {
     }
 
     fn calls(&self) -> usize {
-        self.0
+        self.resources
             .lock()
             .unwrap()
             .values()
@@ -78,7 +85,28 @@ impl ExecutionControllerBackend for Peers {
         operation: ExecutionOperation,
         payload: Vec<u8>,
     ) -> HandlerFuture<ExecutionOutcome> {
-        self.select(&claim).execute(claim, operation, payload)
+        let peer = self.select(&claim);
+        Box::pin(async move {
+            let deleting = operation.kind == ExecutionOperationKind::Delete;
+            if deleting && self.capture_delete.swap(false, Ordering::AcqRel) {
+                *self.lost_delete.lock().unwrap() = Some(ExecutionPendingOperation {
+                    claim: claim.clone(),
+                    operation: operation.clone(),
+                });
+            }
+            let scope = claim.history().cell.as_str().to_owned();
+            let outcome = peer.execute(claim, operation, payload).await?;
+            if deleting {
+                let mut fault = self.archive_after_delete.lock().unwrap();
+                if fault.as_ref().is_some_and(|(cell, _)| cell == &scope) {
+                    let (_, store) = fault.take().unwrap();
+                    store
+                        .deny_group_archive_writes
+                        .store(true, Ordering::Release);
+                }
+            }
+            Ok(outcome)
+        })
     }
 
     fn reconcile(
@@ -89,7 +117,17 @@ impl ExecutionControllerBackend for Peers {
         if current.resource_key() != original.claim.resource_key() {
             return Box::pin(async { anyhow::bail!("foreign native container receipt") });
         }
-        self.select(&current).reconcile(current, original)
+        let peer = self.select(&current);
+        Box::pin(async move {
+            let result = peer.reconcile(current, original.clone()).await?;
+            if self.lost_delete.lock().unwrap().as_ref() == Some(&original) {
+                self.delete_lookups.fetch_add(1, Ordering::AcqRel);
+                if self.hide_delete.load(Ordering::Acquire) {
+                    return Ok(None);
+                }
+            }
+            Ok(result)
+        })
     }
 }
 
@@ -182,6 +220,7 @@ impl Cell for NativeRoot {
                 }
                 "Read" => {
                     self.track.reads.fetch_add(1, Ordering::AcqRel);
+                    ensure!(self.storage.get_json("business")? == Some(json!(99)));
                     ensure!(self.container.running(&context)?);
                     let value = self
                         .container
@@ -189,6 +228,25 @@ impl Cell for NativeRoot {
                         .await?;
                     ensure!(value == [0, 255, 42]);
                     output = json!({"bytes":STANDARD.encode(value)});
+                }
+                "Restart" => {
+                    ensure!(self.storage.get_json("business")? == Some(json!(99)));
+                    let journal = BindingJournal::open(&context, "TOOL")?;
+                    let previous = journal.load(&context)?.context("restart binding missing")?;
+                    let run = self
+                        .container
+                        .start(&context, StartOptions::default())
+                        .await?;
+                    let current = journal.load(&context)?.context("new binding missing")?;
+                    ensure!(run == previous.record.generation + 1);
+                    ensure!(
+                        current.record.generation == run
+                            && current.record.request_id != previous.record.request_id
+                            && current.record.resource_id != previous.record.resource_id
+                            && self.container.running(&context)?
+                    );
+                    ensure!(self.storage.get_json("business")? == Some(json!(99)));
+                    output = json!({"run":run});
                 }
                 "Invalid" => {
                     let before = self.peers.calls();
@@ -311,7 +369,10 @@ async fn start_native(
                     }
                 }
                 if track.restarted.load(Ordering::Acquire) {
-                    ensure!(running, "constructor lost reconciled running observation");
+                    ensure!(
+                        running == peers.cell(&identity.scope)?.resource.lock().unwrap().exists,
+                        "constructor lost reconciled running observation"
+                    );
                 }
                 *track
                     .constructed
@@ -353,7 +414,196 @@ async fn start_native(
     .await
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scenario {
+    Ordinary,
+    Archive,
+    Restart,
+    RestartArchive,
+}
+
 pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
+    selected(
+        real,
+        if outage {
+            Scenario::Archive
+        } else {
+            Scenario::Ordinary
+        },
+    )
+    .await
+}
+
+pub(super) async fn qualify_restart(real: bool, archive: bool) -> Result<()> {
+    selected(
+        real,
+        if archive {
+            Scenario::RestartArchive
+        } else {
+            Scenario::Restart
+        },
+    )
+    .await
+}
+
+async fn restart(
+    cluster: &mut ManagedCluster,
+    histories: [&CellHistory; 2],
+    minimum: Durability,
+    peers: &Peers,
+    track: &Track,
+    archive: Option<&Arc<catalog_fault::Store>>,
+) -> Result<()> {
+    let [a, b] = histories;
+    let first = peers.cell(a.cell.as_str())?;
+    call(cluster, a, minimum, 2, "Write").await?;
+    call(cluster, a, minimum, 3, "Read").await?;
+    let original_resource = first.resource.lock().unwrap().id.clone();
+    if let Some(store) = archive {
+        let denied = store.denied_group_archive_writes.load(Ordering::Acquire);
+        *peers.archive_after_delete.lock().unwrap() = Some((a.cell.as_str().into(), store.clone()));
+        let result = call(cluster, a, minimum, 4, "Restart").await;
+        ensure!(
+            peers.archive_after_delete.lock().unwrap().is_none(),
+            "restart did not reach deletion"
+        );
+        ensure!(first.deletes.load(Ordering::Acquire) == 1);
+        if minimum == Durability::S3 {
+            let error = result
+                .err()
+                .context("replacement escaped retirement S3 proof")?;
+            let original = bindings::options(4, minimum)?.id;
+            ensure!(error
+                .downcast_ref::<Arc<CellCommandError>>()
+                .is_some_and(|error| error.ambiguous && error.command == original));
+            ensure!(store.denied_group_archive_writes.load(Ordering::Acquire) > denied);
+            ensure!(
+                first.creates.load(Ordering::Acquire) == 1,
+                "new generation created before retirement proof"
+            );
+        } else {
+            ensure!(result?.durability >= minimum);
+            ensure!(first.creates.load(Ordering::Acquire) == 2);
+        }
+        store
+            .deny_group_archive_writes
+            .store(false, Ordering::Release);
+        track.restarted.store(true, Ordering::Release);
+        bindings::restart(cluster).await?;
+        call(cluster, a, minimum, 5, "Status").await?;
+        if minimum == Durability::S3 {
+            ensure!(
+                first.creates.load(Ordering::Acquire) == 1
+                    && !first.resource.lock().unwrap().exists,
+                "recovery replayed interrupted replacement"
+            );
+            call(cluster, a, minimum, 6, "Restart").await?;
+        }
+        call(cluster, a, minimum, 7, "Destroy").await?;
+        ensure!(
+            first.creates.load(Ordering::Acquire) == 2
+                && first.deletes.load(Ordering::Acquire) == 2
+        );
+    } else {
+        call(cluster, a, minimum, 4, "Restart").await?;
+        ensure!(
+            first.creates.load(Ordering::Acquire) == 2
+                && first.deletes.load(Ordering::Acquire) == 1
+        );
+        {
+            let resource = first.resource.lock().unwrap();
+            ensure!(
+                resource.id != original_resource && resource.files.is_empty(),
+                "replacement retained ephemeral bytes"
+            );
+            let receipts = first.receipts.lock().unwrap();
+            let deletion = receipts
+                .values()
+                .find(|r| r.original.operation.kind == ExecutionOperationKind::Delete)
+                .context("old delete missing")?;
+            let creation = receipts
+                .values()
+                .find(|r| {
+                    r.original.operation.kind == ExecutionOperationKind::Create
+                        && r.original.claim.checkpoint().record.generation == 2
+                })
+                .context("replacement create missing")?;
+            ensure!(
+                deletion.original.operation.expires_unix_ms
+                    == creation.original.operation.expires_unix_ms,
+                "replacement renewed the request deadline"
+            );
+        }
+        call(cluster, a, minimum, 5, "Invalid").await?;
+        peers.capture_delete.store(true, Ordering::Release);
+        peers.hide_delete.store(true, Ordering::Release);
+        first.lose_delete.store(true, Ordering::Release);
+        let error = call(cluster, a, minimum, 6, "Restart")
+            .await
+            .err()
+            .context("lost replacement Delete returned success")?;
+        let original = bindings::options(6, minimum)?.id;
+        ensure!(error
+            .downcast_ref::<Arc<CellCommandError>>()
+            .is_some_and(|error| error.ambiguous && error.command == original));
+        ensure!(
+            !peers.capture_delete.load(Ordering::Acquire)
+                && peers.lost_delete.lock().unwrap().is_some()
+        );
+        ensure!(
+            first.creates.load(Ordering::Acquire) == 2
+                && first.deletes.load(Ordering::Acquire) == 2
+        );
+        let constructed = *track
+            .constructed
+            .lock()
+            .unwrap()
+            .get(a.cell.as_str())
+            .context("constructor missing")?;
+        track.restarted.store(true, Ordering::Release);
+        bindings::restart(cluster).await?;
+        let lookups = peers.delete_lookups.load(Ordering::Acquire);
+        ensure!(call(cluster, a, minimum, 7, "Status").await.is_err());
+        ensure!(
+            peers.delete_lookups.load(Ordering::Acquire) > lookups,
+            "original Delete receipt cut was not entered"
+        );
+        ensure!(
+            track.constructed.lock().unwrap().get(a.cell.as_str()) == Some(&constructed),
+            "unknown Delete entered business construction"
+        );
+        call(cluster, b, minimum, 2, "Status").await?;
+        peers.hide_delete.store(false, Ordering::Release);
+        call(cluster, a, minimum, 8, "Status").await?;
+        ensure!(
+            first.creates.load(Ordering::Acquire) == 2
+                && first.deletes.load(Ordering::Acquire) == 2
+                && !first.resource.lock().unwrap().exists,
+            "reconciliation replayed replacement"
+        );
+        call(cluster, a, minimum, 9, "Restart").await?;
+        call(cluster, a, minimum, 10, "Destroy").await?;
+        ensure!(
+            first.creates.load(Ordering::Acquire) == 3
+                && first.deletes.load(Ordering::Acquire) == 3
+        );
+    }
+    call(cluster, b, minimum, 3, "Destroy").await?;
+    ensure!(
+        peers.cell(b.cell.as_str())?.creates.load(Ordering::Acquire) == 1
+            && peers.cell(b.cell.as_str())?.deletes.load(Ordering::Acquire) == 1
+    );
+    ensure!(track
+        .constructed
+        .lock()
+        .unwrap()
+        .values()
+        .all(|count| *count == 2));
+    Ok(())
+}
+
+async fn selected(real: bool, scenario: Scenario) -> Result<()> {
+    let outage = scenario == Scenario::Archive;
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::checkpoint=debug")
         .with_ansi(false)
@@ -428,7 +678,7 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
                         let original=bindings::options(1,minimum)?.id;
                         ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.command==original && error.ambiguous));
                         ensure!(store.denied_group_archive_writes.load(Ordering::Acquire)>denied, "native archive refusal cut was not entered");
-                        ensure!(peers.0.lock().unwrap().is_empty(),"native controller activated before S3 proof");
+                        ensure!(peers.resources.lock().unwrap().is_empty(),"native controller activated before S3 proof");
                     } else {
                         ensure!(result?.durability>=minimum);ensure!(peers.cell(a.cell.as_str())?.creates.load(Ordering::Acquire)==1);
                     }
@@ -441,7 +691,10 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
                         let created=call(&cluster,h,minimum,1,"Create").await?;
                         ensure!(created.version.sequence.get()==before.version.sequence.get()+2,"native first Start added a pre-constructor proof");
                     }
-                    ensure!(peers.0.lock().unwrap().len()==2,"shared cells borrowed one provider resource");
+                    ensure!(peers.resources.lock().unwrap().len()==2,"shared cells borrowed one provider resource");
+                    if matches!(scenario, Scenario::Restart | Scenario::RestartArchive) {
+                        restart(&mut cluster, [&a, &b], minimum, &peers, &track, (scenario == Scenario::RestartArchive).then_some(&store)).await?;
+                    } else {
                     let first=peers.cell(a.cell.as_str())?;
                     first.lose_write.store(true,Ordering::Release);first.hide_data_receipt.store(true,Ordering::Release);
                     let error=call(&cluster,&a,minimum,2,"Write").await.err().context("lost native Write returned success")?;
@@ -462,8 +715,9 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
                     ensure!(first.writes.load(Ordering::Acquire)==1 && first.executions.load(Ordering::Acquire)==0 && *first.lost_data.lock().unwrap()==*first.recovered_data.lock().unwrap(),"native recovery replayed or changed original work");
                     call(&cluster,&a,minimum,6,"Destroy").await?;
                     call(&cluster,&b,minimum,3,"Destroy").await?;
-                    ensure!(peers.0.lock().unwrap().values().all(|(_,peer)|peer.creates.load(Ordering::Acquire)==1 && peer.deletes.load(Ordering::Acquire)==1));
+                    ensure!(peers.resources.lock().unwrap().values().all(|(_,peer)|peer.creates.load(Ordering::Acquire)==1 && peer.deletes.load(Ordering::Acquire)==1));
                     ensure!(track.constructed.lock().unwrap().values().all(|count|*count==2));
+                    }
                 }
                 eprintln!("native_container_observations {}",json!({"extents":rooted,"minimum":format!("{minimum:?}"),"archive_outage":outage,"cells":if outage{1}else{2},"normal_context_api":true,"original_request_budget_ms":5000}));
                 Ok::<_,anyhow::Error>(())

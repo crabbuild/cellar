@@ -3109,6 +3109,29 @@ async fn native_container_preserves_original_quorum_and_s3_source_admission() ->
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_container_replacement_preserves_original_deletion_and_deadline() -> Result<()> {
+    controller_provider::qualify_native_restart(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_container_replacement_requires_retirement_durability() -> Result<()> {
+    controller_provider::qualify_native_restart(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_native_container_replacement_preserves_original_deletion_and_deadline() -> Result<()>
+{
+    controller_provider::qualify_native_restart(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_native_container_replacement_requires_retirement_durability() -> Result<()> {
+    controller_provider::qualify_native_restart(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_native_container_uses_shared_group_fences_and_owned_invocation_entry() -> Result<()>
 {
