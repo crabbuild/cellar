@@ -72,6 +72,25 @@ Busy shared-group maintenance declines before publishing a competing checkpoint.
 Running/Monitor observations retain their concurrent lifecycle behavior. The
 adapter never reacquires an already held guard or borrows a newer invocation.
 
+The session's synchronous preparation phase stages only private source metadata.
+For controller calls it reserves the binding intent and exact execution claim
+before the ordinary gate, so that gate proves them together with business writes
+and the unfinished command. Provider work is held as a deferred call factory;
+even its future is constructed only after the gate succeeds. Existing providers
+use the default factory and retain their admission order. `fence_execution`
+rechecks and activates the reserved claim afterward. Changed state requires
+another proof; an unproven `prepare_execution_claim` result supplies no execution
+permission. Normal uncontended creation/data/deletion therefore use one combined
+input proof and one result proof, with the original Quorum/S3 minimum and deadline.
+
+Fenced maintenance can select the pure `MaintenancePreparation::DeleteIntent`
+decision for a known running resource selected for deletion. The framework
+validates that choice before mutation and stages only Deleted/Pending; it never
+accepts an arbitrary checkpoint or confirmed result. Its task reservation, desired
+intent and fence then share the input proof. Controller backends distinguish that
+desired intent from actual submission through their independent operation ledger.
+Other backends retain the default unchanged preparation and delete policy.
+
 Start proves its intent and execution claim together before provider dispatch;
 confirmation shares the final output proof. Controller I/O parks the writer and
 can reuse only the exact invocation's unchanged unfinished-receipt proof.

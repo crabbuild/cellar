@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::registry::Backend;
-use super::{DeleteSafety, MaintenanceAction};
+use super::{DeleteSafety, MaintenanceAction, MaintenancePreparation};
 use crate::application::{
     containers::{BindingIntent, BindingJournal, BindingObservation},
     Context, Output,
@@ -160,6 +160,24 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
                 backend.maintain(context.clone(), expected, action)
             }
             Backend::Fenced { backend, authority } => {
+                let expected = match backend.prepare(&expected, action)? {
+                    MaintenancePreparation::Unchanged => expected,
+                    MaintenancePreparation::DeleteIntent => {
+                        // Validate before mutating private state. A preparation
+                        // decision cannot publish a result or change resources.
+                        ensure!(
+                            action == MaintenanceAction::Delete
+                                && expected.record.intent == BindingIntent::Running
+                                && expected.record.resource_id.is_some()
+                                && !expected.record.is_retired(),
+                            "invalid maintenance deletion preparation"
+                        );
+                        let mut record = expected.record;
+                        record.intent = BindingIntent::Deleted;
+                        record.observation = BindingObservation::Pending;
+                        journal.prepare_exchange(&context, Some(expected.revision), record)?
+                    }
+                };
                 let lifecycle = _lifecycle.retained();
                 let journal = journal.clone();
                 let context = context.clone();

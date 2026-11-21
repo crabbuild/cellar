@@ -3,9 +3,13 @@
 //! Normal provider sessions backed by independently durable execution ownership.
 mod endpoint;
 mod lifecycle;
+mod preparation;
 mod protocol;
 pub mod remote;
-use crate::{Environment, Fencing, Limits, Operation, Provider, ProviderFuture, ProviderSession};
+use crate::{
+    Environment, Fencing, Limits, Operation, PreparedProviderCall, Provider, ProviderFuture,
+    ProviderSession,
+};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{containers::*, Context};
 pub use endpoint::ControllerEndpoint;
@@ -212,6 +216,7 @@ impl ControllerProvider {
         operation: Operation,
         input: serde_json::Value,
         lifecycle: Option<&BindingLifecycleGuard>,
+        start: Option<lifecycle::StartPreparation>,
     ) -> Result<serde_json::Value> {
         let journal = BindingJournal::open(context, &self.identity.binding)?;
         match operation {
@@ -221,6 +226,7 @@ impl ControllerProvider {
                     &journal,
                     lifecycle.context("controller Start requires lifecycle admission")?,
                     input,
+                    start,
                 )
                 .await
             }
@@ -298,6 +304,17 @@ impl Provider for ControllerProvider {
 }
 
 impl ProviderSession for ControllerProvider {
+    fn prepare_admitted<'a>(
+        &'a self,
+        context: &'a Context,
+        operation: Operation,
+        input: serde_json::Value,
+        _limits: &'a Limits,
+        lifecycle: Option<&'a BindingLifecycleGuard>,
+    ) -> Result<PreparedProviderCall<'a>> {
+        self.prepare_call(context, operation, input, lifecycle)
+    }
+
     fn lifecycle_admission(&self, operation: Operation) -> bool {
         !operation.is_read()
     }
@@ -320,6 +337,6 @@ impl ProviderSession for ControllerProvider {
         _limits: &'a Limits,
         lifecycle: Option<&'a BindingLifecycleGuard>,
     ) -> ProviderFuture<'a> {
-        Box::pin(self.execute(context, operation, input, lifecycle))
+        Box::pin(self.execute(context, operation, input, lifecycle, None))
     }
 }

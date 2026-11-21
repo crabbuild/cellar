@@ -15,7 +15,7 @@ pub use super::container_controller::{
 pub use super::container_execution::{ExecutionClaim, ExecutionFenceAuthority, ExecutionGrant};
 pub use super::container_supervision::{
     supervise, BackendIdentity, DeleteSafety, FencedMaintenanceBackend, MaintenanceAction,
-    MaintenanceBackend, MaintenancePolicy, RetentionExpired, Supervision,
+    MaintenanceBackend, MaintenancePolicy, MaintenancePreparation, RetentionExpired, Supervision,
 };
 pub use super::sandbox_catalog::{
     SandboxAllocation, SandboxAllocationPage, SandboxAllocationState, SandboxCatalog,

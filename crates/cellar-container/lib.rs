@@ -277,6 +277,9 @@ impl Operation {
 /// Provider futures execute inside the original native or shared-group invocation.
 pub type ProviderFuture<'a> = Pin<Box<dyn Future<Output = Result<Value>> + Send + 'a>>;
 
+/// Construct provider work only after the adapter has proved prepared state.
+pub type PreparedProviderCall<'a> = Box<dyn FnOnce() -> ProviderFuture<'a> + Send + 'a>;
+
 /// Host-selected backend. Credentials and backend selection never come from guests.
 /// Implementations declare supported operations and allocate invocation resources.
 pub trait Provider: Send + Sync {
@@ -337,6 +340,25 @@ pub trait Provider: Send + Sync {
 /// Invocation-local backend resources. Drop must cancel work and release streams.
 /// See the README for authority, isolation, response and retry requirements.
 pub trait ProviderSession: Send + Sync {
+    /// Stage bounded invocation-private metadata before the ordinary output
+    /// gate. This hook must perform no provider I/O or publish effects. The
+    /// returned call is constructed/polled only after that gate succeeds.
+    /// Retain the supplied lifecycle guard through execution and settlement.
+    /// The default defers even construction of existing backend futures until
+    /// after the gate; existing providers keep their original admission order.
+    fn prepare_admitted<'a>(
+        &'a self,
+        context: &'a Context,
+        operation: Operation,
+        input: Value,
+        limits: &'a Limits,
+        lifecycle: Option<&'a cellar::sdk::containers::BindingLifecycleGuard>,
+    ) -> Result<PreparedProviderCall<'a>> {
+        Ok(Box::new(move || {
+            self.execute_admitted(context, operation, input, limits, lifecycle)
+        }))
+    }
+
     /// Select binding serialization before the ordinary output proof. This
     /// hook performs no I/O. A backend opting in for data operations must use
     /// the supplied guard in execute_admitted instead of locking it again.
@@ -706,9 +728,6 @@ impl Session {
             None
         };
         authority.check(context)?;
-        if !operation.is_read() {
-            authority.before_effect(context).await?;
-        }
         let result_limit = if matches!(
             operation,
             Operation::ExecOutput | Operation::ReadFile | Operation::ListFiles
@@ -722,10 +741,14 @@ impl Session {
         } else {
             None
         };
-        let result = self
-            .backend
-            .execute_admitted(context, operation, input, limits, lifecycle.as_ref())
-            .await;
+        let prepared =
+            self.backend
+                .prepare_admitted(context, operation, input, limits, lifecycle.as_ref())?;
+        authority.check(context)?;
+        if !operation.is_read() {
+            authority.before_effect(context).await?;
+        }
+        let result = prepared().await;
         authority.check(context)?;
         // Result validation follows execution: failure cannot prove rollback.
         if let Ok(value) = &result {

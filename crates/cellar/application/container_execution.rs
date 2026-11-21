@@ -289,6 +289,72 @@ impl ExecutionGrant {
 }
 
 impl BindingJournal {
+    /// Stage the exact execution claim in this invocation's private SQLite
+    /// transaction without controller I/O or a durability acknowledgement.
+    /// Lifecycle admission must remain held. This metadata is not permission
+    /// to execute: await `fence_execution` before any controller/provider I/O.
+    /// Its idempotent reservation then proves/reuses the original invocation's
+    /// complete checkpoint, including business changes and binding intent.
+    pub fn prepare_execution_claim(
+        &self,
+        context: &Context,
+        lifecycle: &BindingLifecycleGuard,
+        authority: &dyn ExecutionFenceAuthority,
+    ) -> Result<ExecutionClaim> {
+        lifecycle.check(context, self)?;
+        let scope = self.check(context)?;
+        ensure!(
+            context.raft_storage.is_some(),
+            super::consensus::CommandFailure::UnsupportedCapability
+        );
+        let dispatch = crate::storage::capture_raft_dispatch()?
+            .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?;
+        let source = dispatch.binding_source()?;
+        ensure!(
+            source.term != 0 && source.group.same_namespace(&source.history),
+            super::consensus::CommandFailure::Unavailable
+        );
+        let checkpoint = self
+            .load(context)?
+            .ok_or_else(|| anyhow::anyhow!("provider execution requires a reserved binding"))?;
+        let expected = BackendIdentity {
+            binding: self.name.to_string(),
+            provider: checkpoint.record.provider.clone(),
+            configuration_digest: checkpoint.record.configuration_digest.clone(),
+        };
+        ensure!(
+            authority.identity() == expected,
+            "execution fence authority configuration mismatch"
+        );
+        let history_digest = crate::raft::cell_groups::cell_image_history_digest(&source.history);
+        let mut owner = Sha256::new();
+        owner.update(b"cellar-provider-execution-owner-1");
+        owner.update(history_digest);
+        owner.update(source.group.group.bytes());
+        owner.update(source.group.incarnation.bytes());
+        owner.update(source.term.to_be_bytes());
+        owner.update(source.configuration);
+        let claim = crate::storage::container_execution::claim(
+            scope,
+            &self.name,
+            &checkpoint,
+            &hex::encode(owner.finalize()),
+        )?;
+        let mut key = Sha256::new();
+        key.update(b"cellar-provider-execution-resource-1");
+        key.update(history_digest);
+        key.update((self.name.len() as u16).to_be_bytes());
+        key.update(self.name.as_bytes());
+        let claim = ExecutionClaim {
+            history: source.history,
+            binding: self.name.to_string(),
+            key: key.finalize().into(),
+            checkpoint,
+            claim,
+        };
+        Ok(claim)
+    }
+
     /// Reserve and prove a shared-group ownership claim, then ask the selected
     /// external authority to fence prior execution. No controller I/O occurs
     /// before the required quorum/S3 proof. Errors retain the claim for exact
@@ -306,58 +372,10 @@ impl BindingJournal {
         let journal = self.clone();
         let context = context.clone();
         Box::pin(async move {
-            lifecycle.check(&context, &journal)?;
-            let scope = journal.check(&context)?;
-            ensure!(
-                context.raft_storage.is_some(),
-                super::consensus::CommandFailure::UnsupportedCapability
-            );
+            let claim =
+                journal.prepare_execution_claim(&context, &lifecycle, authority.as_ref())?;
             let dispatch = crate::storage::capture_raft_dispatch()?
                 .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?;
-            let source = dispatch.binding_source()?;
-            ensure!(
-                source.term != 0 && source.group.same_namespace(&source.history),
-                super::consensus::CommandFailure::Unavailable
-            );
-            let checkpoint = journal
-                .load(&context)?
-                .ok_or_else(|| anyhow::anyhow!("provider execution requires a reserved binding"))?;
-            let expected = BackendIdentity {
-                binding: journal.name.to_string(),
-                provider: checkpoint.record.provider.clone(),
-                configuration_digest: checkpoint.record.configuration_digest.clone(),
-            };
-            ensure!(
-                authority.identity() == expected,
-                "execution fence authority configuration mismatch"
-            );
-            let history_digest =
-                crate::raft::cell_groups::cell_image_history_digest(&source.history);
-            let mut owner = Sha256::new();
-            owner.update(b"cellar-provider-execution-owner-1");
-            owner.update(history_digest);
-            owner.update(source.group.group.bytes());
-            owner.update(source.group.incarnation.bytes());
-            owner.update(source.term.to_be_bytes());
-            owner.update(source.configuration);
-            let claim = crate::storage::container_execution::claim(
-                scope,
-                &journal.name,
-                &checkpoint,
-                &hex::encode(owner.finalize()),
-            )?;
-            let mut key = Sha256::new();
-            key.update(b"cellar-provider-execution-resource-1");
-            key.update(history_digest);
-            key.update((journal.name.len() as u16).to_be_bytes());
-            key.update(journal.name.as_bytes());
-            let claim = ExecutionClaim {
-                history: source.history,
-                binding: journal.name.to_string(),
-                key: key.finalize().into(),
-                checkpoint,
-                claim,
-            };
             let request = claim.clone();
             let controller = authority.clone();
             // This owned I/O boundary proves the exact newly reserved claim and

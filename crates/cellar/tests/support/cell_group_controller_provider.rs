@@ -300,6 +300,14 @@ impl FencedMaintenanceBackend for Route {
         Arc::new(Authority(self.provider.clone()))
     }
 
+    fn prepare(
+        &self,
+        expected: &BindingCheckpoint,
+        action: MaintenanceAction,
+    ) -> Result<MaintenancePreparation> {
+        self.selected().prepare(expected, action)
+    }
+
     fn maintain(
         self: Arc<Self>,
         context: Context,
@@ -693,7 +701,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                 ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous && error.command==original));
             } else {
                 let receipt=create?;
-                ensure!(receipt.version.sequence.get()==before.version.sequence.get()+3,"public provider must retain exactly entry, intent/claim and result proofs");
+                ensure!(receipt.version.sequence.get()==before.version.sequence.get()+2,"public provider must retain exactly combined entry/intent/claim and result proofs");
                 let data=call(&cluster,&history,minimum,2,"Data").await;
                 if data_loss {
                     let error=data.err().context("data mutation unexpectedly returned a result")?;
@@ -728,9 +736,9 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                     ensure!(peer.deletes.load(Ordering::Acquire)==1,"live recovery failed to retire the resource");
                 } else {
                     let data=data?;
-                    ensure!(data.version.sequence.get()==receipt.version.sequence.get()+3,"unchanged execution claims must share the proven data checkpoint: before={} actual={}",receipt.version.sequence.get(),data.version.sequence.get());
+                    ensure!(data.version.sequence.get()==receipt.version.sequence.get()+2,"prepared execution claims must share the proven data checkpoint: before={} actual={}",receipt.version.sequence.get(),data.version.sequence.get());
                     let destroyed=call(&cluster,&history,minimum,3,"Destroy").await?;
-                    ensure!(destroyed.version.sequence.get()==data.version.sequence.get()+3,"public delete must retain exactly entry, delete-intent/claim and result proofs: before={} actual={}",data.version.sequence.get(),destroyed.version.sequence.get());
+                    ensure!(destroyed.version.sequence.get()==data.version.sequence.get()+2,"public delete must retain exactly combined entry/delete-intent/claim and result proofs: before={} actual={}",data.version.sequence.get(),destroyed.version.sequence.get());
                 }
             }
             ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry),"create did not reach its selected admission/expiry cut");

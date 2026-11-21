@@ -75,6 +75,11 @@ fn original_create(claim: &ExecutionClaim) -> Result<ExecutionOperation> {
     })
 }
 
+pub(super) struct StartPreparation {
+    current: BindingCheckpoint,
+    fresh: bool,
+}
+
 impl ControllerProvider {
     async fn recover_create(
         &self,
@@ -151,13 +156,12 @@ impl ControllerProvider {
         Ok(())
     }
 
-    pub(super) async fn start(
+    pub(super) fn prepare_start(
         &self,
         context: &Context,
         journal: &BindingJournal,
-        lifecycle: &BindingLifecycleGuard,
-        input: Value,
-    ) -> Result<Value> {
+        input: &Value,
+    ) -> Result<StartPreparation> {
         let parameters = Request::new(Operation::Start, input.clone()).parameters()?;
         let previous = journal.load(context)?;
         if let Some(current) = previous
@@ -174,18 +178,10 @@ impl ControllerProvider {
                 current.record.parameters_digest == parameters,
                 "pending create has different parameters"
             );
-            let grant = self.fence(context, journal, Some(lifecycle)).await?;
-            let reply = self.recover_create(context, &grant).await?;
-            return match reply {
-                Some(reply) => {
-                    self.confirm_create(context, journal, &grant, &reply)?;
-                    Ok(reply.value)
-                }
-                None => {
-                    self.retire(context, journal, current.clone(), true).await?;
-                    Err(OperationRefused.into())
-                }
-            };
+            return Ok(StartPreparation {
+                current: current.clone(),
+                fresh: false,
+            });
         }
         let generation = previous.as_ref().map_or(Ok(1), |previous| {
             previous
@@ -212,7 +208,43 @@ impl ControllerProvider {
             previous.as_ref().map(|previous| previous.revision),
             record,
         )?;
+        Ok(StartPreparation {
+            current,
+            fresh: true,
+        })
+    }
+
+    pub(super) async fn start(
+        &self,
+        context: &Context,
+        journal: &BindingJournal,
+        lifecycle: &BindingLifecycleGuard,
+        input: Value,
+        prepared: Option<StartPreparation>,
+    ) -> Result<Value> {
+        let prepared = match prepared {
+            Some(prepared) => prepared,
+            None => self.prepare_start(context, journal, &input)?,
+        };
+        let current = prepared.current;
+        ensure!(
+            journal.load(context)?.as_ref() == Some(&current),
+            "binding changed after private Start preparation"
+        );
         let grant = self.fence(context, journal, Some(lifecycle)).await?;
+        if !prepared.fresh {
+            let reply = self.recover_create(context, &grant).await?;
+            return match reply {
+                Some(reply) => {
+                    self.confirm_create(context, journal, &grant, &reply)?;
+                    Ok(reply.value)
+                }
+                None => {
+                    self.retire(context, journal, current, true).await?;
+                    Err(OperationRefused.into())
+                }
+            };
+        }
         journal.check_retention(context)?;
         let reply = match self
             .call(
@@ -393,6 +425,24 @@ impl FencedMaintenanceBackend for ControllerProvider {
 
     fn authority(&self) -> Arc<dyn ExecutionFenceAuthority> {
         self.controller.clone()
+    }
+
+    fn prepare(
+        &self,
+        expected: &BindingCheckpoint,
+        action: MaintenanceAction,
+    ) -> Result<MaintenancePreparation> {
+        Ok(
+            if action == MaintenanceAction::Delete
+                && expected.record.intent == BindingIntent::Running
+                && expected.record.resource_id.is_some()
+                && !expected.record.is_retired()
+            {
+                MaintenancePreparation::DeleteIntent
+            } else {
+                MaintenancePreparation::Unchanged
+            },
+        )
     }
 
     fn maintain(
