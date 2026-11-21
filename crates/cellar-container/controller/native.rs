@@ -30,6 +30,68 @@ impl NativeContainerAdapter {
         );
         Ok(Self { provider, limits })
     }
+
+    fn prepare_operation<'a>(
+        &'a self,
+        context: &'a Context,
+        operation: Operation,
+        input: Value,
+        lifecycle: Option<&'a BindingLifecycleGuard>,
+    ) -> Result<crate::PreparedProviderCall<'a>> {
+        if operation != Operation::Start {
+            return self
+                .provider
+                .prepare_call(context, operation, input, lifecycle);
+        }
+        let journal = BindingJournal::open(context, &self.provider.identity.binding)?;
+        let previous = journal.load(context)?;
+        let replacing = previous.as_ref().is_some_and(|previous| {
+            previous.record.intent == BindingIntent::Running
+                && previous.record.observation == BindingObservation::Confirmed
+                && previous.record.resource_id.is_some()
+        });
+        if !replacing {
+            // Pending Create/Delete keeps its original identity and recovery
+            // contract. Only a confirmed resource selects native replacement.
+            return self
+                .provider
+                .prepare_call(context, operation, input, lifecycle);
+        }
+        ensure!(
+            lifecycle.is_some(),
+            "native replacement requires lifecycle admission"
+        );
+        journal.check_retention(context)?;
+        ensure!(
+            previous
+                .as_ref()
+                .is_some_and(|previous| previous.record.generation < i64::MAX as u64),
+            "binding generation exhausted"
+        );
+        let authority = context.container_provider_authority()?;
+        let delete =
+            self.provider
+                .prepare_call(context, Operation::Destroy, json!({}), lifecycle)?;
+        Ok(Box::new(move || {
+            Box::pin(async move {
+                // The framework proves the old generation's delete intent
+                // before constructing this work. Unknown deletion returns here;
+                // it never reserves or submits a new generation.
+                delete().await?;
+                // Prove retirement before replacing its record. An interrupted
+                // callback can leave a deleted resource without its replacement;
+                // recovery reconciles original work and never replays Start.
+                authority.before_effect(context).await?;
+                let create =
+                    self.provider
+                        .prepare_call(context, Operation::Start, input, lifecycle)?;
+                // The new intent/claim also needs the original Quorum/S3 proof.
+                // Both phases retain this Context, lifecycle guard and deadline.
+                authority.before_effect(context).await?;
+                create().await
+            })
+        }))
+    }
 }
 
 fn encode(request: ContainerRequest) -> Result<(Operation, Value)> {
@@ -152,9 +214,7 @@ impl ContainerAdapter for NativeContainerAdapter {
         } else {
             None
         };
-        let call = self
-            .provider
-            .prepare_call(context, operation, input, lifecycle)?;
+        let call = self.prepare_operation(context, operation, input, lifecycle)?;
         Ok(Box::new(move || {
             Box::pin(async move {
                 let result = call().await?;
