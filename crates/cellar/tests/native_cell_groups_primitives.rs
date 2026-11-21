@@ -3082,3 +3082,15 @@ async fn binding_settlement_recovers_after_lost_s3_output() -> Result<()> {
 async fn rustfs_binding_settlement_recovers_after_lost_s3_output() -> Result<()> {
     live_binding_recovery::lost_settlement(true).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_sessions_retain_existing_fenced_lifecycle_admission() -> Result<()> {
+    fenced_maintenance::qualify_sessions(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS and an explicitly owned Docker socket/image"]
+async fn rustfs_docker_provider_sessions_retain_existing_fenced_lifecycle_admission() -> Result<()>
+{
+    fenced_maintenance::qualify_sessions(true, true).await
+}

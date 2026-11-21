@@ -198,6 +198,23 @@ pub struct BindingLifecycleGuard {
 }
 
 impl BindingLifecycleGuard {
+    /// Fence provider work using this invocation's existing lifecycle admission.
+    /// The returned grant retains the same guard; no second lock is acquired.
+    /// Keep it through lifecycle I/O and settlement. The controller must still
+    /// authenticate and independently fence every provider request. Native/Fleet
+    /// events refuse shared execution fencing before reserving a claim.
+    pub fn fence_execution(
+        &self,
+        context: &Context,
+        authority: Arc<dyn super::containers::ExecutionFenceAuthority>,
+    ) -> HandlerFuture<super::containers::ExecutionGrant> {
+        let journal = BindingJournal {
+            name: self.name.clone(),
+            authority: self.authority.clone(),
+        };
+        journal.fence_execution(context, self.retained(), authority)
+    }
+
     /// Framework work retains its existing admission through both provider I/O
     /// and result settlement. This does not acquire the mutex a second time.
     pub(super) fn retained(&self) -> Self {

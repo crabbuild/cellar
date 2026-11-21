@@ -703,6 +703,7 @@
         "cellar::sdk::containers::BindingIntent",
         "cellar::sdk::containers::BindingObservation",
         "cellar::sdk::containers::BindingLifecycleGuard",
+        "cellar::sdk::containers::BindingLifecycleGuard::fence_execution",
         "cellar::sdk::containers::MAX_BINDINGS",
         "cellar::sdk::containers::MAX_BINDING_BYTES",
         "cellar::sdk::containers::supervise",
@@ -755,7 +756,8 @@
         "crates/cellar/storage/sqlite/container_maintenance.rs",
         "crates/cellar/storage/sqlite/container_maintenance.sql",
         "crates/cellar/application/container_execution.rs",
-        "crates/cellar/storage/sqlite/container_execution.rs"
+        "crates/cellar/storage/sqlite/container_execution.rs",
+        "crates/cellar-container/lib.rs"
       ],
       "schemas": [
         "Desired state, supervision and provider volumes",

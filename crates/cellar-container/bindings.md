@@ -48,6 +48,30 @@ controller and lifecycle admission. It does not retry the business operation or
 extend the invocation deadline. Framework-owned cleanup can use the same
 contract through [fenced maintenance](supervision.md#controller-fenced-shared-group-maintenance).
 
+## Provider-session lifecycle admission
+
+The ordinary named-provider adapter holds lifecycle admission for Start, Destroy
+and Reconcile through backend I/O and result validation. A fenced backend receives
+that exact guard in `ProviderSession::execute_admitted`; reacquiring the same
+journal lock there would deadlock. After preparing the binding intent, call
+`BindingLifecycleGuard::fence_execution(context, authority)` on the supplied guard.
+The returned grant retains the original admission through controller fencing,
+provider I/O and settlement. It cannot grant another invocation authority.
+
+The adapter's existing entry proof still runs before this hook. Its input checks,
+Quorum/S3 minimum, original deadline, post-operation authority checks and result
+validation remain. The default hook calls the existing `execute` implementation.
+A backend requiring admission must refuse its direct `execute` path rather than
+fall back to an unfenced operation.
+
+Other operations receive no lifecycle guard so stream observations can overlap
+the control operation that stops them. They retain their exact invocation and
+resource generation; every provider request and retained stream still requires
+independent remote fencing. A local guard or ownership claim is not a remote lease.
+Native/Fleet events refuse shared execution fencing before reserving a claim.
+Normal native Container/sandbox adapters, durable independent controllers and
+provider-volume recovery remain separate CG-17 requirements.
+
 ## Select a host-declared provider slot
 
 Applications can select additional providers declared by the host. `ctx.container`

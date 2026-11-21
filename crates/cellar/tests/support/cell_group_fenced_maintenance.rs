@@ -42,6 +42,9 @@ struct State {
 
 #[derive(Default)]
 struct Control {
+    provider_sessions: bool,
+    session_admissions: AtomicUsize,
+    session_unadmitted: AtomicUsize,
     state: tokio::sync::Mutex<State>,
     docker: Option<Docker>,
     refuse: AtomicBool,
@@ -350,6 +353,77 @@ impl FencedMaintenanceBackend for Backend {
     }
 }
 
+// The ordinary named-provider adapter owns the lifecycle slot. This backend
+// must receive that exact admission rather than reacquire its own lock.
+struct SessionProvider(Arc<Control>);
+
+impl cellar_container::Provider for SessionProvider {
+    fn name(&self) -> &str {
+        "fenced-maintenance"
+    }
+
+    fn binding_name(&self) -> Option<&str> {
+        Some("TOOL")
+    }
+
+    fn fencing(&self) -> cellar_container::Fencing {
+        cellar_container::Fencing::ProviderEnforced
+    }
+
+    fn operations(&self) -> &[cellar_container::Operation] {
+        &[cellar_container::Operation::Start]
+    }
+
+    fn open(&self) -> Box<dyn cellar_container::ProviderSession> {
+        Box::new(Self(self.0.clone()))
+    }
+}
+
+impl cellar_container::ProviderSession for SessionProvider {
+    fn execute<'a>(
+        &'a self,
+        _context: &'a Context,
+        _operation: cellar_container::Operation,
+        _input: serde_json::Value,
+        _limits: &'a cellar_container::Limits,
+    ) -> cellar_container::ProviderFuture<'a> {
+        Box::pin(async move {
+            self.0.session_unadmitted.fetch_add(1, Ordering::AcqRel);
+            anyhow::bail!("fenced provider control requires existing lifecycle admission")
+        })
+    }
+
+    fn execute_admitted<'a>(
+        &'a self,
+        context: &'a Context,
+        operation: cellar_container::Operation,
+        _input: serde_json::Value,
+        _limits: &'a cellar_container::Limits,
+        lifecycle: Option<&'a cellar::sdk::containers::BindingLifecycleGuard>,
+    ) -> cellar_container::ProviderFuture<'a> {
+        Box::pin(async move {
+            ensure!(operation == cellar_container::Operation::Start);
+            let lifecycle = lifecycle.context("adapter lost lifecycle admission")?;
+            let journal = BindingJournal::open(context, "TOOL")?;
+            journal.prepare_exchange(context, None, pending())?;
+            let grant = lifecycle.fence_execution(context, self.0.clone()).await?;
+            journal.check_retention(context)?;
+            grant.before_effect(context).await?;
+            self.0.session_admissions.fetch_add(1, Ordering::AcqRel);
+            let id = self.0.create(grant.claim()).await?;
+            let current = journal
+                .load(context)?
+                .context("reserved public provider resource")?;
+            let mut record = current.record;
+            record.resource_id = Some(id);
+            record.observation = BindingObservation::Confirmed;
+            journal.prepare_exchange(context, Some(current.revision), record)?;
+            self.0.refuse.store(true, Ordering::Release);
+            Ok(json!("1"))
+        })
+    }
+}
+
 struct Root(Storage, Arc<Control>);
 
 impl Cell for Root {
@@ -365,32 +439,58 @@ impl Cell for Root {
             let op: String = serde_json::from_str(&input)?;
             tracing::debug!(target: "cellar::raft::provider_qualification", phase = "root-enter", operation = %op);
             let journal = BindingJournal::open(&context, "TOOL")?;
-            let lifecycle = journal.lock_lifecycle(&context).await?;
-            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "root-lifecycle-held", operation = %op);
+            let lifecycle = if self.1.provider_sessions && op == "Create" {
+                None
+            } else {
+                Some(journal.lock_lifecycle(&context).await?)
+            };
+            tracing::debug!(target: "cellar::raft::provider_qualification", phase = "root-lifecycle-selected", operation = %op);
             let result = match op.as_str() {
                 "Create" => {
                     self.0.put_json("business", &json!(17))?;
-                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-begin");
-                    journal.prepare_exchange(&context, None, pending())?;
-                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-prepared");
-                    let grant = journal
-                        .fence_execution(&context, lifecycle, self.1.clone())
-                        .await?;
-                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "fence-proven");
-                    journal.check_retention(&context)?;
-                    grant.before_effect(&context).await?;
-                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-admitted");
-                    let id = self.1.create(grant.claim()).await?;
-                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-accepted");
-                    let current = journal.load(&context)?.context("reserved resource")?;
-                    let mut record = current.record;
-                    record.resource_id = Some(id);
-                    record.observation = BindingObservation::Confirmed;
-                    let confirmed =
-                        journal.prepare_exchange(&context, Some(current.revision), record)?;
-                    tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-observation-prepared");
-                    self.1.refuse.store(true, Ordering::Release);
-                    confirmed
+                    if self.1.provider_sessions {
+                        let mut bindings = cellar_container::Bindings::default();
+                        bindings.insert("TOOL", Arc::new(SessionProvider(self.1.clone())))?;
+                        let sessions = bindings.sessions();
+                        let result = sessions
+                            .get("TOOL")?
+                            .execute(
+                                &context,
+                                cellar_container::Operation::Start,
+                                json!({"options":{}}),
+                                &cellar_container::Limits {
+                                    max_body_bytes: 4096,
+                                },
+                            )
+                            .await?;
+                        ensure!(result == json!("1"));
+                        journal
+                            .load(&context)?
+                            .context("public provider confirmation")?
+                    } else {
+                        let lifecycle = lifecycle.context("direct lifecycle admission")?;
+                        tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-begin");
+                        journal.prepare_exchange(&context, None, pending())?;
+                        tracing::debug!(target: "cellar::raft::provider_qualification", phase = "reserve-prepared");
+                        let grant = journal
+                            .fence_execution(&context, lifecycle, self.1.clone())
+                            .await?;
+                        tracing::debug!(target: "cellar::raft::provider_qualification", phase = "fence-proven");
+                        journal.check_retention(&context)?;
+                        grant.before_effect(&context).await?;
+                        tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-admitted");
+                        let id = self.1.create(grant.claim()).await?;
+                        tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-accepted");
+                        let current = journal.load(&context)?.context("reserved resource")?;
+                        let mut record = current.record;
+                        record.resource_id = Some(id);
+                        record.observation = BindingObservation::Confirmed;
+                        let confirmed =
+                            journal.prepare_exchange(&context, Some(current.revision), record)?;
+                        tracing::debug!(target: "cellar::raft::provider_qualification", phase = "create-observation-prepared");
+                        self.1.refuse.store(true, Ordering::Release);
+                        confirmed
+                    }
                 }
                 "Read" => {
                     ensure!(self.0.get_json("business")? == Some(json!(17)));
@@ -518,14 +618,23 @@ async fn wait(control: &Control, flag: &AtomicBool, stage: &str) -> Result<()> {
 }
 
 pub async fn qualify(real_rustfs: bool, docker: bool) -> Result<()> {
-    selected(real_rustfs, docker, None).await
+    selected(real_rustfs, docker, None, false).await
+}
+
+pub async fn qualify_sessions(real_rustfs: bool, docker: bool) -> Result<()> {
+    selected(real_rustfs, docker, None, true).await
 }
 
 pub async fn trace(rooted: bool, real_rustfs: bool, docker: bool) -> Result<()> {
-    selected(real_rustfs, docker, Some((rooted, Durability::S3))).await
+    selected(real_rustfs, docker, Some((rooted, Durability::S3)), false).await
 }
 
-async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durability)>) -> Result<()> {
+async fn selected(
+    real_rustfs: bool,
+    docker: bool,
+    only: Option<(bool, Durability)>,
+    provider_sessions: bool,
+) -> Result<()> {
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
             if only.is_some_and(|selected| selected != (rooted, minimum)) {
@@ -537,6 +646,7 @@ async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durabilit
                 None
             };
             let control = Arc::new(Control {
+                provider_sessions,
                 docker: engine,
                 ..Default::default()
             });
@@ -587,11 +697,13 @@ async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durabilit
                         .await?;
                     let first = call(&cluster, &history, minimum, 1, "Create").await?;
                     ensure!(
-                        first.version.sequence.get() == before.version.sequence.get() + 2,
-                        "provider creation must use one intent/claim checkpoint plus its final receipt: before={} actual={}",
+                        first.version.sequence.get() == before.version.sequence.get() + if provider_sessions { 3 } else { 2 },
+                        "provider creation must retain the required adapter entry, intent/claim and receipt proofs: before={} actual={}",
                         before.version.sequence.get(),
                         first.version.sequence.get()
                     );
+                    ensure!(control.session_unadmitted.load(Ordering::Acquire) == 0);
+                    ensure!(control.session_admissions.load(Ordering::Acquire) == usize::from(provider_sessions));
                     wait(&control, &control.refused, "authority refusal").await?;
                     ensure!(
                         control.calls.load(Ordering::Acquire) == 0,
@@ -696,6 +808,9 @@ async fn selected(real_rustfs: bool, docker: bool, only: Option<(bool, Durabilit
                     eprintln!("fenced_maintenance_observations {}", json!({
                         "extents": rooted, "minimum": format!("{minimum:?}"),
                         "create_committed_versions": first.version.sequence.get() - before.version.sequence.get(),
+                        "provider_sessions": provider_sessions,
+                        "session_admissions": control.session_admissions.load(Ordering::Acquire),
+                        "session_unadmitted": control.session_unadmitted.load(Ordering::Acquire),
                         "creates": control.creates.load(Ordering::Acquire),
                         "deletes": control.deletes.load(Ordering::Acquire),
                         "refreshes": control.refreshes.load(Ordering::Acquire),

@@ -272,7 +272,7 @@ impl Operation {
     }
 }
 
-/// Provider futures execute inside the original native invocation.
+/// Provider futures execute inside the original native or shared-group invocation.
 pub type ProviderFuture<'a> = Pin<Box<dyn Future<Output = Result<Value>> + Send + 'a>>;
 
 /// Host-selected backend. Credentials and backend selection never come from guests.
@@ -345,6 +345,24 @@ pub trait ProviderSession: Send + Sync {
     /// Providers must opt in through `Provider::synchronous_running`.
     fn running_snapshot(&self, _context: &Context) -> Result<bool> {
         anyhow::bail!(Validation)
+    }
+
+    /// Execute after the adapter's ordinary checks and output gate, retaining
+    /// its existing lifecycle admission for named Start/Destroy/Reconcile.
+    /// Fenced backends must use this guard rather than locking the binding
+    /// again. Other operations receive None so data/stream observations remain
+    /// concurrent with lifecycle control. Retained resources still belong to
+    /// the original invocation; admission never supplies remote fencing itself.
+    /// Existing providers retain their execute contract through this default.
+    fn execute_admitted<'a>(
+        &'a self,
+        context: &'a Context,
+        operation: Operation,
+        input: Value,
+        limits: &'a Limits,
+        _lifecycle: Option<&'a cellar::sdk::containers::BindingLifecycleGuard>,
+    ) -> ProviderFuture<'a> {
+        self.execute(context, operation, input, limits)
     }
 
     fn execute<'a>(
@@ -660,7 +678,7 @@ impl Session {
         // Event-local sessions and native maintenance share the activation's
         // lifecycle admission. Data operations remain concurrent so a retiring
         // generation can fence their late results without waiting for them.
-        let _lifecycle = if matches!(
+        let lifecycle = if matches!(
             operation,
             Operation::Start | Operation::Destroy | Operation::Reconcile
         ) {
@@ -695,7 +713,7 @@ impl Session {
         };
         let result = self
             .backend
-            .execute(context, operation, input, limits)
+            .execute_admitted(context, operation, input, limits, lifecycle.as_ref())
             .await;
         authority.check(context)?;
         // Result validation follows execution: failure cannot prove rollback.
