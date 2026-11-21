@@ -34,6 +34,85 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 ordinary SDK controller adapter
+
+Runtime `c2b73c7fd`, qualified with test-only corrections at `ed7dc4ca5`, connects
+ordinary `Bindings.sessions().get(name).execute(...)` to the independently durable
+`ControllerProvider`. Lifecycle calls, buffered exec, file requests and fenced
+maintenance use the original invocation, logical history, immutable resource ID
+and controller identity. The adapter does not install built-in `Context.container`
+or sandbox execution. See the [controller contract](../../../../crates/cellar-container/controller.md).
+
+Completed lifecycle receipts can be found after recovery, including across
+incarnations. An absent original create is atomically sealed before retirement;
+a delayed copy cannot enter the backend afterward. Held observations release
+lifecycle serialization and leave controller capacity for fencing, lookup and
+reconciliation. Their completion reloads current state rather than overwriting
+a newer mutation receipt. Automatic operation ordinals belong to the invocation,
+so separate sessions cannot accidentally reuse an operation ID.
+
+Repeated fencing of an unchanged claim used to force another complete source
+checkpoint. The retained regression advances Data from version 4 to 10, six
+versions. Fencing now reuses only the original invocation's unchanged,
+quorum/S3-proven unfinished receipt. New claims, changed state and fresh
+invocations still checkpoint. Both public Start and the four-operation Data
+request require exactly three versions. Original five-second requests,
+three-second maintenance attempts and sixty-second recovery observers remain.
+
+| Source `ed7dc4ca5` qualification | Result |
+| --- | --- |
+| Controller protocol, provider library and native provider regressions | **17 + 26 + 7 checks pass** |
+| Ordinary SDK RF3: basic execution, interrupted lifecycle recovery and expiry | **12/12 image/minimum configurations pass** |
+| Same frozen executable against real RustFS | **9 configurations pass; 1 fails startup; 2 unrun** |
+| Strict affected Clippy, canonical formatting and layout | Pass; 2,364 Rust files |
+| Partial primitive inventory | 18 entries/317 symbols; full inventory remains open |
+
+Real RustFS basic execution and interrupted lifecycle recovery each pass all
+four materialized/extent and Quorum/S3 configurations. Recovery reopens the
+controller's retained directory and all voter disks, then cleans up with the
+business constructor unavailable. Exactly one create and one delete execute;
+lost replies are reconciled rather than replayed. The 500 ms expiry profile
+performs zero provider operations in all four native configurations and the real
+materialized Quorum configuration. Its real materialized S3 run fails during
+cold managed startup with `Transport(Timeout)`, before business/provider
+execution. Cleanup also reports `Closed`; all three startup disks are retained.
+Both real extent expiry configurations are unrun. No exclusive cause or fix for
+that startup failure is claimed, and the combined real-store gate is **FAILED**.
+
+The earlier 500 ms lost-create setup expired before provider entry. It is retained;
+accepted-reply-loss recovery uses the existing ten-second resource lifetime,
+while a separate 500 ms case delays activation past that cap and requires sealed,
+zero-effect retirement. Supervision's authority is captured at registration:
+the restart fixture now forwards the original claim to the reopened, pinned
+endpoint. Its previous closed-authority failure is retained. Follow-up reads use
+the next unused client sequence; the original ambiguous create and provider IDs
+are unchanged. No uncertain mutation is retried to bypass a sequence gap.
+
+Evidence `CG-17-controller-adapter-ed7dc4ca5-2132/record.json` records native PASS
+and combined FAILED, with its `rustfs/record.json`, source and five frozen
+executables. Six bundles retain all failed controls and the six-version red
+regression; **6,754 files/2,003,196,328 bytes** have verified Workspace copies.
+The exact primitive executable SHA-256 is
+`e4c8b4f7277b8b3468472080076be9b3aa170bcf2c15f6bdc9f3ec05c89816b6`.
+The RustFS container and owned VM are stopped with objects and volumes retained.
+Three unchanged dispatcher/storage proof units retain their separate passing
+`166de2007` source pin; this is not a new full current-source core unit run.
+
+These are public SDK sessions over actual RF3 and real S3 storage, with a
+controlled Linux-protocol peer. Voters share one macOS process. RustFS has one
+CPU/two GiB in a six-CPU/twelve-GiB VM. Native compute, authenticated transport,
+independent controller/provider/voter process faults, provider-volume recovery
+and all-voter disk-loss recovery are not qualified by this run.
+
+**CG-17 remains open, 0/32 formal cases accepted.** Next diagnose the retained
+cold S3 startup failure without extending budgets. Complete live reconciliation
+of interrupted exec/write operations, then built-in Container/sandbox adapters,
+actual fenced execution, safe receipt reclamation, WebSockets and the complete
+API/feature/deployment/clock/retention/recovery matrix. Existing Fleet and S3
+Read/Delete controls remain separate open gates. No full primitive-family or
+default cutover claim follows from this delivery.
+
+
 ### CG-17 durable execution controller
 
 Runtime `66afc02f4` adds the independently owned `ExecutionController` core.

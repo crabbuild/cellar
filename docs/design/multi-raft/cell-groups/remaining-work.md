@@ -41,30 +41,41 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-`66afc02f4` delivers the durable execution-controller core: persistent ownership,
-original operation receipts/deadlines, permanent incarnation revocation, retained
-unknown debt and startup reconciliation. **14 controller cases, 26 provider unit
-tests and seven ordinary provider regressions pass**, with strict affected Clippy
-and repository checks. Two causal red regressions and all state/executables are
-retained with a verified backup. Main `5ae2b21f4` includes merged PR #174; this
-follow-up starts from that main. These are trusted-metadata protocol checks, not
-a new RF3/RustFS or independent-process qualification.
+`ed7dc4ca5` qualifies the normal SDK `ControllerProvider`: independently durable
+ownership/receipts, safe original-create sealing, lifecycle recovery, buffered
+exec/files and fenced background cleanup. Unchanged execution claims reuse only
+this invocation's proven unfinished receipt. Start and Data each use exactly
+three versions; the retained red Data control uses six. Original request and
+maintenance deadlines remain.
+
+**50 owning/provider checks and all 12 native configurations pass.** Real RustFS
+basic execution and restart recovery pass all eight configurations; expiry adds
+one pass, then fails cold materialized S3 startup before business execution.
+That gate is **FAILED: 9 pass, 1 startup failure, 2 unrun**. Three startup disks,
+all earlier controls, source and executables have verified backups. The owned
+lab is stopped. See the [current checkpoint](progress.md#current-integration-checkpoint)
+for scope and hashes. This uses a controlled protocol peer and one native RF3
+process, not actual native compute or independent process/volume recovery.
 
 The next feature deliveries are:
 
-1. Connect normal native Container/sandbox APIs to a host-selected authenticated,
-   request-bound controller transport. Use an owned async activation prologue or
-   equivalent no-I/O initialization; old Contexts cannot borrow newer grants.
-2. Complete restored lifecycle receipt lookup and safe bounded receipt
-   reclamation. Qualify independent controller/provider faults, permanent
-   infrastructure fencing and actual volume recovery with constrained RF3 and
-   real RustFS after all voter disks are deleted.
-3. Finish WebSockets and the complete public primitive/feature/clock/retention/
-   lifecycle matrix, including the retained Fleet and S3 Read/Delete failures.
+1. Diagnose and fix the retained managed RF3 S3 startup/close failure under its
+   original budgets, then complete the real-store expiry gate. Keep original
+   startup identities and partially initialized disks for reconciliation.
+2. Reconcile original pending exec/write mutations during live maintenance and
+   explicit reconciliation/destruction. Never re-execute them or mint new IDs
+   to bypass uncertainty; held read observations must leave control runnable.
+3. Connect built-in native Container/sandbox and interactive APIs to the
+   request-bound controller and actual fenced execution. Deliver authenticated
+   transport, safe receipt reclamation, independent faults and real provider
+   volume/zero-quorum recovery.
+4. Finish WebSockets and every required public primitive/feature/deployment/
+   clock/retention/lifecycle ledger, including the retained Fleet and S3 failures.
 
-The controller core now exists; its production adapters and combined recovery
-qualification are the immediate gap. See the [controller contract](../../../../crates/cellar-container/controller.md).
-Inventory remains partial at 18 entries/305 symbols. CG-17 stays open at 0/32.
+The [controller contract](../../../../crates/cellar-container/controller.md)
+explains the delivered adapter and restart ownership. Inventory remains partial
+at 18 entries/317 symbols. CG-17 stays open at 0/32; the whole design and hard
+cutover goal remain active.
 
 Runtime `6836d6a6c` delivers the ordinary named-provider lifecycle handoff and
 nonwaiting shared-group background admission. The actual custom-provider Start
