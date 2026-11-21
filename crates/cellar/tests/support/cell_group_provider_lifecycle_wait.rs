@@ -125,8 +125,9 @@ pub(super) async fn qualify(real: bool, dirty: bool) -> Result<()> {
 /// Diagnostic only: the original five-second Create, without later operations.
 pub(super) async fn profile_create(real: bool) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug,cellar::raft::sql_publish=trace,cellar::raft::cell_reconciliation=trace,cellar::raft::execution_readiness=debug")
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::group_archive=debug,cellar::raft::resource_read=debug,cellar::raft::sql_publish=trace,cellar::raft::cell_reconciliation=trace,cellar::raft::execution_readiness=debug")
         .with_ansi(false)
+        .with_writer(std::io::stderr)
         .try_init();
     selected(real, false, true).await
 }
