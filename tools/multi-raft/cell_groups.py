@@ -332,6 +332,21 @@ SUITES = {
         "Original deadlines and quotas remain unchanged. Target-S3, before-child-completion, "
         "movement/wake/archive/disaster, independent voters and sustained load remain separate gates.",
     ),
+    "queue-transfer-identity": (
+        "native_cell_groups_primitives",
+        ("rustfs_queue_transfer_receipts_bind_payload_after_purge_and_restart",
+         "rustfs_axum_queue_transfer_receipts_bind_payload_after_purge_and_restart",
+         "rustfs_queue_cross_deployment_faults_preserve_quorum"),
+        "Queue transfer payload identity through public SDK/native/Axum and retained RF3 restart",
+        "Both image forms and one SQL worker per voter. Ordinary producer/consumer delivery "
+        "creates a DLQ receipt; purge removes its message, archive catch-up precedes retained "
+        "restart, and exact replay must not resurrect it. Changed bytes, content type, message "
+        "identity and provenance refuse; a mixed batch rolls back its preceding message and "
+        "receipt. The native cross-deployment fault case covers partial retries, stale generations, "
+        "active purge, a lost cross-group S3 DLQ reply, retained restart and retention. "
+        "Native voters share one process. Independent voter crashes, "
+        "clock/deployment changes, load and disk-loss recovery remain separate gates.",
+    ),
     "queue-primitives": (
         "native_cell_groups_primitives",
         (
@@ -1091,7 +1106,8 @@ def main():
         "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows",
         "workflow-lifecycle", "workflow-deletion",
         "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob",
-        "external-payload-recovery", "filesystem-disaster", "queue-primitives"
+        "external-payload-recovery", "filesystem-disaster", "queue-primitives",
+        "queue-transfer-identity"
     ):
         parser.error("--keep-going requires a process-isolated primitive, named binding, SQL, KV, "
                      "alarm, Workflow, EventStream, filesystem, Blob, payload recovery, disaster or Queue suite")
@@ -1157,7 +1173,7 @@ def main():
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_BUILD_JOBS", "CARGO_TERM_COLOR",
             )
         }
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -1180,7 +1196,7 @@ def main():
             if (selection in ("rustfs_queue_load_preserves_acknowledged_messages",
                               "rustfs_queue_four_in_flight_preserves_acknowledged_messages")):
                 argv.append("--nocapture")
-            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

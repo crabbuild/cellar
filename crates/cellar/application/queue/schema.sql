@@ -164,8 +164,14 @@ CREATE TABLE IF NOT EXISTS __sys_queue_transfer_receipts (
          transfer_id TEXT PRIMARY KEY,
          message_id TEXT NOT NULL,
          dead_letter_source TEXT,
+         payload_fingerprint BLOB NOT NULL
+           CHECK (typeof(payload_fingerprint) = 'blob' AND length(payload_fingerprint) = 32),
          expires_at INTEGER NOT NULL
        ) WITHOUT ROWID;
+
+-- Internal hard cutover: an older receipt cannot prove an exact payload retry.
+-- Refuse its schema without migrating or discarding any existing messages.
+SELECT payload_fingerprint FROM __sys_queue_transfer_receipts LIMIT 0;
 
 CREATE INDEX IF NOT EXISTS __sys_queue_transfer_receipts_expires
          ON __sys_queue_transfer_receipts (expires_at, transfer_id);

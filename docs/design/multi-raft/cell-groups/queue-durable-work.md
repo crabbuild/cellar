@@ -135,6 +135,42 @@ authorized initialization command with the original arguments and deadline;
 other read errors never authorize a mutation retry. Pause, resume, purge and
 redrive keep their ordinary mutation path and durability proofs.
 
+### Transfer identity and replay
+
+The destination persists a 32-byte SHA-256 fingerprint with each transfer receipt,
+in the same transaction as its message. It binds the transfer ID, message ID,
+optional source Queue, content type and complete decoded body bytes. Length
+prefixes and an explicit optional-source tag make the encoding unambiguous;
+equivalent array and ArrayBuffer bodies retain the same identity. Declared size
+must exactly match the bytes. No second full-body serialization is required.
+
+An exact retry uses this retained fingerprint even after purge, redrive or
+retention has removed the destination message. Changing a used field refuses
+instead of acknowledging the earlier payload. The complete batch is checked in one transaction before its first write, so a
+conflict leaves no message or receipt from that batch. Expected refusals return
+only after the read-only transaction closes successfully. Existing
+receipt expiry and source transfer IDs remain unchanged; an uncertain source
+must retain its original transfer identity and payload.
+
+This is an internal schema cutover. Receipts without a complete binary
+fingerprint cannot prove payload identity, so their schema refuses without
+migrating or deleting stored messages. Raft namespace initialization includes
+the exact Queue schema and provisions it before serving. Fresh Queue roots and
+matching compiled namespaces are required; the format marker remains 1.
+Quorum proof and independent target-S3 minima still apply. The scoped
+`queue-transfer-identity` suite covers ordinary producer/consumer DLQ delivery,
+purge, retained RF3 restart, exact replay and conflicting mixed batches through
+native and Axum ingress. The existing native cross-deployment fault case also
+checks a lost target-S3 reply, partial retries, stale generations, active purge
+and retention. Full Queue lifecycle/load and independent-voter qualification
+remain separate gates.
+
+Known payload conflicts and malformed payload fields become ordinary RPC error
+results protected by the selected Quorum/S3 command receipt. Node-local capacity,
+SQL, rollback and durability failures retain their host-failure and ambiguity
+semantics. The adapter classifies a private refusal type, never an error string.
+The transfer operation digest binds this response contract as well as the schema.
+
 ## Shared writer admission
 
 Ordinary requests and parked callbacks share a bounded per-cell FIFO writer.

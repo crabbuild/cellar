@@ -1432,6 +1432,24 @@ by this comparison or by a scoped native optimization pass.
 
 ## Primitive delivery priority
 
+The [2026-11-19 Queue audit](progress.md#cg-17-queue-transfer-payload-identity)
+finds and implements complete-payload binding for retained DLQ transfer receipts.
+Previously changed bytes could reuse the old acknowledgement after redrive had
+removed the message. The receiver now preflights the complete batch and returns
+known conflicts as Quorum/S3-protected RPC errors; capacity/storage/proof failures
+retain their existing failure semantics. Runtime `3500e49c5` passes all three
+scoped real-RustFS cases and six native/Axum image configurations, including
+retained restart and the existing lost-S3-reply fault case. The older standalone
+campaign remains failed. Public backport `9667e6e14` requires the corresponding
+shared-runtime integration for that qualification. This internal schema cutover
+requires fresh Queue roots and matching Raft namespaces.
+
+At coordinated snapshot `c2722358b`, public S3 bindings and EventStream settlement
+still fail their original budgets. Keep those shared proof/Consume/Ack paths,
+interrupted binding recovery and safe sequence sealing first, then complete
+Queue load and filesystem/provider lifecycle coverage. The new transfer identity
+gate does not substitute for the complete 32-case primitive acceptance matrix.
+
 Full public primitive compatibility is the required Quorum product contract.
 The remaining work includes missing adapters and failing runtime gates; a scoped
 SQL/KV or filesystem pass is not the final supported scope.

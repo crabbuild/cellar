@@ -127,11 +127,13 @@ pub(in crate::application) fn queue_service(
     configuration: &AdmittedCellConfiguration,
     handler: crate::application::Handler,
 ) -> Result<RaftClass, RegistrationError> {
+    let mut initializer = Sha256::new();
+    initializer.update(b"cellar-raft-queue-initializer-with-schema-1");
+    initializer.update(include_str!("../queue/schema.sql").as_bytes());
     let mut class = RaftClass::queue_service()?
-        .initializer(
-            Sha256::digest(b"cellar-raft-queue-initializer-1").into(),
-            |_, _| Ok(()),
-        )?
+        .initializer(initializer.finalize().into(), |_, tx| {
+            crate::application::queue::provision_storage(&tx.storage()?)
+        })?
         .durable_callbacks()?;
     for method in [
         "__queueSend",
@@ -141,6 +143,9 @@ pub(in crate::application) fn queue_service(
     ] {
         let mut hash = Sha256::new();
         hash.update(b"cellar-raft-queue-operation-1");
+        if method == "__queueDlqAcceptBatch" {
+            hash.update(b"payload-fingerprint-refusal-1");
+        }
         hash.update(method);
         class = class.cell_rpc(method, hash.finalize().into())?;
     }
