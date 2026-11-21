@@ -34,6 +34,75 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 public provider-session lifecycle admission
+
+**CG-17 remains open.** Runtime `6836d6a6c` includes `f4091702e`'s ordinary
+named-provider handoff: `Session::execute(Start/Destroy/Reconcile)` supplies its
+exact held guard to `ProviderSession::execute_admitted`. A fenced backend calls
+`BindingLifecycleGuard::fence_execution` without reacquiring that lock. The
+returned grant retains the original admission and invocation authority. Default
+providers still delegate to their existing `execute`; the adapter keeps its
+entry proof, input/result validation, original deadline and Quorum/S3 minimum.
+Data and stream operations receive no lifecycle guard, preserving concurrency
+with the control operation that stops them. See the
+[provider contract](../../../../crates/cellar-container/bindings.md#provider-session-lifecycle-admission).
+
+Shared-group background maintenance now declines a busy lifecycle slot before
+proving its private work claim. Previously it could acquire the parked writer,
+checkpoint a waiting receipt and then wait for the foreground owner's guard.
+The refusal rolls back private SQL, retains the committed obligation and lets
+the bounded scheduler rediscover it. Foreground and ordinary Fleet waiting are
+unchanged. No proof, request ID, deadline or assertion was weakened.
+
+| Runtime `6836d6a6c` qualification | Result |
+| --- | --- |
+| Public named-provider admission, direct fenced cleanup and autonomous supervision | **3 native functions, 12 image/minimum configurations pass** |
+| Public named-provider Start with real RustFS/Docker | **4/4 configurations pass**, independently checked |
+| Container library and ordinary native provider compatibility | 26 unit tests and 7 integration functions pass |
+| Locked builds, strict affected Clippy, format/layout/dependency/docs/catalog checks | Pass; inventory remains partial at 18 entries/281 symbols |
+
+The public fixture uses actual `Bindings::sessions().get("TOOL").execute(Start)`.
+Each configuration records one admitted backend call and zero legacy direct
+calls. Its preserved entry proof makes Create commit exactly **three versions**;
+the separate direct-journal caller retains its unchanged **two-version** assertion.
+Autonomous controller refusal, deletion-intent grant refresh, lost accepted DELETE
+and retained voter restart still recover without business construction or another
+create/delete. Actual S3 archive-write refusals withhold sequence-3 success;
+receipt-only recovery returns the original result without replaying the callback.
+Independent Docker inspection proves all four original resource IDs absent,
+pinned image, 0.1 CPU/64 MiB, zero swap, network disabled and restart disabled.
+
+The earlier real control at `f4091702e` **failed** after materialized/Quorum:
+materialized/S3 Create returned success but advanced from version 1 to 5 rather
+than the required delta 3. Retained images include concurrent system maintenance
+receipts. Its original Docker resource was independently stopped and retained;
+the voter disks, executable, source and failed logs remain in evidence
+`CG-17-provider-admission-f4091702e-2078`. The current unchanged assertion passes
+all four real configurations. This does not establish a causal fix for older S3
+Read/Delete or Fleet failures. Setup also retained an output-filename collision
+before any business request, then corrected only the read-only witness label.
+The interrupted initial compile produced no test result and remains recorded.
+
+Evidence `CG-17-provider-contention-6836d6a6c-2085/record.json` preserves
+48 voter roots, five frozen executables, the source archive,
+raw controls and independent observations, with a verified second backup.
+All owned lab runtimes are stopped. Primitive executable SHA-256:
+`97dc88325824161bd73df54928a79b35a6e81fbba599301e1b9b8b9a3017a05b`.
+The earlier Linux 16-function/54-configuration pass below belongs to `4f87197ec`;
+no new Linux run is claimed here. Ordinary Fleet remains 3/5 at that source,
+with accepted-create successor closure and retained-restart `NodeLeaseMismatch`.
+
+This qualifies custom named-provider **Start**, not a complete provider family.
+RF3 shares one host process; RustFS has one CPU/2 GiB in the same six-CPU/12-GiB
+VM. The fixture controller is volatile and stays alive through voter restart.
+Next implement normal native Container/sandbox adapters and independent durable
+controller recovery, authenticated request fencing and permanent old-history
+revocation. Finish WebSockets and every API/provider/feature/deployment/clock/
+retention/cancellation/recovery ledger before full CG-17 or cutover claims.
+Provider-volume recovery and independent voter/controller failures remain open.
+Acceptance stays **13/17 tasks, 147/195 cases, CG-17 0/32**; historical CG-01
+custody still prevents complete plan validation.
+
 ### CG-17 prepared provider checkpoints and result recovery
 
 **CG-17 remains open.** Runtime `4f87197ec` adds Raft-only

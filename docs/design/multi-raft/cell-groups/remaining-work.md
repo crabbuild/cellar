@@ -41,6 +41,16 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
+Runtime `6836d6a6c` delivers the ordinary named-provider lifecycle handoff and
+nonwaiting shared-group background admission. The actual custom-provider Start
+passes four native and four real RustFS/Docker configurations, with one admitted
+backend and zero legacy direct calls. Three native profiles pass 12 configurations;
+26 library units and seven ordinary native provider functions also pass. Public
+Create preserves its entry proof and exactly three versions; direct journal
+Create keeps two. The original version-count failure remains retained; neither
+budgets nor assertions changed. These are scoped passes, not full primitive-family
+acceptance. See the [current checkpoint](progress.md#current-integration-checkpoint).
+
 Runtime `4f87197ec` delivers Raft-only binding preparation: intent plus execution
 claim share a proof, and final observation plus command result share the output
 proof. Create uses two committed versions rather than four. Existing durable CAS,
@@ -57,9 +67,8 @@ those roots as the outage fixture now does, and diagnose without replacing IDs o
 extending budgets. Earlier provider-outage, native extent/S3 Read and macOS S3
 supervision Delete failures remain open; passing controls do not prove a fix.
 
-Ordinary named ProviderSession currently holds lifecycle admission without
-passing it to the backend; forward that exact guard so execution fencing does
-not reacquire and deadlock. Native Container needs an async activation prologue,
+The ordinary named-provider guard handoff is implemented and qualified for the
+custom Start profile. Native Container needs an async activation prologue,
 request-bound provider transport and full logical history. Old Contexts must never borrow newer global
 grants. Qualify an independent controller with durable high-water recovery,
 authenticated per-operation enforcement and permanent old-history revocation.
@@ -70,7 +79,7 @@ RF3 shares one three-CPU/4-GiB Linux process/container with zero swap and ext4
 disks; RustFS has one CPU/2 GiB in the same VM. This does not qualify independent
 voter/controller faults. The fixture controller has volatile state and stays live
 through voter restart. Native Docker remains ephemeral; other provider-volume
-contracts still apply. Inventory is partial at 18 entries/280 symbols. Formal
+contracts still apply. Inventory is partial at 18 entries/281 symbols. Formal
 CG-17 acceptance remains 0/32; historical CG-01 custody is also missing. See the
 [current checkpoint](progress.md#current-integration-checkpoint) for source pins,
 failed controls, proof counts and retained evidence.

@@ -4,7 +4,47 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current prepared-provider delivery
+## Current public provider-session delivery
+
+Runtime `6836d6a6c` passes the exact guard held by ordinary named
+`Session::execute(Start/Destroy/Reconcile)` into `ProviderSession::execute_admitted`.
+`BindingLifecycleGuard::fence_execution` retains it without another lock or a
+new invocation authority. The adapter preserves its entry proof, deadline,
+Quorum/S3 minimum and input/result checks. Data/stream calls stay concurrent.
+Shared-group maintenance declines busy lifecycle admission before any claim
+proof; private SQL rolls back and durable obligations remain discoverable.
+Foreground and ordinary Fleet waits retain their existing behavior.
+
+Three native profiles pass all 12 image/minimum configurations. The actual named
+Start path passes all four real RustFS/Docker configurations with independent
+resource-removal/image/limit checks. Public Create keeps exactly three versions,
+including entry proof; direct journal Create keeps two. The 26 library unit tests, seven native provider tests, locked builds, strict
+affected Clippy and repository checks pass. Final archive
+refusal, original receipt-only recovery and lost accepted-delete cleanup do not
+replay business/provider work. No full primitive family is accepted from this slice.
+
+Evidence `CG-17-provider-contention-6836d6a6c-2085/record.json` retains
+48 voter roots, five executables, source and observations,
+with a verified backup. The earlier `f4091702e` real version-count failure retains
+its original stopped Docker resource/disks/executable; no original call was
+retried. The output-label setup error and interrupted compile also remain.
+Owned lab runtimes are stopped. Linux16/54 is still source-pinned to `4f87197ec`.
+Earlier Fleet3/5 and S3 Read/Delete failures remain open.
+
+**Next implement normal native Container/sandbox and durable controller recovery.**
+Use an async owned prologue or equivalent no-I/O initialization, request-bound
+transport and full logical history. Old Contexts cannot borrow newer global
+grants. Independent controllers must persist high-water/unknown operations,
+authenticate every request and permanently revoke old histories before admitting
+fresh incarnations. Finish WebSockets and the full API/feature/lifecycle matrix.
+Preserve the two Fleet failure roots before diagnosis; keep original IDs/budgets.
+RF3 shares one host process, and the volatile controller survives voter restart;
+independent voter/controller faults and provider-volume recovery are unqualified.
+Inventory remains partial at 18 entries/281 symbols. Formal acceptance is still
+**13/17 tasks, 147/195 cases, CG-17 0/32**; CG-01 custody remains missing.
+See [progress](progress.md#current-integration-checkpoint) for exact boundaries.
+
+## Previous prepared-provider delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `4f87197ec`
 delivers Raft-only `BindingJournal::prepare_exchange`, sharing exact existing CAS
