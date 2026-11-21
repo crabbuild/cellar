@@ -41,37 +41,39 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Production `70ffb484f` delivers a bounded, mutually authenticated controller
-endpoint for ordinary named SDK provider sessions. It preserves the durable
-controller identity, original operation metadata and uncertain outcomes. Client
-and listener reservations protect lifecycle control from held Read/Inspect
-requests across hosts. The cross-host reservation regression fails before the
-fix and passes after it; all 31 library tests pass.
+Production `79d1c8b3d` combines business changes, the unfinished original receipt,
+provider intent and execution claim in one mandatory input proof. Ordinary SDK
+Create/data/Delete retain a separate result proof, reducing three versions to
+two. Fenced maintenance prepares only a validated same-generation deletion
+intent before its task/fence proof. Controller activation and provider I/O stay
+after admission; unknown original operations still block deletion.
 
-The new remote SDK scenario passes **4/4 native and 4/4 real RustFS configurations**
-across both image modes and Quorum/S3 minima. It covers creation, binary file I/O,
-buffered execution and deletion-intent recovery, with exact effect counts and
-stale-Context refusal. See the
-[current checkpoint](progress.md#cg-17-authenticated-controller-endpoint).
+The regression fails before the implementation and passes after it. Broad
+source `bca515f36` passes 31 library tests and **47/48 native configurations**;
+real RustFS has **45 pass/1 fail/2 unrun**. The stricter outage test additionally
+proves an archive write was actually refused, with **4/4 native and 4/4 RustFS**
+configurations passing. See the
+[current checkpoint](progress.md#cg-17-combined-provider-preparation-and-source-proof).
 
-The broader `7253ab642` campaign failed: **24 pass/4 fail/4 unrun native** and
-**23 pass/3 fail/6 unrun RustFS** provider configurations. S3 command deadlines and
-live-write completion observation remain open. The failed native live-write
-images already contain confirmed deletion and the controller retains completed
-original receipts; its completion wait still expired. Preserve that distinction
-when diagnosing it. The listener-only fix does not close those source-path gates.
+The broader gate remains failed. Native extent/S3 expires during initial Create
+in the lost-Exec scenario; RustFS materialized/S3 expires during Data before any
+Write/Exec submission. Neither reaches its intended recovery fault. Current
+ordinary calls, lost-write cleanup, restart, expiry, deletion recovery,
+authenticated RPC and lifecycle contention pass their completed configurations.
+The earlier startup failure and the `7253ab642` campaign remain retained controls;
+no success here establishes their exclusive causal resolution.
 
 The next feature deliveries are:
 
-1. Close source checkpoint deadline and durable completion-observation gaps
-   within the original request/maintenance budgets. Reconcile committed outcomes
-   after an ambiguous response without replaying work or using a volatile callback
-   flag as the only completion signal. Keep all failed controls and their proofs.
-2. Connect normal native Container/Sandbox and interactive APIs to the
-   request-bound controller. Deliver the owned asynchronous invocation prologue,
+1. Connect normal native Container/Sandbox and interactive APIs to the
+   request-bound controller. Deliver owned asynchronous invocation entry and
    actual independently fenced execution, backend process faults and provider-volume
    recovery. The native engine's network fence alone is insufficient execution
    ownership; keep admission closed until the backend contract is established.
+2. Close source/controller S3 durability latency and durable completion-observation
+   gaps within the original request/maintenance budgets. Preserve typed ambiguity,
+   reconcile original receipts without replay and prove every injected fault was
+   reached. Keep terminal durable state distinct from volatile callback completion.
 3. Finish receipt reclamation with origin/recovery floors, WebSockets and every
    public primitive/feature/deployment/clock/retention/lifecycle ledger. Resolve the
    broader cancelled-import, archive-outage remote-admission and remote-enrollment
@@ -79,9 +81,9 @@ The next feature deliveries are:
    source before default cutover and CG-13/15/16 acceptance.
 
 The [controller contract](../../../../crates/cellar-container/controller.md)
-explains authentication, restart ownership and the remaining native backend work.
+explains preparation, authentication and remaining native backend work.
 Current tests use one native RF3 process and a controlled provider peer. Inventory
-remains partial at 18 entries/318 symbols. CG-17 stays open at 0/32; all dependencies,
+remains partial at 18 entries/341 symbols. CG-17 stays open at 0/32; all dependencies,
 acceptance oracles and stop conditions remain mandatory. The generated implementation
 index is current; full validation/preflight still needs verified historical CG-01
 custody or actual requalification. The whole design and hard cutover goal remain
@@ -589,7 +591,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. `70ffb484f` adds authenticated controller RPC and shared listener observation limits. Scoped endpoint gates pass 31 library tests and 4/4 native plus 4/4 RustFS SDK configurations. | Close S3 completion/deadline failures; deliver normal native Container/Sandbox, actual fenced execution/volume recovery, receipt GC, WebSockets and the complete matrix. All 32 formal cases remain required. See the [current checkpoint](progress.md#cg-17-authenticated-controller-endpoint). |
+| CG-17 | In progress. `79d1c8b3d` combines private provider intent/claim preparation with the mandatory source proof. Scoped gates: 31 library; native 47 pass/1 fail; RustFS 45 pass/1 fail/2 unrun. Strengthened archive-cut gate passes four native and four RustFS configurations. | Deliver normal native Container/Sandbox and independently fenced execution/volume recovery; close original-budget S3 failures; finish receipt GC, WebSockets and the complete matrix. All 32 formal cases remain required. See the [current checkpoint](progress.md#cg-17-combined-provider-preparation-and-source-proof). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 

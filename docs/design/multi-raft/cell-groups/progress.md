@@ -34,6 +34,112 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 combined provider preparation and source proof
+
+Production `79d1c8b3d` combines bounded private provider preparation with the
+mandatory source admission proof. Ordinary SDK Create prepares its binding
+intent and execution claim before that proof; data calls prepare a claim and
+Delete prepares its exact-generation deletion intent. The existing gate then
+proves business changes, the unfinished original receipt, intent and claim
+before any controller activation or provider work. `fence_execution` repeats
+its checks after the gate and reuses only the unchanged proven reservation. A
+deferred call factory keeps construction of existing backend futures after
+admission. No provider can use an unproven reservation as an execution grant.
+
+Fenced maintenance can request only the closed `DeleteIntent` preparation
+operation. The framework validates its expected record and action, stages that
+private transition and proves it with the task claim and execution fence. The
+backend receives no Context or arbitrary mutation hook during preparation.
+Unknown original mutations still block deletion and retain their identities.
+This removes an intermediate proof from the original three-second maintenance
+budget. Ordinary Create, data and Delete now require exactly two versions:
+combined input/intent/claim proof, then result proof.
+
+The unchanged public regression fails on `a789cad87` with before=1, actual=4
+instead of the required combined proof plus result. On test source `bca515f36`
+all four configurations pass. This source changes only test prefix isolation
+and targeted startup tracing from production `79d1c8b3d`. Prefixes separate
+Quorum/S3 and ordinary/outage fixtures before any real-store campaign.
+
+| Scoped qualification on `bca515f36` | Native | Real RustFS |
+| --- | ---: | ---: |
+| Container library | 31/31 pass | Not a provider-compute gate |
+| Combined admission and pre-controller archive outage | 8/8 pass | 8/8 pass |
+| Ordinary provider, lost Write/Exec, restart, expiry, deletion recovery, authenticated RPC and lifecycle contention | 39 pass / 1 fail | 37 pass / 1 fail / 2 unrun |
+| Total selected provider configurations | 47 pass / 1 fail | 45 pass / 1 fail / 2 unrun |
+
+These are twelve test functions across two image modes and Quorum/S3 minima,
+distinct from the 32 formal CG-17 cases. Outage checks retain the original
+ambiguous command ID; S3 requests enter neither controller nor provider, while
+Quorum requests complete at Quorum. Normal SDK read/write/exec/Delete,
+lost-write recovery, retained restart, expiry sealing, missing-Delete recovery,
+authenticated RPC and unchanged/dirty lifecycle contention pass their four
+native configurations.
+
+The strengthened outage test on `cbd773fd2` additionally requires an actual
+archive-write refusal after the fault is enabled. All four native and four real
+RustFS configurations pass with their original command identities, zero S3
+controller/provider entry and positive refused-write counters. This is a
+test-only assertion/observation change from `bca515f36`; production is
+unchanged. Its frozen executable SHA-256 is
+`b0f2c34238b1ed0d4723fa0420f3a8f757f6732430bd5ea182a978500416e1f7`. The source,
+executable, logs and disks are retained in
+`CG-17-archive-cut-proof-cbd773fd2-2301` with a verified second copy. The
+broader campaign stays pinned separately to `bca515f36`.
+
+The partial inventory now accounts for 18 entries/341 public symbols, adding
+the 23 preparation and authenticated-endpoint interfaces. It remains an
+incomplete SDK inventory and does not imply complete primitive support.
+
+The broader gate remains **FAILED**: extent/S3 in the lost-Exec function
+expires during initial Create1, before its Exec fault is injected. The other
+three configurations pass. The five-second command reports its original typed
+ambiguity; this is not evidence that the unreached Exec recovery cut passed.
+Real RustFS fails materialized/S3 Data2 before Write or Exec submission: the
+injected loss cut was not entered, and the two later extent configurations of
+that function remain unrun. The original ambiguity and zero effect counters
+remain in its failure record.
+
+The first `79d1c8b3d` campaign passes the four combined-proof configurations
+and three outage configurations, then fails during managed extent/S3 startup
+with `Transport(Timeout)`, before the outage or business command. Native
+fixtures use fresh in-memory stores; the subsequently corrected real-store
+prefix isolation was not its established cause. That startup control remains
+retained rather than declared fixed. A separate owning-check continuation was
+explicitly stopped before application qualification to correct the new
+real-store fixture; its completed checks and cancellation record are retained.
+The original `7253ab642` failed campaign and its terminal-state/completion-wait
+distinction also remain historical evidence; selected current passes do not
+erase those failures.
+
+All original request/maintenance/recovery/lifetime/expiry budgets remain
+5s/3s/60s/10s/500ms. Strict affected Clippy, format/layout, dependency and docs
+checks, reviewed source anchors and 44 plan-validator tests pass. Full plan
+validation still lacks historical CG-01 custody. Sources, frozen executables,
+logs and retained disks are in `CG-17-admission-red-a789cad87-2284`,
+`CG-17-prepared-admission-79d1c8b3d-2287`,
+`CG-17-prepared-admission-79d1c8b3d-2288` and
+`CG-17-prepared-admission-bca515f36-2291`, with checksum-verified second
+copies. The primitive executable SHA-256 is
+`96384fab7e98846e63c48f5854aab8774778ed78e85828e5b83d8766b4e3e62c`; the library
+executable is
+`b857372c7ccb27031cab968f9e1a5cd5017f88bd004c1eb88cd550e7aa222250`. Owned
+runtimes are stopped; objects and volumes remain retained.
+
+Archive faults are injected at the store wrapper; separate service-process and
+network outage qualification remains open. Scope is one native macOS RF3
+process, a controlled provider peer and real RustFS at 1 CPU/2 GiB in a
+6-CPU/12-GiB VM. Normal native Container/Sandbox and interactive adapters,
+owned asynchronous invocation entry, independently fenced actual compute,
+provider-process/volume recovery, receipt reclamation, WebSockets and the
+complete API/feature/fault/deployment/clock/retention matrix remain required.
+Next deliver normal native Container/Sandbox and its owned invocation entry
+with real execution fencing. Keep the source/controller S3 deadline and durable
+completion-observation gates failed until they pass within the original
+budgets, then complete the remaining public adapters and combined release
+gates. CG-17 stays **in progress, 0/32 formal cases**, with all dependencies,
+oracles and stop conditions unchanged. Default cutover remains gated.
+
 ### CG-17 authenticated controller endpoint
 
 Runtime `70ffb484f` adds `controller::remote::{ControllerServer,
