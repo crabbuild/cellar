@@ -35,8 +35,14 @@ struct Peer {
     creates: AtomicUsize,
     deletes: AtomicUsize,
     calls: AtomicUsize,
+    writes: AtomicUsize,
+    executions: AtomicUsize,
     lose_create: AtomicBool,
     lose_delete: AtomicBool,
+    lose_write: AtomicBool,
+    lose_exec: AtomicBool,
+    lost_data: Mutex<Option<ExecutionPendingOperation>>,
+    recovered_data: Mutex<Option<ExecutionPendingOperation>>,
     expire_activation: AtomicBool,
 }
 
@@ -132,6 +138,7 @@ impl ExecutionControllerBackend for Peer {
                     Operation::Running => json!(resource.exists),
                     Operation::WriteFile => {
                         ensure!(resource.exists);
+                        self.writes.fetch_add(1, Ordering::AcqRel);
                         resource.files.insert(
                             request.input["path"].as_str().unwrap().into(),
                             STANDARD.decode(request.input["data"].as_str().unwrap())?,
@@ -145,6 +152,7 @@ impl ExecutionControllerBackend for Peer {
                             .context("fixture file missing")?
                     )),
                     Operation::ExecOutput => {
+                        self.executions.fetch_add(1, Ordering::AcqRel);
                         json!({"exit_code":0,"stdout":STANDARD.encode(b"controlled result"),"stderr":""})
                     }
                     _ => anyhow::bail!("unexpected fixture operation"),
@@ -180,6 +188,13 @@ impl ExecutionControllerBackend for Peer {
                 // loses its reply; recovery observes the original receipt only.
                 std::future::pending::<()>().await;
             }
+            if (method == Operation::WriteFile && self.lose_write.swap(false, Ordering::AcqRel))
+                || (method == Operation::ExecOutput && self.lose_exec.swap(false, Ordering::AcqRel))
+            {
+                *self.lost_data.lock().unwrap() =
+                    Some(ExecutionPendingOperation { claim, operation });
+                std::future::pending::<()>().await;
+            }
             Ok(ExecutionOutcome::Completed(bytes))
         })
     }
@@ -201,6 +216,9 @@ impl ExecutionControllerBackend for Peer {
                         receipt.original == original,
                         "original provider receipt differs"
                     );
+                    if self.lost_data.lock().unwrap().as_ref() == Some(&original) {
+                        *self.recovered_data.lock().unwrap() = Some(original);
+                    }
                     Ok(Some(ExecutionOutcome::Completed(receipt.bytes.clone())))
                 }
                 None => Ok(None),
@@ -372,6 +390,8 @@ enum Scenario {
     Basic,
     Interrupted,
     Expired,
+    LostWrite,
+    LostExec,
 }
 
 async fn start(
@@ -487,9 +507,24 @@ pub async fn qualify_expiry(real: bool) -> Result<()> {
     selected(real, Scenario::Expired).await
 }
 
+pub async fn qualify_data_recovery(real: bool, write: bool) -> Result<()> {
+    selected(
+        real,
+        if write {
+            Scenario::LostWrite
+        } else {
+            Scenario::LostExec
+        },
+    )
+    .await
+}
+
 async fn selected(real: bool, scenario: Scenario) -> Result<()> {
     let recovery = scenario != Scenario::Basic;
     let expiry = scenario == Scenario::Expired;
+    let lost_write = scenario == Scenario::LostWrite;
+    let lost_exec = scenario == Scenario::LostExec;
+    let data_loss = lost_write || lost_exec;
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
             let peer = Arc::new(Peer::default());
@@ -520,6 +555,10 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                             "controller-provider-recovery-s3"
                         }
                         (Scenario::Interrupted, _) => "controller-provider-recovery-quorum",
+                        (Scenario::LostWrite, Durability::S3) => "controller-provider-write-s3",
+                        (Scenario::LostWrite, _) => "controller-provider-write-quorum",
+                        (Scenario::LostExec, Durability::S3) => "controller-provider-exec-s3",
+                        (Scenario::LostExec, _) => "controller-provider-exec-quorum",
                         (Scenario::Basic, Durability::S3) => "controller-provider-s3",
                         (Scenario::Basic, _) => "controller-provider-quorum",
                     },
@@ -540,9 +579,11 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                 old_context: Mutex::new(None),
             });
             peer.lose_create
-                .store(recovery && !expiry, Ordering::Release);
+                .store(scenario == Scenario::Interrupted, Ordering::Release);
             peer.lose_delete
-                .store(recovery && !expiry, Ordering::Release);
+                .store(scenario == Scenario::Interrupted, Ordering::Release);
+            peer.lose_write.store(lost_write, Ordering::Release);
+            peer.lose_exec.store(lost_exec, Ordering::Release);
             peer.expire_activation.store(expiry, Ordering::Release);
             let mut cluster = start(rooted, minimum, route.clone(), scenario).await?;
             let domain = cluster.fixtures[0].domain.clone();
@@ -552,10 +593,45 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
             cell.enroll(CellEnrollmentRequest{creation:ProposalId::new([247;16])?,durability:minimum},TIMEOUT).await?;
             let before=cell.query(ProposalId::new([248;16])?,&cell.contract("Version")?,vec![],QueryOptions::default()).await?;
             let create=call(&cluster,&history,minimum,1,"Create").await;
-            if recovery {let error=create.err().context("create unexpectedly returned a result")?;let original=bindings::options(1,minimum)?.id;ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous && error.command==original));}
-            else {let receipt=create?;ensure!(receipt.version.sequence.get()==before.version.sequence.get()+3,"public provider must retain exactly entry, intent/claim and result proofs");let data=call(&cluster,&history,minimum,2,"Data").await?;ensure!(data.version.sequence.get()==receipt.version.sequence.get()+3,"unchanged execution claims must share the proven data checkpoint: before={} actual={}",receipt.version.sequence.get(),data.version.sequence.get());call(&cluster,&history,minimum,3,"Destroy").await?;}
+            if recovery && !data_loss {
+                let error=create.err().context("create unexpectedly returned a result")?;
+                let original=bindings::options(1,minimum)?.id;
+                ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous && error.command==original));
+            } else {
+                let receipt=create?;
+                ensure!(receipt.version.sequence.get()==before.version.sequence.get()+3,"public provider must retain exactly entry, intent/claim and result proofs");
+                let data=call(&cluster,&history,minimum,2,"Data").await;
+                if data_loss {
+                    let error=data.err().context("data mutation unexpectedly returned a result")?;
+                    let original=bindings::options(2,minimum)?.id;
+                    ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous && error.command==original),"lost data reply lost its original ambiguous command identity");
+                    ensure!(peer.lost_data.lock().unwrap().is_some(),"data loss cut was never entered");
+                    if lost_write {
+                        // The controller remains live. Cleanup must settle the
+                        // original write without constructing a business cell.
+                        route.factory_refused.store(true,Ordering::Release);
+                        cellar::asyncrt::timeout(Duration::from_secs(60),async {
+                            loop {let changed=route.changed.notified();if route.retired.load(Ordering::Acquire){break;}changed.await;}
+                        }).await.context("live write cleanup did not finish")?;
+                        route.factory_refused.store(false,Ordering::Release);
+                    } else {
+                        // Explicit reconciliation must settle the original exec,
+                        // not just report Running while deletion stays blocked.
+                        call(&cluster,&history,minimum,3,"Reconcile").await?;
+                        call(&cluster,&history,minimum,4,"Destroy").await?;
+                    }
+                    ensure!(*peer.lost_data.lock().unwrap()==*peer.recovered_data.lock().unwrap(),"live controller did not reconcile the exact original data operation");
+                    ensure!(peer.writes.load(Ordering::Acquire)==if lost_write {1}else{2});
+                    ensure!(peer.executions.load(Ordering::Acquire)==usize::from(lost_exec));
+                    ensure!(peer.deletes.load(Ordering::Acquire)==1,"live recovery failed to retire the resource");
+                } else {
+                    let data=data?;
+                    ensure!(data.version.sequence.get()==receipt.version.sequence.get()+3,"unchanged execution claims must share the proven data checkpoint: before={} actual={}",receipt.version.sequence.get(),data.version.sequence.get());
+                    call(&cluster,&history,minimum,3,"Destroy").await?;
+                }
+            }
             ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry),"create did not reach its selected admission/expiry cut");
-            route.factory_refused.store(recovery,Ordering::Release);
+            route.factory_refused.store(recovery && !data_loss,Ordering::Release);
             let old_hosts=std::mem::take(&mut cluster.hosts);
             managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes),&old_hosts).await?;
             controller.shutdown().await?;controller_domain.shutdown().await;
@@ -563,13 +639,13 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
             controller=ExecutionController::open(controller_domain.clone(),resume,peer.clone()).await?;
             *route.provider.write().unwrap()=Arc::new(ControllerProvider::new(controller.clone())?);
             bindings::restart(&mut cluster).await?;
-            if recovery {
+            if recovery && !data_loss {
                 cellar::asyncrt::timeout(Duration::from_secs(60),async {
                     loop {let changed=route.changed.notified();if route.retired.load(Ordering::Acquire){break;}changed.await;}
                 }).await.context("autonomous controller cleanup did not finish")?;
                 route.factory_refused.store(false,Ordering::Release);
             }
-            let read_sequence=if recovery {2}else{4};
+            let read_sequence=match scenario {Scenario::Basic=>4,Scenario::LostWrite=>3,Scenario::LostExec=>5,_=>2};
             let observed=call(&cluster,&history,minimum,read_sequence,"Read").await?;let value:serde_json::Value=serde_json::from_slice(&observed.result)?;
             ensure!(value["record"]["intent"]=="deleted" && value["record"]["observation"]=="confirmed");
             ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry) && peer.deletes.load(Ordering::Acquire)==usize::from(!expiry),"controller recovery replayed compute");
@@ -588,7 +664,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
             let mut expected=value;expected["revision"]=json!(expected["revision"].as_u64().context("observed revision missing")?+1);
             let expected=serde_json::to_vec(&expected)?;
             ensure!(receipt.durability()>=minimum && receipt.receipt().is_some_and(|row|row.result()==expected.as_slice()) && route.staged.load(Ordering::Acquire)==1,"receipt lookup replayed the callback or changed its result");
-            eprintln!("controller_provider_observations {}",json!({"extents":rooted,"minimum":format!("{minimum:?}"),"recovery":recovery,"expiry":expiry,"creates":peer.creates.load(Ordering::Acquire),"deletes":peer.deletes.load(Ordering::Acquire),"backend_calls":peer.calls.load(Ordering::Acquire),"staged":route.staged.load(Ordering::Acquire)}));
+            eprintln!("controller_provider_observations {}",json!({"extents":rooted,"minimum":format!("{minimum:?}"),"recovery":recovery,"expiry":expiry,"lost_write":lost_write,"lost_exec":lost_exec,"writes":peer.writes.load(Ordering::Acquire),"executions":peer.executions.load(Ordering::Acquire),"creates":peer.creates.load(Ordering::Acquire),"deletes":peer.deletes.load(Ordering::Acquire),"backend_calls":peer.calls.load(Ordering::Acquire),"staged":route.staged.load(Ordering::Acquire)}));
             Ok::<_,anyhow::Error>(())
         }).await.map_err(anyhow::Error::from).and_then(std::convert::identity);
             let closed = managed_fixture::close_group_nodes(

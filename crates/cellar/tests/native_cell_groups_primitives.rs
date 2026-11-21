@@ -3130,3 +3130,25 @@ async fn controller_provider_expiry_seals_unsubmitted_creates() -> Result<()> {
 async fn rustfs_controller_provider_expiry_seals_unsubmitted_creates() -> Result<()> {
     controller_provider::qualify_expiry(true).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_recovers_live_write_without_replay() -> Result<()> {
+    controller_provider::qualify_data_recovery(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_reconciles_live_exec_before_destroy() -> Result<()> {
+    controller_provider::qualify_data_recovery(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_recovers_live_write_without_replay() -> Result<()> {
+    controller_provider::qualify_data_recovery(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_reconciles_live_exec_before_destroy() -> Result<()> {
+    controller_provider::qualify_data_recovery(true, false).await
+}
