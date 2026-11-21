@@ -5,6 +5,10 @@
 use super::*;
 
 pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::group_archive=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_reconciliation=debug")
+        .with_ansi(false)
+        .try_init();
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
             let peer = Arc::new(Peer::default());
@@ -27,10 +31,11 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
             .await?;
             let store = Arc::new(if real {
                 catalog_fault::Store::around(rustfs::store(
-                    if outage {
-                        "controller-admission-outage"
-                    } else {
-                        "controller-admission"
+                    match (outage, minimum) {
+                        (true, Durability::S3) => "controller-admission-outage-s3",
+                        (true, _) => "controller-admission-outage-quorum",
+                        (false, Durability::S3) => "controller-admission-s3",
+                        (false, _) => "controller-admission-quorum",
                     },
                     rooted,
                 )?)
