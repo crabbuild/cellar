@@ -3,6 +3,7 @@
 //! Normal provider sessions backed by independently durable execution ownership.
 mod endpoint;
 mod lifecycle;
+mod native;
 mod preparation;
 mod protocol;
 pub mod remote;
@@ -14,6 +15,7 @@ use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{containers::*, Context};
 pub use endpoint::ControllerEndpoint;
 pub use lifecycle::OperationRefused;
+pub use native::NativeContainerAdapter;
 pub use protocol::{Reply, Request};
 use std::sync::Arc;
 

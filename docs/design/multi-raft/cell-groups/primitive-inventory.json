@@ -803,7 +803,7 @@
         "cellar_container::controller::remote::ControllerServer::shutdown"
       ],
       "owners": [
-        "crates/cellar/application/containers.rs",
+        "crates/cellar/application/containers/mod.rs",
         "crates/cellar/storage/sqlite/container_bindings.sql",
         "crates/cellar/application/authority.rs",
         "crates/cellar/application/container_bindings.rs",

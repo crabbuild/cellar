@@ -1,153 +1,41 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Cell-owned containers. Handles may be retained by a cell; every operation
-//! requires its current executing context. Mutations wait for durability.
-
-pub use super::container_bindings::{
-    BindingCheckpoint, BindingIntent, BindingJournal, BindingLifecycleGuard, BindingObservation,
-    BindingRecord, MAX_BINDINGS, MAX_BINDING_BYTES,
+//! Fleet container ownership and the existing local engine adapter.
+use super::{
+    ExecInfo, ExecOptions, ExecOutput, FileMetadata, FilePath, StartOptions, TerminalSize,
 };
-pub use super::container_controller::{
-    ExecutionController, ExecutionControllerBackend, ExecutionControllerFailure,
-    ExecutionControllerLimits, ExecutionControllerOptions, ExecutionOperation,
-    ExecutionOperationKind, ExecutionOutcome, ExecutionPendingOperation,
-};
-pub use super::container_execution::{ExecutionClaim, ExecutionFenceAuthority, ExecutionGrant};
-pub use super::container_supervision::{
-    supervise, BackendIdentity, DeleteSafety, FencedMaintenanceBackend, MaintenanceAction,
-    MaintenanceBackend, MaintenancePolicy, MaintenancePreparation, RetentionExpired, Supervision,
-};
-pub use super::sandbox_catalog::{
-    SandboxAllocation, SandboxAllocationPage, SandboxAllocationState, SandboxCatalog,
-    SandboxParent, SandboxParentState, SandboxReservation,
-};
-pub use super::sandbox_catalog::{
-    SandboxExecutor, SandboxFailure, SandboxFailureKind, MAX_SANDBOX_MESSAGE_BYTES,
-};
-use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
+use crate::application::{http, sockets, websocket, Context, HandlerFuture};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
-pub use host::{FileKind, FileMetadata, FilePath, TerminalSize, MAX_FILE_ENTRIES};
 use std::{
     future::Future,
     sync::{Arc, Weak},
     time::Duration,
 };
 
-/// Authority for a host-selected external container or sandbox provider.
-/// It belongs to one root-cell event; providers must enforce their own remote
-/// instance fencing and isolation in addition to this local authority.
-pub struct ProviderAuthority {
-    authority: Arc<InvocationAuthority>,
-}
-
-impl Context {
-    /// Obtain event authority without requiring a local Docker deployment.
-    pub fn container_provider_authority(&self) -> Result<ProviderAuthority> {
-        let authority = self.invocation_authority()?;
-        anyhow::ensure!(
-            self.identity().is_some(),
-            "stateless handlers have no container"
-        );
-        anyhow::ensure!(
-            self.facet().is_none(),
-            "containers must be controlled by their root cell"
-        );
-        if let Some(storage) = &self.raft_storage {
-            anyhow::ensure!(
-                storage
-                    .resources
-                    .provider_bindings
-                    .get()
-                    .is_some_and(|bindings| !bindings.is_empty()),
-                super::consensus::CommandFailure::UnsupportedCapability
-            );
-        }
-        Ok(ProviderAuthority {
-            authority: Arc::new(authority),
-        })
-    }
-}
-
-impl ProviderAuthority {
-    pub fn check(&self, context: &Context) -> Result<()> {
-        self.authority.check(context)
-    }
-
-    /// Await the owner's durability/output gate before a provider effect. Raft
-    /// invocations retain their required quorum/S3 minimum and original fence.
-    pub fn before_effect(&self, context: &Context) -> HandlerFuture<()> {
-        if let Err(error) = self.check(context) {
-            return Box::pin(async move { Err(error) });
-        }
-        if context.raft_storage.is_some() {
-            let flush = match context.storage() {
-                Ok(storage) => storage.confirm_checkpoint(),
-                Err(error) => return Box::pin(async move { Err(error) }),
-            };
-            let authority = self.authority.clone();
-            let context = context.clone();
-            return Box::pin(async move {
-                flush.await?;
-                // The checkpoint proves this namespace's required minimum;
-                // role loss or original expiry still refuses external work.
-                authority.check(&context)
-            });
-        }
-        let gate = host_gates::egress_gate_request(&context.io, cellar_logic::Channel::Container);
-        let context = context.clone();
-        Box::pin(async move {
-            host_gates::await_egress_gate(gate)
-                .await
-                .map_err(anyhow::Error::msg)?;
-            context.check_turn()
-        })
-    }
-}
-
-/// Options for the container's root process. Internet access defaults to off.
-#[derive(Clone, Debug, Default)]
-pub struct StartOptions {
-    pub entrypoint: Option<Vec<String>>,
-    pub env: Vec<(String, String)>,
-    pub enable_internet: bool,
-    pub labels: Vec<(String, String)>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ExecOptions {
-    pub cmd: Vec<String>,
-    pub env: Vec<(String, String)>,
-    pub cwd: Option<String>,
-    pub user: Option<String>,
-    pub combined: bool,
-    /// Allocate a terminal; stdout includes both output channels.
-    pub pty: Option<TerminalSize>,
-}
-
 /// Authority for the container attached to one root cell activation.
 #[derive(Clone)]
-pub struct Container {
+pub(super) struct Container {
     scope: Arc<str>,
     epoch: u64,
     engine: Arc<host::ContainerEngine>,
     cell: Arc<host::CellContainer>,
-    activation: Weak<super::Activation>,
+    activation: Weak<crate::application::Activation>,
 }
 
-impl Context {
-    pub fn container(&self) -> Result<Container> {
-        self.check_turn()?;
-        let identity = self
+impl Container {
+    pub(super) fn open(context: &Context) -> Result<Self> {
+        context.check_turn()?;
+        let identity = context
             .identity()
             .ok_or_else(|| anyhow!("stateless handlers have no container"))?;
         anyhow::ensure!(
-            self.facet().is_none(),
+            context.facet().is_none(),
             "containers must be controlled by their root cell"
         );
         anyhow::ensure!(
-            self.worker_config.container_class(&identity.class)
-                || (self.worker_config.source_recovery
+            context.worker_config.container_class(&identity.class)
+                || (context.worker_config.source_recovery
                     && crate::storage::sandbox_children::load(&identity.scope)?
                         .is_some_and(|record| record.container_spec.is_some())),
             "this cell class has no container"
@@ -163,10 +51,11 @@ impl Context {
             engine,
             cell,
             activation: Arc::downgrade(
-                self.io
+                context
+                    .io
                     .native_activation
                     .as_ref()
-                    .expect("cell has a native activation"),
+                    .ok_or_else(|| anyhow!("cell has no native activation"))?,
             ),
         })
     }
@@ -180,7 +69,7 @@ impl Container {
         &self,
         context: &Context,
         target: &str,
-        fetcher: &super::service::Fetcher,
+        fetcher: &crate::application::service::Fetcher,
     ) -> HandlerFuture<()> {
         self.install_http_intercept(context, cellar_egress::HttpTarget::parse(target), fetcher)
     }
@@ -189,7 +78,7 @@ impl Container {
     pub fn intercept_all_outbound_http(
         &self,
         context: &Context,
-        fetcher: &super::service::Fetcher,
+        fetcher: &crate::application::service::Fetcher,
     ) -> HandlerFuture<()> {
         self.install_http_intercept(context, Ok(cellar_egress::HttpTarget::all()), fetcher)
     }
@@ -200,7 +89,7 @@ impl Container {
         &self,
         context: &Context,
         target: &str,
-        fetcher: &super::service::Fetcher,
+        fetcher: &crate::application::service::Fetcher,
     ) -> HandlerFuture<()> {
         self.install_http_intercept(context, cellar_egress::HttpTarget::https(target), fetcher)
     }
@@ -220,7 +109,7 @@ impl Container {
         &self,
         context: &Context,
         target: Result<cellar_egress::HttpTarget>,
-        fetcher: &super::service::Fetcher,
+        fetcher: &crate::application::service::Fetcher,
     ) -> HandlerFuture<()> {
         let prepared = (|| -> Result<_> {
             self.check(context)?;
@@ -456,7 +345,7 @@ impl Container {
 
 /// Direct access to a cell-owned port, independent of global egress policy.
 #[derive(Clone)]
-pub struct Port {
+pub(super) struct Port {
     owner: Container,
     port: u16,
 }
@@ -528,7 +417,7 @@ impl Port {
             let url = self.url(context, &request.url)?;
             request.method = http::normalize_method(&request.method)?;
             context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
-            let guard = super::service::body_guard(context, request.body.as_ref())?;
+            let guard = crate::application::service::body_guard(context, request.body.as_ref())?;
             let gate = host_gates::egress_gate_request(&context.io, cellar_logic::Channel::Fetch);
             Ok((url, guard, gate))
         })();
@@ -595,7 +484,7 @@ impl Port {
 
 /// An exec process belongs to its cell activation and container run. Drop
 /// releases its streams and host registry entry without killing the process.
-pub struct Exec {
+pub(super) struct Exec {
     owner: Container,
     run: u64,
     process: Arc<host::ExecProcess>,
@@ -605,22 +494,6 @@ impl Drop for Exec {
     fn drop(&mut self) {
         self.owner.cell.forget_process(self.process.id);
     }
-}
-
-#[derive(Debug)]
-pub struct ExecOutput {
-    pub exit_code: i64,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
-}
-
-/// Allocation metadata. The PID belongs to the container namespace; images
-/// without the shell identity handshake report None, never a daemon-host PID.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ExecInfo {
-    pub pid: Option<u32>,
-    pub is_pty: bool,
 }
 
 impl Exec {

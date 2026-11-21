@@ -21,6 +21,8 @@ mod admission;
 mod delete_intent;
 #[path = "cell_group_provider_lifecycle_wait.rs"]
 mod lifecycle_wait;
+#[path = "cell_group_native_container.rs"]
+mod native_container;
 #[path = "cell_group_provider_remote.rs"]
 mod remote;
 
@@ -577,6 +579,10 @@ pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
         },
     )
     .await
+}
+
+pub async fn qualify_native_container(real: bool, outage: bool) -> Result<()> {
+    native_container::qualify(real, outage).await
 }
 
 pub async fn qualify_expiry(real: bool) -> Result<()> {

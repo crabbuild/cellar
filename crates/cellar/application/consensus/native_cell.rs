@@ -194,6 +194,7 @@ impl Cell for DeferredCell {
             let constructor = self
                 .owner
                 .context(identity.clone(), authority.activation())?;
+            crate::application::containers::backend::prepare_constructor(&context, &constructor)?;
             let created = (self.owner.factory)(constructor, &identity)?;
             *instance = Some(created.clone());
             Ok(created)
@@ -636,8 +637,17 @@ impl NativeCellFactory {
             });
         }
         if activation.is_none() {
-            let context = self.context(identity.clone(), authority.activation())?;
-            let instance = (self.factory)(context, &identity)?;
+            let instance: Arc<dyn Cell> = if authority.resources.container_adapter.get().is_some() {
+                // The owned future prepares current provider authority before
+                // constructing a cell that can inspect its container snapshot.
+                Arc::new(DeferredCell {
+                    owner: self.clone(),
+                    instance: Mutex::new(None),
+                })
+            } else {
+                let context = self.context(identity.clone(), authority.activation())?;
+                (self.factory)(context, &identity)?
+            };
             *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
                 owner: self.identity.clone(),
                 instance: Mutex::new(Some(instance)),
@@ -725,7 +735,12 @@ impl NativeCellFactory {
                 // Preserve known alarm failure capture around the entire owned
                 // Workflow turn, including physical timeout continuations.
                 let invoked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    instance.0.invoke(context, invocation)
+                    let future: HandlerFuture<Output> = Box::pin(async move {
+                        crate::application::containers::backend::prepare_invocation(&context)
+                            .await?;
+                        instance.0.invoke(context, invocation)?.await
+                    });
+                    Ok::<_, anyhow::Error>(future)
                 }));
                 let result = match invoked {
                     Ok(Ok(future)) => {
@@ -771,7 +786,10 @@ impl NativeCellFactory {
                 })?;
                 return Ok(vec![1]);
             }
-            let future = instance.0.invoke(context, invocation)?;
+            let future: HandlerFuture<Output> = Box::pin(async move {
+                crate::application::containers::backend::prepare_invocation(&context).await?;
+                instance.0.invoke(context, invocation)?.await
+            });
             let output = if workflow {
                 crate::application::workflow::join_turn(future, state, storage.clone()).await?
             } else {

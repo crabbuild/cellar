@@ -3099,6 +3099,29 @@ async fn rustfs_docker_provider_sessions_retain_existing_fenced_lifecycle_admiss
 mod controller_provider;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_container_uses_shared_group_fences_and_owned_invocation_entry() -> Result<()> {
+    controller_provider::qualify_native_container(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_container_preserves_original_quorum_and_s3_source_admission() -> Result<()> {
+    controller_provider::qualify_native_container(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_native_container_uses_shared_group_fences_and_owned_invocation_entry() -> Result<()>
+{
+    controller_provider::qualify_native_container(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_native_container_preserves_original_quorum_and_s3_source_admission() -> Result<()> {
+    controller_provider::qualify_native_container(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn controller_provider_sessions_preserve_shared_group_durability() -> Result<()> {
     controller_provider::qualify(false, false).await
 }
