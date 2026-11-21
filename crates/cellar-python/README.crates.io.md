@@ -31,16 +31,16 @@ One native Cellar process
 
 | Goal | Guide |
 | --- | --- |
-| Run a counter with Pydantic, NumPy, alarms, and bindings | [Runnable Python example](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/python/README.md) |
-| Serve a framework application | [FastAPI order service](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/python-fastapi/README.md), using an example-only buffered ASGI transport |
-| Persist model/tool steps and resume after restart | [PydanticAI agent](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/python-agent/README.md) |
-| Call named business methods across Rust, Python, JS and TS | [Typed RPC fixtures and all-backend harness](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/rpc/README.md), with qualification [status](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/named-typed-rpc/implementation-status.md) |
-| Deliver a verified runtime and dependencies | [Environment build/install workflow](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/python/README.md) |
-| Measure latency, throughput, memory, and recovery | [Baseline harness](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/python/baseline.md) |
-| Work on scheduling, cleanup, or telemetry | [Runtime internals and diagnostics](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/runtime/README.md) |
+| Run a counter with Pydantic, NumPy, alarms, and bindings | [Runnable Python example](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/python/README.md) |
+| Serve a framework application | [FastAPI order service](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/python-fastapi/README.md), using an example-only buffered ASGI transport |
+| Persist model/tool steps and resume after restart | [PydanticAI agent](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/python-agent/README.md) |
+| Call named business methods across Rust, Python, JS and TS | [Typed RPC fixtures and all-backend harness](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/rpc/README.md), with qualification [status](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/named-typed-rpc/implementation-status.md) |
+| Deliver a verified runtime and dependencies | [Environment build/install workflow](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/python/README.md) |
+| Measure latency, throughput, memory, and recovery | [Baseline harness](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/python/baseline.md) |
+| Work on scheduling, cleanup, or telemetry | [Runtime internals and diagnostics](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/runtime/README.md) |
 
 The adapter exposes bounded buffered HTTP, streaming HTTP/SSE, and native
-WebSocket upgrades/events. See [streaming and WebSockets](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/27-streaming-and-websockets.md).
+WebSocket upgrades/events. See [streaming and WebSockets](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/27-streaming-and-websockets.md).
 General ASGI lifespan, workflows, outbox, stream bindings, binary SQL parameters,
 and application-authored `wait_until` are outside its current SDK contract.
 
@@ -49,7 +49,7 @@ and application-authored `wait_until` are outside its current SDK contract.
 `ctx.sandboxes` allocates independently routed execution cells owned by the
 current business cell. The host registers the dedicated execution class through
 `Source::sandbox_executor`; full checkpoints prevent stale calls from targeting a
-replacement child. See the [four-language allocation and erasure guide](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/allocations.md)
+replacement child. See the [four-language allocation and erasure guide](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/allocations.md)
 for examples, cleanup after deployment removal, limits and production boundaries.
 
 ## Cell-owned Docker and Podman containers
@@ -61,7 +61,7 @@ call the same Rust SDK as native applications, retaining ownership checks,
 durability gates, cancellation and byte limits. The host needs a configured
 Docker-compatible engine; CPython itself still runs in the native host.
 
-See the [cross-language container guide](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/09-integrations.md#apis-in-each-language)
+See the [cross-language container guide](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/09-integrations.md#apis-in-each-language)
 for configuration, Python examples, interactive exec, lifetime rules and the
 comparison with celld. `ContainerExecOutput.stdout` and `.stderr` are bytes;
 `ContainerWebSocket.receive()` returns typed-by-tag dictionaries with binary
@@ -69,7 +69,7 @@ comparison with celld. `ContainerExecOutput.stdout` and `.stderr` are bytes;
 
 `read_file` / `write_file` preserve binary content; `stat_file` returns frozen
 `ContainerFileMetadata` and `list_files` returns a tuple. See the
-[file guide](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/files.md) for path rules, bounds and the
+[file guide](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/files.md) for path rules, bounds and the
 container filesystem's durability limits.
 
 ## Write a Python application
@@ -134,7 +134,7 @@ async def fetch(request, ctx):
 ```
 
 The application handles a proven conflict but does not retry unknown outcomes.
-The [full example](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/python/README.md) adds input validation,
+The [full example](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/python/README.md) adds input validation,
 idempotency receipts, multiple cell names, and alarm deduplication.
 
 ```text
@@ -193,7 +193,7 @@ return Report or error with Incomplete report
 The following is an executable template: place `app.py` beside it and enable
 `cellar-python`'s `embed` feature. It expects a fleet deployment named
 `python-counter`, version `v1`, with the `Counter` class and `COUNTERS` binding.
-For a complete configured project, use [examples/python/main.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/python/main.rs).
+For a complete configured project, use [examples/python/main.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/python/main.rs).
 
 ```rust,ignore
 use anyhow::{ensure, Result};
@@ -266,7 +266,7 @@ within one invocation: each property access creates a lightweight handle.
 The native bootstrap enables `Source::filesystem(class, Policy::default())`
 after registering a cell class. Its invocations use `ctx.fs`. Files live in that
 cell's SQLite state and follow its authority, transactions and proof path.
-The [filesystem guide](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/application/filesystem/README.md) documents
+The [filesystem guide](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/application/filesystem/README.md) documents
 POSIX-compatible operations, finite limits and remaining release qualification.
 Use `Policy { read_only: true, ..Policy::default() }` in the native bootstrap
 for reader classes. `(await ctx.fs.capabilities())["read_only"]` reports the
@@ -342,7 +342,7 @@ receipt before preparation on replay. Bound the complete external journal and
 checked batch to fit storage read/request envelopes.
 `filesystem_tool_refusal(error)` produces
 a receipt value only for a proven no-commit refusal; never repeat a submitted
-mutation after an unknown outcome. The [PydanticAI example](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/python-agent/README.md)
+mutation after an unknown outcome. The [PydanticAI example](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/python-agent/README.md)
 demonstrates this deferred-tool path.
 
 ### Infrastructure and event controls
@@ -541,7 +541,7 @@ writes and commits. A completed call may already have committed, and earlier
 synced writes survive.
 Cancellation never authorizes an automatic retry. Full lifecycle qualification
 remains tracked in the
-[RPC ledger](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/named-typed-rpc/implementation-status.md).
+[RPC ledger](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/named-typed-rpc/implementation-status.md).
 
 ### Bound a typed call, including its codecs
 
@@ -549,7 +549,7 @@ A fixed RPC error category escaping an entered business method is preserved,
 with an `unknown` effect outcome. A child refused with
 `DeadlineExceeded/not_committed` cannot prove that its parent's earlier writes
 rolled back. Exception text and outcome properties are not forwarded as proof.
-The [provenance matrix](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/rpc/README.md#failures-after-a-parent-commits)
+The [provenance matrix](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/rpc/README.md#failures-after-a-parent-commits)
 verifies committed receipts and explicit retries across all four providers.
 
 `timeout_ms` applies from the start of the generated async call, including codec
@@ -592,7 +592,7 @@ operation ID to recover its receipt with an explicit retry.
 
 ### Capacity and byte budgets
 
-Defaults are defined by [Options](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/runtime/mod.rs). Admission fails immediately
+Defaults are defined by [Options](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/runtime/mod.rs). Admission fails immediately
 when full; the adapter does not build an unbounded queue.
 
 | Option | Default | What it bounds |
@@ -646,14 +646,14 @@ An oversized request is refused before native dispatch. An oversized reply may
 follow a committed effect and retain an unknown outcome. Encoding failures and
 completion-capacity refusals fail the invocation without rolling back writes;
 even a refused failure envelope does not by itself stop later runtime work.
-See [byte accounting and failure boundaries](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/runtime/README.md#byte-accounting-and-failure-boundaries)
+See [byte accounting and failure boundaries](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/runtime/README.md#byte-accounting-and-failure-boundaries)
 for mailbox and serialization details.
 
 ### Build-time interpreter selection
 
 Select CPython through `PYO3_PYTHON` when building the `embed` feature. Use a
 shared libpython, development headers, and matching runtime/stdlib/native wheels.
-Follow the [runnable setup](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/python/README.md#install-and-run) for
+Follow the [runnable setup](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/python/README.md#install-and-run) for
 the complete local environment.
 
 ```sh
@@ -737,7 +737,7 @@ The inventory also binds native dependencies and the qualified OS cohort.
 External library hashes and macOS system-cache identities are checked; loaded
 providers are verified before initialization and again after imports. OS libraries
 remain provisioned by the qualified host. OS/library changes require recapture
-and rebuilding. Follow the [environment workflow](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/python/README.md)
+and rebuilding. Follow the [environment workflow](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/python/README.md)
 for exact capture, deployment, and prerequisite checks.
 
 Python's explicit environment view does not alter the Rust host's initial
@@ -762,7 +762,7 @@ check complete(), not just exit status
 Use async libraries for cooperative I/O. CPU-bound Python, a GIL-holding extension,
 or code suppressing cancellation can stall the interpreter. Rust's deadline
 revokes SDK authority but cannot forcibly stop that code. The shipped Unix
-[`cellar supervise` watchdog](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/python/README.md#process-supervision)
+[`cellar supervise` watchdog](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/python/README.md#process-supervision)
 provides bounded startup, liveness, hard termination, and restart; its health
 endpoint must execute through Python.
 
@@ -787,7 +787,7 @@ exceptions make the report incomplete even if no tasks remain. Managed diagnosti
 use fixed failure stages instead of exception values and traceback paths.
 Application logging and pre-main OS loader output remain process output.
 
-See [runtime internals and diagnostics](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/runtime/README.md) for exact timing scopes,
+See [runtime internals and diagnostics](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/runtime/README.md) for exact timing scopes,
 copy accounting, startup stderr handling, and cleanup invariants. A report covers
 runtime-owned work and explicitly recorded nodes; it does not certify arbitrary
 native threads or the process-wide heap.
@@ -795,7 +795,7 @@ native threads or the process-wide heap.
 ## Validate changes and find the code
 
 Use the repository Rust toolchain, selected CPython, and a checkout-specific
-`CARGO_TARGET_DIR` from [AGENTS.md](https://github.com/crabbuild/cellar/blob/v0.1.1/AGENTS.md). After preparing the example's
+`CARGO_TARGET_DIR` from [AGENTS.md](https://github.com/crabbuild/cellar/blob/v0.1.2/AGENTS.md). After preparing the example's
 dependencies, the focused checks are:
 
 ```sh
@@ -851,22 +851,22 @@ repeated probes does not explain or close an earlier intermittent failure.
 
 | Source | Responsibility |
 | --- | --- |
-| [application.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/application.rs) | Source declarations, native application/cell proxies, original-invocation execution. |
-| [python/cellar.py](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/python/cellar.py) | Typed Python facade, contexts, values, storage, bindings, errors. |
-| [python/runner.py](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/python/runner.py) | Managed asyncio loop, handlers, tasks, object retirement, shutdown. |
-| [runtime/mod.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/runtime/mod.rs) | Bootstrap, options, joined host supervision, report types. |
-| [runtime/bridge.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/runtime/bridge.rs) | Native sender, invocation checks, operation admission. |
-| [read_batch.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/read_batch.rs) | Bounded multi-key replies and pre-dispatch snapshot capture. |
-| [cellar-guest](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/README.md) | Shared native operations, HTTP limits, checked batches, failure provenance. |
-| [runtime guide](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/runtime/README.md) | Internal scheduling, initialization, accounting, and observability map. |
+| [application.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/application.rs) | Source declarations, native application/cell proxies, original-invocation execution. |
+| [python/cellar.py](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/python/cellar.py) | Typed Python facade, contexts, values, storage, bindings, errors. |
+| [python/runner.py](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/python/runner.py) | Managed asyncio loop, handlers, tasks, object retirement, shutdown. |
+| [runtime/mod.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/runtime/mod.rs) | Bootstrap, options, joined host supervision, report types. |
+| [runtime/bridge.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/runtime/bridge.rs) | Native sender, invocation checks, operation admission. |
+| [read_batch.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/read_batch.rs) | Bounded multi-key replies and pre-dispatch snapshot capture. |
+| [cellar-guest](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/README.md) | Shared native operations, HTTP limits, checked batches, failure provenance. |
+| [runtime guide](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/runtime/README.md) | Internal scheduling, initialization, accounting, and observability map. |
 
-Use the [baseline harness](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/python/baseline.md) for performance and the
-[fleet fixture](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/python/fleet.md) for deployment/recovery qualification.
-[Plan 007](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
+Use the [baseline harness](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/python/baseline.md) for performance and the
+[fleet fixture](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/python/fleet.md) for deployment/recovery qualification.
+[Plan 007](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
 tracks the remaining acceptance gates; local checks do not establish production
 fleet qualification.
 
 A Rust host can select another container or sandbox backend with
 `Source::container_provider(Arc<dyn Provider>)`; see
-[`cellar-container`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/README.md) for the provider contract.
+[`cellar-container`](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/README.md) for the provider contract.
 The default provider preserves the native Docker/Podman behavior.

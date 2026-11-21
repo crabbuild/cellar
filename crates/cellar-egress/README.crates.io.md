@@ -21,7 +21,7 @@ flowchart LR
 The network helper runs and is qualified separately. The native Engine attach
 client and helper-first topology have a real `runc` campaign. Cellar's host owns
 startup, warm reconnect, native Worker dispatch and paired retirement; the
-[pinned Sandbox image fixtures](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/cloudflare-v1/README.md)
+[pinned Sandbox image fixtures](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/cloudflare-v1/README.md)
 qualify selected SDK operations. Outbound sockets remain inside the container
 network fence; the host must not dial a fallback connection on its own network.
 
@@ -143,7 +143,7 @@ idle disconnects, DNS policy, half-close, retirement and fragmented Docker frame
 The README example also compiles as a documentation test. These are native
 component tests, not container-image or cloud qualification.
 
-The separate [native network campaign](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/egress/README.md) checks
+The separate [native network campaign](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/egress/README.md) checks
 actual IPv4/IPv6 TCP destination capture, UDP/TCP DNS redirects, marked bypass,
 offline refusal, inbound replies and offline/online rule replacement in an owned
 namespace. It also starts the actual network-helper binary over pipes, checks
@@ -154,9 +154,9 @@ The Engine campaign uses Cellar's real private attach client before startup,
 then starts a separate application in the helper's exact network namespace.
 It checks startup refusal, live-request retirement and successful helper join.
 The Engine campaign's route handler is a protocol peer. The separate
-[native HTTP profile](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/README.md#route-outbound-http-to-a-native-service)
+[native HTTP profile](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/README.md#route-outbound-http-to-a-native-service)
 adds generation-bound Worker dispatch and fresh scope/epoch gates. The
-[Sandbox 1.0.3 image campaign](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/cloudflare-v1/README.md#directory-backups-through-native-http-interception)
+[Sandbox 1.0.3 image campaign](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/cloudflare-v1/README.md#directory-backups-through-native-http-interception)
 runs published directory backup/restore/delete through that profile.
 
 | Next integration | Required evidence |
@@ -166,8 +166,8 @@ runs published directory backup/restore/delete through that profile.
 | Native/Workers facade | Broader TLS/client/fault qualification, trailers/upgrades and full profile acceptance beyond the optional native HTTP/HTTPS routes |
 | Published Sandbox | S3 mounts and full backup failure/restart/grant lifetime qualification beyond selected matching-image backup/restore/delete |
 
-See the [delivery plan](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/sandbox-provider-compatibility.md),
-[progress ledger](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/sandbox-provider-progress.md),
+See the [delivery plan](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/sandbox-provider-compatibility.md),
+[progress ledger](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/sandbox-provider-progress.md),
 [Cloudflare interception contract](https://developers.cloudflare.com/containers/api/durable-object-container/)
 and [Yamux driver contract](https://docs.rs/yamux/0.14.1/yamux/).
 DNS parsing uses the pinned [Hickory protocol library](https://docs.rs/hickory-proto/0.26.3/hickory_proto/).
@@ -184,7 +184,7 @@ DNS parsing uses the pinned [Hickory protocol library](https://docs.rs/hickory-p
 | TLS ownership | The native host owns the per-run CA and authenticated HTTP sessions; the helper relays bytes and original destinations |
 | Upstream | The host wraps a marked helper direct stream with certificate/name validation; no host-network fallback socket |
 
-See the [native HTTPS configuration and limits](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/README.md#opt-in-to-https-interception)
+See the [native HTTPS configuration and limits](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/README.md#opt-in-to-https-interception)
 for client trust, fresh ownership gates, public certificate injection and
 matching-image evidence. TLS support is optional and does not qualify generic
 TLS protocols or complete Cloudflare compatibility.

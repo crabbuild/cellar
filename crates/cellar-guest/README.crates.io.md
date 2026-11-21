@@ -13,8 +13,8 @@ contains the shared Rust operation layer; interpreter startup, transport, and
 invocation lifetime belong to the adapters. It embeds no Python or JavaScript
 engine.
 
-Application authors should start with the [JavaScript/TypeScript SDK guide](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-sdk/README.md)
-or [Python API guide](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/README.md#python-api). This README is for
+Application authors should start with the [JavaScript/TypeScript SDK guide](https://github.com/crabbuild/cellar/blob/v0.1.2/packages/cellar-sdk/README.md)
+or [Python API guide](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/README.md#python-api). This README is for
 contributors working on the adapters or their shared protocol.
 
 ## Where this crate fits
@@ -151,7 +151,7 @@ on completion/cancellation. Resource IDs have meaning only within that state.
 Container commands remain native gated effects. Monitor, exec wait and stream
 reads are observational operations so they can progress alongside control calls.
 Read failures can follow consumed bytes and must not be treated as replayable.
-The [container guide](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/09-integrations.md#how-cell-owned-containers-work)
+The [container guide](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/09-integrations.md#how-cell-owned-containers-work)
 describes each facade and the engine requirements.
 
 `operations::State` also supplies event authority. Queue
@@ -159,7 +159,7 @@ settlement and scheduled retry decisions require the corresponding event;
 having a binding alone does not supply it.
 
 Python's `storage.read_many` is implemented in its own bounded
-[read-batch adapter](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/read_batch.rs). The shared `is_read`
+[read-batch adapter](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/read_batch.rs). The shared `is_read`
 classifier recognizes it, but the shared `execute` dispatcher does not handle it.
 
 ## HTTP values and limits
@@ -167,7 +167,7 @@ classifier recognizes it, but the shared `execute` dispatcher does not handle it
 The buffered `cell.fetch` operation collects bounded response bodies. The
 invocation-owned `transport::Session` also exposes live response forwarding,
 backpressured streaming HTTP/SSE and native WebSocket capabilities. See
-[streaming and WebSockets](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/27-streaming-and-websockets.md). Container
+[streaming and WebSockets](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/27-streaming-and-websockets.md). Container
 ports also provide an explicit event-owned WebSocket API through their provider.
 
 ```text
@@ -239,7 +239,7 @@ existing encoding and limits.
 
 Typed RPC result budgeting counts `encoded_metadata_bytes + raw_body_bytes`.
 Its binary body does not construct a base64 representation. See the
-[live metadata refusal suite](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/rpc/README.md#guest-call-metadata-refusals)
+[live metadata refusal suite](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/rpc/README.md#guest-call-metadata-refusals)
 for language and routing coverage.
 
 ## Read failures without guessing whether a write committed
@@ -289,19 +289,19 @@ the owning adapter; see its guide for that additional error contract.
 
 | File | Responsibility |
 | --- | --- |
-| [lib.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/lib.rs) | Public modules and shared `Limits`. |
-| [operations.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/operations.rs) | Operation dispatch, payload validation, read classification, and event state. |
-| [rpc_control.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/rpc_control.rs) | Flat named-RPC metadata decoding, validation and pre-parse storage allowance. |
-| [rpc_control_tests.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/rpc_control_tests.rs) | Wire/shape extremes, lease cleanup and refusal provenance. |
-| [tests/rpc_control_allocation.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/tests/rpc_control_allocation.rs) | Actual decoder allocation layouts, including scratch growth for escaped strings. |
-| [containers.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/containers.rs) | Container operation validation, native handles and invocation resource cleanup. |
-| [storage.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/storage.rs) | Checked batch validation and one-transaction application. |
-| [values.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/values.rs) | Buffered HTTP conversion, byte accounting, JSON depth, and queue body conversion. |
-| [failure.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/failure.rs) | Bounded reply encoding, error classification, and failure-provenance tests. |
-| [values_tests.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/values_tests.rs) | Exact body/header boundaries and response-stream cleanup tests. |
+| [lib.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/lib.rs) | Public modules and shared `Limits`. |
+| [operations.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/operations.rs) | Operation dispatch, payload validation, read classification, and event state. |
+| [rpc_control.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/rpc_control.rs) | Flat named-RPC metadata decoding, validation and pre-parse storage allowance. |
+| [rpc_control_tests.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/rpc_control_tests.rs) | Wire/shape extremes, lease cleanup and refusal provenance. |
+| [tests/rpc_control_allocation.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/tests/rpc_control_allocation.rs) | Actual decoder allocation layouts, including scratch growth for escaped strings. |
+| [containers.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/containers.rs) | Container operation validation, native handles and invocation resource cleanup. |
+| [storage.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/storage.rs) | Checked batch validation and one-transaction application. |
+| [values.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/values.rs) | Buffered HTTP conversion, byte accounting, JSON depth, and queue body conversion. |
+| [failure.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/failure.rs) | Bounded reply encoding, error classification, and failure-provenance tests. |
+| [values_tests.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-guest/values_tests.rs) | Exact body/header boundaries and response-stream cleanup tests. |
 
 Run the shared boundary tests from the repository root, using a checkout-specific
-`CARGO_TARGET_DIR` as described in [AGENTS.md](https://github.com/crabbuild/cellar/blob/v0.1.1/AGENTS.md):
+`CARGO_TARGET_DIR` as described in [AGENTS.md](https://github.com/crabbuild/cellar/blob/v0.1.2/AGENTS.md):
 
 ```sh
 cargo test --locked -p cellar-guest
@@ -309,12 +309,12 @@ python3 tools/docs/check.py
 ```
 
 Runtime identity, cancellation, and shutdown tests belong to
-[cellar-python](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-python/README.md) and
-[cellar-javascript](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/README.md). When changing the protocol,
+[cellar-python](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-python/README.md) and
+[cellar-javascript](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-javascript/README.md). When changing the protocol,
 check both adapters and the shared boundary: a local conversion change can alter
 another language's failure classification or byte budget.
 
-Container operations use [`cellar-container`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/README.md),
+Container operations use [`cellar-container`](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/README.md),
 which owns provider selection, invocation sessions and the native implementation.
 The guest boundary preserves its typed pre-effect validation marker and error
 provenance when encoding failures.

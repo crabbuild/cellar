@@ -7,7 +7,7 @@ state; Cellar routes calls to its owner, replicates committed writes and recover
 state before a replacement owner serves requests. This crate contains the
 application SDK, production host and `cellar` command-line interface (CLI).
 
-![Axum and administration integrate with the Cellar host, which uses logic, native primitives and LTX replication.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.1/docs/diagrams/workspace-crates.svg)
+![Axum and administration integrate with the Cellar host, which uses logic, native primitives and LTX replication.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.2/docs/diagrams/workspace-crates.svg)
 
 Use `cellar` for application contracts and hosting. The adapter crates add HTTP
 and management interfaces; the lower-level crates own runtime decisions, values
@@ -19,13 +19,13 @@ Depend on the published `cellar-main` package under the `cellar` alias:
 
 ```toml
 [dependencies]
-cellar = { package = "cellar-main", version = "0.1.1" }
+cellar = { package = "cellar-main", version = "0.1.2" }
 ```
 
 Application imports remain `cellar::sdk`. Install the command-line tool with:
 
 ```sh
-cargo install cellar-main --version 0.1.1 --locked --bin cellar
+cargo install cellar-main --version 0.1.2 --locked --bin cellar
 ```
 
 The installed command is `cellar`.
@@ -33,7 +33,7 @@ The installed command is `cellar`.
 ## Run an application
 
 From the repository root, use Rust and Cargo with native C/C++ build tools.
-Follow [build setup](https://github.com/crabbuild/cellar/blob/v0.1.1/AGENTS.md#build-and-validation) for a target directory
+Follow [build setup](https://github.com/crabbuild/cellar/blob/v0.1.2/AGENTS.md#build-and-validation) for a target directory
 unique to your checkout, then start the counter:
 
 ```sh
@@ -49,7 +49,7 @@ curl -sS http://127.0.0.1:9876/counters/alice
 ```
 
 Both requests return `{"count":1}` on fresh state. Restarting `dev` preserves the
-count. See the [counter walkthrough](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/native-counter/README.md)
+count. See the [counter walkthrough](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/native-counter/README.md)
 for routing, assets and local-state cleanup.
 
 ## Define handlers and cells
@@ -70,21 +70,21 @@ declares the matching classes, versions and bindings.
 A transaction protects a local state change. The output gate checks ownership
 and the required durability proof before releasing success. A lost response can
 still leave a committed mutation; use stable command IDs and retained receipts
-for retryable business operations. Read [SDK lifetimes](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/05-sdk-and-lifetimes.md),
-[storage](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/06-storage-transactions.md) and
-[routing and retries](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/07-routing-rpc.md) before designing that contract.
+for retryable business operations. Read [SDK lifetimes](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/05-sdk-and-lifetimes.md),
+[storage](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/06-storage-transactions.md) and
+[routing and retries](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/07-routing-rpc.md) before designing that contract.
 
 ## Choose a host
 
 | Host | Responsibility | Example |
 | --- | --- | --- |
-| `sdk::Host` | Run a compiled application with CLI configuration and process lifecycle | [Native counter](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/native-counter/main.rs) |
-| `sdk::Node` | Supply executors, listeners, services, policies and supervision | [Embedded node](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/embedded-node/README.md) |
-| `cellar-axum` | Use Axum handlers or an application-owned Axum listener | [Two-host counter](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/axum-counter/README.md) |
+| `sdk::Host` | Run a compiled application with CLI configuration and process lifecycle | [Native counter](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/native-counter/main.rs) |
+| `sdk::Node` | Supply executors, listeners, services, policies and supervision | [Embedded node](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/embedded-node/README.md) |
+| `cellar-axum` | Use Axum handlers or an application-owned Axum listener | [Two-host counter](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/axum-counter/README.md) |
 
 Application factories compile into the executable that serves them. The generic
 CLI builds and publishes packages; it cannot serve factories absent from its
-binary. Follow [packaging and deployment](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/12-packaging-deployment.md)
+binary. Follow [packaging and deployment](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/12-packaging-deployment.md)
 when promoting an application to a fleet.
 
 Compiled applications can opt into one node-owned Raft cell host through
@@ -92,16 +92,16 @@ Compiled applications can opt into one node-owned Raft cell host through
 the daemon resolves the active compiled application and binds SDK handles before
 public ingress. Run with an absolute persistent `--data-dir`, retain claimed
 disks, and restart the process for deployment changes. See the
-[production Raft startup contract](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/multi-raft/operations-design.md#production-cli-startup)
+[production Raft startup contract](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/multi-raft/operations-design.md#production-cli-startup)
 for startup failure, cancellation, resume and qualification boundaries.
 
 ## Find the implementation
 
 The crate separates application contracts, runtime execution, storage, fleet
-coordination and transport. [lib.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/lib.rs) maps physical files to public Rust
+coordination and transport. [lib.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/lib.rs) maps physical files to public Rust
 modules, so a public module name may differ from its directory. Start with the
-[architecture guide](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/03-architecture.md) and
-[SDK API map](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/22-api-reference.md) when extending the host.
+[architecture guide](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/03-architecture.md) and
+[SDK API map](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/22-api-reference.md) when extending the host.
 
 ## Validate changes
 
@@ -112,7 +112,7 @@ cargo test -p cellar-main --lib --tests --locked
 cargo test -p cellar-main --doc --locked
 ```
 
-Use the [SDK CI workflow](https://github.com/crabbuild/cellar/blob/v0.1.1/.github/workflows/native-sdk.yml) for workspace
-checks and the [qualification guide](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/19-testing-qualification.md)
+Use the [SDK CI workflow](https://github.com/crabbuild/cellar/blob/v0.1.2/.github/workflows/native-sdk.yml) for workspace
+checks and the [qualification guide](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/19-testing-qualification.md)
 for lifecycle, durability or recovery changes. Internal simulation tests require
 an external harness; do not enable `cellar_internal_tests` in an ordinary build.

@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-admin"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-axum"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-container"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-egress"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-guest"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-javascript"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -502,11 +502,11 @@ dependencies = [
 
 [[package]]
 name = "cellar-logic"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "cellar-ltx"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-main"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-native"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "cellar-python"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",

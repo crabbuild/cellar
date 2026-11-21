@@ -6,17 +6,17 @@
 The default `Native` provider uses Cellar's existing Docker/Podman integration;
 Rust hosts can supply another backend without changing the guest API.
 
-[Quick start](#quick-start) · [Provider matrix](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/compatibility.md) · [Capabilities](#discover-capabilities) ·
-[Lifecycle](#two-lifecycle-interfaces) · [Scheduled cleanup](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/supervision.md) · [Files](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/files.md) · [Add a provider](#add-a-provider) ·
-[HTTP streams](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/streams.md) · [Wire reference](#bridge-protocol-version-1)
+[Quick start](#quick-start) · [Provider matrix](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/compatibility.md) · [Capabilities](#discover-capabilities) ·
+[Lifecycle](#two-lifecycle-interfaces) · [Scheduled cleanup](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/supervision.md) · [Files](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/files.md) · [Add a provider](#add-a-provider) ·
+[HTTP streams](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/streams.md) · [Wire reference](#bridge-protocol-version-1)
 
-For dynamic instance naming, the [named allocation catalog](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/allocations.md)
+For dynamic instance naming, the [named allocation catalog](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/allocations.md)
 provides authenticated bounded child execution and scheduled parent cleanup.
 Native deletion verifies exact container absence. New native children use
 per-class fleet capacity samples before final local admission. Confirmed child
 retirement queues bounded SQLite/replica erasure; parent erasure is explicit.
 Fleet collection and recovery have a separately measured
-[qualification profile](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/fleet-qualification.md).
+[qualification profile](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/fleet-qualification.md).
 
 ## Native containers, this adapter, or Workers?
 
@@ -28,8 +28,8 @@ container engine. Selecting `Native` keeps the same Docker/Podman execution path
 | Typed Rust access to the configured local engine | `cellar::sdk::Context::container()` | Direct native lifecycle, exec and port APIs |
 | A backend selectable by the host across Rust, Python, JS and TS | This crate's `Adapter` / `Session` | Shared operations, capabilities, validation and bounded replies |
 | Existing Workers/Durable Object application APIs | Optional `@cellar/cloudflare` package | Experimental API compatibility above the same provider boundary |
-| A hosted E2B sandbox | Experimental [`e2b::E2b`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/e2b.md) provider | Bounded commands/files and durable lifecycle reconciliation; explicit weaker ownership profile |
-| A hosted Vercel sandbox | Experimental [`vercel::Vercel`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/vercel.md) provider | Bounded commands/files, durable named-resource identity and pinned sessions; explicit weaker ownership |
+| A hosted E2B sandbox | Experimental [`e2b::E2b`](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/e2b.md) provider | Bounded commands/files and durable lifecycle reconciliation; explicit weaker ownership profile |
+| A hosted Vercel sandbox | Experimental [`vercel::Vercel`](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/vercel.md) provider | Bounded commands/files, durable named-resource identity and pinned sessions; explicit weaker ownership |
 | Another hosted sandbox | A dedicated Rust `Provider` implementation | Extend the same boundary; additional providers remain planned |
 
 Like celld, a durable object/cell owns container controls and the node executes
@@ -38,7 +38,7 @@ SDK compatibility is qualified against its matching image.
 
 ## How it fits together
 
-![Rust and language facades call a shared session inside the original native invocation. The host selects Native for Docker/Podman or supplies a custom provider.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.1/crates/cellar-container/diagram/provider-flow.svg)
+![Rust and language facades call a shared session inside the original native invocation. The host selects Native for Docker/Podman or supplies a custom provider.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.2/crates/cellar-container/diagram/provider-flow.svg)
 
 | Layer | Owns |
 | --- | --- |
@@ -47,18 +47,18 @@ SDK compatibility is qualified against its matching image.
 | Provider | Backend effects, process/socket handles, isolation and cleanup |
 | Native Cellar host | Cell ownership, activation epoch and required durability/output gates |
 
-Hosts can also declare [named provider slots](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/bindings.md#select-a-host-declared-provider-slot).
+Hosts can also declare [named provider slots](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/bindings.md#select-a-host-declared-provider-slot).
 All four language paths share their operations and discovery. Use
 `ctx.containers.get("builds")` in Python/JS/TS; `ctx.container` retains the default.
 Selection never falls back to a different provider when a slot is missing.
 
 For remote resources that outlive requests, enable
-[host-managed cleanup](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/supervision.md). Native internal work observes the original
+[host-managed cleanup](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/supervision.md). Native internal work observes the original
 resource and retires it at its configured maximum/idle deadline, independently
 of application alarms. E2B and Vercel supply optional maintenance backends.
 
 For durable remote resources, all four language facades expose
-[`reconcile()`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/bindings.md#reconcile-from-a-later-invocation): recover a matching
+[`reconcile()`](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/bindings.md#reconcile-from-a-later-invocation): recover a matching
 pending create, observe expiry or check pending deletion without creating,
 resuming or deleting compute. Results carry lifecycle state and generation;
 resource IDs and credentials stay in the host.
@@ -70,13 +70,13 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 
 | Path | Status | Where to look |
 | --- | --- | --- |
-| Local Docker / compatible Podman Engine | Implemented by the default `Native` provider | [Runnable native walkthrough](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/native-container/README.md) |
+| Local Docker / compatible Podman Engine | Implemented by the default `Native` provider | [Runnable native walkthrough](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/native-container/README.md) |
 | Custom container or sandbox backend | `Provider` / `ProviderSession` extension point is available; the host supplies the implementation | [Provider contract](#add-a-provider) |
-| Local Cloudflare Workers / Containers / Sandbox APIs | Experimental compatibility slices in a separate package; full application/image conformance remains pending | [Cloudflare facade](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-cloudflare/README.md) |
-| E2B control API + envd | Experimental bounded execution/files; explicit weaker ownership, local protocol tests; live account qualification pending | [E2B configuration and recovery](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/e2b.md) |
-| Vercel named sandbox + session API | Experimental bounded execution/files with image-local helper; local protocol/runtime tests; live VM qualification pending | [Vercel configuration and recovery](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/vercel.md) |
-| Hosted Cloudflare, Daytona and Modal | Planned | [Delivery plan](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/sandbox-provider-compatibility.md) |
-| Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/sandbox-provider-progress.md) |
+| Local Cloudflare Workers / Containers / Sandbox APIs | Experimental compatibility slices in a separate package; full application/image conformance remains pending | [Cloudflare facade](https://github.com/crabbuild/cellar/blob/v0.1.2/packages/cellar-cloudflare/README.md) |
+| E2B control API + envd | Experimental bounded execution/files; explicit weaker ownership, local protocol tests; live account qualification pending | [E2B configuration and recovery](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/e2b.md) |
+| Vercel named sandbox + session API | Experimental bounded execution/files with image-local helper; local protocol/runtime tests; live VM qualification pending | [Vercel configuration and recovery](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/vercel.md) |
+| Hosted Cloudflare, Daytona and Modal | Planned | [Delivery plan](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/sandbox-provider-compatibility.md) |
+| Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/sandbox-provider-progress.md) |
 
 **Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,
 background-process discovery and teardown routes pass. A published `execStream()`
@@ -92,14 +92,14 @@ slice. The published HTTP preview helper now passes binary forwarding, token
 checks, stale-runtime refusal and explicit re-exposure against the pinned image.
 Worker/DO upgrade forwarding and selected WebSocket preview round trips also pass.
 Full lifetime/upgrade/fault qualification remains open.
-See the [evidence ledger](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
+See the [evidence ledger](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
 
 ## Quick start
 
 ### 1. Configure the host
 
 For the default backend, configure the cell's container image and the node's
-Docker/Podman engine using the [native walkthrough](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/native-container/README.md).
+Docker/Podman engine using the [native walkthrough](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/native-container/README.md).
 `Native` preserves that engine's image loading, network isolation, inactivity
 policies and ownership cleanup.
 
@@ -136,7 +136,7 @@ async fn running(adapter: &Adapter, ctx: &Context) -> anyhow::Result<bool> {
 ```
 
 For typed Rust calls directly against the native engine, use
-`ctx.container()?`; see the [integration guide](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/09-integrations.md).
+`ctx.container()?`; see the [integration guide](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/09-integrations.md).
 
 **Python — collect bounded output from an already-running container:**
 
@@ -193,7 +193,7 @@ flowchart TD
 | Raw TCP / WebSocket | `port(n).connect` / `.connect_websocket` | `port(n).connect` / `.connectWebSocket` |
 
 Here `c = ctx.container`. Lifecycle, port and streaming examples are in the
-[integration guide](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/09-integrations.md#apis-in-each-language).
+[integration guide](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/09-integrations.md#apis-in-each-language).
 
 ## Terminal execution
 
@@ -314,19 +314,19 @@ and Worker/DO HTTP forwarding; the pinned Container example runs against an engi
 and the Sandbox baseline also passes matching-image HTTP streaming and SDK RPC
 uploads over container-port upgrades/local WebSocket pairs. Selected Worker/DO
 upgrades also forward to clients; complete lifecycle/fault acceptance remains pending. See the
-[Cloudflare execution evidence](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-cloudflare/README.md#execution-evidence).
+[Cloudflare execution evidence](https://github.com/crabbuild/cellar/blob/v0.1.2/packages/cellar-cloudflare/README.md#execution-evidence).
 
-The separately pinned [Sandbox 1.0.3 profile](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/cloudflare-v1/README.md)
+The separately pinned [Sandbox 1.0.3 profile](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/cloudflare-v1/README.md)
 adds Node Workers `exec(argv)`, automatic byte-source stdin, byte output streams
 and bounded output collection over the same native process operations. Its
 published `Files` package runs the matching helper; full 1.x lifecycle, persistence and cloud qualification remain
 open. Native process signalling requires a POSIX `/bin/sh` in the image; direct
 exec remains available without it, while signalling refuses an unverified PID.
-See the [native exec contract](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/09-integrations.md#apis-in-each-language).
-The optional [R2 backup gateway subset](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-cloudflare/r2.md)
+See the [native exec contract](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/09-integrations.md#apis-in-each-language).
+The optional [R2 backup gateway subset](https://github.com/crabbuild/cellar/blob/v0.1.2/packages/cellar-cloudflare/r2.md)
 adds native resumable object storage for published gateway operations; complete
 helper backup/restore has a separate matching-image qualification campaign.
-The native [outbound transport and network helper](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-egress/README.md)
+The native [outbound transport and network helper](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-egress/README.md)
 now supply bounded streams, acknowledged firewall rules, persistent DNS and
 joined process retirement. An explicit native host profile also starts an owned
 helper before its application and removes the pair together. The optional HTTP
@@ -417,7 +417,7 @@ so the VM forwarder can bind. This is not an atomic port handoff; a working
 daemon forwarder remains required.
 
 The lifecycle option and HTTP provider opt-in are separate. See the
-[real Engine campaign](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/egress/README.md) for evidence and gaps.
+[real Engine campaign](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/egress/README.md) for evidence and gaps.
 
 ### Route outbound HTTP to a native service
 
@@ -478,9 +478,9 @@ Node Workers gateways opt in to incoming body streaming with
 and the configured per-chunk body limit; EOF, cancellation and errors release
 the native reader. The ordinary SDK retains its buffered request limit.
 
-The matching-image [Sandbox 1.0.3 fixture](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/cloudflare-v1/backups.mjs)
+The matching-image [Sandbox 1.0.3 fixture](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/cloudflare-v1/backups.mjs)
 uses the published `DirectoryBackup` and `DirectoryBackupGateway`; its
-[qualification instructions](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/cloudflare-v1/README.md)
+[qualification instructions](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/cloudflare-v1/README.md)
 keep SDK/image evidence separate from router and provider tests. S3 mounts and
 complete Sandbox 1.x compatibility remain open.
 
@@ -534,12 +534,12 @@ flowchart LR
 
 Ordinary Native, HTTP-only Native and remote providers omit HTTPS capability.
 Calls refuse before effects when either required host profile is absent. The
-[matching-image fixture](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/cloudflare-v1/https.mjs) is qualified
-separately from TLS/router unit tests; see its [run instructions](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/sandbox/cloudflare-v1/README.md#https-interception).
+[matching-image fixture](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/cloudflare-v1/https.mjs) is qualified
+separately from TLS/router unit tests; see its [run instructions](https://github.com/crabbuild/cellar/blob/v0.1.2/tools/sandbox/cloudflare-v1/README.md#https-interception).
 
 Known-length R2 uploads use native anonymous-file part staging with bounded
 bridge chunks, host scratch byte/file limits and atomic receipt replacement.
-The [native upload contract](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/application/blob/README.md#stage-a-large-part-with-bounded-memory)
+The [native upload contract](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/application/blob/README.md#stage-a-large-part-with-bounded-memory)
 also exposes this path to Rust applications. It requires a separately declared
 backend capability.
 
@@ -553,7 +553,7 @@ host reclaims expired uploads, reaps the exact crashed application/helper IDs an
 restores the original archive. Broader crash boundaries, larger/multi-part and
 verified-swap cancellation and lost transport responses remain open. Local Blob storage
 uses fixed deadlines and bounded, domain-owned orphan collection; see the
-[expiry contract](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/application/blob/README.md#expiry-and-abandoned-uploads)
+[expiry contract](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/application/blob/README.md#expiry-and-abandoned-uploads)
 for scope, shutdown, clock and remote-provider limits.
 
 
@@ -609,12 +609,12 @@ retirement of the previous resource:
 This supports host-controlled E2B/Vercel replacement without clearing cell state.
 Changing a provider does not resolve a lost outcome or revoke work already
 accepted remotely. Keep the original configuration available until cleanup is
-confirmed. Optional [native supervision](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/supervision.md) schedules expiry and
+confirmed. Optional [native supervision](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/supervision.md) schedules expiry and
 cleanup. Selected cold-restart, removed-class and owner-expiry paths pass native
 fleet tests with protocol peers. Live-account qualification, wider fault cases
 and remote fencing remain separate work.
 
-![For a control call, the session validates inputs and authority, waits for the required durability proof, invokes the provider, then checks authority and reply limits before returning.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.1/crates/cellar-container/diagram/control-call.svg)
+![For a control call, the session validates inputs and authority, waits for the required durability proof, invokes the provider, then checks authority and reply limits before returning.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.2/crates/cellar-container/diagram/control-call.svg)
 
 *Control calls wait for earlier cell writes to reach their required durability
 proof. Stream reads and other observations can overlap a pending control.*
@@ -635,17 +635,17 @@ it does not establish whether an accepted command stopped or rolled back.
 | Rust | `Session::execute_with_signal` with a native abort signal |
 | JS / TS port fetch / streamed reads | `port.fetch(request, { signal })` or `port.fetchStream(request, { signal })` |
 
-See [HTTP response streams](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/streams.md) for incremental reads, limits and cleanup.
+See [HTTP response streams](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/streams.md) for incremental reads, limits and cleanup.
 
 The runtime keeps reservations until native cancellation completes. Dropping a
 native HTTP future cancels its connection/body work; custom providers must honor
-the [future-drop cleanup contract](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/providers.md#backend-responsibilities).
+the [future-drop cleanup contract](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/providers.md#backend-responsibilities).
 
 ## Add a provider
 
 Implement these traits in the Rust host, then select the provider before runtime
-startup. See the [trait definitions](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/lib.rs) and
-[provider integration tests](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/tests/providers.rs) for concrete code.
+startup. See the [trait definitions](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/lib.rs) and
+[provider integration tests](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/tests/providers.rs) for concrete code.
 
 ### Example: expose only native status checks
 
@@ -682,14 +682,14 @@ impl Provider for StatusOnly {
 let adapter = Adapter::new(Arc::new(StatusOnly));
 ```
 
-The [provider contract](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/providers.md) explains each trait method, fencing,
-isolation, cleanup, the [durable binding journal](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/bindings.md) and uncertain
-outcomes. Use the [wire reference](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/protocol.md)
+The [provider contract](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/providers.md) explains each trait method, fencing,
+isolation, cleanup, the [durable binding journal](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/bindings.md) and uncertain
+outcomes. Use the [wire reference](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/protocol.md)
 for operation inputs and results.
 
 ## Bridge protocol, version 1
 
-The [complete reference](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/protocol.md) documents the owned JSON contract. Most
+The [complete reference](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-container/protocol.md) documents the owned JSON contract. Most
 applications use the language facade instead of constructing these messages.
 
 | Operation family | Examples | Reply |
@@ -720,4 +720,4 @@ binary streams, cancellation, timeout cleanup and ownership rejection through
 CPython, Node and embedded V8.
 
 For exact delivered slices and remaining live/fault qualification, consult the
-[implementation ledger](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/sandbox-provider-progress.md).
+[implementation ledger](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/sandbox-provider-progress.md).

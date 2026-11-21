@@ -5,17 +5,17 @@
 The pure decision core for Cellar. It decides how cells activate, route calls,
 prove writes and release ownership. The production host executes its effects
 and returns completion events. Application authors normally use
-[`cellar::sdk`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/README.md); this crate is for runtime contributors and
+[`cellar::sdk`](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/README.md); this crate is for runtime contributors and
 verification tools.
 
-![The actor calls the pure decision core, executes effects through adapters and receives versioned completion events.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.1/docs/diagrams/decision-loop.svg)
+![The actor calls the pure decision core, executes effects through adapters and receives versioned completion events.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.2/docs/diagrams/decision-loop.svg)
 
 The actor owns state. The core decides what happens next; adapters perform the
 requested work and report its outcome through the mailbox.
 
 ## Follow the event loop
 
-[`on_event`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/lib.rs) is the entry point for behavioral state changes:
+[`on_event`](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/lib.rs) is the entry point for behavioral state changes:
 
 ```rust,ignore
 let effects = cellar_logic::on_event(&mut state, event);
@@ -23,7 +23,7 @@ let effects = cellar_logic::on_event(&mut state, event);
 
 The caller owns `state`, supplies an `Event`, executes the returned `Effect`
 values and submits their completion events. The production
-[actor](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/actor/mod.rs) serializes this loop. Adapters must not mutate
+[actor](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/actor/mod.rs) serializes this loop. Adapters must not mutate
 core state directly.
 
 The core has no crate dependencies, asynchronous work, I/O, clocks, randomness
@@ -34,14 +34,14 @@ reproducible from the same state and inputs.
 
 | Area | Responsibility | Source |
 | --- | --- | --- |
-| State and dispatch | Cell phases, activation and event transitions | [lib.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/lib.rs), [types.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/types.rs) |
-| Routing | Owner resolution and route decisions | [routing.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/routing.rs) |
-| Durability | Write proof and output admission | [durability.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/durability.rs), [gate.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/gate.rs) |
-| Background work | Alarms, durable wakes, queues and cron | [alarm.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/alarm.rs), [wake.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/wake.rs), [queue.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/queue.rs), [cron.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/cron.rs) |
-| Event delivery | Stream and subscription lifecycle decisions | [event_stream.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/event_stream.rs), [subscription_lifecycle.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/subscription_lifecycle.rs) |
-| Resource pressure | Admission, residency and balancing | [pressure.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/pressure.rs), [rebalance.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/rebalance.rs) |
-| Fleet resource accounting | Retained occupancy, unresolved growth, scoped credit and required repair selection | [raft_fleet](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/raft_fleet/mod.rs) |
-| Shutdown | Draining and release decisions | [drain.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-logic/drain.rs) |
+| State and dispatch | Cell phases, activation and event transitions | [lib.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/lib.rs), [types.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/types.rs) |
+| Routing | Owner resolution and route decisions | [routing.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/routing.rs) |
+| Durability | Write proof and output admission | [durability.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/durability.rs), [gate.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/gate.rs) |
+| Background work | Alarms, durable wakes, queues and cron | [alarm.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/alarm.rs), [wake.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/wake.rs), [queue.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/queue.rs), [cron.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/cron.rs) |
+| Event delivery | Stream and subscription lifecycle decisions | [event_stream.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/event_stream.rs), [subscription_lifecycle.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/subscription_lifecycle.rs) |
+| Resource pressure | Admission, residency and balancing | [pressure.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/pressure.rs), [rebalance.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/rebalance.rs) |
+| Fleet resource accounting | Retained occupancy, unresolved growth, scoped credit and required repair selection | [raft_fleet](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/raft_fleet/mod.rs) |
+| Shutdown | Draining and release decisions | [drain.rs](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-logic/drain.rs) |
 
 ## Preserve authority and proof
 
@@ -51,8 +51,8 @@ failed response does not establish that a mutation rolled back, and a retired
 task does not prove durability.
 
 Keep policy decisions here and external mechanisms in host adapters. Read
-[architecture](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/03-architecture.md) and the
-[authority decision record](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/adr/002-cell-authority-and-proof.md)
+[architecture](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/03-architecture.md) and the
+[authority decision record](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/adr/002-cell-authority-and-proof.md)
 before changing ownership, recovery or output gates.
 
 `raft_fleet::ResourceLedger` requires complete reservation input and exact
@@ -63,7 +63,7 @@ attributed part of outstanding growth. Older-boot debt remains fully charged.
 Lower measurements do not establish physical release; no release API is exposed.
 The pure ledger grants no membership or catalog authority. Authenticated resource
 sampling, atomic catalog reservation admission and controller execution belong to
-the [host adapter](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/durability/raft/fleet_catalog/README.md).
+the [host adapter](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/durability/raft/fleet_catalog/README.md).
 
 `raft_fleet::preview_topology` verifies an explicit complete RF3 assignment. It
 constructs a serial schedule with per-step domain/quorum and seed-peak checks,
@@ -119,7 +119,7 @@ keeps the owned-cell count unknown; retirement does not establish a complete cou
 
 Check the crate and run its ordinary integration tests from the repository root,
 using the checkout-specific target directory in
-[repository guidance](https://github.com/crabbuild/cellar/blob/v0.1.1/AGENTS.md#build-and-validation):
+[repository guidance](https://github.com/crabbuild/cellar/blob/v0.1.2/AGENTS.md#build-and-validation):
 
 ```sh
 cargo check -p cellar-logic --locked
@@ -129,5 +129,5 @@ cargo test -p cellar-logic --tests --locked
 The manifest disables the ordinary library test target. Internal deterministic
 suites require external harness sources and `cellar_internal_tests`; an ordinary
 Cargo run does not execute them. Test changed behavior through the relevant
-[host integration suites](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/tests) and follow
-[testing and qualification](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/19-testing-qualification.md).
+[host integration suites](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/tests) and follow
+[testing and qualification](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/19-testing-qualification.md).

@@ -10,7 +10,7 @@ owner routing, recovery, replication, and output gates.
 [Middleware](#middleware-and-application-events) ·
 [Streaming](#streaming-and-websockets) · [OpenAPI](#describe-apis-with-openapi)
 
-![Cellar-owned HTTP and an external Axum server both dispatch into the same Cellar node and durable cells.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.1/docs/diagrams/hosting-modes.svg)
+![Cellar-owned HTTP and an external Axum server both dispatch into the same Cellar node and durable cells.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.2/docs/diagrams/hosting-modes.svg)
 
 Choose who owns public HTTP before configuring ingress. Both hosting paths keep
 Cellar's private peer listener and cell durability checks.
@@ -58,7 +58,7 @@ Raft definition lookup to its delegate. A Raft definition cannot share a name
 with a mutable factory or workflow; Fleet `cell_route` registration does not
 instantiate it. Use an authenticated HTTP handler that calls a node-owned
 `RaftCellHandle` and preserves its command ID, typed outcome and receipt.
-The [Raft counter](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/raft-counter/README.md) demonstrates native
+The [Raft counter](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/raft-counter/README.md) demonstrates native
 HTTP and an outer Axum router calling the same command/query dispatcher.
 
 ## Choose the HTTP host
@@ -71,7 +71,7 @@ Axum-owned public listener, bind it first and supply its actual address to
 peer listener. An unrelated route in the outer Router runs as ordinary Axum.
 `ExternalNodeServices::http_client` and `NodeConfig::http` configure SDK HTTP
 egress. `NodeConfig::cell_limits` captures cell API budgets for either host.
-See [the two-host counter](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/axum-counter/README.md) for complete
+See [the two-host counter](https://github.com/crabbuild/cellar/blob/v0.1.2/examples/axum-counter/README.md) for complete
 startup, configuration, packaging and shutdown code.
 
 ### Admission and shutdown
@@ -178,7 +178,7 @@ both hosts.
 
 Run both adapter feature modes and the counter integration tests from the
 repository root, using the target directory required by
-[build guidance](https://github.com/crabbuild/cellar/blob/v0.1.1/AGENTS.md#build-and-validation):
+[build guidance](https://github.com/crabbuild/cellar/blob/v0.1.2/AGENTS.md#build-and-validation):
 
 ```sh
 cargo test -p cellar-axum --no-default-features --locked

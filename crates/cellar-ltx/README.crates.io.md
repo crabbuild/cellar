@@ -5,36 +5,36 @@
 Capture committed SQLite write-ahead log (WAL) data as LTX replication segments.
 `cellar-ltx` writes and reads replicas, restores databases, compacts history and
 supports page-on-demand access. It is an in-process library used by the
-[`cellar` host](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/README.md).
+[`cellar` host](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/README.md).
 
-![SQLite WAL capture produces L0 LTX segments; replica storage supports restoration or page-on-demand access.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.1/docs/diagrams/ltx-replication.svg)
+![SQLite WAL capture produces L0 LTX segments; replica storage supports restoration or page-on-demand access.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.2/docs/diagrams/ltx-replication.svg)
 
 Read the top row from source commits to captured segments, then follow storage
 and restoration on the lower row. Capturing LTX alone does not prove a fleet
 write. The host adds ownership, epoch fencing, replicated logs and output gates;
-see [write durability](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/06-storage-transactions.md#durability-and-external-side-effects).
+see [write durability](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/06-storage-transactions.md#durability-and-external-side-effects).
 
 ## Find the replication API
 
 | Task | Entry point | Source |
 | --- | --- | --- |
-| Capture WAL commits | `Db` | [Database capture](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/db/mod.rs) |
-| Drive replication | `Replica` | [Replication loop](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/replica.rs) |
-| Implement a storage backend | `ReplicaClient` | [Client trait](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/client/mod.rs) |
-| Store local replicas | `FileReplicaClient` | [Filesystem client](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/client/file.rs) |
-| Restore a database | `restore` | [Restore implementation](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/replica.rs) |
-| Read bundled L0 segments | `BundleOverlayClient` | [Bundle client](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/client/bundle.rs) |
-| Read pages on demand | `paged`, `paged_vfs` | [Page map](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/paged.rs), [SQLite virtual filesystem](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/paged_vfs.rs) |
-| Verify bounded consensus LTX | `ltx::decode_file_bounded` | [Strict decoder](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/bounded_ltx.rs) |
-| Materialize and retain immutable images | `GenerationStore` | [Apply contracts](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/apply.rs), [Generation owner](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/generation.rs) |
-| Query an immutable image | `generation::open_immutable` | [Read-only virtual filesystem](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/generation_vfs.rs) |
-| Supply host tasks and files | `LtxHost`, `FileSystem` | [Host contract](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/host.rs) |
+| Capture WAL commits | `Db` | [Database capture](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/db/mod.rs) |
+| Drive replication | `Replica` | [Replication loop](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/replica.rs) |
+| Implement a storage backend | `ReplicaClient` | [Client trait](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/client/mod.rs) |
+| Store local replicas | `FileReplicaClient` | [Filesystem client](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/client/file.rs) |
+| Restore a database | `restore` | [Restore implementation](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/replica.rs) |
+| Read bundled L0 segments | `BundleOverlayClient` | [Bundle client](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/client/bundle.rs) |
+| Read pages on demand | `paged`, `paged_vfs` | [Page map](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/paged.rs), [SQLite virtual filesystem](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/paged_vfs.rs) |
+| Verify bounded consensus LTX | `ltx::decode_file_bounded` | [Strict decoder](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/bounded_ltx.rs) |
+| Materialize and retain immutable images | `GenerationStore` | [Apply contracts](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/apply.rs), [Generation owner](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/generation.rs) |
+| Query an immutable image | `generation::open_immutable` | [Read-only virtual filesystem](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/generation_vfs.rs) |
+| Supply host tasks and files | `LtxHost`, `FileSystem` | [Host contract](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/host.rs) |
 
 The database implementation lives in `src/db/`: lifecycle and capture in
 `mod.rs`, committed image/extent observations in `image.rs` and `extents.rs`,
 and WAL inspection in `overlay.rs` and `wal_index.rs`. Immutable extent
 identities, files, cached images and persistent storage live together in
-[`src/extent/`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/src/extent/mod.rs), with the node inventory in `store/`.
+[`src/extent/`](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/src/extent/mod.rs), with the node inventory in `store/`.
 Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
 `RootView::read_extent` supplies one complete dependency to an admitted blocking
@@ -80,7 +80,7 @@ verification with the normal persistence barriers.
 L0 segments capture commits before higher-level compaction. The paged SQLite
 virtual filesystem loads each page on first use through indexes in retained
 segments. A paged epoch continues the history from which it was opened.
-Read the [LTX format notes](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/reference/ltx-format.md) before changing the codec.
+Read the [LTX format notes](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/reference/ltx-format.md) before changing the codec.
 
 The fleet host uses `Db::capture` for proof-bound work and schedules
 `Db::checkpoint_if_due` separately, visiting one resident every 10 ms with one
@@ -345,18 +345,18 @@ This standalone view remains a data-access component; the native host adds
 authenticated selection, complete-local installation and command/archive
 integration. Verified remote retention and admission before complete hydration
 remain open. See the
-[extent image contract](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/multi-raft/extent-root-contract.md).
+[extent image contract](https://github.com/crabbuild/cellar/blob/v0.1.2/docs/design/multi-raft/extent-root-contract.md).
 
 Run `cargo test -p cellar-main --test native_raft_ltx --locked -- --test-threads=1`
 for real SQLite images, checksum/chain corruption, retained readers, injected
 I/O failures and process-kill publication cuts. Those cuts use a fixture marker;
 engine marker atomicity and private command capture are exercised separately
-by the host's [Raft command/apply integration](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/durability/raft/README.md).
+by the host's [Raft command/apply integration](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar/durability/raft/README.md).
 
 ## Select backend features
 
 The default feature is `s3`. The manifest also exposes `gcs` and `azure` backend
-features; see [Cargo.toml](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/Cargo.toml) for their dependency mappings.
+features; see [Cargo.toml](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/Cargo.toml) for their dependency mappings.
 `ObjectStoreClient` and its configuration exports are gated by `s3` in the
 current API. Feature selection alone does not configure credentials or qualify
 a provider's durability behavior.
@@ -376,7 +376,7 @@ version. WAL capture, checkpointing, immutable readers and crash recovery must
 be qualified when this dependency changes.
 
 Use the checkout-specific target directory in
-[build guidance](https://github.com/crabbuild/cellar/blob/v0.1.1/AGENTS.md#build-and-validation). The ordinary library test
+[build guidance](https://github.com/crabbuild/cellar/blob/v0.1.2/AGENTS.md#build-and-validation). The ordinary library test
 target is disabled; replication changes also need the owning host's integration
 and recovery tests. Internal tests require their external harness.
 
@@ -408,9 +408,9 @@ on 2026-08-06. Cellar instead uses a conditional ownership record carrying an
 epoch and stamps that epoch into the LTX prefix. A separate replica lease would
 introduce a competing ownership mechanism.
 
-The full Apache License, Version 2.0 text is in [LICENSE](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/LICENSE). The full
+The full Apache License, Version 2.0 text is in [LICENSE](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/LICENSE). The full
 BSD 3-Clause License text is in
-[LICENSE.pierrec-lz4](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-ltx/LICENSE.pierrec-lz4).
+[LICENSE.pierrec-lz4](https://github.com/crabbuild/cellar/blob/v0.1.2/crates/cellar-ltx/LICENSE.pierrec-lz4).
 
 ## File compatibility
 
