@@ -56,6 +56,7 @@ SUITES = {
         (
             "rustfs_controller_provider_sessions_preserve_shared_group_durability",
             "rustfs_controller_provider_recovers_without_replaying_compute",
+            "rustfs_controller_provider_expiry_seals_unsubmitted_creates",
         ),
         "ordinary SDK sessions backed by independently durable controller storage",
         "Both image modes and Quorum/S3 minima, original five-second requests. "

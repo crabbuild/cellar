@@ -3119,3 +3119,14 @@ async fn rustfs_controller_provider_sessions_preserve_shared_group_durability() 
 async fn rustfs_controller_provider_recovers_without_replaying_compute() -> Result<()> {
     controller_provider::qualify(true, true).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_expiry_seals_unsubmitted_creates() -> Result<()> {
+    controller_provider::qualify_expiry(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_expiry_seals_unsubmitted_creates() -> Result<()> {
+    controller_provider::qualify_expiry(true).await
+}

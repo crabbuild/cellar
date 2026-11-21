@@ -291,6 +291,7 @@ class ProviderJournalCampaignTests(unittest.TestCase):
         self.assertEqual(cell_groups.SUITES["controller-provider"][1], (
             "rustfs_controller_provider_sessions_preserve_shared_group_durability",
             "rustfs_controller_provider_recovers_without_replaying_compute",
+            "rustfs_controller_provider_expiry_seals_unsubmitted_creates",
         ))
         self.campaign(suite="controller-provider")
 

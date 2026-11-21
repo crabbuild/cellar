@@ -37,6 +37,7 @@ struct Peer {
     calls: AtomicUsize,
     lose_create: AtomicBool,
     lose_delete: AtomicBool,
+    expire_activation: AtomicBool,
 }
 
 impl ExecutionControllerBackend for Peer {
@@ -55,6 +56,11 @@ impl ExecutionControllerBackend for Peer {
         _unresolved: Vec<ExecutionPendingOperation>,
     ) -> HandlerFuture<()> {
         Box::pin(async move {
+            if self.expire_activation.swap(false, Ordering::AcqRel) {
+                // Admission has already proved the intent. Cross its unchanged
+                // 500 ms retention cap before allowing provider dispatch.
+                cellar::asyncrt::sleep(Duration::from_millis(600)).await;
+            }
             *self.active.lock().unwrap() = successor;
             Ok(())
         })
@@ -345,11 +351,18 @@ impl Cell for Root {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scenario {
+    Basic,
+    Interrupted,
+    Expired,
+}
+
 async fn start(
     rooted: bool,
     minimum: Durability,
     route: Arc<Route>,
-    cleanup: bool,
+    scenario: Scenario,
 ) -> Result<ManagedCluster> {
     let identity = route.selected().identity();
     let class = RaftClass::new("Counter", 1, [241; 32])?
@@ -376,13 +389,17 @@ async fn start(
             },
         )?,
     );
-    let application: Arc<dyn Application> = if cleanup {
+    let application: Arc<dyn Application> = if scenario != Scenario::Basic {
         let mut supervision = Supervision::default();
         supervision.register_fenced(
             route.clone(),
             MaintenancePolicy {
                 inspect_interval_ms: 100,
-                maximum_lifetime_ms: 500,
+                maximum_lifetime_ms: if scenario == Scenario::Expired {
+                    500
+                } else {
+                    10_000
+                },
                 attempt_timeout_ms: 3000,
                 idle_timeout_ms: None,
             },
@@ -439,6 +456,24 @@ async fn call(
 }
 
 pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
+    selected(
+        real,
+        if recovery {
+            Scenario::Interrupted
+        } else {
+            Scenario::Basic
+        },
+    )
+    .await
+}
+
+pub async fn qualify_expiry(real: bool) -> Result<()> {
+    selected(real, Scenario::Expired).await
+}
+
+async fn selected(real: bool, scenario: Scenario) -> Result<()> {
+    let recovery = scenario != Scenario::Basic;
+    let expiry = scenario == Scenario::Expired;
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
             let peer = Arc::new(Peer::default());
@@ -462,11 +497,15 @@ pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
             let resume = controller.options();
             let store = Arc::new(if real {
                 catalog_fault::Store::around(rustfs::store(
-                    match (recovery, minimum) {
-                        (true, Durability::S3) => "controller-provider-recovery-s3",
-                        (true, _) => "controller-provider-recovery-quorum",
-                        (false, Durability::S3) => "controller-provider-s3",
-                        (false, _) => "controller-provider-quorum",
+                    match (scenario, minimum) {
+                        (Scenario::Expired, Durability::S3) => "controller-provider-expiry-s3",
+                        (Scenario::Expired, _) => "controller-provider-expiry-quorum",
+                        (Scenario::Interrupted, Durability::S3) => {
+                            "controller-provider-recovery-s3"
+                        }
+                        (Scenario::Interrupted, _) => "controller-provider-recovery-quorum",
+                        (Scenario::Basic, Durability::S3) => "controller-provider-s3",
+                        (Scenario::Basic, _) => "controller-provider-quorum",
                     },
                     rooted,
                 )?)
@@ -482,9 +521,12 @@ pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
                 store,
                 old_context: Mutex::new(None),
             });
-            peer.lose_create.store(recovery, Ordering::Release);
-            peer.lose_delete.store(recovery, Ordering::Release);
-            let mut cluster = start(rooted, minimum, route.clone(), recovery).await?;
+            peer.lose_create
+                .store(recovery && !expiry, Ordering::Release);
+            peer.lose_delete
+                .store(recovery && !expiry, Ordering::Release);
+            peer.expire_activation.store(expiry, Ordering::Release);
+            let mut cluster = start(rooted, minimum, route.clone(), scenario).await?;
             let domain = cluster.fixtures[0].domain.clone();
             let result=domain.run(async {
             let group=cluster.history;let history=CellHistory{cluster:group.cluster,namespace:group.namespace,cell:CellId::new("Counter:controller-provider")?,incarnation:IncarnationId::new([246;16])?};
@@ -494,7 +536,7 @@ pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
             let create=call(&cluster,&history,minimum,1,"Create").await;
             if recovery {let error=create.err().context("accepted create lost no reply")?;ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous));}
             else {let receipt=create?;ensure!(receipt.version.sequence.get()==before.version.sequence.get()+3,"public provider must retain exactly entry, intent/claim and result proofs");call(&cluster,&history,minimum,2,"Data").await?;call(&cluster,&history,minimum,3,"Destroy").await?;}
-            ensure!(peer.creates.load(Ordering::Acquire)==1);
+            ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry),"create did not reach its selected admission/expiry cut");
             route.factory_refused.store(recovery,Ordering::Release);
             let old_hosts=std::mem::take(&mut cluster.hosts);
             managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes),&old_hosts).await?;
@@ -511,7 +553,7 @@ pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
             }
             let observed=call(&cluster,&history,minimum,4,"Read").await?;let value:serde_json::Value=serde_json::from_slice(&observed.result)?;
             ensure!(value["record"]["intent"]=="deleted" && value["record"]["observation"]=="confirmed");
-            ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.deletes.load(Ordering::Acquire)==1,"controller recovery replayed compute");
+            ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry) && peer.deletes.load(Ordering::Acquire)==usize::from(!expiry),"controller recovery replayed compute");
             let old=route.old_context.lock().unwrap().clone().context("original Context missing")?;
             let calls_before=peer.calls.load(Ordering::Acquire);
             let stale=cellar_container::Adapter::new(route.selected()).session().execute(&old,Operation::Running,json!({}),&cellar_container::Limits{max_body_bytes:4096}).await;
@@ -527,7 +569,7 @@ pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
             let mut expected=value;expected["revision"]=json!(expected["revision"].as_u64().context("observed revision missing")?+1);
             let expected=serde_json::to_vec(&expected)?;
             ensure!(receipt.durability()>=minimum && receipt.receipt().is_some_and(|row|row.result()==expected.as_slice()) && route.staged.load(Ordering::Acquire)==1,"receipt lookup replayed the callback or changed its result");
-            eprintln!("controller_provider_observations {}",json!({"extents":rooted,"minimum":format!("{minimum:?}"),"recovery":recovery,"creates":peer.creates.load(Ordering::Acquire),"deletes":peer.deletes.load(Ordering::Acquire),"backend_calls":peer.calls.load(Ordering::Acquire),"staged":route.staged.load(Ordering::Acquire)}));
+            eprintln!("controller_provider_observations {}",json!({"extents":rooted,"minimum":format!("{minimum:?}"),"recovery":recovery,"expiry":expiry,"creates":peer.creates.load(Ordering::Acquire),"deletes":peer.deletes.load(Ordering::Acquire),"backend_calls":peer.calls.load(Ordering::Acquire),"staged":route.staged.load(Ordering::Acquire)}));
             Ok::<_,anyhow::Error>(())
         }).await.map_err(anyhow::Error::from).and_then(std::convert::identity);
             let closed = managed_fixture::close_group_nodes(
