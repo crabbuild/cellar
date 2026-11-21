@@ -116,9 +116,13 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         return Ok(Output::Done);
     };
     publish(&context)?;
-    // Reserve the next attempt durably before I/O. Cancellation or host loss
-    // then leaves discoverable work instead of relying on a finally callback.
-    db.sync().await?;
+    // Shared-group effect admission proves this reservation together with the
+    // provider fence before any controller/backend I/O. A cancellation before
+    // that proof leaves the previous committed obligation discoverable. After
+    // it, the reserved next attempt survives cancellation and host loss.
+    if context.raft_storage.is_none() {
+        db.sync().await?;
+    }
     let registration = context
         .container_supervision
         .as_ref()
@@ -183,7 +187,11 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     context.container_provider_authority()?.check(&context)?;
     tasks::finish(&scope, &claim, result.is_ok())?;
     publish(&context)?;
-    db.confirm_checkpoint().await?;
+    // The shared system turn proves task settlement and its own completion in
+    // one final output. No further I/O can observe this private settlement.
+    if context.raft_storage.is_none() {
+        db.confirm_checkpoint().await?;
+    }
     if result.is_err() {
         // Provider exception text can contain credentials; persist only bounded
         // failure accounting. The exact obligation remains in protected state.
