@@ -261,6 +261,20 @@ class CoverageTests(unittest.TestCase):
             with self.assertRaisesRegex(coverage.CoverageError, expected):
                 coverage.load_contracts(contracts, self.cases)
 
+    def test_component_owner_catalog_remains_bounded(self):
+        for count in (64, 65):
+            contracts = dict(self.contracts)
+            inventory = json.loads(contracts["primitive-inventory.json"])
+            entry = next(entry for entry in inventory["entries"] if entry["id"] == "container")
+            entry["owners"].extend(f"crates/owner_{index}.rs"
+                                   for index in range(count - len(entry["owners"])))
+            contracts["primitive-inventory.json"] = self.encode(inventory)
+            if count == 64:
+                coverage.load_contracts(contracts, self.cases)
+            else:
+                with self.assertRaisesRegex(coverage.CoverageError, "Invalid primitive owners length"):
+                    coverage.load_contracts(contracts, self.cases)
+
     def test_sdk_root_change_requires_catalog_review(self):
         root = self.root / "source"
         package = root / coverage.PACKAGE

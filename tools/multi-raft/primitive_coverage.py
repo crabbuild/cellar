@@ -181,7 +181,9 @@ def load_contracts(contract_bytes, cases):
         require(isinstance(entry["refusals"], dict) and set(entry["refusals"]) <= symbols
                 and all(text(code) for code in entry["refusals"].values()), "Invalid documented refusal inventory")
         refusals.update(entry["refusals"])
-        require(all(text(path) for path in array(entry["owners"], 32, "primitive owners")),
+        # Component owners include host, storage, protocol and transport modules.
+        # Preserve a bounded catalogue as those responsibilities split.
+        require(all(text(path) for path in array(entry["owners"], 64, "primitive owners")),
                 "Invalid primitive owners")
         for key in ("schemas", "bindings"):
             require(isinstance(entry[key], list) and len(entry[key]) <= 32 and all(text(value) for value in entry[key]),
