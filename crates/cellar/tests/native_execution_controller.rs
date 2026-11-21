@@ -726,11 +726,15 @@ async fn operation_deadline_bounds_waiting_for_another_admitted_request() -> Res
         b"queued read",
         expires,
     )?;
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        controller.execute(c.clone(), queued, b"queued read".to_vec()),
-    )
-    .await;
+    let result = d
+        .run(async {
+            cellar::asyncrt::timeout(
+                std::time::Duration::from_secs(1),
+                controller.execute(c.clone(), queued, b"queued read".to_vec()),
+            )
+            .await
+        })
+        .await?;
     drop(first);
     let pending = controller.pending(c).await?;
     let calls = backend.calls.load(Ordering::Acquire);
