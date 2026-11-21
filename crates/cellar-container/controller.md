@@ -84,6 +84,13 @@ A completed deletion is never repeated. An unknown receipt blocks submission;
 a new attempt requires authoritative no-effect proof. Lookup absence uses the
 original stable deletion ID, so a late copy cannot become a second operation.
 
+A deletion intent can become durable before the controller reserves its first
+Delete. Maintenance and public Reconcile drive that intent through the same
+fenced deletion protocol as Destroy. `Deleted/Pending` does not prove submission,
+and an absent controller receipt does not count as completed maintenance. The
+stable ID closes the late-request race; unresolved earlier mutations still block
+submission, and a completed Delete is observed without executing it again.
+
 Supervision captures its fencing authority when registered. If an embedding
 reopens an in-process controller independently, rebuild that registration or use
 a host-owned endpoint forwarder for both sessions and fencing. Replacing only

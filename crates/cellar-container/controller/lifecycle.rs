@@ -338,10 +338,18 @@ impl ControllerProvider {
             ));
         }
         let mut grant = self.fence(context, journal, Some(lifecycle)).await?;
-        if current.record.resource_id.is_none() || current.record.intent == BindingIntent::Deleted {
-            self.reconcile_mutations(context, &grant).await?;
+        if current.record.intent == BindingIntent::Deleted {
+            // A proven intent can precede the controller's first reservation.
+            // Drive the same fenced, stable-ID protocol as Destroy; observing
+            // no receipt alone cannot leave the desired deletion stranded.
+            self.delete(context, journal, grant, false).await?;
+            return Ok(Reconciliation::value(
+                ReconciliationState::Deleted,
+                Some(current.record.generation),
+            ));
         }
         if current.record.resource_id.is_none() {
+            self.reconcile_mutations(context, &grant).await?;
             match self.recover_create(context, &grant).await? {
                 Some(reply) => {
                     current = self.confirm_create(context, journal, &grant, &reply)?;
@@ -356,33 +364,6 @@ impl ControllerProvider {
                     ));
                 }
             }
-        }
-        if current.record.intent == BindingIntent::Deleted {
-            if let Some(original) = self
-                .original(context, &grant, ExecutionOperationKind::Delete)
-                .await?
-            {
-                if let ExecutionOutcome::Completed(bytes) =
-                    self.reconcile_original(context, &grant, original).await?
-                {
-                    let reply = Reply::decode(&bytes, grant.claim(), Operation::Destroy)
-                        .context(ExecutionControllerFailure::UnknownOperation)?;
-                    ensure!(
-                        reply.value.is_null(),
-                        ExecutionControllerFailure::UnknownOperation
-                    );
-                    self.retire(context, journal, current.clone(), false)
-                        .await?;
-                    return Ok(Reconciliation::value(
-                        ReconciliationState::Deleted,
-                        Some(current.record.generation),
-                    ));
-                }
-            }
-            return Ok(Reconciliation::value(
-                ReconciliationState::Deleting,
-                Some(current.record.generation),
-            ));
         }
         let reply = self.observe(context, &grant).await?;
         let running = reply
@@ -423,37 +404,21 @@ impl FencedMaintenanceBackend for ControllerProvider {
                     && journal.load(&context)?.as_ref() == Some(&expected),
                 "maintenance generation differs"
             );
-            if action == MaintenanceAction::Delete {
-                return self.delete(&context, &journal, grant, true).await;
-            }
-            if expected.record.resource_id.is_none()
+            if action == MaintenanceAction::Delete
                 || expected.record.intent == BindingIntent::Deleted
             {
-                self.reconcile_mutations(&context, &grant).await?;
+                // Inspect-after-submission is conservative for generic
+                // providers. This controller first reconciles original debt
+                // and only submits the stable Delete ID if no entry exists.
+                return self.delete(&context, &journal, grant, true).await;
             }
             if expected.record.resource_id.is_none() {
+                self.reconcile_mutations(&context, &grant).await?;
                 match self.recover_create(&context, &grant).await? {
                     Some(reply) => {
                         self.confirm_create(&context, &journal, &grant, &reply)?;
                     }
                     None => {
-                        self.retire(&context, &journal, expected, true).await?;
-                    }
-                }
-            } else if expected.record.intent == BindingIntent::Deleted {
-                if let Some(original) = self
-                    .original(&context, &grant, ExecutionOperationKind::Delete)
-                    .await?
-                {
-                    if let ExecutionOutcome::Completed(bytes) =
-                        self.reconcile_original(&context, &grant, original).await?
-                    {
-                        let reply = Reply::decode(&bytes, grant.claim(), Operation::Destroy)
-                            .context(ExecutionControllerFailure::UnknownOperation)?;
-                        ensure!(
-                            reply.value.is_null(),
-                            ExecutionControllerFailure::UnknownOperation
-                        );
                         self.retire(&context, &journal, expected, true).await?;
                     }
                 }

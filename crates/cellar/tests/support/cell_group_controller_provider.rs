@@ -15,10 +15,10 @@ use std::{
     sync::{atomic::AtomicBool, RwLock},
 };
 
-#[path = "cell_group_provider_lifecycle_wait.rs"]
-mod lifecycle_wait;
 #[path = "cell_group_provider_delete_intent.rs"]
 mod delete_intent;
+#[path = "cell_group_provider_lifecycle_wait.rs"]
+mod lifecycle_wait;
 
 #[derive(Default)]
 struct Resource {
@@ -401,17 +401,23 @@ impl Cell for Root {
                     record.observation = BindingObservation::Pending;
                     // Model loss after this exact intent is durable, before
                     // any controller Delete reservation or submission.
-                    journal.compare_exchange(&context, Some(current.revision), record).await?;
+                    journal
+                        .compare_exchange(&context, Some(current.revision), record)
+                        .await?;
                 }
                 "MaintainDeleteIntent" => {
                     let guard = journal.lock_lifecycle(&context).await?;
                     let expected = journal.load(&context)?.context("binding missing")?;
                     let provider = self.1.selected();
-                    let grant = guard.fence_execution(&context, provider.authority()).await?;
+                    let grant = guard
+                        .fence_execution(&context, provider.authority())
+                        .await?;
                     ensure!(grant.claim().checkpoint() == &expected);
                     // The generic coordinator selects Inspect for an already
                     // persisted deletion intent. Exercise that exact adapter.
-                    provider.maintain(context.clone(), expected, MaintenanceAction::Inspect, grant).await?;
+                    provider
+                        .maintain(context.clone(), expected, MaintenanceAction::Inspect, grant)
+                        .await?;
                 }
                 "Destroy" => {
                     session
