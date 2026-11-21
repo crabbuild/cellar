@@ -1168,7 +1168,7 @@
     {
       "path": "design/release-0.1.2.md",
       "title": "Cellar 0.1.2 release record",
-      "summary": "Record the exact maintenance release source, published package bytes,",
+      "summary": "Record release 0.1.2 sources, archive digests, verification, and qualification limits.",
       "roles": [
         "builder",
         "platform",

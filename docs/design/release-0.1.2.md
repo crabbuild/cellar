@@ -2,8 +2,7 @@
 
 # Cellar 0.1.2 release record
 
-Purpose: Record the exact maintenance release source, published package bytes,
-completed verification, and remaining fleet qualification limits.
+Purpose: Record release 0.1.2 sources, archive digests, verification, and qualification limits.
 
 Recorded 2026-11-20 for the requested scoped crates.io maintenance release.
 The source is published 0.1.1 plus the reload checkpoint fix from
