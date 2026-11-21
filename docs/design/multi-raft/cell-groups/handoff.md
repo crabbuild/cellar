@@ -6,6 +6,14 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current public provider-session delivery
 
+Latest `origin/main` `76a440139` is merged at `0cee7536f`. Its new LTX reload
+regression passes independent cold restore after a paused final upload;
+26 library units, seven native provider functions, strict affected Clippy and
+formatting pass on that merge. Provider/shared-group sources are unchanged.
+Evidence `CG-17-provider-main-0cee7536f-2089` has four frozen executables and a
+verified backup. The shared-provider native/RustFS result below stays pinned to
+`6836d6a6c`; the full combined release gate remains open.
+
 Runtime `6836d6a6c` passes the exact guard held by ordinary named
 `Session::execute(Start/Destroy/Reconcile)` into `ProviderSession::execute_admitted`.
 `BindingLifecycleGuard::fence_execution` retains it without another lock or a

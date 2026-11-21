@@ -51,6 +51,11 @@ Create keeps two. The original version-count failure remains retained; neither
 budgets nor assertions changed. These are scoped passes, not full primitive-family
 acceptance. See the [current checkpoint](progress.md#current-integration-checkpoint).
 
+Latest `origin/main` `76a440139` is merged at `0cee7536f`. The incoming LTX
+reload regression, 26 library units and seven ordinary native provider tests
+pass with strict affected Clippy and formatting. The shared-provider results
+remain pinned to `6836d6a6c`; the complete combined release gate remains required.
+
 Runtime `4f87197ec` delivers Raft-only binding preparation: intent plus execution
 claim share a proof, and final observation plus command result share the output
 proof. Create uses two committed versions rather than four. Existing durable CAS,

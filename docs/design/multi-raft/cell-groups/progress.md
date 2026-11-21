@@ -61,6 +61,17 @@ unchanged. No proof, request ID, deadline or assertion was weakened.
 | Container library and ordinary native provider compatibility | 26 unit tests and 7 integration functions pass |
 | Locked builds, strict affected Clippy, format/layout/dependency/docs/catalog checks | Pass; inventory remains partial at 18 entries/281 symbols |
 
+Latest `origin/main` `76a440139` is merged at `0cee7536f`. The incoming LTX
+reload/checkpoint regression passes cold restore after a paused final upload.
+The merged source also passes 26 library units, seven ordinary native provider
+functions, strict affected Clippy and formatting. Relative to `6836d6a6c`, only
+the ordinary LTX reload implementation/new owning test and documentation differ;
+shared-group and provider sources are unchanged. Evidence
+`CG-17-provider-main-0cee7536f-2089/record.json` preserves four more executables,
+source and raw checks with a verified backup. The shared-provider native/RustFS
+results above remain pinned to `6836d6a6c`; this is a scoped merge check, not the
+combined CG-17 release qualification.
+
 The public fixture uses actual `Bindings::sessions().get("TOOL").execute(Start)`.
 Each configuration records one admitted backend call and zero legacy direct
 calls. Its preserved entry proof makes Create commit exactly **three versions**;
