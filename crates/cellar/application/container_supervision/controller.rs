@@ -185,9 +185,15 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
                 let journal = journal.clone();
                 let context = context.clone();
                 Box::pin(async move {
-                    let grant = journal
-                        .fence_execution(&context, lifecycle, authority)
-                        .await?;
+                    let grant = if expected.record.is_retired() {
+                        journal
+                            .fence_retirement(&context, lifecycle, authority)
+                            .await?
+                    } else {
+                        journal
+                            .fence_execution(&context, lifecycle, authority)
+                            .await?
+                    };
                     ensure!(
                         grant.claim().checkpoint() == &expected,
                         "maintenance checkpoint changed during execution fencing"

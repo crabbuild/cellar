@@ -2,6 +2,7 @@
 
 //! Provider deadlines share native wake discovery, never the application alarm.
 use super::*;
+use crate::application::consensus::Durability;
 use crate::application::containers::{BindingRecord, MaintenancePolicy, MAX_BINDINGS};
 use cellar_logic::work::Reason;
 
@@ -9,7 +10,7 @@ const TABLE: &str = "__sys_container_binding_maintenance";
 const SCHEMA: event_schema::Schema = event_schema::Schema {
     marker: "__sys_container_binding_maintenance_schema",
     ddl: include_str!("container_maintenance.sql"),
-    required: &[(TABLE, "binding,generation,version,created_ms,activity_ms,logical_ms,expires_ms,due_ms,policy,failed")],
+    required: &[(TABLE, "binding,generation,version,created_ms,activity_ms,logical_ms,expires_ms,due_ms,policy,failed,minimum_durability")],
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +25,7 @@ pub(crate) struct Task {
     pub due_ms: i64,
     pub policy: MaintenancePolicy,
     pub failures: u32,
+    pub minimum: Durability,
 }
 
 impl Task {
@@ -43,6 +45,11 @@ fn add(now: i64, millis: u64) -> anyhow::Result<i64> {
 }
 
 fn decode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
+    let minimum = match row.get::<_, u8>(10)? {
+        0 => Durability::Quorum,
+        1 => Durability::S3,
+        other => return Err(rusqlite::Error::IntegralValueOutOfRange(10, other.into())),
+    };
     let policy: String = row.get(8)?;
     let policy = serde_json::from_str::<MaintenancePolicy>(&policy)
         .and_then(|policy| policy.validate().map_err(serde::de::Error::custom))
@@ -64,6 +71,7 @@ fn decode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         due_ms: row.get(7)?,
         policy,
         failures: row.get(9)?,
+        minimum,
     })
 }
 
@@ -74,7 +82,7 @@ fn tasks(connection: &Connection) -> anyhow::Result<Vec<Task>> {
     let tasks = connection
         .prepare_cached(
             "SELECT binding,generation,version,created_ms,activity_ms,logical_ms,
-                    expires_ms,due_ms,policy,failed
+                    expires_ms,due_ms,policy,failed,minimum_durability
              FROM __sys_container_binding_maintenance ORDER BY due_ms,binding LIMIT 65",
         )?
         .query_map([], decode)?
@@ -179,14 +187,20 @@ fn rearm(connection: &Connection, scope: &str) -> anyhow::Result<()> {
 
 fn save(connection: &Connection, task: &Task) -> anyhow::Result<()> {
     let policy = serde_json::to_string(&task.policy)?;
+    let minimum = match task.minimum {
+        Durability::Quorum => 0,
+        Durability::S3 => 1,
+        _ => anyhow::bail!("invalid provider maintenance durability"),
+    };
     connection.execute(
         "INSERT INTO __sys_container_binding_maintenance
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
          ON CONFLICT(binding) DO UPDATE SET
              generation=excluded.generation,version=excluded.version,
              created_ms=excluded.created_ms,activity_ms=excluded.activity_ms,
              logical_ms=excluded.logical_ms,expires_ms=excluded.expires_ms,
-             due_ms=excluded.due_ms,policy=excluded.policy,failed=excluded.failed",
+             due_ms=excluded.due_ms,policy=excluded.policy,failed=excluded.failed,
+             minimum_durability=excluded.minimum_durability",
         rusqlite::params![
             task.binding,
             task.generation,
@@ -197,7 +211,8 @@ fn save(connection: &Connection, task: &Task) -> anyhow::Result<()> {
             task.expires_ms,
             task.due_ms,
             policy,
-            task.failures
+            task.failures,
+            minimum
         ],
     )?;
     Ok(())
@@ -210,6 +225,7 @@ pub(super) fn changed(
     record: &BindingRecord,
     policy: Option<MaintenancePolicy>,
     now: i64,
+    minimum: Durability,
 ) -> anyhow::Result<()> {
     let present = SCHEMA.check(connection)?;
     if !present && policy.is_none() {
@@ -243,6 +259,7 @@ pub(super) fn changed(
             .filter(|v| *v <= i64::MAX as u64)
             .ok_or_else(|| anyhow::anyhow!("maintenance revision exhausted"))?;
         task.logical_ms = task.logical_ms.max(now);
+        task.minimum = task.minimum.max(minimum);
         if record.intent == crate::application::containers::BindingIntent::Deleted {
             task.due_ms = task.logical_ms;
         }
@@ -260,11 +277,31 @@ pub(super) fn changed(
             due_ms: now,
             policy,
             failures: 0,
+            minimum,
         };
         task.due_ms = add(now, policy.inspect_interval_ms)?.min(task.deadline()?);
         save(connection, &task)?;
     }
     rearm(connection, scope)
+}
+
+pub(super) fn invocation_minimum(scope: &str) -> anyhow::Result<Durability> {
+    if scope == RAFT_STORAGE_SCOPE {
+        Ok(crate::storage::capture_raft_dispatch()?
+            .ok_or(crate::application::consensus::CommandFailure::Unavailable)?
+            .binding_source()?
+            .durability)
+    } else {
+        Ok(Durability::Quorum)
+    }
+}
+
+/// Read the coordinator's next obligation's retained source policy. A caller's
+/// explicit S3 minimum cannot be replaced by a weaker namespace default.
+pub(crate) fn next_minimum(connection: &Connection) -> anyhow::Result<Durability> {
+    Ok(tasks(connection)?
+        .first()
+        .map_or(Durability::Quorum, |task| task.minimum))
 }
 
 fn confirm_retired_in(
@@ -316,13 +353,22 @@ pub(crate) fn recover(
     policy: MaintenancePolicy,
     now: i64,
 ) -> anyhow::Result<()> {
+    let minimum = invocation_minimum(scope)?;
     mutate(scope, |connection| {
         if !tasks(connection)?
             .iter()
             .any(|task| task.binding == binding)
             && !record.is_retired()
         {
-            changed(connection, scope, binding, record, Some(policy), now)?;
+            changed(
+                connection,
+                scope,
+                binding,
+                record,
+                Some(policy),
+                now,
+                minimum,
+            )?;
             // A prior unmanaged reservation has no provable start time.
             // Do not grant a new lifetime merely by enabling supervision.
             connection.execute(

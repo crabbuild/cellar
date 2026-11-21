@@ -188,6 +188,11 @@ dispatch. Revision and generation checks prevent an old confirmation from
 clearing a replacement generation; the original unfinished business receipt
 remains uncertain.
 
+The task retains its source durability minimum, including an explicit S3 request
+in a Quorum-default namespace. Discovery carries that minimum into the new
+framework command. The version-1 internal task schema includes this field;
+incompatible old layouts refuse instead of receiving a compatibility reader.
+
 Live maintenance, Reconcile and Destroy also look up every original pending
 mutation, including exec and writes, before further provider mutations. They do
 not require a controller restart and never execute the original call again.

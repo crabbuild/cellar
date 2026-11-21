@@ -404,6 +404,10 @@ impl ExecutionController {
         deadline: u64,
     ) -> Result<ExecutionOutcome> {
         ensure!(
+            !claim.checkpoint().record.is_retired(),
+            ExecutionControllerFailure::StaleClaim
+        );
+        ensure!(
             payload.len() <= self.journal.options.limits.max_payload_bytes,
             ExecutionControllerFailure::Capacity
         );

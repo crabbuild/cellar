@@ -309,6 +309,21 @@ impl BindingJournal {
         lifecycle: &BindingLifecycleGuard,
         authority: &dyn ExecutionFenceAuthority,
     ) -> Result<ExecutionClaim> {
+        self.prepare_claim(
+            context,
+            lifecycle,
+            authority,
+            crate::storage::container_execution::ClaimPurpose::Execute,
+        )
+    }
+
+    fn prepare_claim(
+        &self,
+        context: &Context,
+        lifecycle: &BindingLifecycleGuard,
+        authority: &dyn ExecutionFenceAuthority,
+        purpose: crate::storage::container_execution::ClaimPurpose,
+    ) -> Result<ExecutionClaim> {
         lifecycle.check(context, self)?;
         let scope = self.check(context)?;
         ensure!(
@@ -342,12 +357,20 @@ impl BindingJournal {
         owner.update(source.group.incarnation.bytes());
         owner.update(source.term.to_be_bytes());
         owner.update(source.configuration);
-        let claim = crate::storage::container_execution::claim(
-            scope,
-            &self.name,
-            &checkpoint,
-            &hex::encode(owner.finalize()),
-        )?;
+        let owner = hex::encode(owner.finalize());
+        let claim = match purpose {
+            crate::storage::container_execution::ClaimPurpose::Execute => {
+                crate::storage::container_execution::claim(scope, &self.name, &checkpoint, &owner)?
+            }
+            crate::storage::container_execution::ClaimPurpose::ConfirmRetired => {
+                crate::storage::container_execution::claim_retirement(
+                    scope,
+                    &self.name,
+                    &checkpoint,
+                    &owner,
+                )?
+            }
+        };
         let mut key = Sha256::new();
         key.update(b"cellar-provider-execution-resource-1");
         key.update(history_digest);
@@ -377,11 +400,42 @@ impl BindingJournal {
         lifecycle: BindingLifecycleGuard,
         authority: Arc<dyn ExecutionFenceAuthority>,
     ) -> HandlerFuture<ExecutionGrant> {
+        self.fence(
+            context,
+            lifecycle,
+            authority,
+            crate::storage::container_execution::ClaimPurpose::Execute,
+        )
+    }
+
+    /// Framework-only confirmation of an already retired generation. Prove
+    /// the current checkpoint and revoke prior execution without authorizing
+    /// provider dispatch or renewing any original invocation.
+    pub(crate) fn fence_retirement(
+        &self,
+        context: &Context,
+        lifecycle: BindingLifecycleGuard,
+        authority: Arc<dyn ExecutionFenceAuthority>,
+    ) -> HandlerFuture<ExecutionGrant> {
+        self.fence(
+            context,
+            lifecycle,
+            authority,
+            crate::storage::container_execution::ClaimPurpose::ConfirmRetired,
+        )
+    }
+
+    fn fence(
+        &self,
+        context: &Context,
+        lifecycle: BindingLifecycleGuard,
+        authority: Arc<dyn ExecutionFenceAuthority>,
+        purpose: crate::storage::container_execution::ClaimPurpose,
+    ) -> HandlerFuture<ExecutionGrant> {
         let journal = self.clone();
         let context = context.clone();
         Box::pin(async move {
-            let claim =
-                journal.prepare_execution_claim(&context, &lifecycle, authority.as_ref())?;
+            let claim = journal.prepare_claim(&context, &lifecycle, authority.as_ref(), purpose)?;
             let dispatch = crate::storage::capture_raft_dispatch()?
                 .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?;
             let request = claim.clone();

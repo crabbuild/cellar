@@ -9,5 +9,6 @@ CREATE TABLE IF NOT EXISTS __sys_container_binding_maintenance (
     expires_ms INTEGER NOT NULL CHECK(typeof(expires_ms)='integer' AND expires_ms>=created_ms),
     due_ms INTEGER NOT NULL CHECK(typeof(due_ms)='integer' AND due_ms>=0),
     policy TEXT NOT NULL CHECK(length(CAST(policy AS BLOB))<=512),
-    failed INTEGER NOT NULL CHECK(typeof(failed)='integer' AND failed BETWEEN 0 AND 16)
+    failed INTEGER NOT NULL CHECK(typeof(failed)='integer' AND failed BETWEEN 0 AND 16),
+    minimum_durability INTEGER NOT NULL CHECK(typeof(minimum_durability)='integer' AND minimum_durability IN (0,1))
 ) WITHOUT ROWID;

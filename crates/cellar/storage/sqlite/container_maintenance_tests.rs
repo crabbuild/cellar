@@ -72,6 +72,7 @@ fn shared_change(
         &checkpoint.record,
         Some(policy()),
         now,
+        Durability::S3,
     )?;
     Ok(checkpoint)
 }
@@ -80,11 +81,22 @@ fn shared_change(
 fn shared_retirement_retains_discovery_until_exact_confirmation() -> anyhow::Result<()> {
     let db = Connection::open_in_memory()?;
     let initial = shared_change(&db, None, record(), 1000)?;
+    changed(
+        &db,
+        RAFT_STORAGE_SCOPE,
+        "container",
+        &initial.record,
+        Some(policy()),
+        1100,
+        Durability::Quorum,
+    )?;
+    assert_eq!(next_minimum(&db)?, Durability::S3);
     let mut record = initial.record;
     record.intent = BindingIntent::Deleted;
     record.observation = BindingObservation::Confirmed;
     let retired = shared_change(&db, Some(initial.revision), record, 1200)?;
     assert_eq!(tasks(&db)?.len(), 1);
+    assert_eq!(next_minimum(&db)?, Durability::S3);
     assert_eq!(
         crate::application::consensus::native_work::get(&db, "resource-reconciliation")?,
         Some(1200)

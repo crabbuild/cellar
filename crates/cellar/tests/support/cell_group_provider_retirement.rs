@@ -44,8 +44,13 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
             old_context: Mutex::new(None),
             wait: Arc::new(lifecycle_wait::Wait::default()),
         });
-        let mut cluster =
-            start(rooted, Durability::S3, route.clone(), Scenario::Interrupted).await?;
+        let mut cluster = start(
+            rooted,
+            Durability::Quorum,
+            route.clone(),
+            Scenario::Interrupted,
+        )
+        .await?;
         let domain = cluster.fixtures[0].domain.clone();
         let result = domain.run(async {
             let group = cluster.history;
@@ -78,6 +83,15 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
                 }
             }).await.context("retired generation lost autonomous S3 confirmation")?;
             ensure!(peer.creates.load(Ordering::Acquire) == 1 && peer.deletes.load(Ordering::Acquire) == 1, "confirmation repeated a provider mutation");
+            // The independent controller must also refuse retired execution,
+            // even when a caller bypasses the SDK's dispatch admission.
+            let claim = peer.active.lock().unwrap().clone().context("confirmation claim missing")?;
+            ensure!(claim.checkpoint().record.is_retired());
+            let payload = serde_json::to_vec(&Request { format: 1, operation: Operation::Running.name().into(), input: json!({}) })?;
+            let operation = ExecutionOperation::new([37;16], ExecutionOperationKind::Read, &payload, u64::try_from(cellar::asyncrt::wall_ms())? + 1000)?;
+            let before = peer.calls.load(Ordering::Acquire);
+            let refused = controller.execute(claim, operation, payload).await;
+            ensure!(refused.err().is_some_and(|error| error.downcast_ref::<ExecutionControllerFailure>() == Some(&ExecutionControllerFailure::StaleClaim)) && peer.calls.load(Ordering::Acquire) == before, "controller admitted retired provider execution");
             // Framework confirmation cannot turn a partly executed business
             // callback into a successful original result.
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
