@@ -55,7 +55,7 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             h.archive.tails.usage().operations == 0,
             "physical proof survived eviction"
         );
-        h.remote.deny_chunk_creates.store(true, Ordering::Release);
+        h.remote.deny_generation_writes.store(true, Ordering::Release);
 
         let sibling = history(&h.route, "registered-b")?;
         let sibling_call = h
@@ -103,7 +103,7 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
                 == archived,
             "sibling cut was archived before the fault"
         );
-        let denied = h.remote.denied_chunk_creates.load(Ordering::Acquire);
+        let denied = h.remote.denied_generation_writes.load(Ordering::Acquire);
         let mut lookup = h
             .lookup(
                 h.receipt_request(1, b"archived-cell", Durability::S3)?,
@@ -136,7 +136,7 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             "covered lookup published a newer group cut"
         );
         anyhow::ensure!(
-            h.remote.denied_chunk_creates.load(Ordering::Acquire) == denied,
+            h.remote.denied_generation_writes.load(Ordering::Acquire) == denied,
             "covered lookup attempted a new archive upload"
         );
         anyhow::ensure!(
@@ -173,11 +173,11 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             "unarchived target escaped the S3 proof gate"
         );
         anyhow::ensure!(
-            h.remote.denied_chunk_creates.load(Ordering::Acquire) > denied,
+            h.remote.denied_generation_writes.load(Ordering::Acquire) > denied,
             "uncovered target never reached the actual archive-write refusal"
         );
         drop(unavailable);
-        h.remote.deny_chunk_creates.store(false, Ordering::Release);
+        h.remote.deny_generation_writes.store(false, Ordering::Release);
         let mut recovered = h.lookup(request, Duration::from_secs(5)).await
             .context("healed receipt discovery")?;
         let response = recovered
@@ -209,7 +209,7 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
         Ok::<_, anyhow::Error>(())
     }
     .await;
-    h.remote.deny_chunk_creates.store(false, Ordering::Release);
+    h.remote.deny_generation_writes.store(false, Ordering::Release);
     if work.is_err() {
         h.fixture.cluster._root.disable_cleanup(true);
         eprintln!(

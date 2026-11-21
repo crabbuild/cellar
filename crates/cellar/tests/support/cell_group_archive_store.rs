@@ -98,6 +98,7 @@ pub struct Store {
     retirement: Mutex<Option<(u64, Arc<Gate>)>>,
     pub publication_cuts: Mutex<Vec<u64>>,
     pub deny_generation_writes: AtomicBool,
+    pub denied_generation_writes: AtomicUsize,
     pub deny_chunk_reads: AtomicBool,
     pub denied_chunk_reads: AtomicUsize,
     pub outage: AtomicBool,
@@ -136,6 +137,7 @@ impl Store {
             retirement: Mutex::new(None),
             publication_cuts: Mutex::new(Vec::new()),
             deny_generation_writes: AtomicBool::new(false),
+            denied_generation_writes: AtomicUsize::new(0),
             deny_chunk_reads: AtomicBool::new(false),
             denied_chunk_reads: AtomicUsize::new(0),
             outage: AtomicBool::new(false),
@@ -236,6 +238,7 @@ impl ObjectStore for Store {
         if path.as_ref().contains("/generations/")
             && self.deny_generation_writes.load(Ordering::Acquire)
         {
+            self.denied_generation_writes.fetch_add(1, Ordering::AcqRel);
             return Err(Error::Generic {
                 store: "archive generation writes denied",
                 source: "injected".into(),
