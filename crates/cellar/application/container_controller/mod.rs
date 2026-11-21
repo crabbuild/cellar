@@ -246,7 +246,7 @@ impl ExecutionController {
     }
 
     async fn activate_inner(self: &Arc<Self>, claim: ExecutionClaim) -> Result<()> {
-        journal::check_claim(&claim, &self.journal.options)?;
+        journal::check_fence(&claim, &self.journal.options)?;
         let key = journal::logical_key(claim.history(), claim.binding());
         let admission = self.admission(&key).await?;
         let mut slot = match self.load(&admission, &key).await? {
@@ -277,6 +277,14 @@ impl ExecutionController {
             slot.recovery.is_none(),
             ExecutionControllerFailure::RecoveryPending
         );
+        if claim.checkpoint().record.is_retired() {
+            ensure!(
+                slot.pending()
+                    .iter()
+                    .all(|pending| pending.operation.kind.is_observation()),
+                ExecutionControllerFailure::UnknownOperation
+            );
+        }
         let history = slot
             .histories
             .get_mut(&incarnation)
@@ -296,6 +304,12 @@ impl ExecutionController {
                 );
             }
             if claim.checkpoint().record.generation == high.checkpoint().record.generation {
+                if high.checkpoint().record.is_retired() {
+                    ensure!(
+                        claim.checkpoint().record == high.checkpoint().record,
+                        ExecutionControllerFailure::ConflictingRequest
+                    );
+                }
                 ensure!(
                     claim.checkpoint().record.parameters_digest
                         == high.checkpoint().record.parameters_digest

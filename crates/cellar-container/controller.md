@@ -188,6 +188,11 @@ dispatch. Revision and generation checks prevent an old confirmation from
 clearing a replacement generation; the original unfinished business receipt
 remains uncertain.
 
+The controller can persist a retired checkpoint as a confirmation fence while
+ordinary execution still refuses it. Unknown mutators must be reconciled before
+that fence can activate. A retired generation cannot be reopened by a larger
+sequence; a fresh generation remains an explicit operation.
+
 The task retains its source durability minimum, including an explicit S3 request
 in a Quorum-default namespace. Discovery carries that minimum into the new
 framework command. The version-1 internal task schema includes this field;

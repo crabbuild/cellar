@@ -138,7 +138,7 @@ impl Slot {
                 ensure!(history.revoked, "unrevoked historical incarnation");
             }
             if let Some(claim) = &history.high_water {
-                check_claim(claim, options)?;
+                check_fence(claim, options)?;
                 ensure!(
                     self.key == logical_key(claim.history(), claim.binding())
                         && *incarnation == hex::encode(claim.history().incarnation.bytes()),
@@ -160,7 +160,7 @@ impl Slot {
                         && hex::encode(active.history().incarnation.bytes()) == *incarnation,
                     "active execution history differs"
                 );
-                check_claim(active, options)?;
+                check_fence(active, options)?;
             }
             for (id, operation) in &history.operations {
                 ensure!(
@@ -254,16 +254,26 @@ pub(super) fn check_claim(
     claim: &ExecutionClaim,
     options: &ExecutionControllerOptions,
 ) -> Result<()> {
+    check_fence(claim, options)?;
+    ensure!(
+        !claim.checkpoint().record.is_retired(),
+        ExecutionControllerFailure::RevokedHistory
+    );
+    Ok(())
+}
+
+/// Validate metadata for revocation/confirmation, never permission to execute.
+/// Stored operations and ordinary active requests still use check_claim.
+pub(super) fn check_fence(
+    claim: &ExecutionClaim,
+    options: &ExecutionControllerOptions,
+) -> Result<()> {
     let backend = options.fenced_backend();
     ensure!(
         claim.binding() == backend.binding
             && claim.checkpoint().record.provider == backend.provider
             && claim.checkpoint().record.configuration_digest == backend.configuration_digest,
         ExecutionControllerFailure::ConflictingRequest
-    );
-    ensure!(
-        !claim.checkpoint().record.is_retired(),
-        ExecutionControllerFailure::RevokedHistory
     );
     Ok(())
 }

@@ -58,29 +58,38 @@ fn shared_change(
     record: BindingRecord,
     now: i64,
 ) -> anyhow::Result<crate::application::containers::BindingCheckpoint> {
-    let checkpoint = super::super::container_bindings::transaction(
-        connection,
-        "container",
-        previous,
-        1,
-        record,
-    )?;
-    changed(
-        connection,
-        RAFT_STORAGE_SCOPE,
-        "container",
-        &checkpoint.record,
-        Some(policy()),
-        now,
-        Durability::S3,
-    )?;
-    Ok(checkpoint)
+    connection.execute_batch("SAVEPOINT test_shared_retirement")?;
+    let result: anyhow::Result<_> = (|| {
+        let checkpoint = super::super::container_bindings::transaction(
+            connection,
+            "container",
+            previous,
+            1,
+            record,
+        )?;
+        changed(
+            connection,
+            RAFT_STORAGE_SCOPE,
+            "container",
+            &checkpoint.record,
+            Some(policy()),
+            now,
+            Durability::S3,
+        )?;
+        Ok(checkpoint)
+    })();
+    if result.is_err() {
+        connection.execute_batch("ROLLBACK TO test_shared_retirement")?;
+    }
+    connection.execute_batch("RELEASE test_shared_retirement")?;
+    result
 }
 
 #[test]
 fn shared_retirement_retains_discovery_until_exact_confirmation() -> anyhow::Result<()> {
     let db = Connection::open_in_memory()?;
     let initial = shared_change(&db, None, record(), 1000)?;
+    db.execute_batch("BEGIN")?;
     changed(
         &db,
         RAFT_STORAGE_SCOPE,
@@ -91,10 +100,16 @@ fn shared_retirement_retains_discovery_until_exact_confirmation() -> anyhow::Res
         Durability::Quorum,
     )?;
     assert_eq!(next_minimum(&db)?, Durability::S3);
+    let old_work = crate::application::consensus::native_work::due(&db, 1100)?.unwrap();
+    assert!(crate::application::consensus::native_work::claim(
+        &db, &old_work, 1100
+    )?);
+    db.execute_batch("COMMIT")?;
     let mut record = initial.record;
     record.intent = BindingIntent::Deleted;
     record.observation = BindingObservation::Confirmed;
     let retired = shared_change(&db, Some(initial.revision), record, 1200)?;
+    crate::application::consensus::native_work::complete(&db, &old_work, 1100 + old_work.lease_ms)?;
     assert_eq!(tasks(&db)?.len(), 1);
     assert_eq!(next_minimum(&db)?, Durability::S3);
     assert_eq!(

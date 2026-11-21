@@ -231,6 +231,121 @@ fn execution_claim_metadata_codec_validates_identity_and_format() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retired_fences_require_known_outcomes_and_never_authorize_execution() -> Result<()> {
+    let d = domain();
+    let backend = Arc::new(Provider::default());
+    backend.hold.store(true, Ordering::Release);
+    let controller =
+        ExecutionController::create(d.clone(), options(root()?), backend.clone(), [42; 32]).await?;
+    let resume = controller.options();
+    let current = claim(&controller.identity(), 3, 1, 1)?;
+    controller.clone().activate(current.clone()).await?;
+    let request = operation(&d, 22, b"terminal effect").await?;
+    failure(
+        &controller
+            .execute(
+                current.clone(),
+                request.clone(),
+                b"terminal effect".to_vec(),
+            )
+            .await
+            .unwrap_err(),
+        ExecutionControllerFailure::UnknownOperation,
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    let original = controller.pending(current.clone()).await?.remove(0);
+    let mut value = serde_json::to_value(&current)?;
+    value["sequence"] = serde_json::json!(2);
+    value["checkpoint"]["revision"] = serde_json::json!(2);
+    value["checkpoint"]["record"]["intent"] = serde_json::json!("deleted");
+    value["checkpoint"]["record"]["observation"] = serde_json::json!("confirmed");
+    let retired: ExecutionClaim = serde_json::from_value(value)?;
+    failure(
+        &controller
+            .clone()
+            .activate(retired.clone())
+            .await
+            .unwrap_err(),
+        ExecutionControllerFailure::UnknownOperation,
+    );
+    assert_eq!(backend.revocations.load(Ordering::Acquire), 1);
+    assert_eq!(
+        controller.pending(current.clone()).await?,
+        vec![original.clone()]
+    );
+    backend.hold.store(false, Ordering::Release);
+    backend.released.notify_waiters();
+    assert_eq!(
+        controller.reconcile(current.clone(), original).await?,
+        ExecutionOutcome::Completed(b"terminal effect".to_vec())
+    );
+    controller.clone().activate(retired.clone()).await?;
+    let forbidden = operation(&d, 23, b"forbidden").await?;
+    failure(
+        &controller
+            .execute(retired.clone(), forbidden, b"forbidden".to_vec())
+            .await
+            .unwrap_err(),
+        ExecutionControllerFailure::StaleClaim,
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    let mut reopened = serde_json::to_value(&current)?;
+    reopened["sequence"] = serde_json::json!(3);
+    reopened["checkpoint"]["revision"] = serde_json::json!(3);
+    let reopened: ExecutionClaim = serde_json::from_value(reopened)?;
+    failure(
+        &controller.clone().activate(reopened).await.unwrap_err(),
+        ExecutionControllerFailure::ConflictingRequest,
+    );
+    controller.shutdown().await?;
+    d.shutdown().await;
+    let d2 = domain();
+    let restored_backend = Arc::new(Provider::default());
+    let restored = ExecutionController::open(d2.clone(), resume, restored_backend.clone()).await?;
+    restored.clone().activate(retired.clone()).await?;
+    assert_eq!(restored_backend.revocations.load(Ordering::Acquire), 1);
+    assert_eq!(
+        restored_backend.active.lock().unwrap().as_ref(),
+        Some(&retired)
+    );
+    failure(
+        &restored
+            .clone()
+            .activate(current.clone())
+            .await
+            .unwrap_err(),
+        ExecutionControllerFailure::StaleClaim,
+    );
+    let forbidden = operation(&d2, 24, b"forbidden").await?;
+    failure(
+        &restored
+            .execute(retired.clone(), forbidden, b"forbidden".to_vec())
+            .await
+            .unwrap_err(),
+        ExecutionControllerFailure::StaleClaim,
+    );
+    assert_eq!(restored_backend.calls.load(Ordering::Acquire), 0);
+    let mut next = serde_json::to_value(&current)?;
+    next["sequence"] = serde_json::json!(3);
+    next["checkpoint"]["revision"] = serde_json::json!(3);
+    next["checkpoint"]["record"]["generation"] = serde_json::json!(2);
+    next["checkpoint"]["record"]["request_id"] = serde_json::json!(hex::encode([20; 16]));
+    let next: ExecutionClaim = serde_json::from_value(next)?;
+    restored.clone().activate(next.clone()).await?;
+    let fresh = operation(&d2, 25, b"new generation").await?;
+    assert_eq!(
+        restored
+            .execute(next, fresh, b"new generation".to_vec())
+            .await?,
+        ExecutionOutcome::Completed(b"new generation".to_vec())
+    );
+    assert_eq!(restored_backend.calls.load(Ordering::Acquire), 1);
+    restored.shutdown().await?;
+    d2.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn controller_restart_retains_high_water_and_original_receipts() -> Result<()> {
     let d = domain();
     let backend = Arc::new(Provider::default());
