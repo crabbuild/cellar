@@ -34,7 +34,60 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-### CG-17 public provider-session lifecycle admission
+### CG-17 durable execution controller
+
+Runtime `66afc02f4` adds the independently owned `ExecutionController` core.
+Its checksummed, atomic journal persists ownership high-water marks, original
+operation identities/payload digests/deadlines/results, and permanent history
+revocations. Missing registered files, corrupt state and incompatible controller
+identity refuse admission. Fresh creation generates a new identity covered by
+the namespace's provider configuration; it cannot reset an old namespace's fence.
+See the [controller contract](../../../../crates/cellar-container/controller.md).
+
+Higher ownership is durable before backend revocation; activation completes only
+after the backend proves revocation. Startup reasserts current provider fences
+and reconciles original receipts without replay. Fresh-incarnation admission
+requires the infrastructure fencing callback. Its recovery credential authorizes
+the request and supplies no physical fencing proof. Old pending mutations remain
+visible and block new mutations across incarnations; results settle in their
+original history. Receipt capacity stays reserved after revocation. Live request
+deadlines bound admission, filesystem work and backend I/O. Already started file
+publication retains its admission until completion, even after caller cancellation.
+
+Two preserved pre-fix regressions fail: queued admission outlives the operation
+deadline, and fresh recovery forgets original debt and permits duplicate effects.
+That control passes 10/12 cases. The final source passes both assertions unchanged,
+plus startup reconciliation of old-history operations and replacement-provider
+fence restoration. One harness timer was changed to the execution-domain timer
+with the same 100 ms operation deadline and one-second ceiling. The initial
+missing TMPDIR, canceled broad binary build, timer lint and wrong preflight
+inventory mapping are retained; the preflight failures ran no business request.
+
+| Source `66afc02f4` qualification | Result |
+| --- | --- |
+| Durable controller public API protocol | **14/14 tests pass** |
+| Ordinary provider library | **26/26 unit tests pass** |
+| Ordinary binding and supervision regressions | **1 binding + 6 supervision tests pass** |
+| Locked builds, strict affected Clippy and formatting | Pass |
+| Layout, dependency, documentation and partial catalog checks | Pass; 18 entries/305 symbols |
+
+Evidence `CG-17-controller-core-66afc02f4-2107/record.json` and `custody.json`
+retain four frozen executables, the source, 14 controller roots, both red controls
+and setup failures. All 222 retained files have a verified second Workspace copy.
+Controller executable SHA-256:
+`f55d48e3bc6b40c8ebfec53b21f708578498ab2f5ed8e9a6ec5fcd16c4290198`.
+The follow-up branch starts at latest merged main `5ae2b21f4` (PR #174).
+
+**CG-17 remains open, 0/32 formal cases accepted.** These tests use trusted
+metadata and a controlled provider; they establish no actual Raft quorum,
+authenticated RPC, independent controller/provider process crash or fresh RustFS
+qualification. Normal native Container/sandbox adapters, restored lifecycle
+receipt lookup, safe receipt reclamation and provider-volume recovery remain.
+Then finish WebSockets and the complete API/feature/lifecycle/fault matrix.
+Previous Fleet and S3 Read/Delete failures remain open. No default cutover or
+full primitive-family acceptance follows from this core delivery.
+
+### Previous public provider-session lifecycle admission
 
 **CG-17 remains open.** Runtime `6836d6a6c` includes `f4091702e`'s ordinary
 named-provider handoff: `Session::execute(Start/Destroy/Reconcile)` supplies its

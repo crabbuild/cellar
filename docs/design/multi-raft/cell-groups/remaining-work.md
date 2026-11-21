@@ -41,6 +41,31 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
+`66afc02f4` delivers the durable execution-controller core: persistent ownership,
+original operation receipts/deadlines, permanent incarnation revocation, retained
+unknown debt and startup reconciliation. **14 controller cases, 26 provider unit
+tests and seven ordinary provider regressions pass**, with strict affected Clippy
+and repository checks. Two causal red regressions and all state/executables are
+retained with a verified backup. Main `5ae2b21f4` includes merged PR #174; this
+follow-up starts from that main. These are trusted-metadata protocol checks, not
+a new RF3/RustFS or independent-process qualification.
+
+The next feature deliveries are:
+
+1. Connect normal native Container/sandbox APIs to a host-selected authenticated,
+   request-bound controller transport. Use an owned async activation prologue or
+   equivalent no-I/O initialization; old Contexts cannot borrow newer grants.
+2. Complete restored lifecycle receipt lookup and safe bounded receipt
+   reclamation. Qualify independent controller/provider faults, permanent
+   infrastructure fencing and actual volume recovery with constrained RF3 and
+   real RustFS after all voter disks are deleted.
+3. Finish WebSockets and the complete public primitive/feature/clock/retention/
+   lifecycle matrix, including the retained Fleet and S3 Read/Delete failures.
+
+The controller core now exists; its production adapters and combined recovery
+qualification are the immediate gap. See the [controller contract](../../../../crates/cellar-container/controller.md).
+Inventory remains partial at 18 entries/305 symbols. CG-17 stays open at 0/32.
+
 Runtime `6836d6a6c` delivers the ordinary named-provider lifecycle handoff and
 nonwaiting shared-group background admission. The actual custom-provider Start
 passes four native and four real RustFS/Docker configurations, with one admitted
@@ -75,16 +100,16 @@ supervision Delete failures remain open; passing controls do not prove a fix.
 The ordinary named-provider guard handoff is implemented and qualified for the
 custom Start profile. Native Container needs an async activation prologue,
 request-bound provider transport and full logical history. Old Contexts must never borrow newer global
-grants. Qualify an independent controller with durable high-water recovery,
-authenticated per-operation enforcement and permanent old-history revocation.
-Then finish WebSockets and every API/provider/feature/deployment/clock/retention/
+grants. Qualify the new core behind authenticated per-operation transport and
+independent process/infrastructure fencing, including permanent old-history
+revocation. Then finish WebSockets and every API/provider/feature/deployment/clock/retention/
 cancellation/recovery ledger. Fresh-history DR cannot bypass execution revocation.
 
 RF3 shares one three-CPU/4-GiB Linux process/container with zero swap and ext4
 disks; RustFS has one CPU/2 GiB in the same VM. This does not qualify independent
 voter/controller faults. The fixture controller has volatile state and stays live
 through voter restart. Native Docker remains ephemeral; other provider-volume
-contracts still apply. Inventory is partial at 18 entries/281 symbols. Formal
+contracts still apply. The current inventory is partial at 18 entries/305 symbols. Formal
 CG-17 acceptance remains 0/32; historical CG-01 custody is also missing. See the
 [current checkpoint](progress.md#current-integration-checkpoint) for source pins,
 failed controls, proof counts and retained evidence.
