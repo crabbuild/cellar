@@ -85,7 +85,7 @@ pub trait ExecutionFenceAuthority: Send + Sync + 'static {
 pub struct ExecutionGrant {
     journal: BindingJournal,
     claim: ExecutionClaim,
-    lifecycle: Arc<BindingLifecycleGuard>,
+    lifecycle: Option<Arc<BindingLifecycleGuard>>,
     authority: Arc<dyn ExecutionFenceAuthority>,
 }
 
@@ -105,6 +105,51 @@ impl ExecutionGrant {
         kind: super::containers::ExecutionOperationKind,
         payload: &[u8],
     ) -> Result<super::containers::ExecutionOperation> {
+        self.operation_in_domain(
+            context,
+            ordinal,
+            kind,
+            payload,
+            b"cellar-controller-invocation-operation-1",
+        )
+    }
+
+    /// Allocate a unique operation within this exact invocation. Sessions using
+    /// the same Context share the counter; explicit caller ordinals use a
+    /// separate identity domain. No invocation authority or deadline is renewed.
+    pub fn next_operation(
+        &self,
+        context: &Context,
+        kind: super::containers::ExecutionOperationKind,
+        payload: &[u8],
+    ) -> Result<super::containers::ExecutionOperation> {
+        self.check(context)?;
+        let ordinal = context
+            .state
+            .provider_operation
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |n| n.checked_add(1),
+            )
+            .map_err(|_| super::containers::ExecutionControllerFailure::Capacity)?;
+        self.operation_in_domain(
+            context,
+            ordinal,
+            kind,
+            payload,
+            b"cellar-controller-invocation-automatic-operation-1",
+        )
+    }
+
+    fn operation_in_domain(
+        &self,
+        context: &Context,
+        ordinal: u64,
+        kind: super::containers::ExecutionOperationKind,
+        payload: &[u8],
+        domain: &[u8],
+    ) -> Result<super::containers::ExecutionOperation> {
         self.check(context)?;
         let source = crate::storage::capture_raft_dispatch()?
             .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
@@ -114,7 +159,7 @@ impl ExecutionGrant {
             "controller operation history differs"
         );
         let mut id = Sha256::new();
-        id.update(b"cellar-controller-invocation-operation-1");
+        id.update(domain);
         id.update(self.claim.resource_key());
         id.update(source.parent.client.bytes());
         id.update(source.parent.sequence().to_be_bytes());
@@ -135,17 +180,81 @@ impl ExecutionGrant {
     /// The old grant remains invalid for the changed checkpoint. No business
     /// operation is retried; the controller reconciles the exact new claim.
     pub fn refresh(&self, context: &Context) -> HandlerFuture<ExecutionGrant> {
-        if let Err(error) = self.lifecycle.check(context, &self.journal) {
+        let valid = match &self.lifecycle {
+            Some(lifecycle) => lifecycle.check(context, &self.journal),
+            None => self.journal.check(context).map(|_| ()),
+        };
+        if let Err(error) = valid {
             return Box::pin(async move { Err(error) });
         }
-        self.journal
-            .fence_execution(context, self.lifecycle.retained(), self.authority.clone())
+        let journal = self.journal.clone();
+        let context = context.clone();
+        let lifecycle = self.lifecycle.clone();
+        let authority = self.authority.clone();
+        Box::pin(async move {
+            let guard = match lifecycle {
+                Some(guard) => guard.retained(),
+                None => journal.lock_lifecycle(&context).await?,
+            };
+            journal.fence_execution(&context, guard, authority).await
+        })
+    }
+
+    /// Release lifecycle serialization for data/stream observations. The exact
+    /// invocation, checkpoint and execution claim remain bound to this grant;
+    /// another Context cannot lend it a newer owner or generation.
+    pub fn release_lifecycle(mut self, context: &Context) -> Result<Self> {
+        self.check(context)?;
+        self.lifecycle.take();
+        Ok(self)
+    }
+
+    fn retained(&self) -> Self {
+        Self {
+            journal: self.journal.clone(),
+            claim: self.claim.clone(),
+            lifecycle: self.lifecycle.clone(),
+            authority: self.authority.clone(),
+        }
+    }
+
+    /// Run provider I/O under this original invocation after its required proof,
+    /// parking the source writer rather than lending SQL authority to the I/O.
+    /// The provider still enforces the supplied claim at its execution boundary.
+    pub fn dispatch<T, F, Fut>(&self, context: &Context, action: F) -> HandlerFuture<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(ExecutionClaim) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<T>> + Send + 'static,
+    {
+        let prepared = (|| -> Result<_> {
+            self.check(context)?;
+            Ok(crate::storage::capture_raft_dispatch()?
+                .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?)
+        })();
+        let dispatch = match prepared {
+            Ok(dispatch) => dispatch,
+            Err(error) => return Box::pin(async move { Err(error) }),
+        };
+        let grant = self.retained();
+        let context = context.clone();
+        Box::pin(async move {
+            let claim = grant.claim.clone();
+            let result = dispatch
+                .schedule_effect(move |_| action(claim))
+                .future
+                .await??;
+            grant.check(&context)?;
+            Ok(result)
+        })
     }
 
     /// Local publication check only. The provider must still reject stale
     /// claims at its own execution boundary, including already-open handles.
     pub fn check(&self, context: &Context) -> Result<()> {
-        self.lifecycle.check(context, &self.journal)?;
+        if let Some(lifecycle) = &self.lifecycle {
+            lifecycle.check(context, &self.journal)?;
+        }
         let scope = self.journal.check(context)?;
         ensure!(
             self.journal.load(context)?.as_ref() == Some(&self.claim.checkpoint),
@@ -260,7 +369,7 @@ impl BindingJournal {
             let grant = ExecutionGrant {
                 journal,
                 claim,
-                lifecycle: Arc::new(lifecycle),
+                lifecycle: Some(Arc::new(lifecycle)),
                 authority,
             };
             grant.check(&context)?;

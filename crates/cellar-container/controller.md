@@ -7,8 +7,41 @@ Purpose: Define independent provider ownership, original-operation receipts and 
 The host API `cellar::sdk::containers::ExecutionController` implements
 `ExecutionFenceAuthority` with an independently owned, durable journal. It is the
 controller core for a trusted host integration. An authenticated transport and a
-provider implementing `ExecutionControllerBackend` are required; the core does
-not install a native Container or sandbox adapter.
+provider implementing `ExecutionControllerBackend` are required. The
+`ControllerProvider` adapter connects ordinary named SDK sessions to this core;
+built-in `Context.container` and sandbox activation still need their adapters.
+
+## Named SDK adapter
+
+Construct `ControllerProvider` from the selected controller, declare its exact
+identity in `RaftClass::provider_binding`, then register it with `Bindings`.
+Use the ordinary `bindings.sessions().get(name)?.execute(...)` entry point.
+Every session remains bound to its original Context. The adapter does not retain
+or borrow grants from a later invocation, even after controller restart.
+
+The adapter advertises Start, Destroy, Reconcile, Running, Monitor, Signal,
+inactivity configuration, buffered ExecOutput and file read/write/stat/list.
+It does not advertise interactive exec, ports or sockets. The host backend must
+implement the version-1 `controller::Request`/`Reply` protocol, validate requests
+before effects, enforce immutable resource IDs and independently fence every
+operation. This adapter supplies neither a native execution driver nor an
+authenticated network endpoint.
+
+Start proves its intent and execution claim together before provider dispatch;
+confirmation shares the final output proof. Controller I/O parks the writer and
+can reuse only the exact invocation's unchanged unfinished-receipt proof.
+Automatic operation ordinals are invocation-wide, so separate sessions cannot
+reuse an operation identity accidentally. Original source deadlines remain in
+force. Observations release lifecycle admission, and the controller reserves
+control capacity so a held observation cannot prevent revocation. A completing
+observation reloads current controller state before storing its result.
+
+Lifecycle recovery finds both unresolved and completed original create/delete
+receipts across incarnations. If an original create has no controller entry,
+recovery atomically seals that original ID before retiring its source intent;
+an absence check alone cannot fence a queued create. Reconciliation never
+replays an uncertain mutation. The same adapter implements fenced background
+maintenance, including cleanup when the business constructor is unavailable.
 
 ## Storage ownership
 

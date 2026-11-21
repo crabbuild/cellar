@@ -948,3 +948,184 @@ async fn unknown_observation_does_not_authorize_replay_or_block_a_new_mutation()
     d.shutdown().await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn held_observations_leave_control_capacity_and_cannot_rewind_new_receipts() -> Result<()> {
+    for replace_owner in [false, true] {
+        let d = domain();
+        let backend = Arc::new(Provider::default());
+        let mut opts = options(root()?);
+        opts.limits.max_inflight = 2;
+        let controller =
+            ExecutionController::create(d.clone(), opts, backend.clone(), [42; 32]).await?;
+        let old = claim(&controller.identity(), 3, 1, 1)?;
+        controller.clone().activate(old.clone()).await?;
+        let expiry = operation(&d, 51, b"old observation").await?.expires_unix_ms;
+        let read = ExecutionOperation::new(
+            [51; 16],
+            ExecutionOperationKind::Read,
+            b"old observation",
+            expiry,
+        )?;
+        backend.hold.store(true, Ordering::Release);
+        let mut held =
+            Box::pin(controller.execute(old.clone(), read.clone(), b"old observation".to_vec()));
+        match futures_util::future::select(held.as_mut(), Box::pin(backend.entered.notified()))
+            .await
+        {
+            futures_util::future::Either::Left(_) => {
+                anyhow::bail!("observation did not reach hold cut")
+            }
+            futures_util::future::Either::Right(_) => {}
+        }
+        backend.hold.store(false, Ordering::Release);
+        let current = if replace_owner {
+            claim(&controller.identity(), 3, 2, 2)?
+        } else {
+            old.clone()
+        };
+        let write = operation(&d, 52, b"new mutation").await?;
+        let control = d
+            .run(async {
+                cellar::asyncrt::timeout(std::time::Duration::from_secs(1), async {
+                    controller.clone().activate(current.clone()).await?;
+                    controller
+                        .execute(current.clone(), write.clone(), b"new mutation".to_vec())
+                        .await
+                })
+                .await
+            })
+            .await?;
+        backend.released.notify_one();
+        let observed = held.await;
+        assert_eq!(
+            control
+                .expect("held observations cannot block control")
+                .unwrap(),
+            ExecutionOutcome::Completed(b"new mutation".to_vec())
+        );
+        if replace_owner {
+            failure(
+                &observed.unwrap_err(),
+                ExecutionControllerFailure::UnknownOperation,
+            );
+            let original = controller.pending(current.clone()).await?.pop().unwrap();
+            assert_eq!(original.operation, read);
+            controller.reconcile(current.clone(), original).await?;
+        } else {
+            assert_eq!(
+                observed?,
+                ExecutionOutcome::Completed(b"old observation".to_vec())
+            );
+        }
+        assert_eq!(
+            controller
+                .execute(current, write, b"new mutation".to_vec())
+                .await?,
+            ExecutionOutcome::Completed(b"new mutation".to_vec())
+        );
+        assert_eq!(
+            backend.calls.load(Ordering::Acquire),
+            2,
+            "observation completion must retain the concurrent mutation receipt"
+        );
+        controller.shutdown().await?;
+        d.shutdown().await;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lifecycle_lookup_recovers_completed_receipts_in_a_new_incarnation() -> Result<()> {
+    let d = domain();
+    let backend = Arc::new(Provider::default());
+    let controller =
+        ExecutionController::create(d.clone(), options(root()?), backend.clone(), [42; 32]).await?;
+    let old = claim(&controller.identity(), 3, 1, 1)?;
+    controller.clone().activate(old.clone()).await?;
+    let expiry = operation(&d, 53, b"original create").await?.expires_unix_ms;
+    let create = ExecutionOperation::new(
+        [53; 16],
+        ExecutionOperationKind::Create,
+        b"original create",
+        expiry,
+    )?;
+    controller
+        .execute(old.clone(), create.clone(), b"original create".to_vec())
+        .await?;
+    controller
+        .recover_history(history(3), history(4), [42; 32])
+        .await?;
+    let new = claim(&controller.identity(), 4, 1, 1)?;
+    controller.clone().activate(new.clone()).await?;
+    assert!(controller.pending(new.clone()).await?.is_empty());
+    let original = controller
+        .lifecycle(new.clone(), ExecutionOperationKind::Create)
+        .await?
+        .unwrap();
+    assert_eq!(original.claim, old);
+    assert_eq!(original.operation, create);
+    assert_eq!(
+        controller.reconcile(new, original).await?,
+        ExecutionOutcome::Completed(b"original create".to_vec())
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    controller.shutdown().await?;
+    d.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealing_absent_operations_refuses_late_submission_and_preserves_entered_work() -> Result<()>
+{
+    let d = domain();
+    let backend = Arc::new(Provider::default());
+    let controller =
+        ExecutionController::create(d.clone(), options(root()?), backend.clone(), [42; 32]).await?;
+    let resume = controller.options();
+    let current = claim(&controller.identity(), 3, 1, 1)?;
+    controller.clone().activate(current.clone()).await?;
+    let live = operation(&d, 54, b"late call").await?;
+    let mut tombstone = live.clone();
+    tombstone.expires_unix_ms = 1;
+    let sealed = controller
+        .seal_unsubmitted(current.clone(), tombstone.clone())
+        .await?;
+    assert_eq!(
+        controller
+            .execute(current.clone(), live, b"late call".to_vec())
+            .await?,
+        ExecutionOutcome::Refused
+    );
+    let entered = operation(&d, 55, b"accepted call").await?;
+    controller
+        .execute(current.clone(), entered.clone(), b"accepted call".to_vec())
+        .await?;
+    let mut expired = entered.clone();
+    expired.expires_unix_ms = 1;
+    let retained = controller
+        .seal_unsubmitted(current.clone(), expired)
+        .await?;
+    assert_eq!(
+        retained.operation, entered,
+        "sealing cannot rewrite an entered request's deadline"
+    );
+    assert_eq!(
+        controller
+            .reconcile(current.clone(), sealed.clone())
+            .await?,
+        ExecutionOutcome::Refused
+    );
+    controller.shutdown().await?;
+    d.shutdown().await;
+    let d2 = domain();
+    let reopened = ExecutionController::open(d2.clone(), resume, backend.clone()).await?;
+    assert_eq!(
+        reopened.reconcile(current, sealed).await?,
+        ExecutionOutcome::Refused
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    reopened.shutdown().await?;
+    d2.shutdown().await;
+    Ok(())
+}

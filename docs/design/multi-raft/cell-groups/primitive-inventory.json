@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "9685b5153b15258bccb04bd47b466a68545e2d178e25f93feade7d3c083b3ecb",
-    "crates/cellar/application/mod.rs": "d089014bf0911ea1f371d25678aa8a2305b401857a3cecac13dcf2dc8d68b8a5"
+    "crates/cellar/application/mod.rs": "f4a33bbef09f347816d907ad5a79c2fb4e4e74638008572061ada623392f7f79"
   },
   "entries": [
     {
@@ -764,7 +764,19 @@
         "cellar::sdk::containers::ExecutionOperationKind",
         "cellar::sdk::containers::ExecutionOutcome",
         "cellar::sdk::containers::ExecutionPendingOperation",
-        "cellar::sdk::containers::ExecutionGrant::operation"
+        "cellar::sdk::containers::ExecutionGrant::operation",
+        "cellar::sdk::containers::ExecutionGrant::dispatch",
+        "cellar::sdk::containers::ExecutionGrant::next_operation",
+        "cellar::sdk::containers::ExecutionGrant::release_lifecycle",
+        "cellar::sdk::containers::ExecutionController::lifecycle",
+        "cellar::sdk::containers::ExecutionController::seal_unsubmitted",
+        "cellar_container::ControllerProvider",
+        "cellar_container::ControllerProvider::new",
+        "cellar_container::ControllerProvider::identity",
+        "cellar_container::controller::Request",
+        "cellar_container::controller::Request::decode",
+        "cellar_container::controller::Reply",
+        "cellar_container::controller::OperationRefused"
       ],
       "owners": [
         "crates/cellar/application/containers.rs",
@@ -785,7 +797,11 @@
         "crates/cellar/application/container_execution_wire.rs",
         "crates/cellar/application/container_controller/mod.rs",
         "crates/cellar/application/container_controller/values.rs",
-        "crates/cellar/application/container_controller/journal.rs"
+        "crates/cellar/application/container_controller/journal.rs",
+        "crates/cellar-container/controller/mod.rs",
+        "crates/cellar-container/controller/protocol.rs",
+        "crates/cellar-container/controller/lifecycle.rs",
+        "crates/cellar/application/storage/dispatch.rs"
       ],
       "schemas": [
         "Desired state, supervision and provider volumes",

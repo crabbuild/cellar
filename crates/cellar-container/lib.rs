@@ -7,6 +7,7 @@
 mod bindings;
 mod capabilities;
 mod child_executor;
+pub mod controller;
 pub mod e2b;
 mod files;
 mod native;
@@ -25,6 +26,7 @@ pub use bindings::{BindingCapabilities, BindingSessions, Bindings};
 pub use capabilities::{Capabilities, Environment, Fencing, Ownership};
 use cellar::sdk::{containers::ProviderAuthority, Context};
 pub use child_executor::ChildExecutor;
+pub use controller::ControllerProvider;
 pub use outbound::ServiceTarget;
 pub use reconciliation::{Reconciliation, ReconciliationState};
 use serde_json::Value;

@@ -35,13 +35,19 @@ pub struct ExecutionController {
     journal: Arc<Journal>,
     backend: Arc<dyn ExecutionControllerBackend>,
     capacity: Arc<Semaphore>,
+    observations: Arc<Semaphore>,
     gates: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
     closed: AtomicBool,
 }
 
 struct Admission {
-    _capacity: OwnedSemaphorePermit,
+    permit: Arc<RequestPermit>,
     _cell: OwnedMutexGuard<()>,
+}
+
+struct RequestPermit {
+    _capacity: OwnedSemaphorePermit,
+    _observation: Option<OwnedSemaphorePermit>,
 }
 
 impl ExecutionController {
@@ -110,6 +116,9 @@ impl ExecutionController {
     ) -> Arc<Self> {
         Arc::new(Self {
             capacity: Arc::new(Semaphore::new(journal.options.limits.max_inflight)),
+            observations: Arc::new(Semaphore::new(
+                journal.options.limits.max_inflight.saturating_sub(1).max(1),
+            )),
             domain,
             journal,
             backend,
@@ -125,16 +134,41 @@ impl ExecutionController {
     }
 
     async fn admission(&self, key: &str) -> Result<Arc<Admission>> {
+        self.request_admission(key, false).await
+    }
+
+    async fn request_admission(&self, key: &str, observation: bool) -> Result<Arc<Admission>> {
         ensure!(
             !self.closed.load(Ordering::Acquire),
             ExecutionControllerFailure::Unavailable
         );
         self.journal.check()?;
+        let observation = if observation {
+            Some(
+                self.observations
+                    .clone()
+                    .try_acquire_owned()
+                    .map_err(|_| ExecutionControllerFailure::Busy)?,
+            )
+        } else {
+            None
+        };
         let capacity = self
             .capacity
             .clone()
             .try_acquire_owned()
             .map_err(|_| ExecutionControllerFailure::Busy)?;
+        self.readmit(
+            key,
+            Arc::new(RequestPermit {
+                _capacity: capacity,
+                _observation: observation,
+            }),
+        )
+        .await
+    }
+
+    async fn readmit(&self, key: &str, permit: Arc<RequestPermit>) -> Result<Arc<Admission>> {
         let gate = {
             let mut gates = self
                 .gates
@@ -154,8 +188,9 @@ impl ExecutionController {
             !self.closed.load(Ordering::Acquire),
             ExecutionControllerFailure::Unavailable
         );
+        self.journal.check()?;
         Ok(Arc::new(Admission {
-            _capacity: capacity,
+            permit,
             _cell: cell,
         }))
     }
@@ -377,7 +412,9 @@ impl ExecutionController {
             ExecutionControllerFailure::ConflictingRequest
         );
         let key = journal::logical_key(claim.history(), claim.binding());
-        let admission = self.admission(&key).await?;
+        let admission = self
+            .request_admission(&key, operation.kind.is_observation())
+            .await?;
         let mut slot = self
             .load(&admission, &key)
             .await?
@@ -417,7 +454,10 @@ impl ExecutionController {
                     .all(|op| op.outcome.is_some() || op.request.kind.is_observation()),
             ExecutionControllerFailure::UnknownOperation
         );
-        if operation.kind == ExecutionOperationKind::Create {
+        if matches!(
+            operation.kind,
+            ExecutionOperationKind::Create | ExecutionOperationKind::Delete
+        ) {
             ensure!(
                 slot.histories
                     .values()
@@ -428,7 +468,7 @@ impl ExecutionController {
                                 == claim.checkpoint().record.generation;
                         let original_create = op.claim.checkpoint().record.request_id
                             == claim.checkpoint().record.request_id;
-                        op.request.kind != ExecutionOperationKind::Create
+                        op.request.kind != operation.kind
                             || !(same_generation || original_create)
                             || matches!(
                                 op.outcome.as_ref(),
@@ -481,14 +521,39 @@ impl ExecutionController {
             .await?;
             return Ok(ExecutionOutcome::ExpiredBeforeSubmission);
         }
+        let observation = operation.kind.is_observation();
+        let permit = admission.permit.clone();
+        let admission = if observation {
+            drop(admission);
+            None
+        } else {
+            Some(admission)
+        };
         let outcome = self
             .backend
             .clone()
             .execute(claim.clone(), operation, payload)
             .await
             .map_err(|_| ExecutionControllerFailure::UnknownOperation)?;
+        let admission = match admission {
+            Some(admission) => admission,
+            None => {
+                let admission = self
+                    .readmit(&key, permit)
+                    .await
+                    .context(ExecutionControllerFailure::UnknownOperation)?;
+                // Other owners/control calls may have progressed during a long
+                // observation. Never publish our old copy over their state.
+                slot = self
+                    .load(&admission, &key)
+                    .await?
+                    .context(ExecutionControllerFailure::UnknownOperation)?;
+                admission
+            }
+        };
         self.finish(&admission, &mut slot, &claim, &claim, &id, outcome.clone())
-            .await?;
+            .await
+            .context(ExecutionControllerFailure::UnknownOperation)?;
         Ok(outcome)
     }
 
@@ -569,7 +634,7 @@ impl ExecutionController {
                     Duration::from_millis(service.journal.options.limits.operation_timeout_ms),
                     async {
                         let key = journal::logical_key(claim.history(), claim.binding());
-                        let admission = service.admission(&key).await?;
+                        let admission = service.request_admission(&key, true).await?;
                         let mut slot = service
                             .load(&admission, &key)
                             .await?
@@ -646,7 +711,7 @@ impl ExecutionController {
                     Duration::from_millis(service.journal.options.limits.operation_timeout_ms),
                     async {
                         let key = journal::logical_key(claim.history(), claim.binding());
-                        let admission = service.admission(&key).await?;
+                        let admission = service.request_admission(&key, true).await?;
                         let mut slot = service
                             .load(&admission, &key)
                             .await?
@@ -657,6 +722,164 @@ impl ExecutionController {
                 )
                 .await
                 .map_err(|_| ExecutionControllerFailure::Unavailable)?
+            })
+            .await?
+    }
+
+    /// Find the original create/delete for this binding request, including a
+    /// completed receipt omitted by a restored cell image. This never submits
+    /// provider work. Multiple candidates refuse rather than inventing order
+    /// between incarnation-local ownership sequences.
+    pub async fn lifecycle(
+        self: &Arc<Self>,
+        claim: ExecutionClaim,
+        kind: ExecutionOperationKind,
+    ) -> Result<Option<ExecutionPendingOperation>> {
+        ensure!(
+            matches!(
+                kind,
+                ExecutionOperationKind::Create | ExecutionOperationKind::Delete
+            ),
+            ExecutionControllerFailure::ConflictingRequest
+        );
+        let service = self.clone();
+        self.domain
+            .run(async move {
+                crate::asyncrt::timeout(
+                    Duration::from_millis(service.journal.options.limits.operation_timeout_ms),
+                    async {
+                        let key = journal::logical_key(claim.history(), claim.binding());
+                        let admission = service.request_admission(&key, true).await?;
+                        let mut slot = service
+                            .load(&admission, &key)
+                            .await?
+                            .context(ExecutionControllerFailure::StaleClaim)?;
+                        service.active(&mut slot, &claim)?;
+                        let record = &claim.checkpoint().record;
+                        let mut found = None;
+                        let mut refused = None;
+                        for operation in slot
+                            .histories
+                            .values()
+                            .flat_map(|history| history.operations.values())
+                        {
+                            let original = &operation.claim.checkpoint().record;
+                            if operation.request.kind == kind
+                                && original.request_id == record.request_id
+                                && original.generation == record.generation
+                                && original.parameters_digest == record.parameters_digest
+                            {
+                                let original = ExecutionPendingOperation {
+                                    claim: operation.claim.clone(),
+                                    operation: operation.request.clone(),
+                                };
+                                if matches!(
+                                    operation.outcome,
+                                    Some(
+                                        ExecutionOutcome::Refused
+                                            | ExecutionOutcome::ExpiredBeforeSubmission
+                                    )
+                                ) {
+                                    // No ordering between old histories is inferred:
+                                    // every such candidate proves no provider effect.
+                                    refused.get_or_insert(original);
+                                } else {
+                                    ensure!(
+                                        found.is_none(),
+                                        ExecutionControllerFailure::ConflictingRequest
+                                    );
+                                    found = Some(original);
+                                }
+                            }
+                        }
+                        Ok(found.or(refused))
+                    },
+                )
+                .await
+                .map_err(|_| ExecutionControllerFailure::Unavailable)?
+            })
+            .await?
+    }
+
+    /// Atomically seal an operation which has not reached controller dispatch.
+    /// Recovery supplies its original ID/kind/digest with an expired deadline.
+    /// If it already exists, return its exact original metadata without changing
+    /// submission, deadline or result. Otherwise persist a no-submission receipt
+    /// before acknowledging. A late queued copy can then never enter the backend.
+    pub async fn seal_unsubmitted(
+        self: &Arc<Self>,
+        claim: ExecutionClaim,
+        request: ExecutionOperation,
+    ) -> Result<ExecutionPendingOperation> {
+        ensure!(
+            request.id != [0; 16] && request.expires_unix_ms > 0,
+            ExecutionControllerFailure::ConflictingRequest
+        );
+        let service = self.clone();
+        self.domain
+            .run(async move {
+                ensure!(
+                    request.expires_unix_ms <= u64::try_from(crate::asyncrt::wall_ms())?,
+                    ExecutionControllerFailure::ConflictingRequest
+                );
+                crate::asyncrt::timeout(
+                    Duration::from_millis(service.journal.options.limits.operation_timeout_ms),
+                    async {
+                        let key = journal::logical_key(claim.history(), claim.binding());
+                        let admission = service.admission(&key).await?;
+                        let mut slot = service
+                            .load(&admission, &key)
+                            .await?
+                            .context(ExecutionControllerFailure::StaleClaim)?;
+                        service.active(&mut slot, &claim)?;
+                        let id = hex::encode(request.id);
+                        if let Some(previous) = slot
+                            .histories
+                            .values()
+                            .find_map(|history| history.operations.get(&id))
+                        {
+                            ensure!(
+                                previous.request.kind == request.kind
+                                    && previous.request.payload_digest == request.payload_digest
+                                    && previous.claim.checkpoint().record.request_id
+                                        == claim.checkpoint().record.request_id
+                                    && previous.claim.checkpoint().record.generation
+                                        == claim.checkpoint().record.generation,
+                                ExecutionControllerFailure::ConflictingRequest
+                            );
+                            return Ok(ExecutionPendingOperation {
+                                claim: previous.claim.clone(),
+                                operation: previous.request.clone(),
+                            });
+                        }
+                        let history = service.active(&mut slot, &claim)?;
+                        ensure!(
+                            history.operations.len()
+                                < service
+                                    .journal
+                                    .options
+                                    .limits
+                                    .max_operations_per_incarnation,
+                            ExecutionControllerFailure::Capacity
+                        );
+                        history.operations.insert(
+                            id,
+                            Operation {
+                                request: request.clone(),
+                                claim: claim.clone(),
+                                submitted: false,
+                                outcome: Some(ExecutionOutcome::Refused),
+                            },
+                        );
+                        service.save(&admission, &slot).await?;
+                        Ok(ExecutionPendingOperation {
+                            claim,
+                            operation: request,
+                        })
+                    },
+                )
+                .await
+                .map_err(|_| ExecutionControllerFailure::UnknownOperation)?
             })
             .await?
     }

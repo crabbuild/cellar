@@ -3094,3 +3094,28 @@ async fn rustfs_docker_provider_sessions_retain_existing_fenced_lifecycle_admiss
 {
     fenced_maintenance::qualify_sessions(true, true).await
 }
+
+#[path = "support/cell_group_controller_provider.rs"]
+mod controller_provider;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_sessions_preserve_shared_group_durability() -> Result<()> {
+    controller_provider::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_recovers_without_replaying_compute() -> Result<()> {
+    controller_provider::qualify(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_sessions_preserve_shared_group_durability() -> Result<()> {
+    controller_provider::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_recovers_without_replaying_compute() -> Result<()> {
+    controller_provider::qualify(true, true).await
+}
