@@ -78,15 +78,16 @@ impl NativeContainerAdapter {
                 // before constructing this work. Unknown deletion returns here;
                 // it never reserves or submits a new generation.
                 delete().await?;
-                // Prove retirement before replacing its record. An interrupted
-                // callback can leave a deleted resource without its replacement;
-                // recovery reconciles original work and never replays Start.
-                authority.before_effect(context).await?;
+                // Like explicit Destroy.await followed by Start.await in one
+                // callback, stage known retirement and the next intent in the
+                // same private transaction. An uncertain Delete never gets here.
                 let create =
                     self.provider
                         .prepare_call(context, Operation::Start, input, lifecycle)?;
-                // The new intent/claim also needs the original Quorum/S3 proof.
-                // Both phases retain this Context, lifecycle guard and deadline.
+                // Prove the resulting generation/intent/claim at the original
+                // Quorum/S3 minimum before constructing any new provider work.
+                // Recovery seals an unsubmitted Create with its original ID;
+                // it never replays this multi-phase callback or renews expiry.
                 authority.before_effect(context).await?;
                 create().await
             })

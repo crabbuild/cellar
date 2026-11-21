@@ -92,34 +92,6 @@ impl ControllerProvider {
         }
     }
 
-    async fn original(
-        &self,
-        context: &Context,
-        grant: &ExecutionGrant,
-        kind: ExecutionOperationKind,
-    ) -> Result<Option<ExecutionPendingOperation>> {
-        let controller = self.controller.clone();
-        grant
-            .dispatch(context, move |claim| async move {
-                controller.lifecycle(claim, kind).await
-            })
-            .await
-    }
-
-    async fn reconcile_original(
-        &self,
-        context: &Context,
-        grant: &ExecutionGrant,
-        original: ExecutionPendingOperation,
-    ) -> Result<ExecutionOutcome> {
-        let controller = self.controller.clone();
-        grant
-            .dispatch(context, move |claim| async move {
-                controller.reconcile(claim, original).await
-            })
-            .await
-    }
-
     async fn reconcile_pending(
         controller: Arc<dyn ControllerEndpoint>,
         claim: ExecutionClaim,

@@ -86,24 +86,30 @@ impl ControllerProvider {
         context: &Context,
         grant: &ExecutionGrant,
     ) -> Result<Option<Reply>> {
-        let original = match self
-            .original(context, grant, ExecutionOperationKind::Create)
-            .await?
-        {
-            Some(original) => original,
-            None => {
-                // Absence alone is not a fence: an older request may still be
-                // queued. Atomically install its original-ID refusal first.
-                let request = original_create(grant.claim())?;
-                let controller = self.controller.clone();
-                grant
-                    .dispatch(context, move |claim| async move {
-                        controller.seal_unsubmitted(claim, request).await
-                    })
+        let unsubmitted = original_create(grant.claim())?;
+        let controller = self.controller.clone();
+        let outcome = grant
+            .dispatch(context, move |claim| async move {
+                // These are controller receipt operations under one admitted
+                // I/O boundary. Each checks the same immutable claim independently;
+                // none borrows SQL authority or resubmits provider work.
+                let original = match controller
+                    .lifecycle(claim.clone(), ExecutionOperationKind::Create)
                     .await?
-            }
-        };
-        match self.reconcile_original(context, grant, original).await? {
+                {
+                    Some(original) => original,
+                    // Absence alone is not proof. Seal the original ID against
+                    // delayed submission before accepting a no-effect outcome.
+                    None => {
+                        controller
+                            .seal_unsubmitted(claim.clone(), unsubmitted)
+                            .await?
+                    }
+                };
+                controller.reconcile(claim, original).await
+            })
+            .await?;
+        match outcome {
             ExecutionOutcome::Completed(bytes) => Ok(Some(
                 Reply::decode(&bytes, grant.claim(), Operation::Start)
                     .context(ExecutionControllerFailure::UnknownOperation)?,
