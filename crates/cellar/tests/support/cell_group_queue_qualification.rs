@@ -473,6 +473,7 @@ impl Scenario {
         fixture.cell_limits.queue.retention_ms = retention_ms;
         let http = external.then(|| Arc::new(managed_fixture::http::Owner::default()));
         fixture.external_http = http.clone();
+        let domain = fixture.domain.clone();
         let started = Box::pin(ManagedCluster::start_with_applications(
             fixture,
             &[],
@@ -490,6 +491,7 @@ impl Scenario {
                         error = error.context(format!("Queue startup HTTP cleanup: {cleanup:#}"));
                     }
                 }
+                domain.shutdown().await;
                 if let Err(retention) =
                     managed_fixture::memory::retain(&store.inner, "queue-startup").await
                 {
@@ -498,7 +500,6 @@ impl Scenario {
                 return Err(error);
             }
         };
-        let domain = cluster.fixtures[0].domain.clone();
         let initialized = domain
             .run(async {
                 let queue = install_group(&cluster, 0, 181).await?;
@@ -553,6 +554,7 @@ impl Scenario {
                         errors.push(error.to_string());
                     }
                 }
+                domain.shutdown().await;
                 if let Err(error) =
                     managed_fixture::memory::retain(&store.inner, "queue-setup").await
                 {
@@ -569,6 +571,7 @@ impl Scenario {
 
     async fn close(self, retain: bool) -> Result<()> {
         let store = self.cluster.fixtures[0].store.clone();
+        let domain = self.cluster.fixtures[0].domain.clone();
         let nodes = self.cluster.nodes.len();
         let hosts = self.cluster.hosts.len();
         let http = self.http.is_some();
@@ -607,6 +610,9 @@ impl Scenario {
                 root.keep().display()
             );
         }
+        // Join transient domain-owned readers and I/O before taking the
+        // concrete synthetic snapshot, including successful fault controls.
+        domain.shutdown().await;
         let phase = if retain || !errors.is_empty() {
             "queue-failed"
         } else {
@@ -631,7 +637,7 @@ impl Scenario {
         }
         eprintln!(
             "QUEUE_CLEANUP {}",
-            json!({"nodeShutdownAttempts":nodes,"hostCloseAttempts":hosts,"httpCloseAttempted":http,"cleanupErrors":failures,"returnedOk":result.is_ok()})
+            json!({"nodeShutdownAttempts":nodes,"hostCloseAttempts":hosts,"httpCloseAttempted":http,"domainJoined":true,"cleanupErrors":failures,"returnedOk":result.is_ok()})
         );
         result
     }

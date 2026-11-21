@@ -28,6 +28,15 @@ budget. Later traced and ordinary KV passes leave its intermittent failure open.
 These controls qualify scheduling and custody boundaries; workload gains and
 complete-prefix recovery remain unproven.
 
+The [Queue domain-retention follow-up](queue-domain-retention-qualification-2026-11-21.json)
+passes unchanged long-callback and operator controls in both image modes and
+verifies all six domain joins before export. Its fresh C4 tests still fail with
+**eight explicitly ambiguous producer deadlines**. Gated profiles identify engine,
+manifest page-store and archive-journal sync callers, but overlap errors/cleanup
+and cannot establish an exclusive cause or workload gain. Production inputs and
+the original load body are unchanged. The retained **18 node disks and six
+synthetic exports** have independently verified closed copies.
+
 The immediate **P0** is repeatable KV service and Queue producer/callback service
 and drain within the original **3,000-ms RPC / 5,000-ms callback / 30-second drain**
 windows. Profile the remaining command/image, consumer, lease and final-settlement

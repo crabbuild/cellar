@@ -1,0 +1,98 @@
+{
+  "format": 1,
+  "status": "QUEUE_DOMAIN_RETENTION_CONTROLS_PASSED_C4_QUALIFICATION_FAILED",
+  "scope": "Test-fixture domain joins before concrete synthetic-store export, including known startup/setup error branches. Fresh original native C4 diagnostics plus unchanged long-callback/operator controls; no production runtime change or throughput/latency gain.",
+  "runtime_commit": "1840466d4415eee72eefbff04c5af4fdee2536e9",
+  "base_head": "2478790872ea8a7a16eb158c86e3db6646036df7",
+  "included_main": "5ae2b21f46f9b543396abd92be17b5a4fe3a21e5",
+  "compiler_inputs_sha256": "040479d8b0a19dbfcdffcd18250fe35c70540992ff5e597af1a4962232d85239",
+  "source_files_sha256": {
+    "crates/cellar/tests/support/cell_group_queue_qualification.rs": "efeda9e5b1ccd2561ad834ef0551a984a3d70153d1a21fe3cbb2412b4c588a9a"
+  },
+  "tracked_patch_sha256": "a6393c56a92f64d9daba8c6fec8cd6a25f03733b410cc11619316917173a7055",
+  "source_boundary": "Only the Queue integration-test helper differs from the preceding full-library qualification. Every production/library input is unchanged. Original qualify_load_mode body is byte-identical to base_head.",
+  "original_load_body_sha256": "a830d54e21d4c235226a80ee07c9112d275a4ab84d627815b1c9a8f276d1230d",
+  "change": [
+    "Clone the shared execution domain before managed startup so failed startup can join it before concrete memory retention.",
+    "Join the shared domain after all node, host and HTTP close attempts, and before export, on normal and initialized-setup-error paths.",
+    "Record domainJoined only after the actual shared-domain shutdown returns; retain secondary cleanup failures."
+  ],
+  "validation": {
+    "format": "PASSED",
+    "strict_all_feature_native_clippy": "PASSED",
+    "native_compile": "PASSED",
+    "long_callback_control_both_images": "PASSED",
+    "operator_auth_archive_fresh_quorum_control_both_images": "PASSED",
+    "layout": "PASSED",
+    "native_dependencies": "PASSED",
+    "docs": "PASSED",
+    "whitespace": "PASSED",
+    "queue_c4": [
+      {
+        "image_mode": "Extents",
+        "test_status": "FAILED",
+        "producer_deadlines_explicitly_ambiguous": 4,
+        "original_final_exact_drain_reached": false,
+        "verified_sampled_executable": true
+      },
+      {
+        "image_mode": "Materialized",
+        "test_status": "FAILED",
+        "producer_deadlines_explicitly_ambiguous": 4,
+        "original_final_exact_drain_reached": false,
+        "verified_sampled_executable": true
+      }
+    ],
+    "full_library": "Not rerun: only an integration helper changed; the prior unchanged library inputs pass 1365 tests with two existing ignores."
+  },
+  "closure": {
+    "joined_scenarios": 6,
+    "node_shutdown_attempts": 18,
+    "host_close_attempts": 18,
+    "joined_shared_domains": 6,
+    "cleanup_errors": 0,
+    "complete_synthetic_exports": 6,
+    "retained_node_disks": 18,
+    "retained": {
+      "files": 3327,
+      "bytes": 39188330,
+      "manifest_sha256": "c610cad064cffe05777dc06400a6bc60139d9678e3253fb6f73b7a157e4c86f3",
+      "closed_copy_matches": true
+    },
+    "objects": 2127,
+    "memory_bytes": 8124016,
+    "independently_verified_original_and_closed_copy": true
+  },
+  "sampling": {
+    "executable_identity": "Native process PID and Mach-O LC_UUID matched to the hashed compiled artifact.",
+    "nominal_maximum_seconds": 20,
+    "interval_milliseconds": 10,
+    "may_die": true,
+    "trigger": "First original successful primary then fast outage-drain observations in the existing log; no new native marker, RPC, worker or timer.",
+    "findings": [
+      "Persistent sync callers include the existing Raft engine, manifest page-store pack/directory completion and archive journal.",
+      "Three actual SQL-owner stack paths are distinguished from off-worker apply/preparation/cleanup tasks; SQL wait paths occur in both captures."
+    ],
+    "limits": [
+      "Both tests fail. Native lifetimes after the trigger are shorter than the nominal 20 seconds; windows can truncate at process exit and overlap errors/cleanup. These are not exclusively steady-state profiles.",
+      "Sampler overhead and concurrent host compiler jobs were present. Stack counts are inclusive wall observations, not CPU percentages, operation counts, request costs, percentiles or proof of an exclusive cause.",
+      "The first analysis grouped all host_sql component ancestry together; the retained refined analysis separates the three actual Pool::start SQL-owner paths from domain tasks. Neither grouping changes the native failures."
+    ]
+  },
+  "evidence_sha256": {
+    "plan": "c73b6fad3f0ecabd70cbb618435f9736b7e416ee71797e54539104091abf6c63",
+    "driver": "d7ea315a087711f450e528ed7cfdc88d374581dd3924100e25ef70d6551341d3",
+    "verifier": "c8a239364b1bbba68f32626da70dd635c442baa2a611c09fb9cc6eb763393dab",
+    "record": "05e0dc97edb70eea8d6826b7aaa06d6771a2cf18db0c48a107b3316dfccc87dd",
+    "verification": "6487cf161ea5ba12fb1825eb484fdc1325de14346db3bd819cdf8d8a163a94fd",
+    "analysis": "dcff71b2f7098a6a8eabdbd4763c3b30e95613f2d4ae4d672bb34c523c01ab13",
+    "analysis_driver": "fef001c1e614f5a7023821d578739ba6ae0fd4430a008deb38a48d6736bf639f"
+  },
+  "limits": [
+    "Fresh controls do not retroactively complete older missing retention evidence. General constructor-panic coverage and complete-prefix recovery remain open.",
+    "No failed or ambiguous mutation was reissued or reset. Original load body, limits, proof gates and media are retained.",
+    "The original constrained three-node Colima/RustFS comparison remains unqualified; the preceding read-only witness reports 19156992 available bytes below the unchanged 6442450944-byte reserve. No resource/storage/VM/restart/prune/relocation/compression/reserve change was made.",
+    "Full OPT-01 through OPT-08 and remaining CG, primitive, SDK, Axum, daemon, recovery and release gates remain open."
+  ],
+  "whole_goal_complete": false
+}

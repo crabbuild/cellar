@@ -47,6 +47,26 @@ start unchanged, zero restarts and zero admitted cases. A fresh three-node
 resource witness, the constrained comparison and full OPT/CG/recovery/SDK/release
 gates remain open. No throughput or latency gain is qualified.
 
+## Queue diagnostic closure
+
+The [Queue domain-retention follow-up](queue-domain-retention-qualification-2026-11-21.json)
+joins the shared fixture domain before exporting concrete synthetic memory,
+including known startup/setup error paths. The original load body and all
+production/library inputs remain unchanged. Long-callback and operator
+archive/auth/fresh-quorum controls pass both image modes. All six scenarios
+report joined domains, three node/host close attempts and zero cleanup errors;
+**18 node disks, six exports / 2,127 objects / 8,124,016 bytes** and their closed
+copies are independently verified.
+
+Both fresh C4 tests fail with **eight explicitly ambiguous producer deadlines**.
+Profiles triggered after the original outage drains identify engine, manifest
+page-store and archive-journal sync callers. Their windows can truncate at process
+exit and overlap errors/cleanup; sampler overhead and concurrent compiler jobs
+prevent a throughput/latency or exclusive-cause claim. These controls close a
+fixture export boundary, while repeatable service, complete-prefix recovery,
+general constructor-panic coverage and the original constrained comparison stay
+open.
+
 ## Checkpoint proof progress
 
 Code `27b811cb8` includes main `5ae2b21f` and observes the unchanged exact applied
