@@ -25,6 +25,8 @@ mod lifecycle_wait;
 mod native_container;
 #[path = "cell_group_provider_remote.rs"]
 mod remote;
+#[path = "cell_group_provider_retirement.rs"]
+mod retirement;
 
 #[derive(Default)]
 struct Resource {
@@ -58,6 +60,7 @@ struct Peer {
     data_lookups: AtomicUsize,
     data_changed: Notify,
     expire_activation: AtomicBool,
+    refuse_retirement_archive: Mutex<Option<Arc<catalog_fault::Store>>>,
 }
 
 impl ExecutionControllerBackend for Peer {
@@ -208,6 +211,13 @@ impl ExecutionControllerBackend for Peer {
                 operation.kind,
                 hex::encode(operation.id)
             );
+            if method == Operation::Destroy {
+                if let Some(store) = self.refuse_retirement_archive.lock().unwrap().take() {
+                    store
+                        .deny_group_archive_writes
+                        .store(true, Ordering::Release);
+                }
+            }
             if (method == Operation::Start && self.lose_create.swap(false, Ordering::AcqRel))
                 || (method == Operation::Destroy && self.lose_delete.swap(false, Ordering::AcqRel))
             {
@@ -433,6 +443,20 @@ impl Cell for Root {
                         .maintain(context.clone(), expected, MaintenanceAction::Inspect, grant)
                         .await?;
                 }
+                "MaintainRetirement" => {
+                    let entered = self.0.get_json("destroy-entered")?
+                        .and_then(|value| value.as_u64()).unwrap_or(0);
+                    self.0.put_json("destroy-entered", &json!(entered + 1))?;
+                    let guard = journal.lock_lifecycle(&context).await?;
+                    let current = journal.load(&context)?.context("binding missing")?;
+                    let mut record = current.record;
+                    record.intent = BindingIntent::Deleted;
+                    record.observation = BindingObservation::Pending;
+                    let expected = journal.prepare_exchange(&context, Some(current.revision), record)?;
+                    let provider = self.1.selected();
+                    let grant = guard.fence_execution(&context, provider.authority()).await?;
+                    provider.maintain(context.clone(), expected, MaintenanceAction::Inspect, grant).await?;
+                }
                 "Destroy" => {
                     session
                         .execute(&context, Operation::Destroy, json!({}), &limits)
@@ -453,6 +477,13 @@ impl Cell for Root {
                         .store(true, Ordering::Release);
                 }
                 "Read" => ensure!(self.0.get_json("business")? == Some(json!(17))),
+                "ReadRetirement" => {
+                    ensure!(self.0.get_json("business")? == Some(json!(17)));
+                    ensure!(self.0.get_json("destroy-entered")? == Some(json!(1)));
+                    ensure!(journal
+                        .load(&context)?
+                        .is_some_and(|row| row.record.is_retired()));
+                }
                 _ => anyhow::bail!("unknown operation"),
             }
             let current = journal.load(&context)?.context("binding missing")?;
@@ -619,6 +650,10 @@ pub async fn qualify_delete_intent(real: bool, maintenance: bool) -> Result<()> 
 
 pub async fn qualify_remote(real: bool) -> Result<()> {
     delete_intent::qualify_remote(real).await
+}
+
+pub async fn qualify_retirement_confirmation(real: bool) -> Result<()> {
+    retirement::qualify(real).await
 }
 
 pub async fn qualify_admission(real: bool, archive_outage: bool) -> Result<()> {
