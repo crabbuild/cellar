@@ -141,10 +141,11 @@ pub(super) async fn qualify(real: bool, dirty: bool) -> Result<()> {
             .await?;
             let store = Arc::new(if real {
                 catalog_fault::Store::around(rustfs::store(
-                    if dirty {
-                        "lifecycle-wait-dirty"
-                    } else {
-                        "lifecycle-wait-clean"
+                    match (dirty, minimum) {
+                        (true, Durability::S3) => "lifecycle-wait-dirty-s3",
+                        (true, _) => "lifecycle-wait-dirty-quorum",
+                        (false, Durability::S3) => "lifecycle-wait-clean-s3",
+                        (false, _) => "lifecycle-wait-clean-quorum",
                     },
                     rooted,
                 )?)
