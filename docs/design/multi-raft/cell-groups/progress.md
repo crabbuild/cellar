@@ -34,6 +34,100 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 native Container attachment and owned invocation entry
+
+Production `38a5cf60e` connects the ordinary native Context::container API to
+an explicit host-selected controller adapter through
+RaftClass::container_adapter. The class schema pins the adapter capability,
+provider identity and body limit. The adapter prepares bounded private
+metadata; the existing mandatory gate proves the original unfinished receipt,
+business changes, intent and execution claim before constructing provider work.
+Existing native Fleet engine behavior remains behind the native owner. Shared
+groups never fall back to that engine.
+
+An owned asynchronous entry step reconciles existing lifecycle state before
+business construction. A current running observation reaches the constructor
+without lending it external-I/O authority. Retained handles require the current
+Context, activation, scope, epoch and original invocation. Observation
+references are weak; uncertain lifecycle operations invalidate their running
+snapshot. Pending original mutations refuse construction and preserve their
+identity. Constructor-independent framework maintenance keeps its existing
+entry path.
+
+The new typed adapter maps fresh startup, bounded file I/O, metadata and
+lifecycle calls onto the existing durable controller protocol. Input/result
+validation and controller payload bounds remain enforced. The component is
+split into public wrappers/values, shared attachment ownership and the existing
+native engine implementation, preserving public Rust paths. Controller
+transport and physical backend fencing remain separate contracts.
+
+| Scoped qualification on test source `dfa8fccc3` | Native | Real RustFS |
+| --- | ---: | ---: |
+| Two cells, lost Write, unknown receipt, retained voter restart and current Context guards | 4/4 pass | 4/4 pass |
+| Prepared Start plus actual archive refusal before controller activation | 4/4 pass | 4/4 pass |
+| Existing named-provider and constructor-independent maintenance controls | 8/8 pass | 8/8 pass |
+| Container library / existing native Fleet container suite | 35/35 and 9/9 pass | Not a compute-durability gate |
+
+The two-cell case uses the normal native SDK API. A Write is applied once and
+loses its reply. After retained voter restart, an unavailable original receipt
+prevents constructor and business Read entry, while the other cell still
+serves. Once that receipt becomes available, the successor reconciles the exact
+original operation and reads its binary bytes without a second Write. Old
+Contexts, foreign-cell/retired handles, invalid modes and oversized inputs
+reach no provider. Fresh Start retains exactly the combined input proof and
+result proof.
+
+The archive test first proves successful private Start preparation, then an
+actual refused archive write; S3 requests activate neither controller nor
+provider, while Quorum requests complete at Quorum. Test-only `dfa8fccc3` adds
+a weak preparation probe and unique query proposals to the production-source
+tests, with all old assertions and original five-second request/three-second
+maintenance budgets. Strict affected Clippy, formatting, layout, dependencies,
+docs, reviewed source anchors and 44 plan-validator tests pass. The generated
+implementation index is current. Historical CG-01 custody still prevents full
+plan validation.
+
+The first source `7a1e44ac1` failed compilation at a recursive Send/Sync type
+proof. The fixed source uses a private observation interface with the same
+exact weak ownership checks; no unsafe Send/Sync or raised recursion limit was
+introduced. Its failed build log/source and the initial format failure are
+retained. The production-source native cases pass 8/8 at `38a5cf60e`, followed
+by the stronger source above. Earlier S3
+deadline/startup/completion-observation failures keep their original source
+pins; these selected passes do not establish their exclusive causal resolution.
+
+All 16 selected real-RustFS configurations pass on this source. This scope adds
+no independent Linux-voter, backend-process or volume-loss qualification.
+
+Sources, frozen executables, logs and retained disks are in
+`CG-17-native-context-38a5cf60e-2312` and
+`CG-17-native-context-dfa8fccc3-2313`, with checksum-verified second copies.
+The primitives executable SHA-256 is
+`28c20e4798de11279c88b8f71e37dcc4d5fbd397511f9ed3a6a241758812a44c`. The library
+executable SHA-256 is
+`c8889de470095e263c99e7d36944dd1f442b802e98a16276b6bb5bd11a749f55`. The fleet
+executable SHA-256 is
+`3beb164517e87133802dcdf23e1982c2ef3b43dba672034de203a00c35b01f7b`. Owned
+runtimes and the RustFS lab are stopped, with objects and volumes retained.
+
+Scope remains one native macOS RF3 process and a controlled provider peer, with
+real RustFS at 1 CPU/2 GiB in a 6-CPU/12-GiB VM. Archive faults are injected in
+the store wrapper. Actual native compute, independent process/network faults
+and provider-volume recovery remain unqualified. Container file bytes retain
+the provider's storage contract; quorum metadata does not replicate those
+bytes.
+
+This is a bounded native attachment, not full Container/Sandbox acceptance.
+Repeated Start/replacement, interactive exec, port/HTTP/WebSocket sessions and
+native Sandbox still need complete adapters and their normal API qualification.
+Mapped stat/list/signal/monitor/inactivity operations also need owning
+behavioral coverage. Next complete native restart and actual independently
+fenced execution, then interactive/port/Sandbox ownership and managed volume
+recovery. Receipt GC, WebSockets, complete primitive/feature/lifecycle/recovery
+matrices and CG-13/15/16 remain required. CG-17 stays in progress at 0/32
+formal cases, with all oracles, dependencies and stop conditions intact;
+default cutover remains gated.
+
 ### CG-17 combined provider preparation and source proof
 
 Production `79d1c8b3d` combines bounded private provider preparation with the

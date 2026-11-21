@@ -800,7 +800,18 @@
         "cellar_container::controller::remote::ControllerServer",
         "cellar_container::controller::remote::ControllerServer::bind",
         "cellar_container::controller::remote::ControllerServer::address",
-        "cellar_container::controller::remote::ControllerServer::shutdown"
+        "cellar_container::controller::remote::ControllerServer::shutdown",
+        "cellar::sdk::RaftClass::container_adapter",
+        "cellar::sdk::containers::ContainerAdapter",
+        "cellar::sdk::containers::ContainerAdapter::identity",
+        "cellar::sdk::containers::ContainerAdapter::max_body_bytes",
+        "cellar::sdk::containers::ContainerAdapter::prepare",
+        "cellar::sdk::containers::ContainerRequest",
+        "cellar::sdk::containers::ContainerReply",
+        "cellar::sdk::containers::ContainerFuture",
+        "cellar::sdk::containers::PreparedContainerCall",
+        "cellar_container::controller::NativeContainerAdapter",
+        "cellar_container::controller::NativeContainerAdapter::new"
       ],
       "owners": [
         "crates/cellar/application/containers/mod.rs",
@@ -832,7 +843,11 @@
         "crates/cellar-container/controller/remote/config.rs",
         "crates/cellar-container/controller/remote/client.rs",
         "crates/cellar-container/controller/remote/server.rs",
-        "crates/cellar-container/controller/remote/wire.rs"
+        "crates/cellar-container/controller/remote/wire.rs",
+        "crates/cellar/application/containers/backend.rs",
+        "crates/cellar/application/containers/native.rs",
+        "crates/cellar/application/containers/values.rs",
+        "crates/cellar-container/controller/native.rs"
       ],
       "schemas": [
         "Desired state, supervision and provider volumes",

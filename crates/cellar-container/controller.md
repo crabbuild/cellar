@@ -8,8 +8,9 @@ The host API `cellar::sdk::containers::ExecutionController` implements
 `ExecutionFenceAuthority` with an independently owned, durable journal. It is the
 controller core for a trusted host integration. An authenticated transport and a
 provider implementing `ExecutionControllerBackend` are required. The
-`ControllerProvider` adapter connects ordinary named SDK sessions to this core;
-built-in `Context.container` and sandbox activation still need their adapters.
+`ControllerProvider` adapter connects ordinary named SDK sessions to this core.
+`NativeContainerAdapter` also connects bounded ordinary `Context::container` calls;
+complete native execution and Sandbox adapters remain required.
 
 ## Named SDK adapter
 
@@ -25,6 +26,56 @@ It does not advertise interactive exec, ports or sockets. The host backend must
 implement the version-1 `controller::Request`/`Reply` protocol, validate requests
 before effects, enforce immutable resource IDs and independently fence every
 operation. A native execution driver remains required for actual compute.
+
+## Native SDK attachment
+
+Register `controller::NativeContainerAdapter` with the ordinary Raft class before
+passing it to `Registry::raft_cell`:
+
+```rust,ignore
+let provider = Arc::new(ControllerProvider::new(controller)?);
+let adapter = Arc::new(NativeContainerAdapter::new(
+    provider,
+    Limits { max_body_bytes: 4096 },
+)?);
+let class = RaftClass::new("Worker", 1, schema_digest)?
+    .json_cell_rpc("Run", method_digest)?
+    .container_adapter(adapter)?;
+```
+
+The attachment declares its provider journal and includes its identity, body
+limit and native capability in the class schema. Applications call the normal
+`context.container()?.start(...)`, `read_file`, `write_file` and `destroy` APIs.
+The class does not borrow a Fleet activation or fall back to a local engine.
+The provider must still implement actual execution fencing; this attachment
+does not supply a Docker driver.
+
+An owned asynchronous entry reconciles original lifecycle debt before business
+construction. Constructors can inspect its running snapshot and retain a
+container handle and activation-bound Storage. Provider operations still need
+the current event Context. Unavailable original receipts refuse construction;
+they never trigger a fresh operation ID or business callback replay. Weak event,
+I/O, invocation and activation references keep snapshots from retaining their
+own events. Running reports the latest admitted observation in that invocation;
+uncertain lifecycle operations invalidate it until reconciliation.
+
+Register the controller provider's `FencedMaintenanceBackend` with `Supervision`
+and wrap the application with `supervise` for autonomous reconciliation without
+request traffic. The attachment's entry reconciliation runs when an invocation
+arrives; framework maintenance remains independent of business construction.
+
+Fresh Start, bounded file read/write and Destroy have native/RustFS coverage.
+The typed mappings for stat/list, signal, monitor and inactivity configuration
+still need owning behavior qualification. Repeated Start/replacement, interactive
+exec, port/HTTP/WebSocket sessions and native Sandbox remain unfinished.
+Container file bytes retain the provider's storage contract; quorum metadata
+does not replicate those bytes or establish provider-volume recovery.
+
+For existing bindings, pre-construction reconciliation can commit an input proof
+before application code. Later business changes require another proof before
+external work. An unbound or confirmed-retired generation needs no entry-only
+checkpoint; fresh Start combines its business writes, intent and execution claim
+before dispatch and retains a separate result proof.
 
 ## Authenticated controller endpoint
 
@@ -80,7 +131,7 @@ even its future is constructed only after the gate succeeds. Existing providers
 use the default factory and retain their admission order. `fence_execution`
 rechecks and activates the reserved claim afterward. Changed state requires
 another proof; an unproven `prepare_execution_claim` result supplies no execution
-permission. Normal uncontended creation/data/deletion therefore use one combined
+permission. Named SDK creation/data/deletion therefore use one combined
 input proof and one result proof, with the original Quorum/S3 minimum and deadline.
 
 Fenced maintenance can select the pure `MaintenancePreparation::DeleteIntent`
