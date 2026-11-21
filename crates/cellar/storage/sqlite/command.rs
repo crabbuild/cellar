@@ -237,7 +237,7 @@ impl ActiveCommand {
     pub(crate) fn bind_dispatch(&self, context: RaftDispatchContext) -> Result<()> {
         self.frame
             .dispatch
-            .set(context)
+            .set(context.pin_source_deadline()?)
             .map_err(|_| anyhow::anyhow!("RPC dispatch already bound"))
     }
 
