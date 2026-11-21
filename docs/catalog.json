@@ -1166,6 +1166,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/release-0.1.2.md",
+      "title": "Cellar 0.1.2 release record",
+      "summary": "Record the exact maintenance release source, published package bytes,",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/sandbox-provider-compatibility.md",
       "title": "Sandbox providers and Cloudflare compatibility",
       "summary": "Define sandbox provider boundaries, Cloudflare compatibility targets, portable controls, and production acceptance requirements.",

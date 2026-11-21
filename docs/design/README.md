@@ -38,6 +38,10 @@ These records describe completed local implementation boundaries. Their evidence
 | [005: Resource inspectors](005-resource-inspectors.md) | Queue, workflow, and schedule inspection | [Admin crate](../../crates/cellar-admin/README.md) |
 | [006: Event console](006-event-console.md) | Outbox, stream, and subscription controls | [Event guide](../26-event-delivery.md) |
 
+## Crate release records
+
+- [0.1.2 maintenance release](release-0.1.2.md): source, package digests, verification, and fleet qualification limits.
+
 ## Read status and evidence
 
 | Artifact | Interpretation |
