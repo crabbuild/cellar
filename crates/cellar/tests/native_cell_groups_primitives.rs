@@ -2204,6 +2204,23 @@ async fn queue_cross_deployment_faults_preserve_quorum() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_transfer_receipts_bind_payload_after_purge_and_restart() -> Result<()> {
+    Box::pin(queues::qualify_transfer_identity(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_transfer_receipts_bind_payload_after_purge_and_restart() -> Result<()> {
+    Box::pin(queues::qualify_transfer_identity(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_axum_queue_transfer_receipts_bind_payload_after_purge_and_restart() -> Result<()> {
+    Box::pin(queues::qualify_transfer_identity(true, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_queue_cross_deployment_faults_preserve_quorum() -> Result<()> {
     Box::pin(queues::qualify_faults(true, false)).await

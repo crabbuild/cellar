@@ -646,22 +646,43 @@ async fn run() -> Result<()> {
         decode_rpc_result(&replay.data)?.to_json()?["backlogCount"],
         0
     );
-    let mut collision = transfer;
-    collision[0]["transfers"][0]["entry"]["id"] = json!("different-id");
-    let reply = runtime
-        .rpc(
-            scope(DLQ),
-            None,
-            "__queueDlqAcceptBatch".into(),
-            encode_rpc(&StructuredValue::from_json(collision)?)?,
-            None,
-        )
-        .await?;
-    assert!(decode_rpc_result(&reply.data)
-        .err()
-        .unwrap()
-        .to_string()
-        .contains("collided"));
+    for (field, value) in [
+        ("body", json!([255, 2])),
+        ("contentType", json!("text")),
+        ("id", json!("different-id")),
+    ] {
+        let mut collision = transfer.clone();
+        collision[0]["transfers"][0]["entry"][field] = value;
+        let reply = runtime
+            .rpc(
+                scope(DLQ),
+                None,
+                "__queueDlqAcceptBatch".into(),
+                encode_rpc(&StructuredValue::from_json(collision)?)?,
+                None,
+            )
+            .await?;
+        let error = decode_rpc_result(&reply.data)
+            .expect_err("changed Queue transfer payload was acknowledged");
+        assert!(error.to_string().contains("collided"), "{field}: {error:#}");
+    }
+    for size in [json!(2.5), json!(-2), json!(3)] {
+        let mut invalid = transfer.clone();
+        invalid[0]["transfers"][0]["entry"]["size"] = size;
+        let reply = runtime
+            .rpc(
+                scope(DLQ),
+                None,
+                "__queueDlqAcceptBatch".into(),
+                encode_rpc(&StructuredValue::from_json(invalid)?)?,
+                None,
+            )
+            .await?;
+        assert!(decode_rpc_result(&reply.data)
+            .expect_err("invalid transfer size was acknowledged")
+            .to_string()
+            .contains("size does not match"));
+    }
     operator(&runtime, Q, json!({"op":"resume"})).await?;
     signals.mode.store(0, Ordering::SeqCst);
     fire(&runtime, Q, 3).await?;
@@ -796,7 +817,7 @@ async fn run() -> Result<()> {
             tx.execute("INSERT INTO __sys_queue_messages(id,body,content_type,size,enqueued_at,visible_at) VALUES (?,x'78','text',1,?,?)",rusqlite::params![format!("expired-{index}"),expired_at,expired_at])?;
         }
         for index in 0..8 {
-            tx.execute("INSERT INTO __sys_queue_transfer_receipts(transfer_id,message_id,dead_letter_source,expires_at) VALUES (?,?,NULL,?)",rusqlite::params![format!("receipt-{index}"),format!("accepted-{index}"),expired_at])?;
+            tx.execute("INSERT INTO __sys_queue_transfer_receipts(transfer_id,message_id,dead_letter_source,payload_fingerprint,expires_at) VALUES (?,?,NULL,zeroblob(32),?)",rusqlite::params![format!("receipt-{index}"),format!("accepted-{index}"),expired_at])?;
         }
         tx.commit()?;
     }
@@ -877,5 +898,52 @@ async fn run() -> Result<()> {
     shutdown.send(true)?;
     router.await?;
     proofs.await?;
+    Ok(())
+}
+
+#[test]
+fn queue_transfer_schema_refuses_unbound_receipts_without_migration() -> Result<()> {
+    let db = rusqlite::Connection::open_in_memory()?;
+    db.execute_batch(
+        "CREATE TABLE __sys_queue_transfer_receipts (
+        transfer_id TEXT PRIMARY KEY, message_id TEXT NOT NULL,
+        dead_letter_source TEXT, expires_at INTEGER NOT NULL);
+        INSERT INTO __sys_queue_transfer_receipts VALUES ('old','retained',NULL,1);",
+    )?;
+    let error = db
+        .execute_batch(include_str!("../application/queue/schema.sql"))
+        .expect_err("old Queue receipts were silently admitted");
+    assert!(error.to_string().contains("payload_fingerprint"));
+    let retained: String = db.query_row(
+        "SELECT message_id FROM __sys_queue_transfer_receipts WHERE transfer_id='old'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(retained, "retained");
+    Ok(())
+}
+
+#[test]
+fn queue_transfer_schema_requires_a_complete_binary_fingerprint() -> Result<()> {
+    let db = rusqlite::Connection::open_in_memory()?;
+    db.execute_batch(include_str!("../application/queue/schema.sql"))?;
+    for invalid in [
+        rusqlite::types::Value::Null,
+        rusqlite::types::Value::Blob(vec![0; 31]),
+        rusqlite::types::Value::Text("x".repeat(32)),
+    ] {
+        assert!(db
+            .execute(
+                "INSERT INTO __sys_queue_transfer_receipts
+            (transfer_id,message_id,payload_fingerprint,expires_at) VALUES ('bad','message',?,1)",
+                [invalid]
+            )
+            .is_err());
+    }
+    db.execute(
+        "INSERT INTO __sys_queue_transfer_receipts
+        (transfer_id,message_id,payload_fingerprint,expires_at) VALUES ('valid','message',?,1)",
+        [vec![0u8; 32]],
+    )?;
     Ok(())
 }

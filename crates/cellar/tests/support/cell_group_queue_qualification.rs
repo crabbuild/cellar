@@ -6,6 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const FAST: &str = "quorum-fast";
 
+#[path = "cell_group_queue_transfers.rs"]
+mod transfers;
+pub use transfers::qualify as qualify_transfer_identity;
+
 struct Minimums {
     queue: Durability,
     dead: Durability,
@@ -119,6 +123,37 @@ fn applications(signals: Arc<Signals>, minimums: Minimums) -> Result<Deployments
                     .try_concat()
                     .await
                     .map_err(anyhow::Error::msg)?;
+                if request.url.ends_with("/transfer") {
+                    let args = cellar_native::clone::StructuredValue::from_json(
+                        serde_json::from_slice(&bytes)?,
+                    )?;
+                    let reply = context
+                        .rpc_cell(
+                            cellar::engine_api::queue_cell_scope(DEAD),
+                            Some(DEAD.into()),
+                            "__queueDlqAcceptBatch".into(),
+                            cellar::sdk::encode_rpc(&args)?,
+                        )
+                        .await;
+                    let (status, body) = match reply {
+                        Err(error) => (503, format!("{error:#}").into_bytes()),
+                        Ok(reply) => match cellar::sdk::decode_rpc_result(&reply)
+                            .and_then(|value| value.to_json())
+                        {
+                            Ok(value) => (200, value.to_string().into_bytes()),
+                            Err(error) => (409, format!("{error:#}").into_bytes()),
+                        },
+                    };
+                    return Ok(Output::Http(cellar::engine_api::HttpResponse {
+                        status,
+                        headers: vec![],
+                        body,
+                        stream: None,
+                        websocket: None,
+                        write_position: None,
+                        observed_position: None,
+                    }));
+                }
                 let values: Vec<String> = serde_json::from_slice(&bytes)?;
                 let entries: Vec<_> = values
                     .into_iter()
