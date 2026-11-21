@@ -34,6 +34,106 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 bounded archive packing and remaining recovery gates
+
+Production `6ef149a2b` packs original checkpoint wire fragments into immutable
+objects of at most 64 KiB. It preserves cell payload boundaries, part offsets,
+fragment-count and checkpoint-size limits, exact PUT confirmation and independent
+physical recovery. The archive pool explicitly charges packing/unpacking memory.
+Format markers remain 1; flat legacy indexes are refused. The
+[component contract](../../../../crates/cellar/durability/raft/cell_groups/README.md#complete-group-checkpoint-storage)
+describes this internal hard cutover. Original command IDs, minima, receipt
+versions, five-second requests and recovery observers remain unchanged.
+
+The public packing regression fails on pre-packing `f9bfe751a` and passes on
+`6ef149a2b`. It verifies recovered SQLite images and refuses damaged packed bytes.
+The untrusted-index test also rejects zero/overflowing spans, missing fields,
+empty fragment lists and legacy flat descriptors. Existing concurrency fixtures
+use larger real images to retain their four-distinct-object gates; concurrency,
+error and cancellation assertions were not relaxed.
+
+One unchanged extent/S3 Create (client 121, sequence 1) records:
+
+| Profile | Chunk PUTs | Chunk GETs | Response |
+| --- | ---: | ---: | ---: |
+| Pre-packing `afe32d266`, native | 36 | 214 | 4,174 ms |
+| Packed `6ef149a2b`, native | 7 | 28 | 3,421 ms |
+| Pre-packing `afe32d266`, real RustFS | 36 | 214 | 2,491 ms |
+| Packed `6ef149a2b`, real RustFS | 7 | 30 | 2,383 ms |
+
+Each profile has three checkpoint publications, one physical Create and receipt
+version 4. These are individual observations under variable shared-host load,
+not a latency distribution or proof that response deadlines are fixed. An earlier
+native diagnostic at `0c974ee28` also passed the original unminimized basic
+four-configuration loop; its separate result does not override failed controls.
+
+Current-source qualification is **FAILED**:
+
+| Gate | Passed | Failed | Unrun/ignored |
+| --- | ---: | ---: | ---: |
+| Native archive target | 38 | 2 | 16 ignored real-backend functions |
+| Native archive-controller target | 30 | 1 | 32 ignored real-backend functions |
+| Native provider matrix (36 configurations) | 28 | 4 | 4 unrun |
+| Real RustFS archive packing/recovery/retention (10 configurations) | 10 | 0 | 0 |
+| Real RustFS provider matrix (28 configurations) | 19 | 3 | 6 unrun |
+
+The native original basic, clean contention, direct supervision, fenced
+maintenance and expiry loops pass all four image/minimum configurations. Native
+dirty contention fails at extent/S3 holder sequence 2; materialized/S3 live-write
+cleanup and extent/S3 cold cleanup exceed their original recovery observers;
+materialized/S3 live-exec qualification times out at Create sequence 1. Failed
+function loops leave their later configurations unrun, not accepted.
+
+With real RustFS, clean/dirty contention, cold controller recovery and expiry each
+pass all four configurations. Materialized/S3 basic Data sequence 2 times out;
+live-write Data sequence 2 times out before the intended response-loss cut
+(`writes=0`, `execs=0`); live-exec recovery times out at Delete sequence 4. These
+failures remain separate from the native failures and from every earlier control.
+
+The broader archive failures are cancelled import ending before its physical
+sync fault gate and remote admission succeeding after the archive backend stops.
+Both reproduce on the independently frozen pre-packing executable. The controller
+failure is remote enrollment timing out before its intended S3 wait. Its causal
+relationship to packing is unqualified. None of these assertions was suppressed
+or weakened; all three gates still require resolution.
+
+A checksum-verified retained native live-write controller journal contains
+completed Create and Write receipts and three completed Inspect operations, with
+no Delete submitted. The next recovery fix must explain local binding
+confirmation/cleanup before Delete admission, without replaying the Write or
+treating an unknown response as absence. This observation does not establish the
+specific source-side cause.
+
+Builds, strict Clippy for the three affected integration targets, formatting,
+layout, native dependencies, documentation checks and all 44 plan-validator unit
+tests pass. Reviewed source anchors and the generated implementation index are
+current. Full plan validation/CLI preflight remains blocked by the missing
+historical `CG-01-06-gates-e32115aa-02/CG-01-record.json`; the direct source-anchor
+check does not replace that evidence gate. Scope remains one native macOS RF3
+process and a controlled provider peer. RustFS is a real, owned 1-CPU/2-GiB container in a
+6-CPU/12-GiB VM. These runs do not qualify actual native compute, authenticated
+independent controller/backend faults, independent Linux voters or provider-volume
+fresh-incarnation recovery. The owned lab is stopped with objects and volumes
+retained.
+
+Custody: `CG-17-create-profile-0c974ee28-2218`,
+`CG-17-create-profile-afe32d266-2222`, `CG-17-packed-red-f9bfe751a-2228` and
+`CG-17-packed-6ef149a2b-2232` contain source, frozen executables, raw records,
+retained roots and compact measurements. All four have checksum-verified second
+copies in this checkout's Workspace target. Supplemental custody includes the
+remote-enrollment failure disk and supervised-provider disks. The two broader
+archive failure fixtures did not retain all temporary voter disks; their logs,
+source and executables are preserved, and full failed-disk custody is not claimed.
+
+Next: fix source binding confirmation/autonomous cleanup and the original
+Data/Delete/contended-holder deadlines; resolve the three broader recovery,
+outage and remote-enrollment gates. Then deliver normal Container/Sandbox and
+interactive APIs with actual independently fenced execution, receipt retention
+with origin/recovery floors, WebSockets and the complete public API/feature/fault
+ledger. **CG-17 remains 0/32 formal cases; all 32 and their dependencies remain
+required.** The complete design/hard-cutover goal is active. Default cutover and
+CG-13/15/16 release acceptance remain gated.
+
 ### CG-17 provider admission proof batching
 
 Production `92afae21b` removes redundant shared-group proof boundaries without
