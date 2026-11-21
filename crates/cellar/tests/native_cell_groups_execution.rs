@@ -33,6 +33,38 @@ async fn retained_read_without_quorum_never_becomes_ready_or_repeats_campaign() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_private_requests_start_one_normal_election_without_idle_ticks() -> Result<()> {
+    runtime_fixture::retained_private_election(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_private_requests_without_quorum_never_grant_authority_or_recampaign() -> Result<()>
+{
+    runtime_fixture::retained_private_election(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn initial_private_requests_start_one_normal_election_without_idle_ticks() -> Result<()> {
+    runtime_fixture::initial_private_election(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn initial_private_startup_respects_newer_vote() -> Result<()> {
+    runtime_fixture::startup_vote_change(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_private_startup_respects_newer_vote() -> Result<()> {
+    runtime_fixture::startup_vote_change(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn initial_private_requests_without_quorum_never_grant_authority_or_recampaign() -> Result<()>
+{
+    runtime_fixture::initial_private_election(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn command_waits_for_committed_group_apply() -> Result<()> {
     Box::pin(runtime_fixture::command_waits_for_apply(false)).await
 }
@@ -40,6 +72,21 @@ async fn command_waits_for_committed_group_apply() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn command_readiness_wait_keeps_original_deadline() -> Result<()> {
     Box::pin(runtime_fixture::command_waits_for_apply(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn commit_metadata_joins_applied_root_publication() -> Result<()> {
+    Box::pin(runtime_fixture::commit_metadata_publication(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_commit_metadata_joins_applied_root_publication() -> Result<()> {
+    Box::pin(runtime_fixture::commit_metadata_publication(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn deferred_commit_ticket_refuses_another_replica_engine() -> Result<()> {
+    Box::pin(runtime_fixture::foreign_commit_ticket()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -546,6 +593,88 @@ async fn node_runtime_attachment_reserves_before_owner() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn cell_receipt_not_group_progress() -> Result<()> {
     runtime_fixture::cell_receipts(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_apply_reuses_verified_materialized_preview() -> Result<()> {
+    runtime_fixture::committed_apply_reuses_verified_preview().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn verified_materialized_preparation_passes_to_committed_apply() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Live)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_apply_reuses_owned_image_persistence_barrier() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Sealed)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn owned_image_recheck_preserves_verification_and_cold_barriers() -> Result<()> {
+    runtime_fixture::owned_image_recheck_guards().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn verified_extent_preparation_passes_to_committed_apply() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Live)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn materialized_apply_custody_survives_producer_close() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(
+        false,
+        runtime_fixture::PreparationCase::Transferred,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn extent_apply_custody_survives_producer_close() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(
+        true,
+        runtime_fixture::PreparationCase::Transferred,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn expired_materialized_preparation_requires_independent_replay() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Expired)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn expired_extent_preparation_requires_independent_replay() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Expired)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn final_materialized_receipt_uses_frozen_prepared_writer() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Receipt)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn final_extent_receipt_uses_frozen_prepared_writer() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Receipt)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn corrupt_materialized_preparation_refuses_committed_apply() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(false, runtime_fixture::PreparationCase::Corrupt)
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn corrupt_extent_preparation_refuses_committed_apply() -> Result<()> {
+    runtime_fixture::verified_preparation_handoff(true, runtime_fixture::PreparationCase::Corrupt)
+        .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -1174,6 +1303,16 @@ async fn physical_owner_retains_lease_through_cancelled_sync() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn linearizable_change_reads_wait_for_the_exact_cell() -> Result<()> {
+    runtime_fixture::change_reads(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_linearizable_change_reads_wait_for_the_exact_cell() -> Result<()> {
+    runtime_fixture::change_reads(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn linearizable_read_cohorts_keep_fresh_barriers() -> Result<()> {
     Box::pin(runtime_fixture::cohort_reads(false)).await
 }
@@ -1266,6 +1405,11 @@ async fn rooted_shared_apply_recovers_selected_images_before_replay() -> Result<
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn registered_commands_use_cell_identity_and_receipts() -> Result<()> {
     runtime_fixture::registered_commands(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn materialized_commands_discard_scratch_without_directory_durability() -> Result<()> {
+    runtime_fixture::disposable_directory().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -1569,6 +1713,35 @@ async fn automatic_queries_leave_blocked_local_replica() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn rooted_automatic_queries_leave_blocked_local_replica() -> Result<()> {
     Box::pin(runtime_fixture::automatic_queries_leave_blocked_local(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn automatic_queries_keep_first_progress_during_failover() -> Result<()> {
+    Box::pin(runtime_fixture::automatic_queries_keep_first_progress(
+        false,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn rooted_automatic_queries_keep_first_progress_during_failover() -> Result<()> {
+    Box::pin(runtime_fixture::automatic_queries_keep_first_progress(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn automatic_queries_join_catalog_refresh_before_first_reply() -> Result<()> {
+    Box::pin(runtime_fixture::automatic_queries_finish_catalog_refresh(
+        false,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn rooted_automatic_queries_join_catalog_refresh_before_first_reply() -> Result<()> {
+    Box::pin(runtime_fixture::automatic_queries_finish_catalog_refresh(
+        true,
+    ))
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]

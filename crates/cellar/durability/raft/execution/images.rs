@@ -125,8 +125,19 @@ impl Options {
             }
             return Ok(());
         }
-        cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &self.directory)
-            .map_err(storage)
+        if !self.directory.is_absolute() || self.directory.components().take(129).count() > 128 {
+            return Err(storage(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "bounded absolute directory required",
+            )));
+        }
+        // This directory contains only disposable SQLite/WAL/capture scratch.
+        // Every open rebuilds it from an independently authoritative image;
+        // neither its existence nor its contents can acknowledge a command.
+        // Durable previews, committed images and the replicated log retain
+        // their own persistence barriers. Repeating ancestor fsync here adds
+        // serial I/O to every command without protecting recovery state.
+        filesystem.create_dir_all(&self.directory).map_err(storage)
     }
 
     /// Only shared-cell private scratch is disposable here. Keep the lock inode
@@ -253,6 +264,23 @@ pub(super) enum State {
 pub(super) enum Preview {
     Materialized(GenerationPin),
     Rooted(Arc<SealedImageRoot>),
+}
+
+pub(super) fn cell_preview_id(
+    cell: &cellar_logic::cell_group::CellHistory,
+    sequence: u64,
+    update: &crate::raft::working::CapturedUpdate,
+    fallback: ImageId,
+) -> Result<ImageId, ExecutionError> {
+    match update.result.commitment {
+        ImageCommitment::Sha256(_) => crate::raft::cell_groups::materialized_image_id(
+            cell,
+            sequence,
+            crate::raft::working::materialized_result(update.result, &update.files)
+                .map_err(private_failure)?,
+        ),
+        ImageCommitment::Extents(_) => Ok(fallback),
+    }
 }
 
 pub(super) enum WorkingImage {

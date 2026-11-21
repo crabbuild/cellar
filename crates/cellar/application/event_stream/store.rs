@@ -186,23 +186,7 @@ pub(crate) fn resolve_read(db: &Storage, caller: &Authority, body: &Value) -> Re
     let binding: super::Binding = serde_json::from_slice(&bytes)?;
     binding.validate()?;
     let (definition, _) = load(db)?;
-    let grant = authorize(&definition, caller, Action::Resolve, None)?;
-    if binding.principal != caller.principal
-        || binding.grant != caller.grant
-        || binding.resource != definition.resource
-        || (binding.publish && !grant.publish)
-        || (binding.read && !grant.read)
-        || (binding.administer && !grant.administer)
-        || binding
-            .subscriptions
-            .iter()
-            .any(|name| !grant.subscriptions.contains(name))
-    {
-        return Err(error(
-            ErrorCode::Forbidden,
-            "binding does not match current resource identity or grants",
-        ));
-    }
+    authorize_binding(&definition, caller, &binding)?;
     for name in &binding.subscriptions {
         if db
             .system_sql_read(
@@ -220,6 +204,34 @@ pub(crate) fn resolve_read(db: &Storage, caller: &Authority, body: &Value) -> Re
     Ok(
         json!({"resource":definition.resource,"state":"active","revision":definition.revision.to_string()}),
     )
+}
+
+/// Check all captured capabilities against one definition. Activation may use
+/// this only when an independent current catalog proof binds that exact data;
+/// the broker still separately checks its own current grants and subscriptions.
+pub(super) fn authorize_binding(
+    definition: &Definition,
+    caller: &Authority,
+    binding: &super::Binding,
+) -> Result<()> {
+    let grant = authorize(definition, caller, Action::Resolve, None)?;
+    if binding.principal != caller.principal
+        || binding.grant != caller.grant
+        || binding.resource != definition.resource
+        || (binding.publish && !grant.publish)
+        || (binding.read && !grant.read)
+        || (binding.administer && !grant.administer)
+        || binding
+            .subscriptions
+            .iter()
+            .any(|name| !grant.subscriptions.contains(name))
+    {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "binding does not match current resource identity or grants",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn load_state(db: &Storage) -> Result<(Definition, SqlRow)> {
@@ -265,6 +277,27 @@ pub(crate) fn decode_definition(encoded: &str) -> Result<(Definition, String)> {
 
 pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
     let caller = authority(context, Action::Configure)?;
+    let identity = context.identity().context("stream identity is missing")?;
+    initialize_storage(
+        &context.storage()?,
+        &identity.scope,
+        &caller,
+        body,
+        crate::asyncrt::wall_ms,
+    )
+}
+
+/// Inspect an exact compiled configuration without opening schema, sampling
+/// time, rearming maintenance or acquiring a command/lease sequence. Genesis
+/// already records this receipt; later configuration still needs a mutation.
+pub(super) fn configuration_receipt_read(
+    db: &Storage,
+    scope: &str,
+    caller: &Authority,
+    body: &Value,
+) -> Result<Value> {
+    validate_authority(scope, caller, Action::Configure)?;
+    caller.require_provisioning()?;
     let operation = body["operation"].as_str().ok_or_else(|| {
         error(
             ErrorCode::InvalidRequest,
@@ -277,15 +310,79 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
         .ok_or_else(|| error(ErrorCode::InvalidRequest, "stream definition is missing"))?;
     let (desired, digest) = decode_definition(encoded)?;
     if !desired.resource.same_identity(&caller.resource)
-        || super::cell_scope(&desired.resource)? != context.identity().unwrap().scope
+        || super::cell_scope(&desired.resource)? != scope
     {
         return Err(error(
             ErrorCode::Forbidden,
             "configuration names a different resource",
         ));
     }
-    let db = context.storage()?;
-    super::schema::open(&db)?;
+    let (current, row) = load(db)?;
+    if !current.resource.same_identity(&caller.resource) {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "stored configuration names a different resource",
+        ));
+    }
+    if text(&row, "config_operation")? != operation {
+        authorize(&current, caller, Action::Configure, None)?;
+        return Err(error(
+            ErrorCode::OperationUnknown,
+            "stream configuration operation is missing",
+        ));
+    }
+    // Preserve exact receipt replay for its original caller even if that
+    // accepted configuration removed the caller's grant. This is history, not
+    // deployment readiness; the catalog and partition resolve proofs still gate it.
+    if text(&row, "config_principal")? != caller.principal
+        || text(&row, "config_grant")? != caller.grant
+    {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "configuration receipt belongs to another caller",
+        ));
+    }
+    if text(&row, "config_digest")? != digest {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "configuration operation arguments differ",
+        ));
+    }
+    Ok(
+        json!({"revision":number(&row,"revision")?.to_string(),"resource":desired.resource.id,"operation":operation,"digest":digest}),
+    )
+}
+
+/// Configure an owned image; exact receipt replay never samples fresh time.
+/// Creation supplies its captured clock without constructing an activation.
+pub(super) fn initialize_storage(
+    db: &Storage,
+    scope: &str,
+    caller: &Authority,
+    body: &Value,
+    initial_time: impl FnOnce() -> i64,
+) -> Result<Value> {
+    validate_authority(scope, caller, Action::Configure)?;
+    let operation = body["operation"].as_str().ok_or_else(|| {
+        error(
+            ErrorCode::InvalidRequest,
+            "configuration operation is missing",
+        )
+    })?;
+    validate_id(operation)?;
+    let encoded = body["definition"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "stream definition is missing"))?;
+    let (desired, digest) = decode_definition(encoded)?;
+    if !desired.resource.same_identity(&caller.resource)
+        || super::cell_scope(&desired.resource)? != scope
+    {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "configuration names a different resource",
+        ));
+    }
+    super::schema::open(db)?;
     let prior = db
         .system_sql("SELECT * FROM __sys_stream WHERE singleton=1", &[])?
         .into_iter()
@@ -310,12 +407,12 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
             );
         }
         let current: Definition = serde_json::from_str(&text(prior, "definition")?)?;
-        authorize(&current, &caller, Action::Configure, None)?;
-        clock(&db)?
+        authorize(&current, caller, Action::Configure, None)?;
+        clock(db)?
     } else {
         caller.require_provisioning()?;
-        authorize(&desired, &caller, Action::Configure, None)?;
-        crate::asyncrt::wall_ms().max(0)
+        authorize(&desired, caller, Action::Configure, None)?;
+        initial_time().max(0)
     };
     db.tx(|tx| {
         let prior=tx.system_sql("SELECT * FROM __sys_stream WHERE singleton=1",&[])?.into_iter().next();
@@ -326,14 +423,14 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
                 return Ok(json!({"revision":number(prior,"revision")?.to_string(),"resource":desired.resource.id,"operation":operation,"digest":digest}));
             }
             let current:Definition=serde_json::from_str(&text(prior,"definition")?)?;
-            authorize(&current,&caller,Action::Configure,None)?;
+            authorize(&current,caller,Action::Configure,None)?;
             if current.resource.name!=desired.resource.name || desired.revision<=current.revision || desired.max_bytes<number(prior,"bytes")?
                 || desired.max_records<number(prior,"rows")? {
                 return Err(error(ErrorCode::ConfigConflict,"configuration revision or live capacity conflicts"));
             }
         } else {
             caller.require_provisioning()?;
-            authorize(&desired,&caller,Action::Configure,None)?;
+            authorize(&desired,caller,Action::Configure,None)?;
             if desired.revision!=1 { return Err(error(ErrorCode::ConfigConflict,"new streams start at revision one")); }
         }
         let next=prior.as_ref().map(|row|number(row,"next_offset")).transpose()?.unwrap_or(1);

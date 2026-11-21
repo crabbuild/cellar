@@ -16,6 +16,24 @@ enum Access {
 }
 
 impl CellGroupHost {
+    pub(crate) fn enrolled_event_configuration(
+        &self,
+        history: &CellHistory,
+        request: CellEnrollmentRequest,
+        enrollment: &CellEnrollmentResponse,
+        input: &[u8],
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        self.inner.check_lifecycle()?;
+        let binding = self
+            .inner
+            .namespaces
+            .get(&(history.cluster, history.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        binding
+            .class
+            .enrolled_event_configuration(history, request, enrollment, input)
+    }
+
     pub(crate) fn event_sources(
         &self,
     ) -> Result<Vec<Arc<crate::application::storage::EventSourceConfiguration>>, CellDispatchError>
@@ -395,6 +413,41 @@ impl CellGroupHost {
             .contract(operation)
             .filter(|contract| contract.kind == crate::application::consensus::OperationKind::Query)
             .ok_or(CellDispatchError::Invalid("Workflow query contract"))?;
+        Ok(selected)
+    }
+
+    /// A metrics reader retains the same compiled Queue binding authorization
+    /// as its old RPC. The private query contract adds no operator capability.
+    pub(crate) fn queue_metrics_route(
+        &self,
+        source: Option<&CellHistory>,
+        configuration: Option<[u8; 32]>,
+        scope: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        let mut selected = match (source, configuration) {
+            (Some(source), Some(configuration)) => {
+                self.binding_route(source, configuration, scope, "__queueMetrics", log)?
+            }
+            (Some(_), None) => {
+                return Err(CellDispatchError::Invalid(
+                    "Queue metrics source configuration",
+                ))
+            }
+            (None, Some(configuration)) => {
+                self.native_ingress_route(configuration, scope, "__queueMetrics", log)?
+            }
+            (None, None) => self.sql_ingress_route(scope, "__queueMetrics", log)?,
+        };
+        let target = self
+            .inner
+            .namespaces
+            .get(&(selected.cluster, selected.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        selected.contract = target
+            .class
+            .queue_metrics_query_contract()
+            .ok_or(CellDispatchError::Invalid("Queue metrics query contract"))?;
         Ok(selected)
     }
 

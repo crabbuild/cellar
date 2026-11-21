@@ -34,6 +34,3380 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 public provider-session lifecycle admission
+
+**CG-17 remains open.** Runtime `6836d6a6c` includes `f4091702e`'s ordinary
+named-provider handoff: `Session::execute(Start/Destroy/Reconcile)` supplies its
+exact held guard to `ProviderSession::execute_admitted`. A fenced backend calls
+`BindingLifecycleGuard::fence_execution` without reacquiring that lock. The
+returned grant retains the original admission and invocation authority. Default
+providers still delegate to their existing `execute`; the adapter keeps its
+entry proof, input/result validation, original deadline and Quorum/S3 minimum.
+Data and stream operations receive no lifecycle guard, preserving concurrency
+with the control operation that stops them. See the
+[provider contract](../../../../crates/cellar-container/bindings.md#provider-session-lifecycle-admission).
+
+Shared-group background maintenance now declines a busy lifecycle slot before
+proving its private work claim. Previously it could acquire the parked writer,
+checkpoint a waiting receipt and then wait for the foreground owner's guard.
+The refusal rolls back private SQL, retains the committed obligation and lets
+the bounded scheduler rediscover it. Foreground and ordinary Fleet waiting are
+unchanged. No proof, request ID, deadline or assertion was weakened.
+
+| Runtime `6836d6a6c` qualification | Result |
+| --- | --- |
+| Public named-provider admission, direct fenced cleanup and autonomous supervision | **3 native functions, 12 image/minimum configurations pass** |
+| Public named-provider Start with real RustFS/Docker | **4/4 configurations pass**, independently checked |
+| Container library and ordinary native provider compatibility | 26 unit tests and 7 integration functions pass |
+| Locked builds, strict affected Clippy, format/layout/dependency/docs/catalog checks | Pass; inventory remains partial at 18 entries/281 symbols |
+
+Latest `origin/main` `76a440139` is merged at `0cee7536f`. The incoming LTX
+reload/checkpoint regression passes cold restore after a paused final upload.
+The merged source also passes 26 library units, seven ordinary native provider
+functions, strict affected Clippy and formatting. Relative to `6836d6a6c`, only
+the ordinary LTX reload implementation/new owning test and documentation differ;
+shared-group and provider sources are unchanged. Evidence
+`CG-17-provider-main-0cee7536f-2089/record.json` preserves four more executables,
+source and raw checks with a verified backup. The shared-provider native/RustFS
+results above remain pinned to `6836d6a6c`; this is a scoped merge check, not the
+combined CG-17 release qualification.
+
+The public fixture uses actual `Bindings::sessions().get("TOOL").execute(Start)`.
+Each configuration records one admitted backend call and zero legacy direct
+calls. Its preserved entry proof makes Create commit exactly **three versions**;
+the separate direct-journal caller retains its unchanged **two-version** assertion.
+Autonomous controller refusal, deletion-intent grant refresh, lost accepted DELETE
+and retained voter restart still recover without business construction or another
+create/delete. Actual S3 archive-write refusals withhold sequence-3 success;
+receipt-only recovery returns the original result without replaying the callback.
+Independent Docker inspection proves all four original resource IDs absent,
+pinned image, 0.1 CPU/64 MiB, zero swap, network disabled and restart disabled.
+
+The earlier real control at `f4091702e` **failed** after materialized/Quorum:
+materialized/S3 Create returned success but advanced from version 1 to 5 rather
+than the required delta 3. Retained images include concurrent system maintenance
+receipts. Its original Docker resource was independently stopped and retained;
+the voter disks, executable, source and failed logs remain in evidence
+`CG-17-provider-admission-f4091702e-2078`. The current unchanged assertion passes
+all four real configurations. This does not establish a causal fix for older S3
+Read/Delete or Fleet failures. Setup also retained an output-filename collision
+before any business request, then corrected only the read-only witness label.
+The interrupted initial compile produced no test result and remains recorded.
+
+Evidence `CG-17-provider-contention-6836d6a6c-2085/record.json` preserves
+48 voter roots, five frozen executables, the source archive,
+raw controls and independent observations, with a verified second backup.
+All owned lab runtimes are stopped. Primitive executable SHA-256:
+`97dc88325824161bd73df54928a79b35a6e81fbba599301e1b9b8b9a3017a05b`.
+The earlier Linux 16-function/54-configuration pass below belongs to `4f87197ec`;
+no new Linux run is claimed here. Ordinary Fleet remains 3/5 at that source,
+with accepted-create successor closure and retained-restart `NodeLeaseMismatch`.
+
+This qualifies custom named-provider **Start**, not a complete provider family.
+RF3 shares one host process; RustFS has one CPU/2 GiB in the same six-CPU/12-GiB
+VM. The fixture controller is volatile and stays alive through voter restart.
+Next implement normal native Container/sandbox adapters and independent durable
+controller recovery, authenticated request fencing and permanent old-history
+revocation. Finish WebSockets and every API/provider/feature/deployment/clock/
+retention/cancellation/recovery ledger before full CG-17 or cutover claims.
+Provider-volume recovery and independent voter/controller failures remain open.
+Acceptance stays **13/17 tasks, 147/195 cases, CG-17 0/32**; historical CG-01
+custody still prevents complete plan validation.
+
+### CG-17 prepared provider checkpoints and result recovery
+
+**CG-17 remains open.** Runtime `4f87197ec` adds Raft-only
+`BindingJournal::prepare_exchange`. It reuses the existing protected SQL CAS,
+record validation, declaration, transaction and original invocation checks. The
+return records local preparation; it is not a durability proof. A subsequent
+execution fence or refreshed grant proves binding intent and claim together
+before provider I/O. The final prepared observation shares the command's exact
+result/output proof. Existing `compare_exchange` still waits for durability;
+Native/Fleet refuses preparation before mutation. See the
+[binding contract](../../../../crates/cellar-container/bindings.md).
+
+Latest `origin/main` `f117a017f` is merged. Its Queue backport was already
+integrated: runtime, test and tool files remain byte-identical to the qualified
+`4f87197ec` source. The merge adds documentation and task-action notes; task
+requirements, dependencies and status remain unchanged.
+
+The canonical fenced-provider Create now commits **two cell versions instead of
+four**: intent plus execution claim, then observation plus result. Deletion intent
+and refreshed claim likewise share a checkpoint. This is a measured proof-count
+reduction for this caller, not a throughput or general provider latency claim.
+The controller, original identities, five-second requests, attempt limits and
+Quorum/S3 minimums remain unchanged.
+
+The real-backend trace at `4dac6b498` reproduces the original materialized/S3
+Create sequence-1 deadline. Reservation, claim and observation proofs consumed
+about 1,890, 716 and 1,465 ms before final result settlement; the Docker create was
+about 132 ms. The version-count regression at `abe55e325` fails with before=1,
+after=5; the unchanged two-version assertion passes on the new caller. Earlier
+`8a14b6176` fails before Create because its new query was registered in the wrong
+fixture; this is retained as a test error, separately from the proper red.
+
+| Current runtime qualification | Result |
+| --- | --- |
+| Native shared-group provider journal/proof/limits/execution/supervision/cleanup | **6 functions, 24 configurations pass** |
+| macOS/RustFS/Docker fenced maintenance and prepared final result | **4/4 image/minimum configurations pass** |
+| Combined constrained Linux/RustFS binding, Consume/Ack and provider campaign | **16/16 fixed functions, 54 configurations pass** |
+| Owning, container-library and declaration/registration contracts | 53 selected tests pass |
+| Existing native provider journals and supervision | 7 selected functions pass |
+| Ordinary Fleet supervision | **3/5 pass.** Accepted-create successor closes before cleanup; retained restart stops with `NodeLeaseMismatch` |
+| Locked host builds, strict affected Clippy, format and repository checks | Pass; catalogue remains partial at 18 entries/280 symbols |
+| Coverage-validator negative fixtures | 13 synthetic tests pass; these do not qualify runtime APIs |
+
+Both S3 configurations record actual refused archive writes after the final
+observation is prepared. The original sequence-3 command remains ambiguous until
+archive restoration; receipt-only recovery returns its exact completed result
+without a second callback. Every configuration observes one staged result, one
+create, one delete and one grant refresh. Pre-effect S3 refusal likewise requires
+an actual denied-write counter and prevents provider I/O. Independent Docker
+inspection verifies the four original immutable IDs are absent, the pinned image,
+0.1 CPU/64 MiB/zero swap, network disabled and restart disabled. Linux execution
+checks independently read four exact file effects and verify eight stopped
+processes with old/new non-overlap.
+
+The initial RustFS startup probe returned 503 before any test ran; that failed
+setup is retained. A later health/readiness check found no qualification resources,
+and the separate signed-preflight gate passed all four configurations. No
+ambiguous business request was reissued under a replacement identity.
+The first Linux rebuild, using two Cargo jobs in a six-CPU/nine-GiB build
+container, was killed by its memory cgroup before any runtime case. Docker
+OOM state and kernel records are retained. A subsequent four-GiB compile also
+OOMs; that was a mistaken reading of the previous profile. The final build
+restores its exact three-CPU/nine-GiB/single-job compile profile, then reduces to
+four GiB for the fixed campaign. Two setup failures follow the successful build:
+the Docker process check omitted its required PID column, then the resume harness
+omitted an image constant. Neither ran a runtime case. The corrected runner
+verifies the same frozen executable, source and actual cgroups before all sixteen
+cases; those failed setup records remain in the evidence bundle.
+
+The Fleet outage fixture now retains roots and writes failure-only stage/wake
+observations. The targeted instrumented case, its complete five-case control and
+the precursor source pass; the final source's outage case passes too. These
+passes do not establish a causal fix for the earlier outage failure. The two
+other final-source failures above remain open; their existing fixtures remove
+the failed temporary roots, while raw traces and frozen binaries are retained.
+Earlier native extent/S3 Read and macOS S3 supervision Delete failures also remain
+open. The new prepared-call gate does not qualify all durable-CAS callers.
+
+Evidence `CG-17-provider-preparation-4f87197ec-2050/record.json` retains
+179 native/Fleet roots, 60 Linux voter roots, source archives, frozen binaries,
+red/failed controls and independent Docker
+proofs, with a second verified backup. Linux executable SHA-256:
+`0f6e21583d4167628d7155b9cab45a490e600ee6571a3784466103911adb8e50`.
+All owned runtimes are stopped; objects, volumes and the stopped original failed
+trace resource are retained.
+
+Linux RF3 shares **one** three-CPU/4-GiB process/container, zero swap and ext4 voter
+disks; RustFS has one CPU/2 GiB in the same VM. The volatile fixture controller
+stays alive across voter restart. The ordinary named ProviderSession also needs
+the adapter's held lifecycle guard forwarded to its backend; reacquiring that
+same guard to fence execution deadlocks. The qualified direct-journal fixture
+does not prove that public session path. Normal native Container/sandbox adapters,
+durable independent controller crashes/partitions and permanent old-history
+revocation, provider-volume restoration, WebSockets and the complete API/feature/
+clock/deployment/retention/recovery matrix remain required. Formal acceptance
+stays **13/17 tasks, 147/195 cases, CG-17 0/32**. Whole-plan validation still fails
+on missing historical CG-01 evidence; nothing is fabricated or waived.
+
+### Previous CG-17 framework-owned fenced maintenance
+
+**CG-17 remains open.** Runtime `ac296178f` delivers explicit controller-fenced
+background provider cleanup. The combined constrained Linux/RustFS campaign
+passes all 16 fixed functions and 54 image/minimum/fault configurations. Current
+macOS and ordinary Fleet regressions fail as recorded below; this is not a full
+primitive-family or task acceptance.
+
+`Supervision::register_fenced` pins the backend and its execution authority,
+checks their identity, and binds the requirement to the namespace contract.
+The framework retains the original lifecycle admission through fencing, provider
+I/O and settlement. It proves the invocation's Quorum/S3 minimum before controller
+I/O; refusal leaves durable cleanup pending without direct-backend fallback.
+Fencing and maintenance share one configured attempt timeout and retain the
+original native-event deadline. `ExecutionGrant::refresh` proves a new claim
+after a binding CAS using the same controller and admission; the old grant fails.
+See the [maintenance contract](../../../../crates/cellar-container/supervision.md#controller-fenced-shared-group-maintenance).
+
+Provider cleanup also declines a busy writer before enqueueing, without marking
+foreground contention or consuming its durable installation. Discovery retries
+the obligation. The directed earlier materialized/S3 Create trace showed cleanup
+checkpointing its wait behind the foreground lifecycle guard and forcing extra
+source proofs. Only System provider reconciliation uses this reservation policy;
+EventCatalog and other callbacks retain queued dependency admission. Fresh
+authority lookup, original deadlines and all output proofs remain after admission.
+
+| Current-source qualification | Result |
+| --- | --- |
+| Constrained Linux/RustFS binding, Consume/Ack, provider and execution/cleanup gate | **16/16 functions, 54 configurations pass** |
+| Owning, container library and declaration/registration contracts | 53 selected tests pass |
+| Existing native provider journals and supervision | 7 selected functions pass |
+| Existing ordinary Fleet supervision | **4/5 pass; provider-outage recovery fails** waiting for its first failed cleanup notification within the original 15 seconds |
+| macOS/RustFS/Docker fenced cleanup | **Whole gate fails: 1/4 complete.** Materialized/Quorum passes; materialized/S3 original Create sequence 1 expires ambiguous; both extent configurations are unrun |
+| Locked builds, strict affected Clippy, format/layout/dependency/docs/catalog checks | Pass; inventory remains partial at 18 entries/279 symbols |
+| Independent coverage-validator negative fixtures | 13 tests pass; synthetic reports do not qualify the runtime |
+
+The new Linux cleanup case covers all four image/minimum combinations, controller
+refusal, autonomous expiry, deletion-intent claim refresh and a lost reply after
+actual DELETE acceptance. Retained voters restart while business construction
+refuses. The successor inspects the original resource's absence, confirms its
+tombstone without another DELETE, preserves business state and returns the exact
+original Create receipt on replay. Actual Docker observations verify pinned image,
+0.1 CPU, 64 MiB, zero swap, network disabled and restart disabled. Independent
+reads verify the four execution-claim file effects and old/new process non-overlap.
+
+Linux RF3 shares **one** process/container at three CPUs/4 GiB, zero swap, with
+ext4 voter disks. RustFS has one CPU/2 GiB in the same six-CPU/12-GiB VM. The frozen
+Linux executable SHA-256 is
+`db2f142d56c7c6c6300d26c17affe83f1b086ae7483a6fec42e4d044487e7737`.
+The fixture controller keeps volatile state and remains live during voter restart.
+These checks do not qualify independent voter faults, controller crashes, provider
+volume restoration, normal Container/sandbox adapters or the full load matrix.
+
+Earlier controls remain failures: native-model `05dcc5f4e` completes 3/4 but misses
+extent/S3 Read sequence 2; its directed trace at `de7210c20` passes one configuration
+without establishing a fix. At that source the new macOS/Docker cleanup gate
+passes 4/4, but existing supervision fails extent/S3 Delete sequence 3. Neither
+those passes nor the current Linux pass waive current macOS or Fleet failures.
+The current ambiguous S3 Create is not retried under a new identity. Its original
+Docker resource is independently stopped with exit 137 and retained. The Fleet
+fixture removes its temporary root on failure; its raw log and frozen executable
+remain, but that failed Fleet root is unavailable.
+
+Evidence: `CG-17-fenced-maintenance-ac296178f-2021/record.json`, outside the Cargo
+target with a second verified backup. It retains 54 native and 60 Linux voter
+roots, 15 frozen executables, seven source archives, failed/stopped build controls
+and independent Docker observations. Byte-identical compiler inputs reuse only
+verified timestamps; every runtime case is rerun. All owned runtimes are stopped;
+volumes and objects remain. Previous evidence is retained separately.
+
+**Next close the failed Fleet and original S3 deadline paths, then deliver normal
+native Container/sandbox adapters with request-bound transport and full logical
+history.** An old context must never borrow a newer global execution grant.
+Qualify independently durable controller high-water recovery and permanent
+old-history revocation, then WebSockets and every public primitive/provider,
+feature, deployment/clock, retention, cancellation and recovery ledger. Existing
+native Docker disk remains explicitly ephemeral. Formal acceptance remains
+**13/17 tasks, 147/195 cases and CG-17 0/32**. Historical CG-01 evidence custody
+still prevents whole-plan validation; the generated implementation index matches
+the task ledger and is not advanced by these selected passes.
+
+
+### CG-17 execution claims and real Docker revocation
+
+**Runtime `2ad84151f` passes the combined Linux/RustFS gate: 15/15 fixed
+functions and 50 image/minimum/fault configurations.** This includes the previous
+binding/Consume/Ack, journal, exact-checkpoint and supervision cases, plus the
+new execution-claim protocol with actual Docker executor processes. Original
+request deadlines, identities and durability gates are unchanged. The frozen
+Linux executable SHA-256 is
+`590cc0a0ff53467550e6f59adba2b6290d226189d23a0d4e1ccc735bb031786b`.
+
+The public `BindingJournal::fence_execution` API consumes the exact binding's
+original-invocation lifecycle guard. Its protected sequence travels with the
+cell image and advances on group/term or binding-checkpoint changes. Unchanged
+ownership and checkpoint reuse it. The resource key includes the complete cell
+history and binding; physical group terms are never ordered across movement.
+The original Quorum/S3 proof precedes controller I/O, and a returned grant retains
+the guard through its effect gates. Changed bindings, expired authority and a
+mismatched controller configuration refuse admission. Lost outcomes retain the
+original claim and command identities. See the
+[binding contract](../../../../crates/cellar-container/bindings.md#controller-enforced-execution-claims).
+
+**This delivers the framework/controller boundary, not the normal Container
+adapter or a production controller.** The explicitly selected authority must
+persist its high-water marks, authenticate every provider request, revoke older
+execution before a new grant and refuse lost or conflicting state. Fresh-history
+recovery must also permanently revoke old provider execution; a fresh resource
+key cannot bypass it. The qualification controller stays alive through retained
+voter restart and keeps a volatile map. Controller crash/partition recovery,
+normal Container/sandbox dispatch, managed cleanup integration and provider-volume
+recovery remain required. Existing E2B/Vercel/native adapters are not retrofitted.
+
+Four native RF3 protocol configurations and four macOS/RustFS/Docker configurations
+pass. Each real-store campaign retains eight stopped executors, proves old-process exit
+before new-process startup, refuses delayed old claims and tokens, and performs
+file writes through public commands. Independent reads of the stopped macOS-oracle
+containers verify its four resulting file contents. Twelve owning SQL tests, 26 container
+library tests and twelve existing provider/Fleet integration tests pass. Locked
+builds, strict affected Clippy and format checks pass.
+
+Linux RF3 shares one process/container: actual cgroup limits are three CPUs,
+4 GiB and zero swap, with ext4 voter files. RustFS has one CPU/2 GiB in the same
+six-CPU/12-GiB VM. This does not qualify independent voter processes or the full
+fault/load matrix. Earlier macOS S3 supervision failures remain unresolved; this
+new API's passing Docker gate does not waive them.
+
+Evidence: `CG-17-provider-execution-2ad84151f-1991/record.json`, retained outside
+the Cargo target with a second verified backup. It includes 24 native and
+48 Linux voter roots, six frozen executables, source archives and Docker file
+proofs. The first native build's typed-error test failure and deliberately stopped
+obsolete Linux build remain recorded. All owned runtimes are stopped; volumes
+and objects remain. The earlier `9254e2be9` evidence is retained separately.
+
+Next integrate this fence into framework-owned provider cleanup and normal
+Container/sandbox operations, then WebSockets and the full public primitive,
+feature, deployment/clock, cancellation and recovery matrix. **CG-17 remains
+0/32 formal cases accepted; overall acceptance stays 13/17 tasks and 147/195
+cases.** The inventory is partial at 18 entries/272 symbols. Historical CG-01
+custody still prevents the complete plan validator from passing.
+
+### CG-17 shared provider supervision and exact checkpoint gates
+
+**The merged Linux/RustFS gate passes: 14/14 fixed functions and 46
+image/minimum/fault configurations at `9254e2be9`.** It covers ordinary named
+bindings, native/Axum Consume/Ack, independent target S3 minima, live and retained
+interrupted-call recovery, safe sequence sealing, controlled lost S3 settlement
+output, provider journals, exact checkpoint gates and autonomous supervision.
+Original request, maintenance and recovery budgets and operation identities are
+unchanged. The owned Linux executable is frozen with SHA-256
+`9e58082f491bd7bd5dc1b702448b305a16e05a729c830a22da4fa8dfc04ba617`.
+
+RF3 shares one process/container. Actual cgroup v2 limits are three CPUs,
+4 GiB memory and zero swap; voter files use ext4. RustFS is separately capped
+at one CPU/2 GiB in the same six-CPU/12-GiB VM. This establishes the combined
+scoped Linux delivery. It does not isolate the macOS failures, prove a speedup,
+qualify independent voter failures or close a primitive family.
+
+**CG-17 remains open.** Runtime `be4657f87` connects the public `supervise`
+wrapper to shared provider journals and the committed native-work scheduler.
+Backend identities and complete policies bind the namespace schema. Task/wake
+updates commit together; cleanup preserves original resource and request IDs,
+checks current invocation authority and survives a failing business constructor.
+A deferred activation retains the resources needed to resume a parked writer.
+Contended lifecycle waits record a checkpoint before releasing that writer.
+
+Repeated provider gates can reuse an exact unchanged checkpoint of the same
+invocation. The SQL owner records its full-state marker separately from the
+pure-read watermark; new invocations, mutations and unproven binding bookkeeping
+require another checkpoint. S3 reuse retains the existing physical-custody,
+birth, fence and original-deadline checks. Public `Storage.sync()` is unchanged.
+The deterministic baseline `0bd71a7a7` captures four checkpoints plus the final
+receipt around two mutations. The fix requires two checkpoints plus the final
+receipt, and a fresh no-mutation invocation still records its own receipt.
+This measures committed versions in that workload, not a latency or load gain.
+
+At `be4657f87`, checkpoint provenance passes all four native and four real-RustFS
+image/minimum configurations. Native supervision and the ordinary journal and
+small-input workloads pass another twelve configurations: **sixteen native plus
+four RustFS configurations** across those complete functions. Twelve owning SQL,
+scheduler, dispatch and binding-recovery units and twelve existing ordinary
+provider/Fleet functions pass. The locked affected build and strict affected
+library/four-public-target Clippy pass. Runner checks pass 33 tests; the partial
+inventory now contains 18 entries/257 public symbols. `--suite provider-journals`
+provides fixed public entrypoints and retains every failure with `--keep-going`.
+
+The complete macOS/RustFS supervision function is **FAILED**. Before exact proof
+reuse, `f9490d78f` fails S3 Delete sequence 3; its trace fails Read sequence 2.
+Afterward, the unchanged workload reaches S3 retained restart but misses the
+original sixty-second lost-delete reconciliation oracle. A same-binary trace
+instead expires S3 Delete sequence 3. Both extent configurations remain unrun
+in these failed functions. The changing stage does not identify an exclusive
+cause, establish an original-budget deadline fix or qualify the whole function.
+All controls, original IDs, logs, frozen binaries and voter roots are retained.
+
+The merged Linux gate above is current-source evidence; the earlier `5b3cd177e`
+binding-only Linux pass below remains a separate checkpoint. The fixture backend
+checks identity and simulated absence; it does not establish real provider
+execution fencing, persistent volumes or native Container/SandboxCatalog support.
+WebSocket, deployment/clock, complete public API and lifecycle/fault/recovery
+matrices remain required. Acceptance stays **13/17 tasks, 147/195 cases and 0/32
+formal CG-17 entrypoints**. The generated plan and partial inventory do not waive
+those requirements.
+
+Evidence `CG-17-provider-supervision-9254e2be9-1962/record.json` retains the red
+checkpoint regression, failed macOS controls, source archives, frozen binaries,
+logs and voter-data custody. Twelve owning units and twelve ordinary provider/
+Fleet functions pass at `be4657f87`; its later Rust change is one canonical
+line-wrap. Candidate `9254e2be9` passes formatting/layout, native dependency/docs,
+33 runner and 13 coverage-validator tests; the generated index matches tasks.
+The inventory remains partial at 18 entries/257 symbols. All owned runtimes are
+stopped; object, voter and registry volumes and cold voter copies are retained.
+
+### Previous binding settlement and Linux qualification
+
+**The scoped Linux settlement gate passes: 11/11 functions and 34 configurations**
+at `5b3cd177e`. Ordinary S3 bindings and native/Axum Consume/Ack meet their
+original budgets with independent target S3 minima against real RustFS.
+Interrupted calls retain their unknown parents while live/restart recovery,
+unused-sequence sealing and lost-response settlement finish autonomously.
+Full CG-17 and macOS qualification remain open.
+
+Runtime `9dbdc597d` retains bounded confirmation work
+when a private binding settlement commits but loses its required S3 response.
+Logical settlement releases the exact old lane and discards expired business
+arguments; phase 5 retains the maintenance command, input identity, effective
+minimum and retry horizon. It cannot enroll a target or replay a business
+callback. Published summaries keep this debt runnable and prevent silent park.
+The exact receipt stays pinned against pruning until proof-gated private cleanup,
+which never changes a lane reused by a later call.
+
+The existing shared worker rediscovers confirmation without application traffic.
+Each turn performs one ordinary bounded receipt read at the original effective
+Quorum/S3 minimum, under current route/term authority. Missing, conflicting,
+expired or weaker observations cannot confirm it. Private system admission now
+reaches the physical SQL reader, where exact contract, input digest and system
+client validation still apply. Public receipt lookup remains restricted to public
+contracts; neither lookup executes a command callback. Response admission is
+released before cleanup needs the same SQL/archive capacity.
+
+The controlled regression denies actual archive writes containing private
+settlement beyond the admitted five-second maintenance window, restores RustFS,
+and observes recovery without sending an application request. At `a30c7abfb`,
+materialized recovery fails its unchanged 60-second confirmation ceiling; extent
+is unrun. At `0f008ab00`, durable confirmation exists but the same control still
+fails: code inspection finds the SQL receipt callback always validates public
+admission. At `9dbdc597d`, carrying private admission through that worker makes
+the unchanged control pass **both image configurations** in 51.13 seconds total.
+The parent remains unknown; target business state, no redispatch, real source
+proof and safe next-sequence use are still checked. Captured SQLite files alone
+are never treated as serving-manifest selection or successful S3 output.
+
+| Check | Current result |
+| --- | --- |
+| Controlled lost S3 settlement output, both images | PASS, runtime `9dbdc597d` |
+| Recovery, receipt pin/pruning, reused lane, seal, summary, private-contract and discovery units | 21 pass at `0f008ab00`; those implementations are unchanged by the private-read fix |
+| Strict affected library/public-target Clippy | PASS at `9dbdc597d`, `fe4ca5fe8` and `5b3cd177e` |
+| Interrupted target-S3 Ack with lost parent | Linux 8/8 PASS; macOS 7/8 at `5b3cd177e`, whole macOS gate FAILED before the remaining fault cut |
+| Complete Linux `binding-settlement` RustFS campaign | PASS: 11/11 functions, all 34 configurations, `5b3cd177e` |
+| Earlier macOS full settlement campaign | FAILED: five functions pass, six fail at `9dbdc597d`, retained |
+| Live checkpoint/unused-sequence recovery | PASS, all eight image/minimum/cut configurations |
+| Interrupted named calls after retained restart | PASS, all four image/minimum configurations |
+
+The earlier macOS campaign retains six failed functions. Both ordinary Quorum-source
+binding configurations pass; materialized/S3 expires on sequence 7 after retained
+restart and extent/S3 expires on sequence 1. Native EventStream passes
+materialized but extent Consume expires at the original three-second public
+budget after the child Ack returned; this is not a successful parent receipt.
+Ordinary Axum EventStream passes both images. Both independent-target-S3
+functions fail during materialized initial event activation; extent is unrun.
+The two new Ack functions initially fail all eight configurations before
+startup because their fixture skipped configuration validation, leaving the
+built-in stream class unregistered. Test-only `fe4ca5fe8` restores the ordinary
+validation and adds the exact `binding-ack-recovery` runner. One live Quorum case
+then reaches every work oracle but fails teardown's erroneous single-group
+expectation. `5b3cd177e` checks the actual three-group roster and makes the shared
+test close helper attempt every voter/host even after a failure, preserving every
+stop, group-count and unresolved-producer assertion. This does not establish an
+exclusive cause for the separate startup or latency failures.
+
+The focused corrected macOS Ack campaign passes **7/8 configurations** at `5b3cd177e`:
+all four S3-source image/live/restart combinations and three Quorum-source
+combinations. Quorum/extent/live fails during initial resource activation on
+node 0, before the Ack cut. The whole campaign remains FAILED, 1/2 functions.
+Its seven completed cases preserve the independently proven target S3 Ack,
+unknown parent, one callback/inbox effect, safe subsequent sequence and joined
+three-group stop. No failed identity, deadline, voter disk or original assertion
+is removed.
+
+The eleven fixed functions pass on frozen `5b3cd177e` Linux source, all **34
+image/minimum/fault configurations**. The original case oracles, five-second
+command/maintenance budgets, three-second public ingress budgets and CI profile
+remain unchanged. Exact nonzero selection, source hashes and a frozen executable
+are checked. The eleven test functions take 530.318 seconds in total; this is a
+functional qualification duration, without a throughput or latency claim.
+
+Cargo artifacts stay in this checkout's workspace target. Pinned Rust 1.98.1
+uses test opt-level 1, assertions and overflow checks. The first Linux build is
+retained as FAILED: its 5-GiB build-only cgroup kills `rustc` at roughly 4.97 GiB
+anonymous RSS, confirmed by the guest OOM log; no test ran. A single-job retry
+uses the same frozen source and checkout-specific cache with a 9-GiB build cap.
+Runtime limits are then reset and independently read from cgroup v2:
+`cpu.max=300000 100000`, `memory.max=4294967296`, `memory.swap.max=0`.
+Voter disks use an owned ext4 volume. RF3 shares that 3-CPU/4-GiB process container;
+RustFS retains its separate one-CPU/two-GiB cap in the same owned VM. Independent
+voter cgroups/hosts remain unqualified.
+
+The same RustFS image, container identity and object volume survive the owned VM
+mount/restart. The Linux run changes the kernel/filesystem and S3 network path;
+it supplies no exclusive explanation for the recorded macOS deadline failures.
+The two later commits change test setup/teardown and the focused runner only;
+production Rust inputs match `9dbdc597d`. Earlier failed gates remain retained.
+The Linux container and owned RustFS/VM are stopped after all cases and artifact
+capture. Object, voter and registry volumes are retained.
+
+The campaign adds interrupted Ack cuts after an independently proven target S3
+acknowledgement. Live and retained-restart recovery must preserve the unknown
+parent, one callback/inbox effect and a fresh `AlreadyAcknowledged` result. Its
+full eleven-function campaign also includes ordinary bindings, native/Axum
+Consume/Ack, independent target S3 minima, unused sequence sealing and original
+request budgets. The [runner guide](../../../../tools/multi-raft/README.md#binding-settlement-and-interrupted-consumeack)
+provides the exact command and diagnostic limits.
+
+This internal schema/private-contract change requires matching binaries and
+fresh compatible namespaces. Markers stay 1; no legacy reader, migration or
+older-data deletion is introduced. See the
+[binding contract](named-bindings.md#settlement-output-confirmation).
+
+Evidence is retained under the checkout-owned workspace artifacts:
+`cellar-s3-binding-settlement-delivery-20261120-01`,
+`cellar-binding-settlement-output-loss-red-20261120-01`,
+`cellar-binding-settlement-output-loss-0f008ab00-20261120-01`,
+`cellar-binding-settlement-output-loss-9dbdc597d-20261120-01` and
+`cellar-binding-settlement-full-9dbdc597d-20261120-01`,
+`cellar-binding-ack-recovery-fe4ca5fe8-20261120-01`,
+`cellar-binding-ack-recovery-5b3cd177e-20261120-01` and
+`cellar-binding-linux-5b3cd177e-20261120-01` (build OOM) and
+`cellar-binding-linux-5b3cd177e-20261120-02` (complete Linux PASS). Records retain source and
+executable hashes, the causal failed controls, logs, signed store probes and
+failed voter disks. The earlier `4897f5a50` live-recovery gate remains FAILED
+7/8 configurations; a later one-configuration diagnostic pass did not replace it.
+
+RF3 voters share one native process with one SQL worker each. The separate owned
+RustFS container retains its pinned image, one CPU and 2 GiB. These checks do not
+qualify independent voter cgroups/crashes, sustained load, deployment/clock
+changes, all-voter disk loss or full primitive families. Formal acceptance stays
+**13/17 tasks, 147/195 cases and 0/32 CG-17 entry points**. The implementation index
+is current; the inventory is partial and full plan validation still lacks the
+historical CG-01 evidence file. Next integrate this source with the provider and
+durable-work changes, qualify the combined source and complete the public-family
+API/lifecycle ledgers. macOS original-budget qualification, independent voter
+fault/load tests and the full primitive matrix remain required before broad
+compatibility or default-backend release claims.
+
+### Previous provider journals and local invocation authority
+
+**CG-17 remains open.** Runtime `feb22476c` adds
+`RaftClass::provider_binding` and connects the public `BindingJournal` and
+`ProviderAuthority` to shared-group storage and checkpoint proofs. Declarations
+are bounded, schema-bound and checked against retained records. Journal access
+requires the original root invocation; checkpoint completion rechecks its
+deadline and activation fence. Native Container, SandboxCatalog and supervised
+maintenance remain refused until their own shared adapters exist.
+
+Five selected owning functions pass on this source. The canonical journal
+workload passes four native and four real-RustFS configurations: both image
+modes and Quorum/S3 namespace minima. The same native workload also passes all
+four configurations with a 1-KiB caller-input limit; framework checkpoint bounds
+remain separate. Coverage includes two cells sharing a group, duplicate receipts,
+protected metadata, invalid configuration/revision transitions, stale handles,
+retained RF3 restart, confirmed retirement and archive-write refusal. Declaration
+bounds and the existing ordinary Fleet journal/recovery regression also pass.
+The locked two-target build, strict affected library/public-test Clippy,
+format/layout, dependency/docs and inventory checks pass. Thirteen synthetic
+coverage-validator tests pass; they qualify report rejection, not the runtime.
+
+The owning baseline `c6162aad6` reaches the enrolled cell and refuses journal
+creation with `UnsupportedCapability`. Initial green `860e0a314` passes the
+materialized Quorum workload but fails the new test's S3 receipt expectation on
+both backends. Inspection confirms that an unfinished RPC checkpoint must return
+`Execution(Uncertain)`. The corrected scoped oracle requires that exact outcome,
+the original command identity and zero provider polls after denied proof; Quorum
+still requires the completed receipt and exact result. Backend restoration does
+not fabricate completion or authorize replay. Both earlier failed controls and
+their disks remain retained. No original formal case or named-binding oracle,
+deadline, quota or proof changes.
+
+The provider name in this fixture is metadata and its effect counter observes
+entry into potential provider work. It does **not** execute Docker or establish
+remote execution fencing, supervisor recovery or provider-volume restoration.
+Interrupted external work still requires authenticated reconciliation. Evidence
+`CG-17-provider-journals-feb22476c-1889/record.json` retains controls, sources,
+frozen executables and voter disks. RustFS uses one CPU/2 GiB; voters share a
+native process. The owned backend/VM are stopped with objects retained.
+
+Next close autonomous binding/maintenance settlement and compound S3 parent
+proofs, then complete real provider/sandbox/supervisor adapters, WebSocket
+lifecycle and every primitive's public/recovery matrix. The earlier named-binding
+deadline failures below remain open on their recorded sources. Acceptance stays
+**13/17 tasks, 147/195 cases and 0/32 formal CG-17 entry points**. The generated
+index is current; inventory remains partial at 18 entries/244 public symbols.
+Full provider, feature, lifecycle and independently constrained voter evidence
+remain mandatory.
+
+### Previous registry validation and retirement intents
+
+**CG-17 remains open.** Runtime `8fa46e7f1` overlaps fresh bounded identity and
+versioned-registry reads. Both bodies still pass the existing size, encoding,
+identity and state checks; ordinary errors join both reads before releasing
+admission. It also carries confirmed predecessor retirement into the next required
+durable intent. Failure before that checkpoint leaves replayable retirement debt.
+Quiet completion and shutdown still persist cleanup; remote allocation still
+waits for the intent barrier. Publication and selected-head barriers are unchanged.
+No request deadline, quota, digest, physical recovery or output proof is removed.
+
+Both owning red regressions reproduce. The registry regression at `b0db56d4c`
+detects serialized control reads; `b154477be` writes standalone retirement cleanup
+before the next intent. Both pass native and real RustFS in both image modes on
+the combined runtime. Coverage includes held-peer/error joins, corrupted controls,
+cancellation, lost reservation replies, the held journal barrier, exact-ticket
+retry after failed chunk writes and independent cold image-byte verification.
+This does not qualify hard process-kill or power-loss recovery.
+
+Twenty selected archive/controller functions pass on this runtime: ten native and
+ten RustFS. They cover current registry validation, uncertain publication, pending
+and retained ownership, warm-cache corruption, replay, checkpoint I/O, reservation
+recovery, joined close, exact S3 results, deadlines and compaction fencing. The
+locked three-target build and strict affected library/three-target Clippy pass.
+Final repository-check results are retained with the evidence below.
+
+The unchanged public binding gates remain **FAILED**:
+
+| Backend | Passing configurations | Remaining ambiguous deadlines |
+| --- | --- | --- |
+| Native | Both Quorum sources, 2/4 | Materialized/S3 sequence 1; extent/S3 sequence 1 |
+| Real RustFS | Both Quorum sources, 2/4 | Materialized/S3 sequence 1; extent/S3 sequence 3 |
+
+Child replies return before the parent response expires. These logs do not
+establish which final commit/proof stage exhausts the budget. Preserve client
+`[121; 16]`, the original sequences, raw outcomes and voter disks. Earlier
+registry-only `89de7d20c` passes 3/4 RustFS configurations but fails extent/S3
+sequence 7 after retained restart. Its separate full-case phase trace also fails.
+Test-only `4897f5a50` repeats the extent/S3 sequence-7 failure with opt-in I/O
+observations and two one-second samples of the exact owned process. The samples
+include journal, manifest-page and extent staging syncs; they span multiple
+threads and do not establish an exclusive latency cause. The original fixtures
+and budgets remain unchanged. No deadline fix, speedup or stability is established.
+
+Evidence: `CG-17-registry-retirement-8fa46e7f1-1865/record.json`, including both red
+controls, earlier failed comparisons, the diagnostic, frozen binaries, source
+archives and retained disks. The separately identified RustFS lab uses one CPU
+and 2 GiB; its voters remain native in-process. The owned backend/VM are stopped
+after qualification with objects retained. Previous lab objects remain unavailable;
+independent constrained Linux voter qualification remains required.
+
+Next close exact-command recovery/sequence settlement and compound binding/final
+parent proofs, then Consume/Ack and managed startup/cleanup. Complete the public
+primitive/provider/feature/lifecycle drivers and per-API ledgers; selected archive
+passes cannot substitute for them. All 32 formal CG-17 cases remain required.
+Acceptance stays **13/17 tasks, 147/195 cases and 0/32 formal CG-17 entry points**.
+The generated index is current; inventory and historical CG-01 custody remain
+incomplete. The earlier checkpoints below remain retained qualification history.
+
+### Previous bounded uploads and durable reservation recovery
+
+**CG-17 remains open.** Runtime `85901c941` adds bounded, ordered checkpoint
+creates and removes one redundant local ticket checkpoint. Two conditional
+creates and their exact GET confirmations overlap inside the existing workspace.
+Failure stops further admission, drains entered I/O and joins the physical
+producer; cancellation preserves the generation for exact retry. Every object
+still passes length/digest checks and independent physical recovery. A durable
+reservation intent reconciles the same upload ticket after failed chunk writes;
+the publication intent, selected head and retirement debt retain their fsync
+barriers. No request budget, quota, source/target proof or output gate changes.
+
+Both owning regressions fail before their changes: `56a77bc5f` serializes chunk
+creates, and `9f365c7e5` writes the redundant derived ticket. The create-window
+regression passes native and real RustFS in both image modes at `0d2de06bb`.
+Its refusal, lost-response, cancellation and same-generation retry branches pass
+full physical byte verification. Fifteen selected archive functions pass at that
+source. At final runtime `85901c941`, reservation recovery passes both image modes
+on native and RustFS, including actual denied chunk writes, reloading the durable
+intent, exact ticket reconciliation, successor publication and a cold byte audit.
+This is failed-job recovery, not a hard process-kill or power-loss qualification.
+All six selected RustFS controller functions pass, covering reconciliation,
+receipt coverage, deadlines, predecessor retirement and compaction fencing.
+
+The original public binding gate remains **FAILED, 2/4 configurations pass**.
+Both Quorum-source configurations pass. Materialized/S3 expires on sequence 1;
+extent/S3 expires on sequence 3. Earlier comparison runtime `784df7f3a` passes 3/4
+on this same new lab; pipeline-only `0d2de06bb` passes 2/4. These results do not
+establish a speedup or a fix for the compound request deadline.
+
+Test-only `8c7b0acba` enables existing phases around the unchanged complete binding
+fixture. It passes 1/4; both S3-source arms and extent/Quorum expire on sequence 1.
+In the materialized S3 trace, the two source checkpoints take approximately
+1.4–1.5 seconds each before dependent dispatch; target enrollment and the first
+child add approximately 1.4 seconds. The original run also reaches child replies
+before final parent expiry. Reduce the complete source-publication and child
+settlement path with causal regressions; a diagnostic pass or later local apply
+cannot replace the original output gate. Unknown identities and disks remain.
+
+The new owned RustFS lab has a separate identity from the unavailable prior lab.
+Its pinned RustFS container has one CPU and 2 GiB; the RF3 voters remain native
+in-process, so independent Linux voter limits are still unqualified here.
+The new lab is stopped after qualification with its volume retained. This does
+not establish retention of the previous lab's unavailable objects. A foreign
+native test process was observed before the final public run and left untouched;
+the observation supplies no exclusive resource or latency attribution.
+
+Locked builds, strict affected library/test Clippy, formatting/layout, dependency,
+docs, coverage-validator and source/index checks pass. Evidence:
+`CG-17-upload-reservation-85901c941-1835/record.json`, including both red controls,
+three original public comparisons, the separate diagnostic, source archives,
+frozen executables and retained disks. The prior failed campaign below remains
+required history. Next close compound binding settlement, then autonomous
+recovery/sealing, EventStream Ack and managed startup/cleanup before the complete
+primitive/provider/feature/lifecycle matrix. Acceptance stays **13/17 tasks,
+147/195 cases and 0/32 formal CG-17 entry points**. The index remains current;
+inventory and historical CG-01 custody remain incomplete.
+
+### Previous bounded checkpoint verification and public-path results
+
+**CG-17 remains open.** Runtime `4eb298a85` overlaps two checkpoint chunk GETs
+inside the existing eight-chunk archive workspace. Every remote object still
+passes its length/digest check and the ordinary physical receiver, in descriptor
+order. A failure stops further admission and drains entered reads before joining
+the receiver. No request deadline, quota, durability proof or final-output gate
+changed. Test-only `784df7f3a` adds an explicitly ignored EventStream publication
+trace; its production sources and original owning fixtures match this runtime.
+
+The new actual-byte regression fails on unchanged runtime at `fd60da670` because
+the second chunk cannot start while the first is held. It passes after the change
+on native and real RustFS, with both image modes, ordered backpressure, digest
+refusal, retained admission, physical cleanup and unchanged serving manifests.
+The locked build, focused strict Clippy, 11 selected archive checks and the
+coverage-validator checks pass. This establishes bounded overlap, not a measured
+speedup or an exclusive cause for earlier deadline failures.
+
+The selected public/archive campaign remains **FAILED: 16/20 whole functions
+pass**. Earlier failed results are retained and are not superseded by new passes.
+
+| Owning check | Current result |
+| --- | --- |
+| Complete S3-source read case | All 16 native/RustFS image-and-mode configurations pass, including dirty state, eviction and the separate final parent S3 receipt |
+| Native/Axum Queue transfer identity | Real RustFS passes all four image/ingress configurations, including archive readiness, purge, retained restart, exact replay and negative mixed-batch checks |
+| Queue fault and retention case | Fails while starting the fresh retention cluster after the first fault scenario; managed startup reports `Transport(Timeout)` and cleanup reports closed resources; full image configurations remain unqualified |
+| Ordinary named cell bindings | Native passes 4/4; RustFS passes both Quorum-source configurations, but materialized/S3 fails at sequence 7 after retained restart and extent/S3 at sequence 1, both ambiguous deadlines |
+| Ordinary native EventStream | Materialized completes; extent Consume fails after Ack submission with an ambiguous parent deadline. A test-only full-case trace later passes without a runtime change and does not establish a fix |
+| Materialized live binding recovery | Quorum checkpoint recovery and Quorum/S3 unused-sequence sealing pass, 3/4 configurations. S3 checkpoint coverage fails during source enrollment, before recovery begins |
+
+No compiler processes were recorded at the starts of these selected public cases;
+this is not an exclusive resource or latency attribution. The voters still share
+a native process; independent Linux voter limits and the release matrix remain
+required. Preserve all ambiguous command identities and the original budgets.
+
+The owned RustFS lab subsequently became unavailable: its profile/VM directories,
+Docker context and endpoint were absent at the extent-recovery preflight. No
+fixture executed in that attempt. Cause and exact interruption time are unknown;
+no owned stop/delete command occurred in that interval. Old object-store contents
+cannot currently be verified or claimed retained. Voter disks, frozen executables,
+source archives and raw logs remain on the workspace volume. Do not replace this
+preflight with a pass or attribute preceding failures to the interruption without
+evidence.
+
+Next close compound S3 binding/enrollment settlement, EventStream Ack and managed
+startup/cleanup on the original contracts. Autonomous binding recovery and sealing
+already have implementations; complete their public qualification and fix the
+observed failures. Restore a separately identified owned RustFS lab, then deliver
+the remaining primitive/provider/feature/lifecycle cases and actual per-API
+acceptance ledgers. All 32 formal cases remain required.
+
+Evidence: `CG-17-bounded-checkpoint-4eb298a85-1805/record.json`, including the red
+baseline, exact frozen binaries, four failed owning functions, the separate
+passing diagnostic and the unrun infrastructure preflight. Its predecessor
+`CG-17-queue-source-4fd16eca3-1785/record.json` remains failed and retained.
+Acceptance remains **13/17 tasks, 147/195 cases and 0/32 formal CG-17 entry-point
+functions**. The generated implementation index is current; the inventory is
+partial and historical CG-01 custody remains missing.
+
+### Previous S3 source custody and Queue transfer checkpoint
+
+**CG-17 remains open.** Combined runtime `4fd16eca3` adds two behaviors:
+
+- An unchanged S3 source can reuse an actually verified intermediate checkpoint
+  for dependent reads. The typed capability binds its complete cell version and
+  route, checks current birth and continuation fences, and tracks SQLite changes.
+  Eviction, dirty state or a changed resume image requires another checkpoint.
+  Idle custody stays charged to both existing physical banks and can be evicted;
+  active verification is released before target I/O. Target proofs and the final
+  parent receipt retain their independent gates.
+- A Queue DLQ transfer receipt now binds payload bytes, content type, message ID
+  and provenance after purge or redrive. Complete-batch validation precedes writes.
+  Expected conflicts become durable RPC error results; capacity, SQL, rollback
+  and proof failures retain their host-failure and ambiguity semantics. The schema
+  and operation digest use an internal hard cutover, requiring matching binaries
+  and fresh compatible Queue roots/namespaces, without migration or data deletion.
+
+The canonical locked build, **40 owning units**, **three Fleet Queue/schema
+checks**, strict library/two-integration-target Clippy, format check, 30 harness
+checks and 13 coverage-validator checks pass. The selected public campaign remains
+**FAILED: 9/11 whole functions pass**, including two directed diagnostics:
+
+| Owning check | Combined-source result |
+| --- | --- |
+| Complete four-mode S3 source case | Native: all eight image/mode configurations pass; RustFS materialized final parent deadline fails, extent is unrun |
+| Directed S3 eviction diagnostic | Native and real RustFS pass both images; the next read requires fresh proof and final S3 output is separate |
+| Original initial-read and binding-bookkeeping guards | Native and real RustFS pass all 24 configurations |
+| Queue transfer identity through native ingress | Real RustFS passes both images, including purge, retained restart, exact replay and negative mixed-batch checks |
+| Queue transfer identity through Axum | Materialized passes; extent fails archive readiness after delivery/purge, before retained restart and its replay checks |
+| Original Queue S3 fault/retention case | Real RustFS passes both images, including lost target reply, partial retries, stale generations and active purge |
+
+The three Queue selections therefore pass **5/6 image configurations**, not the
+complete Queue gate. The separately qualified `3500e49c5` integration passes all
+six on its own source; that result cannot replace the failed combined-source case.
+No deadline, quota, proof gate or original assertion was weakened. Earlier fixture
+mistakes and compiler failures remain retained. The new source fixture initially
+used sequences 2–4 as the first command in fresh cells; these correctly refused.
+They now start at 1. Its original mode-0 baseline still reproduces the redundant
+checkpoint count, while the complete native case now passes on combined source.
+
+Foreign compiler load is recorded for the runtime observations; owned compilers
+and formatters had joined. These results establish no clean-machine latency,
+stability or exclusive performance cause. One older trace spends 2.335 seconds
+inside independent verification. The failed Queue readiness snapshot sees an
+applied prefix of 10 and archived prefix 6 on two replicas, while another has
+published 10 by snapshot time. Sampling occurs after timeout; this does not prove
+leadership latching or the exact blocking resource. Do not change the readiness
+oracle or remove final physical barriers based on that snapshot.
+
+Next close **final S3 parent settlement and Queue extent archive advancement**
+within the original budgets, using phase-specific causal regressions and the
+controlled Linux/RustFS profile. Then finish original public binding/Consume/Ack
+and cold-activation gates, autonomous interrupted-call reconciliation and safe
+sequence sealing, followed by all remaining primitive/provider/feature/lifecycle
+cases. The prepared named-binding rerun was not executed after the owning RustFS
+source case failed; it supplies no qualification.
+
+Evidence `CG-17-queue-source-4fd16eca3-1785/record.json` retains the combined
+source, frozen executables, logs and failed disks. Its predecessor
+`CG-17-s3-read-source-d3465d0e4-1774/record.json` retains 21 failed baseline/candidate
+roots, 1,054 files and nine executables. The owned backend and VM are stopped;
+objects remain. Voters share a native process; independent voter cgroups and the
+release matrix remain required.
+
+Acceptance stays **13/17 tasks, 147/195 cases and 0/32 formal CG-17 entry-point
+functions**. The inventory is partial, and historical CG-01 evidence remains
+missing. The generated implementation index reflects these unchanged statuses.
+
+### Previous binding-reconciliation checkpoint
+
+**CG-17 remains open.** Runtime `31ac1dec4` preserves failed fresh-name
+reconciliation alongside its original typed enrollment error. Stateless SDK
+bindings, stateful bindings, resource genesis and broker preparation retain the
+lookup cause without clearing creation identity, independent minimum or ambiguity.
+`sdk::CellBindingEnrollmentReconciliationError` exposes the local lookup cause;
+reader-admission and missing-target classifiers cannot turn it into mutation
+replay authority. The original refusal assertions and all deadlines remain.
+
+The canonical optimized build and **37 owning tests pass**, including the new
+five-cause reconciliation/admission regression, original creation identity and
+retry rules, recovery/sequence sealing, activation, private event RPC and current
+authority checks. Strict Cellar library/test Clippy, format/layout and initial
+docs/dependency checks pass. Previously recorded dependency warnings remain.
+
+The unchanged public campaign is **FAILED, 1/8 whole functions passed**:
+
+| Owning public function | Result |
+| --- | --- |
+| Native named bindings | Passed all four image/source-minimum configurations, including restart |
+| Native basic EventStream | Failed Consume |
+| Native Axum basic EventStream | Failed Consume |
+| RustFS named bindings | Materialized/Quorum passed; other three configurations failed |
+| RustFS basic EventStream | Failed Consume |
+| RustFS Axum basic EventStream | Failed Consume |
+| RustFS independent-target-S3 EventStream | Failed initial materialized activation |
+| RustFS Axum independent-target-S3 EventStream | Failed initial materialized activation |
+
+These serial functional runs recorded continuing compilation in other checkouts;
+owned compilation/formatting had stopped. They do not establish clean-machine
+latency, stability or an exclusive cause of the changed results. Failed functions
+do not qualify their remaining image configurations. The earlier native final
+quorum-refusal failure is fixed at the typed error boundary, but these public
+EventStream runs fail earlier and do not close that end-to-end gate.
+
+The fresh `f899e5d35` baseline passes native named bindings, native Axum basic
+EventStream and both basic RustFS EventStream functions. Native EventStream fails
+its final quorum-loss classification after business/restart checks. RustFS named
+bindings pass three configurations and fail extent/S3 source parent sequence 2;
+the stronger target-S3 cases fail Consume or activation. These observations
+replace assumptions based on the older native retained sequence-7 failure; they
+do not erase earlier failed controls. One nonexistent RustFS selector was rejected
+before execution and is retained as unrun; the four actual selectors were then
+preflighted and recorded separately. No zero-selected test is accepted.
+
+Next implement original-budget S3 source/target completion, including the actual
+Consume/Ack and cold-activation critical paths. A typed exact-base source proof
+must come from physical S3 verification and invalidate on dirty state, rebase,
+history/route/term changes; broadening the Quorum flag supplies no S3 authority.
+Then close autonomous interrupted binding settlement and the complete public
+primitive/provider/feature/lifecycle matrix. Avoid another broad timing campaign
+without an owning causal feature or regression.
+
+Evidence `CG-17-enrollment-reconciliation-31ac1dec4-1760/record.json` remains
+**FAILED**, retaining 39 baseline/fix voter roots, four frozen executables and
+source/log backups. RF3 voters share one process; RustFS has one CPU, two GiB and
+no additional swap. Independent voter cgroups and release qualification remain
+open. Owned runtime/backend/VM are stopped. The partial inventory now includes
+223 public symbols; its coverage requirements remain unchanged.
+
+Acceptance stays **13/17 tasks, 147/195 cases and 0/32 planned CG-17 entry-point
+functions**. Full historical validation still lacks the CG-01 record. No full
+primitive family, CG-17 closure or default-backend cutover is accepted.
+
+### Previous settled-catalog checkpoint
+
+**CG-17 remains open.** Runtime `f899e5d35` adds a private settled-catalog read.
+Pending configuration returns typed `NotReady` before successful output or archive
+settlement. The same invocation releases its SQL selection, waits for that exact
+cell to advance and obtains fresh quorum authority. A settled response still
+requires current authorization and the ordinary independent target S3 proof.
+Original deadlines, attempt budgets and uncertainty rules remain unchanged.
+Ordinary status reads keep their existing behavior. Earlier full capability and
+backend-isolation checks remain in force.
+
+The locked optimized build passes with assertions and overflow checks enabled.
+All **27 selected owning tests pass**: eleven activation protocol tests, fifteen
+private event RPC/metadata tests and one authority test. The catalog initializer
+case covers creating/updating refusal, ordinary status, foreign/ordinary caller
+refusal, active revision/digest, retirement and current grant revocation.
+
+The original owning campaign remains **FAILED**, with **5/12 image configurations
+passed**, four failed and three unrun:
+
+| Owning case | Materialized | Extents |
+| --- | --- | --- |
+| Native public publication/subscriptions/outbox | Passed | Passed |
+| Native retained activation | Passed | Passed |
+| Real RustFS public publication/subscriptions/outbox | Passed | Failed initial activation |
+| Real RustFS retained activation | Failed initial activation | Unrun |
+| Native Axum public publication/subscriptions/outbox | Failed initial activation | Unrun |
+| Real RustFS Axum public publication/subscriptions/outbox | Failed initial activation | Unrun |
+
+The passing public cases complete their original lifecycle, recovery, archive
+outage, receipt/replay and quorum-refusal checks. Retained cases require fresh
+quorum and retain their name-selection cost/refusal oracles. These are scoped
+passes, not complete EventStream-family or planned-case acceptance. The older
+12-selector public RPC/EventStream cohort has not been fully rerun on this source;
+its named source-S3 retained-sequence failure and other unqualified paths remain
+required. No speedup, timing stability or exclusive causal fix is established.
+
+The critical gap is still **cold catalog enrollment and source/final S3 proof
+completion within the original activation deadline**. Next investigate exact-base
+S3 proofs for unchanged read sources, with real retained coverage and invalidation
+on dirty writes or writer rebase; a Quorum clean-source flag cannot supply S3
+proof. Then complete autonomous interrupted binding recovery and every remaining
+primitive/provider/feature/lifecycle case. All 32 CG-17 cases remain mandatory.
+
+Evidence `CG-17-event-catalog-ready-f899e5d35-1744/record.json` is **FAILED**.
+It verifies twelve failed voter roots/487 files and two frozen executables, with
+verified source/log/evidence backup. The earlier 42-root/1,718-file controls and
+eight binaries remain retained through the preceding record. RF3 TLS voters share
+one process with separate disks. Real RustFS has one CPU, two GiB and no additional
+swap. Independent voter cgroups and release qualification are not established.
+Owned runtime/backend/VM are stopped.
+
+An unqualified no-manifest archive-scheduling experiment at `49a3bc96b` was
+withdrawn without weakening its failing oracle: the chosen fixture legitimately
+publishes an empty bootstrap cut. Its failed test, source, three voter roots/49
+files and frozen executables remain in
+`CG-17-idle-archive-withdrawn-49a3bc96b-1750/record.json`. The successor restores
+runtime source exactly to `f899e5d35`; that experiment is not part of the change.
+
+Acceptance stays **13/17 tasks and 147/195 cases**; **0/32 planned CG-17 entry-point
+functions** are present. The generated implementation index remains current.
+Historical CG-01 evidence is still missing. Final repository checks are reported
+separately from the frozen runtime qualification.
+
+### Earlier operator intake qualification
+
+**CG-17 remains open.** Runtime `ee2452a94` closes an unbounded request-body
+wait at the common primitive operator entrance. Collection now consumes the
+original node deadline and expiry closes the incomplete HTTP connection before
+authentication or primitive dispatch. Submitted command settlement and payload
+verification are unchanged. The actual signed-upload baseline `138e3e23e` fails
+both image forms at the 3.5-second observer for the unchanged three-second policy.
+
+Qualification of the frozen runtime and matching CLI passes:
+
+- Incomplete uploads: **native 2/2 and real RustFS 2/2**. The response carries the
+  fixed deadline code; the connection and upload stream close, no KV value is
+  installed, and subsequent ordinary operator and public requests succeed.
+- Isolated actual CLI 25-MiB SDK read and file put/get: **real RustFS 2/2**, with
+  complete byte verification and original budgets. Its initial reduced fixture
+  omitted authentication setup; those six failed disks and logs are retained.
+- The unchanged full public KV case: **real RustFS 2/2**, including SDK/CLI paths,
+  retained restart, payload outage/restoration, archive-write outage and quorum
+  refusal. An earlier test-only timing run at `73f41e2b0` also passes both forms.
+  These passes do not explain or exclusively fix the older materialized CLI
+  publication timeout at `bb09d155c`; its failed candidate and disks remain retained.
+
+**EventStream still blocks delivery.** Unchanged controls at test-only
+`73f41e2b0` remain failed: native materialized completes its case, but extent mode
+fails initial explicit activation with `DeadlineExceeded`. Real RustFS fails the
+S3-source delivery `Read` before reaching `Consume`; its extent form is unrun.
+Preserve these failures alongside earlier `Consume`, binding and SQL recovery
+failures. Next isolate the read/admission and activation paths within their
+original budgets, then complete durable binding and consumer settlement.
+
+Evidence is `CG-17-operator-ingress-ee2452a94-1700/record.json`: the upload fix
+passes its causal checks, while the overall record remains **FAILED** because
+broader primitive qualification is incomplete. RF3 TLS voters share a process
+with separate disks; RustFS has one CPU, two GiB and no extra swap. Target quorum
+minima are exercised; this is not complete feature/provider/durability/lifecycle
+coverage. All **32 planned cases** remain required and no task acceptance changes.
+
+Strict affected Clippy and layout pass at the qualified runtime. Final formatting
+and documentation follow that source; no combined final-source acceptance is
+claimed. Owned runtime processes, backend and VM are stopped with data retained.
+The generated index remains 13/17 tasks and 147/195 accepted cases; full plan
+validation still lacks the historical CG-01 evidence record.
+
+Earlier production `bb09d155c` preserves one streamed-KV deadline through intake,
+publication and commit, with native 2/2, RustFS 2/2 and Fleet 2/2 checks. Its causal
+input control, the history-bound revision fix `34e16afa8`, and typed SQL failures
+at `2da96dcd6` retain their separate evidence and qualification limits.
+
+## Earlier KV revision qualification
+
+**CG-17 remains open.** Production `34e16afa8` fixes KV conditional revision
+identity. The actual authenticated operator at `0956fbf88` accepted another
+logical cell's token when incarnation and counter coincided, changing that
+cell's value. Tokens now bind the complete logical history (cluster, namespace,
+cell and incarnation), independently of physical group or leader. The KV service
+schema changes with this hard format-1 cutover: use matching service definitions
+and compatible fresh KV namespaces; incarnation-only tokens are refused.
+Ordinary Fleet decimal revisions remain unchanged.
+
+The regression checks foreign refusal without changing the target, successful
+own conditions, stale conditions, leader transfer and retained all-voter restart.
+Native RF3 passes **4/4** configurations at `34e16afa8`. Test-only instrumentation
+`e76598cfd` attempts every image/minimum and records operation/ingress/checkpoint
+stages: native **4/4**, real RustFS **4/4** pass. Both image forms and Quorum/S3
+target minima are covered. Fleet KV conformance and token validation pass **2/2**.
+
+**Broader qualification still fails.** Unchanged public KV owning tests pass
+**3/4** configurations: both Axum forms and native materialized pass; native
+extent fails the first `ReadLarge` after restoring denied payload reads,
+following retained restart. The error preserves ingress lane sequence **50**
+as ambiguous after the original deadline. An earlier, uninstrumented RustFS
+revision run passes materialized/Quorum, then fails materialized/S3 with ambiguous
+sequence **4**; extent configurations are not reached. This failure did not
+reproduce in the traced run. No production deadline fix or exclusive cause is
+established, and that later pass does not erase the failed control.
+
+Evidence is `CG-17-kv-history-e76598cfd-1662/record.json` under
+`.cellar/cell-groups-evidence/`; its aggregate status is **FAILED**. Failed disks,
+original identities, logs and frozen binaries are retained. The custody audit
+verifies nine new failed voter disks, 2,459 files and four frozen executables.
+Voters are real RF3
+TLS actors sharing one process with separate disks; RustFS is limited to one
+CPU/two GiB/no extra swap. Independent Linux voters, complete primitive/provider/
+feature coverage, movement and disaster recovery are not qualified here. Owned
+processes exited and the backend/VM are stopped with objects retained.
+
+Locked builds, affected strict Clippy, formatting, layout, dependency and docs
+checks pass; all 13 independent coverage-validator tests pass. The inventory
+remains partial: **18 entries, 222 symbols, 4,872 required coverage cells**.
+None of the 32 planned full acceptance entry points is present. Next isolate
+original-deadline S3/public-payload settlement with original identities and safe
+sequence sealing, resolve the startup/restart failures below, and complete actual
+family drivers and ledgers. All 32 cases and dependencies remain mandatory;
+acceptance remains **13/17 tasks, 147/195 cases**.
+Full plan validation still fails on the missing historical CG-01 evidence record;
+this campaign does not recreate it or repair older custody gaps.
+
+## Earlier SQL failure qualification
+
+**CG-17 remains open.** Runtime `2da96dcd6` fixes a SQL correctness gap: the
+ordinary Rust SQL facade retains the original typed binding command or enrollment
+failure instead of flattening it to text. Clones retain the owned cause; serialized
+errors keep only their existing family/message fields and cannot mint dispatch
+provenance. Construct `sql::Error` with its constructors instead of struct literals.
+
+The byte-identical public regression fails at `76c66c7c1` and passes at
+`2da96dcd6`, preserving child/creation IDs, target histories, ambiguity and the
+enrollment minimum. All five native value/error tests and both public SQL tests
+pass. The public facade fixture supplies host-channel outcomes; it is not itself
+a Raft recovery proof. Locked builds, affected strict Clippy, formatting and layout
+pass. The inventory remains partial: 18 entries, 220 symbols, 4,872 required cells.
+
+**The separate retained-restart recovery qualification is FAILED:** native
+RF3 passes **7/8**, real RustFS **2/8**. The unchanged case covers both image forms,
+Quorum/S3 source commands, successful SQL and batch rollback after parent
+interruption. Native extent/Quorum/SQL-error recovery observes
+`Fenced(NodeLeaseExpired)` in restart's stop phase; the actual expiry time and
+cause are not established. RustFS has four group-startup transport timeouts,
+one `NotReady` and one ambiguous enrollment deadline. Neither cohort accepts
+complete binding recovery. Original five-second budgets and all oracles remain.
+
+Records are under `CG-17-sql-errors-2da96dcd6-1639/` in
+`.cellar/cell-groups-evidence/`; the aggregate remains failed. Custody audit 1638
+verifies all **21 new failed voter disks**, the three original Consume disks,
+649 files and five frozen executable copies. The voters share a host process;
+RustFS retains one CPU/two GiB/no extra swap. No independent-voter or release
+qualification is claimed. Test processes exited and the owned backend/VM are
+stopped with data retained. The stopped container reports no OOM kill or restart;
+that observation does not establish the timeout cause.
+
+The original native public Consume baseline also fails at `76c66c7c1`: materialized
+parent sequence 2 exceeds its original three seconds; extent mode is not reached.
+Earlier source-S3 failures remain required work. Next close actual managed
+startup/restart and original-deadline failures, then complete public-family
+drivers, provider/feature coverage and combined lifecycle/recovery. All 32 cases
+and dependencies remain; no task or case acceptance changes.
+
+## Earlier basic SQL/KV daemon qualification
+
+**CG-17 remains open.** Runtime `b9f9ddf87`, qualified by daemon source
+`f4db9e450`, includes latest fetched main `2f083f148`. Ordinary SQL and KV SDK
+bindings now pass the complete **basic managed daemon campaign in all four
+constrained Linux/RustFS configurations**: materialized/extents × Quorum/S3
+namespace minimum. Each run hosts two RF3 groups and four logical cells, with
+one CPU/three GiB/no extra swap per voter and RustFS at one CPU/two GiB.
+
+The campaign uses compiled CLI onboarding, `Context.sql` / `Context.kv`, native
+and Axum application adapters, SQL primary sessions and batch rollback. It checks
+reads after writes, all-voter retained restart, actual leader SIGKILL and retained
+rejoin, archive-write denial/restoration, eight protected minority refusals and
+six physically joined stops. Independent validation requires the selected
+histories, group/cell counts, HTTP results, observed archive failures and actual
+cgroup limits. The final four profiles pass at 146/228/157/232 seconds. A separate
+native/RustFS materialized/Quorum campaign passes at `cbad925e6`.
+
+Two production changes make this path work:
+
+- Explicit managed query/command-origin helpers use the installed current-boot
+  directory and existing revocation fences. Voting membership grants no request
+  permission. The owning native/Axum authority test passes both images at
+  `3c0aef6d6`, including foreign/unknown-peer and stale-grant refusal.
+- The native ownership actor starts before pending Raft readiness; log maintenance
+  starts after that actor. The held-startup regression fails before the fix at
+  `5a4469d06` and passes afterward: a new node-lease generation renews while public
+  ingress stays closed. Startup cancellation/failure closes and joins the owners.
+  Both Linux daemon lifecycle image gates pass at `88acf48ce`. Later commits
+  change only the primitive fixture and failure context; their production CLI
+  SHA-256 remains `7d83a723ceee9f46fe8effed055760fbc26941e5c1cf0ec625ed6c49dcac06e6`.
+
+The fixture also fixes a container/VM PID comparison with a fresh per-launch
+rendezvous token, and observes every rooted standby before capacity admission.
+The failed node-activation outcome remains unknown in its retained audit;
+no blind mutation retry or replacement identity is introduced. The SDK's default
+15-second operation deadline remains; the HTTP client allows 20 seconds to receive
+its typed refusal. Original three/five-second primitive budgets are unchanged.
+
+Records under `.cellar/cell-groups-evidence/` are:
+
+- `CG-17-daemon-primitives-linux-f4db9e450-1606/record.json` and its four case records.
+- `CG-17-daemon-lifecycle-linux-88acf48ce-1601/record.json` (both images pass).
+- `CG-17-daemon-primitives-cbad925e6-materialized-quorum-1593/record.json` (native pass).
+- Earlier failed native/1597/1601 Linux campaigns retain their separate sources,
+  logs, voter disks and frozen executables/images. Audits 1596/1608 verify all ten
+  new native campaigns and ten Linux campaigns, including twenty frozen copies
+  per platform, 52 stopped Linux containers and 6,385 Linux files. Historical
+  custody gaps remain; this is no claim to repair those older losses.
+
+**This closes the basic managed SQL/KV daemon delivery, not a complete primitive
+family or CG-17 acceptance case.** Axum application adapters run on NativeDaemon;
+external Axum hosting is separate. Reads can route to the leader. Archive PUTs
+are denied while catalog/lease access stays available; this is not a full RustFS
+backend outage. Restored writes are fresh, semantically idempotent requests,
+not same-command replay of uncertain stateless calls. Full SQL/KV APIs, other
+families/providers/features, unmanaged paths and combined movement/recovery remain.
+
+The original `db35703e9` public Consume cohort remains failed (0/3 selectors),
+and the separately pinned `5425b30c5` RustFS source-S3 binding calls still miss
+their original five-second deadlines. These results are not waived by another
+profile's pass. A static audit also finds **none of the 32 planned acceptance
+entry-point functions** in `native_cell_groups_primitives.rs`; focused helpers
+and standalone daemon campaigns cannot substitute for the complete, provenanced
+case drivers. The inventory and full independent coverage gate remain unfinished.
+
+All 32 cases and existing dependencies remain mandatory. Acceptance stays
+**13/17 tasks, 147/195 cases**; historical CG-01 evidence is still missing.
+Next close original-deadline source settlement and autonomous recovery, deliver
+complete public-family case drivers/ledgers, then finish Queue/EventStream,
+durable time/Workflow, storage/payload and provider/feature/lifecycle coverage.
+See [priorities](remaining-work.md#primitive-delivery-priority).
+
+## Previous binding/checkpoint phase qualification
+
+**CG-17 is not complete.** Runtime `db35703e9` includes fetched main
+`2f083f148`. Bounded native S3 archive coalescing and consuming the final guard
+before delivery remain delivered. Optional structured binding/checkpoint phases
+now expose the complete dependent-call path without rebuilding the core for each
+probe. They record identities and phases, with no payloads, new work owners or
+protocol changes. Disabled targets evaluate no extra clocks. See the
+[component guide](../../../../crates/cellar/durability/raft/cell_groups/README.md#shared-primitive-invocation-diagnostics).
+
+**All 24 owning configurations pass on this source:** native and real RustFS,
+both image forms, coalescing release/expiry, and checkpoint capacity release,
+original deadline, dropped waiter and joined close. Exact data, callback counts,
+receipt replay, typed ambiguity, admission retirement and autonomous background
+resumption remain asserted. The earlier extent cancellation failure is retained;
+it did not reproduce in the focused selector or complete matrices. This is not
+an exclusive causal fix or stability claim.
+
+**The original public cohort is FAILED, 0/3 selectors.** Native, Axum and real
+RustFS ordinary EventStream Consume still exceed their original parent deadline,
+with parent sequence 2 remaining ambiguous. The trace correlates Next, inbox sync,
+Ack and source checkpoint phases. Traced calls use existing target histories;
+completed Next/Ack replies resume the source writer promptly. Remaining time spans
+multiple required source capture/prepare/apply stages and target execution; this
+does not establish one exclusive bottleneck. One Axum failure occurs after Ack's
+target reply and private source completion, so that private completion must not
+be mistaken for a completed parent receipt.
+
+The separately pinned `5425b30c5` RustFS named-binding cohort passes both
+Quorum-source configurations but fails both S3-source configurations at sequence
+1, client `[121; 16]`. Materialized child calls return after 4,361 ms and extent
+child calls after 4,698 ms before final settlement misses the original five-second
+parent deadline. Previous retained sequence 7/6 failures remain historical.
+The original explicit activation/read failures and independent target-S3 SQL/KV
+coverage remain open. Earlier six S3 safety selectors and eight scheduler units
+retain their `66f301855` source pin; this campaign does not requalify their entire
+owning binaries or accept any primitive family.
+
+Frozen records under `.cellar/cell-groups-evidence/` are:
+
+- `CG-17-checkpoint-admission-contended-cancellation-1527-5425b30c/record.json` (focused cancellation and four RustFS coalescing configurations pass).
+- `CG-17-checkpoint-admission-contended-cancellation-matrix-1528-5425b30c/record.json` (eight RustFS checkpoint configurations pass; named bindings fail).
+- `CG-17-checkpoint-admission-contended-consume-boundary-1531-754b62ac/record.json` (temporary test-stage diagnostic, all three selectors fail).
+- `CG-17-checkpoint-admission-contended-consume-ack-1534-366dc4c9/record.json` (temporary Ack diagnostic, both selectors fail).
+- `CG-17-checkpoint-admission-contended-primitive-phases-1538-db35703e/record.json` (all three original public selectors fail).
+- `CG-17-checkpoint-admission-contended-primitive-phases-controls-1539-db35703e/record.json` (all four selectors, 24 configurations pass).
+
+Temporary prints are removed; private Git refs preserve both traced sources,
+which are absent from the published branch's ancestry. Locked builds, affected
+strict Clippy, formatting, layout, documentation and native dependencies pass.
+The partial catalog, thirteen coverage-validator tests, 24 source anchors and
+generated index are checked separately. All case requirements, oracles, statuses
+and dependencies remain unchanged.
+
+RF3 actors share a process with separate workspace disks. Original deadlines,
+two-command/64-KiB bank, one SQL worker and eight-cell/512-MiB cache remain;
+RustFS retains one CPU/two GiB. Independent compilation is recorded. These are
+correctness diagnostics, not isolated latency, complete-family or independent
+voter release qualification. All owned handles are joined; RustFS/VM are stopped
+with objects retained. Audit 1541 verifies **697 failed node directories**, 30 new
+ones and six frozen executable copies for this campaign. Historical custody gaps
+remain; they are not repaired by this audit.
+
+All **32 CG-17 cases**, provider/feature modes and lifecycle/recovery dependencies
+remain mandatory. Acceptance stays **13/17 tasks, 147/195 cases**. Next deliver the
+normal primitive paths through the existing constrained Linux daemon harness,
+while closing original Consume/source-S3 settlement failures under their current
+budgets. Then finish independent SQL/KV minima, remaining primitives and combined
+recovery. A passing different profile does not erase an existing failure.
+Historical CG-01 evidence is still missing. See [priorities](remaining-work.md#primitive-delivery-priority).
+
+## Previous confirmed-object archive checkpoint
+
+**CG-17 is not complete.** Runtime `9b4fdf132` includes latest fetched main
+`2f083f148`. This checkpoint delivers two archive changes without weakening
+quorum, fencing, uncertainty or the original request budgets:
+
+- An anonymous materialized receive spool no longer syncs before being copied.
+  Incoming bytes are still fully checked. New immutable destinations retain
+  independent verification and file/directory sync; reused destinations retain
+  their forced verification and persistence barriers. The spool is never adopted.
+- One pending upload owner shares a bounded lookup of its protected inherited
+  objects and its own GET-confirmed objects. Warm repeats verify a full GET and
+  issue no additional PUT. A reopened owner still reconciles actual conditional
+  creates; missing or corrupt cached objects refuse without recreation or
+  overwrite. This metadata cache supplies no coverage or serving authority.
+
+At `03f7f2481`, the original unchanged-checkpoint test fails with **33 PUTs
+instead of 18**. The fixed source preserves that zero-additional-PUT assertion,
+adds warm missing/corrupt-object checks and real-RustFS coverage, and preserves
+cold-owner conditional-create conflict checks. The cancellation fixture now
+continues polling the transfer while waiting for its original five-second GET
+gate, then applies the original 50 ms noncompletion, Busy, refund and join checks.
+Its earlier observer could leave the transfer unpolled before reaching the gate.
+
+Current-source results:
+
+- **29 LTX tests pass**; the physical 10 GB test is ignored and not counted.
+  The receive checks cover new, cached and reopened images, destination barrier
+  failures, corrupt input/destination bytes, and scratch/handle release.
+- **17 native and eight real-RustFS archive selectors pass.** Both image forms
+  are exercised by the owning fixtures. Coverage includes warm/cold upload retry,
+  independent image/LTX replay, corrupt/missing data, current-source closure,
+  source-pin admission, expiry, pending-parent GC, delayed deletion, erased-disk
+  restoration, import/genesis restart, retained holds and exact S3 output proofs.
+- **The public RPC/EventStream campaign is FAILED, 1/12 selectors.** Named RPC
+  passes all four RustFS configurations and three of four native configurations.
+  Native materialized source-S3 **retained sequence 7** exceeds its original
+  deadline with uncertainty preserved. All ten EventStream selectors fail:
+  four basic native/Axum/backend paths fail Consume; four explicit paths and two
+  independent target-S3 paths fail initial activation. These results do not
+  establish a deadline fix, stability or complete primitive-family support.
+
+Records are `CG-17-archive-confirmed-native-1457d-9b4fdf13/record.json`,
+`CG-17-archive-confirmed-rustfs-1458d-9b4fdf13/record.json` and
+`CG-17-archive-confirmed-public-1459-9b4fdf13/record.json` under
+`.cellar/cell-groups-evidence/`; LTX results are in
+`.cellar/cg17-payload-01/archive-confirmed-ltx-owning-1461.json`.
+Original public host/stateful deadlines, two-command/64-KiB controller bank,
+one SQL worker per voter and eight-cell/512-MiB cache remain. RF3 actors share
+one process with separate disks; RustFS is pinned to one CPU/two GiB. One foreign
+compiler is observed at the public run's completion; no owned build overlaps a
+runtime campaign. No isolated performance or independent-voter release claim is
+made. The earlier public KV/SQL/Fetch/recovery results below remain separately
+source-pinned and are not requalified by this narrower campaign.
+
+Integrity audit 1462 verifies **580 retained failed node directories**, eighteen
+retained positive source directories and seventeen additional frozen executable
+copies. Its stopped-directory inventory covers 28,948 files. It records two
+custody gaps: four older hibernation disks, and six voter disks from two earlier
+archive fixtures deleted before retention was added. Their logs/binaries remain;
+those gaps are not repaired. The first revised archive run, 1456, failed because
+new fault checks followed the original deliberate source close; its diagnostic
+also numbered disks incorrectly. Its three real disks are retained and audited;
+only one selector ran and the other sixteen did not. `9b4fdf132` moves the checks
+before source close, preserves independent recovery after close and fixes the
+labels. The anonymous-spool pre-fix probe retained dirty-test input/diff hashes;
+it is diagnostic evidence, not a clean-source acceptance baseline.
+
+All owned processes have joined. RustFS and its VM are stopped with objects
+retained. Locked build, strict affected Clippy, formatting and layout pass.
+Documentation, native dependencies, the partial catalog, 24 source anchors,
+the generated index and thirteen coverage-validator tests pass. Full preflight
+and validation stop at missing historical
+`.cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-01-record.json`;
+the source-only anchor/index check does not waive that evidence gate.
+**All 32 CG-17 cases and existing dependencies remain mandatory.** Acceptance
+stays **13/17 tasks, 147/195 cases**; historical CG-01 evidence and the complete
+public/provider/feature/lifecycle/recovery matrix remain open.
+
+Next deliver the original EventStream activation/Consume paths and retained
+source-S3 RPC completion, then independent target-S3 SQL/KV, Queue, Workflow,
+alarms/cron and the remaining filesystem/payload/provider/WebSocket lifecycle
+matrix. Existing callback admission and background archive coalescing already
+exist; do not duplicate them or replace failing requests with narrower tests.
+See [remaining work](remaining-work.md#primitive-delivery-priority).
+
+## Previous startup, namespace refusal and payload retry checkpoint
+
+Runtime source `052f7e5b4` includes latest fetched origin/main `2f083f148`.
+It delivers three correctness changes on the shared-group primitive path:
+
+- Cold and retained requests may start one ordinary election. Only the exact
+  unvoted genesis cut selects its minimum voter. Before campaigning, the actor
+  rechecks its current durable vote; voting for another candidate invalidates
+  the attachment hint. Hints grant no execution, read or output authority.
+- Missing namespace permission produces an authenticated, request-bound transport
+  refusal. Opaque I/O remains read unavailability, and a transport refusal never
+  clears mutation uncertainty. This internal format-1 RPC cutover requires
+  matching binaries; it adds no legacy reader.
+- Transient payload storage, admission, deadline and uncertain-CAS failures keep
+  the existing archive journal retryable. Missing, corrupt, retired and wrongly
+  scoped payloads remain fatal. Publication still requires complete physical
+  dependency verification. KV fault controls restore their flags before managed
+  shutdown, including early errors, without changing any failure oracle.
+
+The causal baseline `a2d2fef3b` reproduces both stale-vote campaigns and the
+permanent archive stop after a temporary payload GET failure. Its integrity
+negative control passes. The fixed source then passes **73/73 owning checks**:
+53 unique units, five TLS controls, eight startup/read controls, five hibernation
+controls and two native archive/payload controls. The latter cover both image
+forms, autonomous recovery without application traffic, actual restored bytes,
+corruption, missing data, retained recovery cuts and GC.
+
+That public/RustFS campaign is **FAILED, 16/18 selectors passing**:
+
+- KV passes all four selectors: **8/8 image/ingress/backend configurations**.
+  Ordinary SDK operations, large values, RustFS CLI/operator calls, retained
+  restart/replay, unavailable payloads, source-S3 publication refusal, no expired
+  upload after healing, actual archive PUT admission and quorum refusal retain
+  their original assertions.
+- SQL passes all four selectors: **8/8 image/ingress/backend configurations**,
+  including concurrency, operator paths and retained progress. Independent
+  target-S3 SQL and KV conformance remains required.
+- Stateless Fetch passes all four selectors: **16/16 configurations** across
+  native/Axum, memory/RustFS, images and target minima, with the original cold
+  admission, no-redundant-name-query, concurrency and retained-restart checks.
+- Interrupted SQL-binding recovery passes on both backends: **16/16 image,
+  source-durability and error configurations**. These results do not establish
+  complete ordinary-binding or lifecycle acceptance.
+- Named RPC passes **6/8 configurations**; both selectors fail in materialized
+  source-S3 mode. The native first command, client `[121; 16]` sequence 1, and
+  RustFS post-restart sequence 7 exceed the original deadline with uncertainty
+  preserved. The native callback logs both Add and Echo completion, but lack an
+  absolute command-start/entry timestamp; they do not isolate pre-entry versus
+  final S3 settlement cost. Extent source-S3 and both Quorum-source modes pass.
+- Both real-RustFS archive/payload selectors pass in both image forms, including
+  the injected payload-GET outage and physical corruption/missing-data controls.
+
+Every owning request identity, deadline, minimum, callback, byte/data, refusal
+and fencing assertion remains. Ordinary profiles retain their 3 s/5 s budgets;
+large/compound fixtures retain their predeclared 20 s/60 s exceptions and recovery
+observation retains 60 s. Public controller admission remains two commands/64 KiB,
+SQL one worker per voter and cache eight cells/512 MiB. Startup-only controls have
+no SQL callbacks. RF3 actors share one process with separate workspace disks;
+RustFS is pinned at one CPU/two GiB. These scoped checks make no isolated timing,
+stability, exclusive performance-cause or independent-voter release claim.
+
+The earlier broad campaign at `10e888494` remains **FAILED, 34/56 selectors**
+(native 18/30, RustFS 16/26). The current focused rerun does not requalify its
+EventStream, Queue, Workflow, alarm/cron, filesystem and Blob families. Historical
+passes remain separately pinned, rather than current full-family acceptance.
+
+Integrity aggregate 1436 links the earlier audit, verifies 25 additional frozen
+executables and the current CLI companion, and retains **517 failed node
+directories**. Three earlier causal-test revisions include two fixture setup
+failures; only `a2d2fef3b` reaches the intended archive-stop regression. Four node
+disks from the older pre-retention hibernation failure in 1419 were deleted by
+that fixture; its failed log/hash remain, and the later strict baseline retains
+its disks. All owned processes join; RustFS and its VM stop with objects retained.
+The first signed RustFS resume returns 503; the warm probe passes without restart.
+Locked optimized build, strict affected Clippy, canonical formatting/check,
+layout, native dependency, documentation, catalog, source/index and all thirteen
+coverage-validator checks pass.
+
+**CG-17 remains IN_PROGRESS. All 32 cases and existing dependencies remain
+mandatory.** Acceptance stays **13/17 tasks, 147/195 cases**; full plan validation
+still lacks historical CG-01 evidence. The inventory remains partial at 215 public
+symbols, eighteen entries and 4,872 listed coverage cells.
+
+Next close materialized source-S3 named-RPC progress, then EventStream
+activation/Consume/outbox and durable Queue/Workflow/alarm execution. Complete
+independent target minima, providers, feature modes, deployment/clock/retention
+and combined lifecycle/recovery qualification before family or default-cutover
+acceptance. See [remaining work](remaining-work.md#primitive-delivery-priority).
+
+## Previous authenticated-enrollment checkpoint
+
+Source `d20e50215` includes latest fetched origin/main `2f083f148`.
+Authenticated remote enrollment failures now preserve the original creation,
+receiver entry disposition and specified runtime causes. Previously, a receiver
+could return `Runtime(NotReady), ambiguous=false` while the caller received
+`Unavailable, ambiguous=true`, preventing safe same-creation retry. Malformed,
+unauthenticated and lost replies remain ambiguous; a later non-entry response
+never clears uncertainty from an earlier send. A disproven leader hint is
+invalidated. This is an internal format-1 RPC hard cutover with no legacy reader.
+
+Unhinted stateless calls still enter existing atomic enrollment first. Only a
+typed, unambiguous pre-entry runtime refusal skips redundant name reconciliation
+before retrying the same candidate and creation under the original deadline.
+Every other failure retains required fresh canonical quorum selection; absence
+never proves non-commit. Current route, grants, leader/applied readiness, schema,
+independent target minima and fresh consumed-other conflict proofs remain.
+The existing public typed creation and business-command errors are unchanged.
+A refusal grants no serving, quorum or archive authority.
+
+Qualification at this source, after removing the temporary test subscriber:
+
+- **19 focused units**, the complete **31-test query-wire suite** and **five TLS
+  enrollment safety controls** pass. The wire suite overlaps four focused units.
+  Tests cover typed causes, creation binding, malformed encodings, authentication,
+  purpose/replay isolation, sticky ambiguity, grants, competing creators, writer
+  contention, disconnect, revocation and publication deadlines. Locked optimized
+  build, strict affected Clippy and canonical formatting pass.
+- Public birth-timeout scenarios fully pass **6/8 configurations**: memory-store
+  native/Axum **2/4**, real RustFS **4/4**, across both image modes. All eight reach
+  exact S3 creation recovery with one initializer and no business replay. Two
+  memory-store configurations fail a subsequent business command after retained
+  RF3 restart. The initializer is now sampled before releasing held archive PUTs;
+  no predicate or budget is relaxed. A diagnostic precursor at `2c9ceec62` passes
+  the native selector in both images and observes repeated authenticated
+  pre-entry refusals followed by progress; this does not establish timing stability.
+- Native campaign 1381 is **FAILED, 7/13 selectors passing**. Native SQL passes
+  **2/2** images; Axum SQL passes materialized mode and fails extent-mode concurrent
+  sequence-conflict progress. Named RPC passes **2/4** (Quorum sources); S3 sources
+  fail. Stateful Fetch passes **4/4**. Existing-name admission, source-proof,
+  missing/ambiguous namespace refusal and both Fleet HTTP controls pass.
+  Stateless Fetch passes **3/8**: native materialized Quorum and Axum Quorum in
+  both images. Four target-S3 cold calls and the native extent Quorum retained
+  call expire under the original deadline. Completed first responses pass the
+  strict no-name-query oracle; partial progress is not configuration acceptance.
+- Real-RustFS campaign 1383 is **FAILED, 6/8 selectors passing**. SQL passes
+  **4/4**, stateful Fetch **4/4**, birth-timeout recovery **4/4** and existing-name
+  admission both images. Stateless Fetch passes **3/8**: native extent Quorum and
+  Axum Quorum in both images. Four target-S3 cold calls and native materialized
+  Quorum cold admission expire. Stateful Fetch retains its original Quorum
+  target with Quorum/S3 sources; independent target-S3 SQL qualification remains
+  required. This cohort does not rerun named RPC or the other primitive families.
+
+The causal receiver trace at `3a2859422` retains both failures where non-entry
+was flattened at the sender. The earlier pre-entry retry checkpoint `d8ff674b`
+passes 14 units and five remote controls but its native/RustFS campaigns remain
+FAILED (8/13 and 4/8 selectors passing). No earlier pass replaces current-source
+qualification. No exclusive latency improvement or stability is claimed.
+
+Stateless operations retain three seconds, HTTP clients and stateful bindings
+five seconds, and recovery observation sixty seconds. Controller admission stays
+at two commands/64 KiB, one SQL worker per voter and cache eight cells/512 MiB.
+All identity, ambiguity, minimum-proof, callback, fencing and data oracles remain.
+RF3 voters share one process with separate workspace disks; RustFS retains one
+CPU/two GiB. Foreign compiler activity is recorded. These are scoped functional
+checks, not isolated timing or independent-voter release qualification.
+
+Aggregate 1385b verifies five current records, four diagnostic records, 37
+executable copies and all **354 retained failed voter directories**, linking
+previous aggregates. The initial signed RustFS resume returns 503; the warm
+probe passes before qualification. All owned jobs join; RustFS and its VM are
+stopped with objects and failed disks retained.
+
+Layout, native dependency, documentation, catalog, source/index and all thirteen
+coverage-validator checks pass. The reviewed inventory remains partial: 215
+public symbols, eighteen entries and 4,872 required coverage cells.
+
+CG-17 stays **IN_PROGRESS**, with all **32 cases** and the complete public API,
+provider, feature-mode and lifecycle matrix required. The generated index remains
+**13/17 tasks, 147/195 accepted cases**; full validation still lacks historical
+CG-01 evidence. Next close cold/restart/sequence-conflict business progress and
+named/source-S3 calls under the original budgets, then complete EventStream,
+SQL/KV conformance and the remaining primitive/provider recovery matrix.
+CG-13 and CG-15/16 dependencies remain. No complete family or hard cutover is
+accepted. See [remaining work](remaining-work.md#primitive-delivery-priority).
+
+## Previous receipt-candidate checkpoint
+
+Source `f0b607d40` includes latest fetched origin/main `2f083f148`. Stateless
+native SQL, Fetch/RPC and event commands can consume one sequence candidate
+from a previous verified successful receipt in the same invocation. It skips a
+redundant initial sequence query without reserving a sequence or caching serving
+or read authority. Every command retains current admission, exact history and
+minimum proof; a conflict still requires fresh quorum proof of a different
+immutable fingerprint before selecting another sequence.
+
+The candidate is fixed-size, keyed by cluster, namespace, cell, incarnation and
+schema, consumed before submission and expires at the previous call's original
+monotonic deadline. Replenishment follows successful outer deadline/cancellation
+selection; a refused, cancelled or ambiguous call cannot replenish it. It retains
+no receipt, image, resource ticket, node or execution-domain owner. Fleet keeps
+its existing call path. The public SQL race adds an actual-use metric assertion
+alongside its unchanged data, rollback, client-slot, replay, restart and quorum
+refusal assertions.
+
+Qualification at this source:
+
+- Twelve owning units pass: candidate identity/expiry/consumption, existing SQL
+  nonce and conflict rules, typed unknown outcomes, shared RPC/Fetch admission,
+  reply ownership and performance observations. Locked build and strict affected
+  library/integration/Fleet Clippy pass.
+- Native campaign 1319 is **FAILED, 5/10 selectors passing**. Native SQL passes
+  both images and Axum SQL passes materialized mode (**3/4 configurations**),
+  including actual candidate use. Axum extent SQL's competing first CREATE
+  expires at candidate sequence 3. The cursor does not close this contention
+  blocker. SDK source proof, missing/ambiguous namespace refusal and both Fleet
+  HTTP controls pass.
+- Stateless Fetch passes only **1/8 native/Axum configurations** (Axum
+  materialized Quorum); the other seven fail cold first-call deadlines. One
+  materialized Quorum command starts with only 6 ms remaining, before this
+  invocation has any successful receipt to reuse. Named RPC passes both Quorum
+  sources but fails both S3 sources (**2/4**); stateful Fetch fails extent S3
+  (**3/4**). All unknown outcomes retain their original identities.
+- Real-RustFS campaign 1321 is **FAILED, 3/5 selectors passing**:
+  all four native/Axum SQL configurations and all four stateful Fetch
+  configurations pass. Stateful sources exercise Quorum/S3 with Quorum targets;
+  stateless targets exercise both minima but pass only **3/8**. Native extent S3
+  and all four Axum configurations fail cold first-call deadlines, including
+  uncertain enrollment. Overall **11/16 configurations** pass. SQL retains its
+  existing namespace policy; independent target-S3 SQL qualification is still
+  required. These results do not erase the native failures, establish their
+  exclusive cause or prove an algorithmic deadline fix or stability.
+
+Stateless host operations retain three seconds, HTTP clients five seconds and
+stateful bindings five seconds. One SQL worker per voter, controller/byte banks,
+independent minima and all safety assertions remain. Voters share one process
+with separate workspace disks; real RustFS retains one CPU/two GiB. Compiler
+activity is recorded; this is functional qualification, not isolated timing or
+independent-voter release qualification.
+
+Aggregate 1323 verifies three frozen records, 12 executable copies, the linked
+previous history and all 147 retained failed voter directories. The initial
+RustFS signed resume probe returns 503; the warm signed probe passes before the
+campaign. Both records remain retained. All owned jobs join; the owned backend
+and VM are stopped with objects and failed disks retained.
+
+CG-17 remains **IN_PROGRESS**, with all **32 cases** required. The generated index
+remains **13/17 tasks, 147/195 accepted cases**. Full validation still lacks
+historical CG-01 evidence. Next address cold history/enrollment and shared-stream
+contention under the original deadlines, then source-S3 progress, EventStream
+activation/Consume and complete SQL/KV conformance. Remaining adapters and the
+full primitive/provider, retention, deployment, clock and recovery matrix,
+including CG-13 and CG-15/16 gates, remain required. No full primitive family or
+hard cutover is accepted.
+
+## Previous stateless Fetch checkpoint
+
+Source `0618f7d50` includes latest fetched origin/main `2f083f148` and adds
+buffered stateless `CellStub::fetch` through the same admitted shared-group
+command driver as native RPC/SQL. Native and Axum ingress retain namespace
+onboarding, exact history, command identity, independent target minimum proof,
+fresh quorum conflict resolution and the original absolute deadline. Distinct
+nonces keep independent identical HTTP mutations distinct. A lost response
+remains ambiguous. Declared Raft targets never fall through to Fleet.
+
+Fetch and RPC share the existing bounded outbound call/byte bank. Reservation
+precedes dense copies, includes header structure/text and survives body aliases.
+The capability digest includes the new ingress wire contract; format markers
+remain 1. Stateful Fetch retains the source-journaled binding kernel delivered
+below. Streams, upgrades and leased sessions still need their own ownership
+contracts and qualification.
+
+Qualification at this source:
+
+- New native/Axum campaign 1304 is **FAILED, 5/8 configurations passing**.
+  All four Quorum configurations pass cold onboarding, identical sequential and
+  concurrent mutations, retained RF3 restart, callback counts and final
+  linearizable target state. Native materialized S3 also passes. Native extent
+  S3 and both Axum S3 configurations exceed the original cold-call deadline.
+- Real-RustFS campaign 1307 passes **5/5 selectors, 20/20 configurations**:
+  all eight native/Axum stateless Fetch configurations, four stateful Fetch
+  configurations and eight passive recovery/checkpoint/unused-sequence
+  configurations. Stateless targets exercise independent Quorum/S3 minima;
+  stateful/recovery targets retain Quorum while sources exercise both minima.
+  These passes do not erase the native failures or prove their cause or a fix.
+- Original native regression campaign 1305 is **FAILED, 9/12 selectors passing**.
+  SQL ingress passes materialized mode but its extent concurrent race expires;
+  stateful Fetch fails extent S3 (3/4 pass); named RPC fails both S3 source
+  configurations (2/4 pass). Missing/ambiguous namespace refusal, both Fleet
+  HTTP controls, SDK source proof, four passive live-recovery selectors and
+  interrupted retained restart pass. Unknown outcomes retain their identities.
+- Eight owning codec/admission unit tests pass at `02144418`; their two owning
+  files are byte-identical through `0618f7d50`. The first public candidate fails
+  both selectors/all eight configurations. Its fixture omitted required namespace
+  origin grants. The correction uses existing boot-verified onboarding
+  and refreshes grants on restart; permission checks and budgets are unchanged.
+- Locked build, strict affected library/integration/Fleet Clippy and canonical
+  formatting pass. Stateless host operations retain three seconds and HTTP
+  clients five seconds; stateful bindings retain five seconds. Controller and
+  byte banks, one SQL worker per voter and all original safety assertions remain.
+  RF3 voters share one process and separate workspace disks; real RustFS retains
+  one CPU/two GiB. Recorded independent compiler activity prevents isolated
+  timing claims; independent-voter release qualification remains required.
+
+Aggregate 1309 verifies four frozen records, 13 executable copies, the linked
+prior history and all 99 retained failed voter directories. The initial RustFS resume
+probe returns 503; the signed warm probe passes before the campaign. Both
+records remain retained. All owned runtimes join; the owned backend and VM are
+stopped with objects and failed disks retained.
+
+CG-17 remains **IN_PROGRESS**, with all **32 cases** required. The generated index
+remains **13/17 tasks, 147/195 accepted cases**. Full validation still lacks
+historical CG-01 evidence. Next close original-budget SQL ingress and cold/source
+S3 progress, EventStream activation/Consume and normal SQL/KV conformance, then
+complete streaming/session/provider adapters and the combined primitive,
+retention, deployment, clock and recovery matrix. CG-13 and CG-15/16 gates remain
+required. No full primitive family or hard cutover is accepted.
+
+## Previous buffered Fetch checkpoint
+
+Source `b4e8f46cc` includes latest fetched origin/main `2f083f148` and delivers
+buffered ordinary `CellStub::fetch` through the existing shared-group binding
+intent, child identity, independent receipt proof and recovery path. Register
+`RaftClass::cell_fetch(digest)` before `Registry::raft_cell`. Its format-1 binary
+wire retains method, URL, ordered duplicate headers, binary body and HTTP result
+within the host's encoded input/result limits. Admission precedes input copying.
+Followers apply committed bytes and never invoke the HTTP handler.
+
+Owned request/response body helpers now check the active Raft invocation; Fleet
+helpers keep their existing authority checks. Constructor-time response limits
+come from captured transaction metadata without minting a dispatch capability.
+Streams, WebSocket upgrades and Fleet scalar positions cannot enter the receipt.
+Stateless Fetch to a declared Raft class refuses instead of entering the Fleet
+proxy; completing its adapter remains required, alongside streaming/session work.
+
+Qualification at this source:
+
+- Native campaign 1287 is **FAILED, 9/10 selectors passing**. Fetch passes both
+  image forms and Quorum/S3 source modes; both original Fleet body/Web controls,
+  SDK source proof, four passive live-recovery cases and retained restart pass.
+  Original named RPC passes only 2/4 configurations: materialized Quorum and
+  extent S3 parent sequence 1 exceed their unchanged five-second deadline.
+  Both results remain ambiguous and all six failed voter disks are retained.
+- Real-RustFS campaign 1289 passes **3/3 selectors, 12/12 configurations**: the
+  four Fetch configurations and eight live-recovery checkpoint/unused-sequence
+  configurations. New Fetch and live-recovery targets retain declared Quorum;
+  this does not qualify their independent target-S3 matrix.
+- Fetch checks binary bytes, duplicate headers, normal public body readers,
+  source writes before/after dispatch, exact parent replay, callback counts,
+  retained RF3 restart and final linearizable target state. Host stream IDs and
+  streaming responses must still refuse. The four owning codec safety tests
+  pass at `a0d5f8efd`; codec/test bytes remain unchanged in the corrected source.
+- Locked builds, strict affected library/integration/Fleet Clippy and canonical
+  formatting pass. Original request/recovery budgets, minima, admission banks
+  and one SQL worker per voter remain. RF3 voters share one process and separate
+  workspace disks; RustFS has one CPU/two GiB. Independent compiler activity is
+  recorded, so these are scoped functional checks, not isolated timing or
+  independent-voter release qualification.
+
+First Fetch source `a0d5f8efd` fails all four configurations at public turn/setup
+boundaries; eleven other selectors pass (**11/12 overall**). That failed record and all
+12 voter disks remain retained. The correction adds public owned-body checks;
+it never weakens the original response/replay/durability assertions or budgets.
+
+Earlier merged-source campaign 1274b passes all six native recovery/control
+selectors; official RustFS suite 1275 passes both selectors/all eight
+configurations with verbose traces off. This does not prove an algorithmic fix
+for older intermittent deadlines: all failures below remain retained, and the
+broader public/EventStream cohort has not been rerun or accepted by these passes.
+All owned runtimes joined; the owned backend and VM are stopped with objects retained.
+
+CG-17 remains **IN_PROGRESS**, with all **32 cases** required. The generated index
+remains **13/17 tasks, 147/195 accepted cases**. Full validation still lacks
+historical CG-01 evidence. Next close the outstanding original-budget named RPC
+deadlines, stateless/native/Axum Fetch and session ownership, EventStream progress
+and the normal primitive/provider conformance matrix, then CG-13 recovery and
+CG-15/16 release gates. No full
+primitive family or hard cutover is accepted from this checkpoint.
+
+## Previous passive recovery checkpoint
+
+Origin/main `2f083f148` is integrated. Its Workflow production changes were
+already byte-identical to this branch; both qualification histories remain
+source-pinned below. Combined-source qualification remains required.
+
+CG-17 closure is the delivery priority. Runtime `82d40385c` adds fixed,
+owner-lifetime binding recovery claim/settlement counters and a reproducible
+`live-binding-recovery` RustFS suite. The existing recovery/sealing protocol is
+unchanged. The new cases wait on synchronous host snapshots before sending any
+further application request, then check the committed obligation guard, exact
+child state, original parent replay, callback counts and next child sequence.
+A refusing child rolls back before commit; cancellation alone never proves an
+unused sequence. Metrics are historical observations, not serving authority,
+unique-operation counts or backlog. Original budgets and minima remain.
+
+**The combined qualification is FAILED.** Native campaign 1246 passes three of
+four live-recovery cases; materialized unused-sequence recovery reaches proven
+settlement and state checks, then the first `AgainRefused` child (parent sequence
+3) exceeds its original five-second deadline. The native SDK control fails
+managed startup with transport timeout and cleanup errors. Retained-restart
+recovery passes three of four configurations; materialized S3 source enrollment
+expires before its recovery scenario. These two controls keep the six-selector
+native campaign failed at **3/6**.
+
+Real-RustFS campaign 1247 runs the new official suite once with `--keep-going`:
+**1/2 selectors, 6/8 configurations pass**. Materialized checkpoint/unused cases
+pass both source minima. Both extent Quorum cases pass; both extent S3 cases
+observe settlement and pass the actual guard/state checks, then their first
+subsequent child exceeds its original deadline. All eight reach passive recovery
+observation, but that does not establish end-to-end request progress. The target
+retains its declared Quorum minimum; target-S3 recovery is a separate gate.
+
+Pre-feature native/RustFS probes and phase-only reruns (1228/1230/1235) are
+retained separately. Baseline 1238 fails both selected passive cases because the
+settlement observation is absent; this proves the new observation contract, not
+absence of the existing recovery algorithm. The passive fixture is byte-identical
+from that baseline to the feature. A later isolated pass never erases a failure
+or establishes a runtime cause or stability.
+
+Locked build, strict affected Clippy, canonical formatting, layout, native
+dependency checks and all 30 runner tests pass at `82d40385c`. RF3 voters share one
+process and separate workspace disks with one SQL worker each. RustFS retains
+one CPU/two GiB; independent machine work prevents isolated timing claims.
+Aggregate 1249 verifies six records, eleven executable copies and **30 retained
+failure directories**, including 15 from final-source campaigns. Owned jobs join;
+RustFS/VM are stopped with objects retained. No full-family acceptance is claimed.
+
+Phase-only source `a20548f11` leaves production unchanged: the failed native
+case passes in 1254, while RustFS extent campaign 1255 passes both Quorum cuts.
+Its S3 checkpoint case fails after the child completes and the source resumes;
+its S3 unused-sequence case fails the original parent before recovery. These
+six additional failed disks remain retained. Trace source `8b8c61e9b` passes all
+four extent/RustFS configurations in 1261, with original assertions and budgets.
+The next request's observed publication retries are `Uncertain`, awaiting the
+unchanged checkpoint for about 80–115 ms in that passing run; no authority-readiness
+failure appears. This does not identify the earlier deadline cause or establish
+a fix. Aggregate 1263 verifies the added records and all **36 failure directories**.
+The catalog and independent validator rejection tests pass; the reviewed API
+inventory and real complete-matrix evidence remain open.
+
+The generated index remains current at **13/17 tasks, 147/195 accepted cases**.
+Full validation still lacks historical CG-01 evidence. Next: fix the first child
+request after recovery and cold startup/S3 enrollment progress, complete SQL/KV
+bindings and EventStream, then the complete CG-17 primitive/lifecycle matrix and
+its managed recovery dependency. CG-15/16 release gates follow. All 32 CG-17
+cases remain required; correctness and independent durability proofs are unchanged.
+
+## Previous public reconciliation checkpoint
+
+Latest main `16c45b266` is included. Runtime `387f5a12c` closes the actual public
+`Action::Reconcile` image-reopen gap. An unchanged, already validated unfinished
+checkpoint remains `Uncertain` without rereading its image. Final receipt reuse
+requires submission, the exact result version, retained committed entry bytes and
+term, an autocommit writer and current-authority checks before and after lookup.
+Changed or compacted images retain ordinary reconciliation. S3 outputs retain
+their independent proof. No request budget, quota, minimum or assertion changes.
+
+Corrected read-denial baseline `1f6e791f9` fails both public image forms. The first
+candidate `ccbd095e1` still fails both: exact final-result reuse alone leaves the
+unchanged-checkpoint read before final apply. The final runtime passes **14/14
+focused selectors** on identical regression source (1216/1218):
+
+- Four public image/backend regressions require zero SQL-owner immutable-image
+  reopens, exact responses, replay without another callback and linearizable
+  final state, including real RustFS.
+- Six existing controls cover leader changes, stale/foreign authorities, changed
+  images, conflict/pruning, ambiguous results and cell-specific progress.
+- Native/RustFS checkpoint controls pass both images. Real-RustFS native/Axum
+  Workflow deletion/recreation passes all four image configurations, including
+  cancellation and retained restart. The broader 18-configuration Workflow result
+  below remains pinned to `177c7f7f5`.
+
+**The original public cohort is FAILED, 3/10 selectors (1219).** Both SDK
+source-proof selectors pass all eight image/minimum configurations. Native named
+bindings pass all four configurations under their original five-second budgets.
+RustFS named bindings pass materialized Quorum, but fail materialized S3 command 2,
+extent Quorum command 3 and extent S3 command 7 with ambiguous deadlines. All six
+EventStream selectors fail: native/Axum Consume command 2, RustFS startup or
+Consume, and initial explicit-resource activation. Native Consume starts with
+2,853 ms remaining; this is an observed boundary, not an exclusive cause. The
+startup failure also records controller transport timeout and cleanup errors.
+No failed mutation is relabeled by a later successful history.
+
+Locked builds, strict library/affected-integration Clippy, canonical formatting,
+layout and native dependency checks pass. RF3 voters share one process and use
+separate workspace disks; public cases retain one SQL worker per voter. RustFS
+has one CPU/two GiB. Independent compilation is recorded, so these are functional
+results, not isolated timing, complete-family or independent-voter acceptance.
+Aggregate 1221 verifies six cohort records, twelve executable copies, unchanged
+regression inputs and **42 retained failure directories** from this run. All
+owned handles joined; RustFS/VM are stopped with objects retained.
+
+The generated index remains current at **13/17 accepted tasks, 147/195 cases**.
+Full plan validation still lacks historical CG-01 evidence. Next: autonomous
+binding recovery and safe sequence sealing against original histories/receipts;
+SQL/KV binding delivery; EventStream/startup and S3 response progress; Queue and
+the remaining primitive/provider matrix; then CG-13/15/16 recovery and release
+qualification. The full goal stays active.
+
+## Previous Workflow integration checkpoint
+
+Latest main `16c45b266` is included. Runtime `177c7f7f5` combines deferred
+Workflow retirement with exact direct-final-receipt reuse. Successful deletion
+keeps its private producer live through immutable preparation and committed
+receipt settlement. The committed-result handoff then retires the old activation
+while its writer lease remains owned. Recreation receives fresh native resources.
+Stop, term, route, image, admission and deadline checks remain unchanged.
+
+The earlier implementation retired its resources when the successful delete
+future dropped. That invalidated its own preparation and returned ambiguous
+`Unavailable` before the request deadline. Focused baseline `9d962daec` fails
+native and Axum materialized deletion cycle 0 after 243/190 ms. Candidate
+`d05987085` changes only three production files; those files and all five public
+test/tool sources are byte-identical in the combined runtime. Its standalone
+passes are retained separately from the combined-source qualification.
+
+**All three combined-source RustFS Workflow suites pass:**
+
+| Suite | Selectors | Image configurations | Coverage |
+| --- | ---: | ---: | --- |
+| `workflow-deletion` (1197) | 2/2 | 4/4 | Eight held-callback delete/recreate cycles per image, joined cancellation, linearizable absence and waiting-instance deletion/recreation after retained restart. |
+| `ordinary-workflows` (1198) | 5/5 | 10/10 | Native/Axum execution, step reuse, retries, compensation, streams, schedules, concurrent status/delete/recreate, archive refusal and quorum refusal. |
+| `workflow-lifecycle` (1199) | 2/2 | 4/4 | S3-seeded voter replacement, local image coverage, exact stream bytes, park/public-read wake, retained restart and event completion without completed-step replay. |
+
+These **18 scenario configurations** use the same source and executable hash.
+They close the scoped Workflow deletion and ordinary/lifecycle qualification,
+not the complete Workflow or CG-17 family matrix. Earlier ambiguous deletion
+outcomes remain recorded; fresh successful histories do not reconcile them.
+Candidate `d05987085` separately failed Axum extent `create/capped` after
+3,132 ms. The combined suite passes that configuration; this does not establish
+an exclusive cause, timing stability or a speedup.
+
+Direct `CellPrivateExecutor::finish` now reads its final receipt from the frozen
+SQLite state that produced the exact applied image, after the unchanged
+committed-entry check and current-authority checks. It requires autocommit;
+independent replay and reconciliation keep their committed-image readers.
+Baseline `b04e826d1` fails both image forms when the production filesystem refuses
+the post-apply image reopen. Runtime `bb4213dae` passes both regressions with zero
+reopens and exact independent receipt replay, plus ten existing live, corrupt,
+expired, transferred and cell-identity controls. Combined runtime `177c7f7f5`
+passes those twelve controls and the native SDK source-proof selector: **13/13**
+selectors, including all four native image/source-minimum configurations (1196).
+The public client also settles through `Action::Reconcile`; that path still
+reopens the selected image. Extending exact retained-proof reuse there remains
+an implementation priority; the direct-finish result does not close that cost.
+
+**Other public primitives remain incomplete.** Before Workflow integration,
+`bb4213dae` cohort 1192 is FAILED, **2/10 selectors**. Native/RustFS SDK
+source-proof selectors pass all eight configurations. Named bindings pass all
+four Quorum configurations but fail all four S3 source configurations under
+their original five-second deadlines. All six selected EventStream paths fail
+activation, ambiguous Consume command 2, or a read after outbox recovery.
+At `5b3a9d06c`, ordinary native/Axum EventStream passes both images in 1180,
+while real-RustFS and explicit-resource paths fail in 1182. Diagnostic 1185
+shows Axum materialized Consume completing all callback phases in 2,284 ms,
+then missing final settlement; native materialized Consume completes before
+extent startup fails. These are distinct failure boundaries, not an exclusive
+cause. All temporary marks and the added archive filter are removed exactly.
+
+Locked combined build, strict library/affected-integration Clippy and canonical
+formatting pass at `177c7f7f5`. All 27 runner tests pass. All owned compiler and
+runtime handles joined before tracked edits. Original optimization 1, assertions,
+overflow checks, incremental=0, request/callback deadlines and resource banks
+remain. RF3 voters share a process with separate workspace disks and one SQL
+worker per voter; RustFS has one CPU/two GiB on a four-CPU/eight-GiB VM. Independent
+compilation and a read-only artifact audit were observed during qualification;
+no isolated performance or independent-voter release result is claimed.
+
+Aggregate 1201 under ignored `.cellar/cg17-payload-01/` verifies ten cohort
+records, thirteen executable copies, source/oracle/log hashes and **225 retained
+directories**, including two complete RF3 fixture roots. Owned RustFS/VM are
+stopped with objects retained. The generated plan index remains current at
+**13/17 accepted tasks, 147/195 cases**; full plan validation still lacks the
+historical CG-01 record. Public reconciliation/request progress, interrupted
+binding recovery and sequence sealing, complete primitive/provider coverage,
+CG-13/15/16 recovery and release gates remain open. The full goal stays active.
+
+## Previous removed-voter checkpoint
+
+Latest main `16c45b266` is included. Runtime `c6e9f7e95` closes two removed-voter
+correctness gaps. A fully joined `ParkedRemoved` owner is now retired for late
+metadata, while a late retained apply ticket remains fatal. A retained log whose
+local identity is absent from committed membership no longer prevents automatic
+name discovery from refreshing the current managed router. Last-vote preference
+remains a liveness hint; destinations still enforce current membership, fresh
+quorum, history and independent durability minima. No deadline or admission bank
+is increased, and no fallback to weaker durability is introduced.
+
+The actual roster regression fails at `4711222ea` because removed members are
+not retired, then passes with the inventory control at `31630b26a` (1158/1161).
+Those roster/worker bytes are unchanged at the current runtime. The new public
+name regression first completes S3 voter replacement, park/public-read wake and
+retained restart. It selects the actual removed member, requires its log still
+exists and its controller has detached, then performs the first cold name lookup.
+Baseline `7eef05f4c` fails with `Runtime(NotReady)` on native and real RustFS in
+the first materialized configuration. At `c6e9f7e95`, both selectors pass both
+image forms (1172), with identical fixture bytes. The exact history is returned;
+a fresh linearizable query covers the original image and is served by another
+member without reattaching the removed replica.
+
+**Current controls 1173 pass 4/4 selectors.** Ordinary name-resolution controls
+cover all eight native/RustFS image/minimum configurations, including explicit
+local routing and quorum refusal. Native and native/Axum Workflow lifecycle
+selectors pass both images. The repository's `workflow-lifecycle` command also
+passes native and Axum against real RustFS, both images (1174). All use the same
+source and executable hash. The lifecycle fixture checks cold public creation,
+exact stream bytes, S3-seeded replacement with local image coverage, RF3 membership,
+park/public-read wake, retained restart and event completion without replaying
+completed steps. It is a scoped lifecycle qualification, not complete Workflow
+acceptance.
+
+**Ordinary Workflow compatibility 1175 is FAILED, 0/1.** Real-RustFS Axum
+materialized `delete/delete-held` refuses after 281 ms with ambiguous
+`Execution(Refused(Unavailable))`, inside its original three-second request.
+This is not a timeout and must not be treated as proof that deletion did not
+commit. Three voter disks remain. Earlier 1162 fails the same operation after
+989 ms. Earlier lifecycle cohorts 1156/1163 are also retained: their waiting
+failure snapshots already contain the replacement (`controller.groups` is
+`[0,1,1,1]`). The label occurred both before and after movement; the earlier
+initial/pre-replacement attribution was incorrect. Diagnostic 1166 passes but
+does not establish an exclusive cause or stability.
+
+EventStream remains open. Original native and Axum selectors fail in 1151 with
+the owned VM stopped. Temporary fixture-only stage marks in 1154 show a completed
+materialized fetch/sync/ack sequence, while extent fetch and sync consume 1,376 ms
+and 436 ms before first acknowledgement expires under the original three-second
+budget. These observations do not identify an exclusive cause. All nine marks
+are removed; the fixture is byte-identical to published `60c8f7200`. Both failed
+cohorts and their 12 voter disks remain.
+
+Locked integration build 1171, strict library/affected-integration Clippy and
+canonical formatting pass at `c6e9f7e95`. All owned compiler/runtime handles joined
+before tracked edits. Test optimization 1, assertions, overflow checks and
+incremental=0 remain. RF3 voters share a process with separate workspace disks
+and one SQL worker per voter; RustFS has one CPU/two GiB on a four-CPU/eight-GiB
+VM. Independent compilation was observed, so these are not isolated timing or
+independent-voter release results. Aggregate 1176 under ignored
+`.cellar/cg17-payload-01/` verifies 15 executable copies, source/oracle/log hashes,
+34 new retained voter directories and the prior 141 directories. Owned backend
+and VM are stopped with objects retained.
+
+The reviewed source baseline now includes the bounded SQL apply/completion-lane
+owner and fallible payload-pool catalog binding; source-anchor checks retain full
+file hashes and exact excerpts. Full plan validation still stops at missing
+historical CG-01 evidence. The generated index remains current at **13/17 tasks,
+147/195 cases**; its count includes only accepted tasks. Next: Workflow delete
+settlement, EventStream Consume/activation, interrupted binding recovery and
+sequence sealing, then the complete primitive/provider and CG-13/15/16 gates.
+
+## Previous foreground archive checkpoint
+
+Latest main `16c45b266` is included. Runtime `d20c242ea` prioritizes S3 outputs
+waiting on the shared archive publication lane. Ready foreground groups retain
+FIFO order and receive at most two turns before a ready background group.
+Blocked retries consume no turn; expired/cancelled outputs lose priority. An
+active proof batch retains its foreground identity. Publication concurrency,
+durability checks and admission banks are unchanged.
+
+The physical regression first holds an active background publication, then
+queues another held background group before a foreground receipt. The FIFO
+baseline `c868517fc` fails its original five-second receipt deadline in the
+materialized configuration. The new scheduler passes natively and against real
+RustFS in both image forms; all six regression source files are byte-identical
+across red/green. Three queue controls verify ordering, blocked/removal handling
+and background progress under continuous foreground arrivals.
+
+**Correctness cohort 1138 is FAILED, 19/21.** All three queue units and eight
+native/RustFS archive-control pairs pass, covering the new priority behavior,
+independent multi-group recovery/reclamation, minima, receipt deadlines/refunds,
+typed failures, remote output durability/creation and retirement/maintenance
+progress. The remote deadline/cancellation pair fails before observing its
+enrollment S3-wait stage. The inner helper had observed an ambiguous failure;
+this is not evidence of a premature successful S3 acknowledgement.
+
+**Public cohort 1139 is FAILED, 5/19.** All three SDK Queue metrics selectors
+pass their 24 native/RustFS/RustFS-Axum image/source/target-minimum
+configurations. Both startup-refusal controls pass. All eight EventStream
+lifecycle selectors fail: four ordinary paths expire ambiguously on Consume
+command **2**, and four explicit paths fail initial activation. Both genesis
+selectors, independent-target-S3 selectors and retained-activation selectors
+also fail; native genesis includes a Quorum extent startup timeout. The
+RustFS/Axum target-S3 selector reaches Consume before failing. Original public
+fixtures, deadlines, quotas, minima and assertions remain.
+
+Follow-up diagnostic source `6ec1f0a0c` changes only the remote-deadline test
+helper: it reports typed errors/counters and retains ambiguous enrollment disks
+while joining remote and host owners on early exit. Both original
+deadline/cancellation selectors pass in diagnostic cohort 1142, native and
+RustFS, across both images. The original 800 ms budget, wait-stage gate,
+callback/refund assertions and production bytes remain. This separate rerun does
+not rewrite cohort 1138 or qualify timing stability; it did not reproduce that
+earlier enrollment failure.
+
+Locked library/unit/integration build 1137 and diagnostic integration build
+1141c pass with optimization 1, assertions, overflow checks and incremental=0.
+Strict library plus affected-integration Clippy 1132 passes at `9164bdaf2`;
+`d20c242ea` only formats its queue selection. Formatting, layout, dependency and
+document checks pass. Final publication checks 1144 additionally cover the
+diagnostic helper. Earlier cancelled and failed diagnostic builds remain
+recorded. All owned compiler/runtime handles joined before source changes.
+Independent compiler activity is recorded; no isolated performance claim is
+made. RF3 voters share a process with separate workspace disks and one SQL
+worker per public voter; RustFS has one CPU/two GiB on a four-CPU/eight-GiB VM.
+
+All 42 failed voter directories and nine intentional refusal directories from
+1139 remain. Earlier recorded failure roots remain, including the 48 from
+1122/1123 and baseline 1117's 33 roots. The failed 1138 helper did not retain or
+report roots; the new failure branch closes that evidence/cleanup gap. Aggregate
+1143 under ignored `.cellar/cg17-payload-01/` verifies source, binaries, logs,
+fixture fidelity and reported retained roots. Owned RustFS/VM are stopped with
+objects retained. Full plan validation still stops on missing historical CG-01
+evidence; the generated index remains current.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Prioritize EventStream
+source/child/final Consume settlement and cold/retained/outbox activation under
+the original budgets. Then qualify interrupted binding recovery and unused
+sequence sealing, exact Queue settlement and native extent producer **15**.
+Alarm/cron, Workflow and remaining primitive/provider recovery matrices, CG-13
+managed recovery, CG-15 independent-voter qualification and CG-16 cutover remain
+open. The full implementation goal stays active.
+
+## Previous broker-genesis checkpoint
+
+Latest main `16c45b266` is included. Runtime `4b3247b34` adds an immutable exact
+broker configuration receipt; `aff4d31c4` lets its provisioning read join cold
+schema enrollment after the full source checkpoint. Parallel broker preparation
+and catalog bootstrap remain. The read allocates no child business sequence;
+current history, fresh quorum and the independent target minimum still authorize
+its result. Ordinary administration updates retain their command path.
+
+**Owning cohort 1122 is FAILED, 25/28.** All 21 unit controls pass, including
+receipt immutability, exact caller/body checks, malformed/untrusted genesis
+refusal and the existing parallel-bootstrap liveness contract. Native and
+real-RustFS SDK Queue metrics pass their 16 image/source/target-minimum
+configurations; both cold Queue inspection selectors pass both images. The
+RustFS/Axum metrics selector fails with HTTP 503 / `DeadlineExceeded`. Both full
+genesis selectors fail startup deadlines in S3 configurations. Completed Quorum
+configurations satisfy the unchanged version-1/unused-allocator oracle; this
+does not accept the full genesis gate.
+
+**Public cohort 1123 is FAILED, 3/16.** Ordinary RustFS/Axum EventStream lifecycle
+passes both images, and both startup-refusal controls pass. The other three
+ordinary selectors fail ambiguously on Consume command **2**. All four explicit
+selectors fail activation; native/Axum and RustFS/native reach outbox-recovery
+reactivation before failing. Both independent-target-S3 selectors and both
+retained-activation selectors fail deadlines. Repeated genesis checks also fail:
+native at S3 extent startup and RustFS at Quorum extent startup. Availability is
+not qualified even for every Quorum configuration. Fresh successful histories
+do not reconcile any earlier ambiguous command.
+
+Baseline 1117 at `c68875d8d` fails the broker version oracle at version **2** in
+RustFS/S3 materialized startup. The latest tests preserve that oracle and the
+already-linearizable query default. The genesis helper is byte-identical after
+normalizing only scenario-prefix selection; new RustFS genesis prefixes avoid
+colliding with lifecycle prefixes. Public explicit/retained EventStream and
+Queue fixtures are unchanged. No assertion, request deadline, quota or minimum
+was relaxed. The complete selectors still fail, so the new receipt/genesis path
+is implemented with partial qualification, not an end-to-end closure or speedup.
+
+Locked library/unit/integration build 1121, strict all-test Clippy 1120,
+formatting, layout, dependency and document checks pass. Test optimization 1,
+assertions, overflow checks and incremental=0 remain. All owned compilers joined
+before runtime; both campaigns recorded empty compiler preflight/postflight
+snapshots. Voters still share a process with separate workspace disks and one
+SQL worker each; RustFS uses one CPU/two GiB. This is not independent-voter release
+or isolated performance qualification. Temporary diagnostic probes are removed.
+
+The 48 failed voter directories and nine intentional refusal directories from
+1122/1123 remain, as do all 33 directories recorded by baseline 1117. Aggregate
+1126 under ignored `.cellar/cg17-payload-01/` verifies executable/log hashes,
+fixture fidelity and retained directories. Owned RustFS and its VM are stopped
+with objects retained. Full plan validation still stops on missing historical
+CG-01 evidence; the generated index remains current.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close Consume's source,
+child and final settlement, cold/retained/outbox-recovery activation and
+RustFS/Axum Queue metrics under their original budgets. Interrupted-binding
+recovery/sealing already have owners; their full qualification, native extent
+producer **15**, the remaining primitive/provider matrix and CG-13/15/16 gates
+remain open. The full implementation goal stays active.
+
+## Previous archive-prefix checkpoint
+
+Latest main `16c45b266` is included after a fresh fetch. **Runtime `8590a4435`
+rejects archive prefixes older than an immutable query's selected image witness.**
+The bound applies only in the same group history, before retained-proof reuse or
+publication verification. It cannot establish success: full physical coverage,
+exact history/version/witness checks and current-birth fences remain mandatory.
+Receipt lookup can still select an older archived observation and keeps its
+existing verification path. Temporary EventStream probes are removed.
+
+**Focused cohort 1093 is FAILED, 6/14.** All six native/real-RustFS S3 controls
+pass both image formats: selected-image metadata refusal/restoration, archived
+receipt observations and response progress during predecessor retirement. All
+**eight original EventStream selectors still fail**: four activation paths expire
+in configuration-status reads; four ordinary paths expire ambiguously on Consume
+command **2**. This change does not close those failures or demonstrate a speedup.
+Public fixtures, original deadlines, quotas, minima and assertions are unchanged
+from published `d3a821988`. The previous 24 SDK Queue configurations and Queue load
+results remain pinned to `5a82ffc5e`; they were not rerun here.
+
+Diagnostic trace 1087 at `51d2c1555` finds fast observed metadata SQL callbacks;
+S3 activation waits after SQL in archive settlement. Quorum Consume reaches its
+second acknowledgement's immutable receipt read with 138 ms remaining. Neither
+observation identifies an exclusive cause of the whole operation's delay. Its
+four cases and the uninstrumented 1081 cohort each fail all four cases. The VM-stopped native
+baseline 1079 passes 2/2 with the identical published executable; environment and
+time differences prevent an exclusive-cause comparison.
+
+Locked build, strict library Clippy, formatting, layout, dependency and document
+checks pass. Original test optimization 1, assertions, overflow checks and
+incremental=0 remain. Owned compilers joined before runtime; independent compiler
+activity was not captured at this cohort's preflight, so no isolated timing claim
+is made. Voters share a process with separate workspace engines; RustFS uses one
+CPU/two GiB. All 24 new failure disks, the 24 from 1081/1087 and earlier failures
+remain. Owned RustFS/VM are stopped with objects retained. Aggregate 1096 under
+ignored `.cellar/cg17-payload-01/` verifies source/artifact/log hashes and fixture
+fidelity.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Prioritize actual source
+checkpoint/child-call/final settlement in Consume and S3 activation publication,
+then native extent producer settlement and interrupted-binding recovery/sealing.
+Full primitive/provider, managed recovery and independent-voter release gates
+remain. The generated index is current; full plan validation still stops on
+missing historical CG-01 evidence.
+
+## Previous catalog-confirmation checkpoint
+
+Latest main `16c45b266` is included. **Runtime `0dcb6d9cc` retains a completed
+first query while its fallback finishes an entered catalog confirmation.** The
+existing future, deadline and attempt bank remain. At its verified boundary,
+the original request/ticket and current route are checked before returning the
+retained response. Replacements and failed confirmation refuse it. The existing
+two-waiter bound and physical SQL/response admission remain; callbacks do not
+replay and no extra lookup or ticket is allocated.
+
+Qualification source `5a82ffc5e` strengthens only test refusal-kind assertions.
+**All 12 query controls pass**, including six same-route/replacement/unavailable
+schedules across both images, first-progress retention, blocked-local failover,
+one-invocation bounds, nonmember grants and physical deadlines. Test-only baseline
+`f595823e2` fails both images with the exact `StaleAttempt` while catalog
+confirmation is held. The first/same-route oracle, setup, gates and original
+two-second/four-ticket limits are unchanged. Negative assertions were strengthened
+after red to exclude incidental deadline failures; no whole-helper identity is
+claimed. Production code is identical at the two final source pins.
+
+**All 24 SDK Queue metrics configurations now pass**, covering native, real-RustFS
+native and real-RustFS Axum, both images and independent source/target Quorum/S3
+minima. Cold/warm version and allocator preservation, source writes/exact replay,
+archive restoration and fresh-quorum refusal pass. All three original Queue
+lifecycle selectors also pass both images. These fresh histories do not reconcile
+earlier ambiguous mutations or explain the earlier RF3 setup failure.
+
+**Public cohort 1073 is FAILED, 13/22.** Its unchanged original 16-selector subset
+is FAILED **7/16**. All eight EventStream selections fail: configuration-status
+activation queries time out in four; four ordinary native/Axum/RustFS paths expire
+ambiguously on Consume command **2**. Observed Consume target attempts begin with
+roughly 2.8 seconds of their original 3-second budget remaining. This locates work
+inside the actual attempt without identifying its exclusive cause. Source-proof,
+current-history, registration and Fleet controls pass.
+
+**Real RustFS Queue load passes both images: 528 unique messages each.** Native
+materialized mode delivers 528; extent producer **15** expires with an unknown
+outcome. Earlier unknown calls and leased identities remain. Original public
+request bodies, deadlines, assertions, quotas and minima are unchanged. No full
+primitive family is accepted from these scoped passes.
+
+Locked build, strict library/affected-test Clippy, formatting, layout, native
+dependency, documentation and generated-plan checks pass. Normal incremental=0,
+test optimization 1, debug assertions and overflow checks remain. Final control
+and public compiler pre/postflight snapshots are empty; these diagnostic runs
+still establish no isolated timing, speedup or independent-voter release claim.
+Voters share one process/separate workspace engines; new SDK cases use one SQL
+worker/eight ordinary slots. RustFS is constrained to one CPU/two GiB. Aggregate
+1074 under ignored `.cellar/cg17-payload-01/` verifies sources, artifacts/logs,
+regression fidelity and load metrics. All **27 qualification voter disks and two
+baseline fixture trees**, plus earlier failures, remain. Owned RustFS/VM are
+stopped, retaining objects.
+
+Acceptance stays **13/17 tasks, 147/195 cases**. Next close EventStream
+configuration-status activation and Consume execution, native extent producer
+settlement and autonomous interrupted-binding recovery/sealing. Remaining
+primitive/provider, managed recovery and release gates retain their full scope.
+CG17-03/06 checkpoint notes and the generated plan are current; historical CG-01
+evidence remains missing.
+
+## Previous SDK Queue metrics checkpoint
+
+Latest main `16c45b266` is included. **Runtime `6a97d8c17` moves normal SDK
+Queue `metrics()` to authenticated immutable queries.** Stateful and stateless
+callers retain declared-binding authority, current Queue policy/term fences,
+fresh quorum and the target's independent S3 minimum. Reads consume no target
+business command or ingress sequence. Cold names use the shared, idempotent
+enrollment owner; unknown creation retains its original candidate. Source calls
+use the full checkpoint path when schema genesis may be needed; captured existing
+histories use read-only proof reuse. Neither path replays the application callback.
+
+**All three original Queue lifecycle selectors now pass**, covering native,
+real-RustFS native and real-RustFS Axum ingress in both image formats. Cohort 1032
+failed all three on extent DLQ metrics, parent client 47, command 2. These fresh
+passes close those selected controls, not their earlier unknown mutations.
+
+**The 17-selector SDK/Queue/source-proof/Fleet cohort 1050 is FAILED, 12/17.**
+Both source-proof controls, cold operator inspection, selected S3 refusal,
+claim/lease proof and Fleet conformance pass. The three new SDK selectors remain
+FAILED: eight of their planned 24 image/ingress/source/target configurations
+complete. Native stops during RF3 setup before the seventh configuration's
+request. RustFS native fails with `StaleAttempt` after archive restoration;
+RustFS Axum expires ambiguously on cold source binding command 47/2. Cold/warm
+target-version and allocator preservation, source writes/exact replay and
+independent minimum/refusal checks pass in the eight completed configurations.
+
+Both materialized load modes deliver **528 unique messages**. Extent producer
+**10/native** and **16/RustFS** expire with unknown outcomes, leaving both load
+selectors FAILED. The RustFS target attempt starts with 2,998 ms remaining from
+its original 3,000 ms budget; this identifies work inside that attempt, without
+establishing an exclusive cause. Existing leased messages and unknown identities
+remain. The latest complete public cohort is still 1015 at `ca4bffb71`, FAILED
+8/16, before these Queue features; EventStream was not rerun here.
+
+**All seven private-query protocol/admission units pass.** Test-only baseline
+`d60140ee0` fails the identical cold stateless oracle: SDK metrics appended a
+command instead of reading enrollment. After that red result, the fixture gained
+a later source-proven cold-enrollment phase and separate RustFS prefixes for each
+source/target/ingress profile; no whole-helper identity is claimed. Original
+lifecycle and load bodies, deadlines, quotas, assertions and minima are unchanged.
+
+Locked build, strict library/all-test Clippy, formatting, layout, native dependency,
+documentation and generated-plan checks pass. Builds use normal incremental=0,
+test optimization 1, debug assertions and overflow checks. Independent compilation
+is recorded at cohort pre/postflight. Voters share one process/separate workspace
+disks; new cases use one SQL worker/eight ordinary slots, RustFS one CPU/two GiB.
+These are diagnostic results, without isolated timing, stability, exclusive-cause,
+full-family or independent-voter release acceptance. Aggregate 1053 under ignored
+`.cellar/cg17-payload-01/` verifies sources, executable/log hashes, fixture fidelity
+and load metrics. All **18 failure disks** and earlier failures remain. Owned
+RustFS/VM are stopped, retaining objects.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next finish SDK query restoration
+and cold source binding recovery, then exact extent producer/claim/callback
+settlement and autonomous drain. EventStream activation/Consume, safe interrupted
+binding recovery/sealing and the remaining primitive/recovery/release matrix
+remain required. The generated plan is current; historical CG-01 evidence is
+still missing.
+
+## Previous cold Queue inspection checkpoint
+
+Latest main `16c45b266` is included. **Runtime `bef322b4a` serves cold authenticated
+Queue `info`/`peek` by enrollment followed by an immutable query.** Fresh verified
+absence may enter the existing enrollment protocol at the declared minimum.
+Success checks its exact creation, history, schema and durability, then releases
+enrollment output before the query independently proves its selected image.
+No inspection command or ingress sequence is consumed. Input bounds and identity
+are checked before creation. Unknown enrollment retains one candidate/creation;
+only fresh discovery can join an existing name, without retransmitting a new
+creation or business command. Original admission, deadlines and serving fences
+remain; mutating operators retain their command/receipt path.
+
+**Both new selectors pass all eight native/real-RustFS image/minimum
+configurations.** Cold `info` and `peek` preserve enrollment version 1 and leave
+ingress sequence 1 unused. Baseline `dacd78e11` fails that exact semantic oracle;
+all three fixture files are byte-identical on final source. Three owning private
+query wire/admission units also pass.
+
+**Original Queue cohort 1032 is FAILED, 9/14.** Version/allocator preservation,
+fresh-quorum refusal, selected S3 coverage/refusal and Fleet conformance pass.
+Both native and RustFS claim/lease proof selections pass, including the original
+cold S3 DLQ warm-up that failed in 1013. This closes the selected control, not an
+earlier command's unknown outcome or every timing failure.
+
+Three ordinary native/RustFS/Axum lifecycle selections fail in extents on parent
+client **47**, command **2**, with an ambiguous deadline. The unchanged fixture
+maps this call to SDK `Queue.metrics()` against the DLQ after delivery/retry.
+That SDK API still invokes `__queueMetrics` through a command, although its broker
+handler only reads metadata; it is distinct from the operator path fixed here.
+Native load fails producer **26** before a completion marker. RustFS materialized
+load delivers **528 unique messages**, then extent producer **22** expires
+ambiguously. The original load body remains byte-identical to published
+`3445aa7fe`; the ordinary lifecycle body is unchanged from `9c28031f2`.
+
+The latest complete public cohort remains 1015 at `ca4bffb71`, **FAILED, 8/16**,
+before this Queue-only feature. EventStream was not rerun here. No full primitive
+family or independent-voter release gate is accepted. Independent compilation is
+recorded at cohort preflight; postflight is empty. Results are diagnostic and
+establish no isolated latency, stability or exclusive timing cause. Voters share
+one process/separate workspace disks; new cold cases use one SQL worker and eight
+ordinary slots. RustFS uses one CPU/two GiB. Owning fixture limits are unchanged.
+
+Locked library/integration build, strict library/all-test Clippy, formatting,
+layout, native dependency, documentation and generated-plan checks pass. Normal
+`CARGO_INCREMENTAL=0`, test optimization 1, debug assertions and overflow checks
+remain. A missing test re-export was corrected before the semantic baseline;
+its failed build is retained. All **18 failure disks** from this turn's baseline
+and qualification, plus earlier failures and unknown identities, remain.
+Ignored aggregate 1036 under `.cellar/cg17-payload-01/` verifies source,
+executable/log hashes, fixture fidelity and metrics. Owned RustFS/VM are stopped
+with objects retained.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next implement the actual SDK
+Queue metrics read adapter with source checkpointing, declared-binding authority,
+independent target minima and cold-resource semantics. Then close exact producer/
+claim/callback settlement, EventStream activation/Consume and autonomous binding
+recovery/sealing, followed by the full primitive/recovery/release matrix. The
+generated plan is current; historical CG-01 evidence remains missing.
+
+## Previous archive journal snapshot checkpoint
+
+Latest main `16c45b266` is included. **Runtime `ca4bffb71` reads one complete
+archive journal generation across concurrent atomic publication.** Publication
+already writes and syncs an immutable file, renames it and syncs its directory.
+A reader now bounds and reads its opened descriptor instead of requiring its
+length to equal an earlier path observation. A replacement between those two
+observations can legitimately select a newer complete generation. A replacement
+after open leaves the reader's complete generation usable.
+
+Path type/bounds, descriptor bounds, exact engine/purpose/history identity and
+canonical encoding checks remain mandatory. Publication barriers, exact archive
+receipt/coverage checks and current serving fences are unchanged. The snapshot
+adds no S3 or acknowledgement authority and adds no retries or request time.
+
+**All six journal tests pass.** Deterministic real-filesystem schedules cover
+ordinary and seed journals, growing/shrinking records, replacement before/after
+open, invalid descriptor lengths before any byte read, foreign identities and
+noncanonical/corrupt bytes. Baseline `b9a35f5b` passes five of six and reproduces
+the exact `archive journal changed during read` error. The final tests are
+byte-identical to that baseline; no timing assertion is involved.
+
+**Original proof/archive controls 1013 are FAILED, 11/12.** Native Queue's
+claim/lease proof control now passes, including both image formats and durability
+minima; campaign 993 failed it on the journal race. All ten native/real-RustFS
+archive controls pass, covering exact results, minimum-durability refusal,
+intent reconciliation/joined close, receipt observation and retiring holds.
+The RustFS Queue proof selection still fails while warming its cold DLQ at the
+declared minimum: binding command **1** expires ambiguously before the proof
+gate. Its outcome remains unknown; earlier ambiguous identities also remain.
+
+**The complete original public cohort 1015 is FAILED, 8/16.** SDK source proof,
+current-history resolution, registration and Fleet pass. **Real RustFS Queue
+load passes both image formats, delivering 528 unique messages each.** Native
+materialized mode also delivers 528; native extents fail producer command **6**
+with an unknown outcome. One native-ingress RustFS EventStream lifecycle passes;
+the other seven EventStream selections fail activation or ambiguous Consume
+**2**. These mixed results do not establish stable whole-family support or an
+exclusive timing cause. The original load body remains byte-identical to
+published `3445aa7fe`; assertions, deadlines, quotas and minima are unchanged.
+
+The final locked library/integration build, strict library/all-test Clippy,
+formatting, layout, native dependency, documentation and generated-index checks
+pass. An initial fixture serialization error and an incremental compiler panic
+are retained; final builds and runs use normal `CARGO_INCREMENTAL=0`, test
+optimization 1 with debug assertions and overflow checks enabled. Unit 1011 and
+public 1015 have empty compiler pre/postflight snapshots; baseline 1007 and proof
+1013 record independent compilation and remain diagnostic. Voters share one
+process with separate workspace disks; RustFS uses one CPU/two GiB. No isolated
+latency, full-family or independent-voter release acceptance is added.
+
+All **27 current qualification failure disks** and earlier failures remain.
+Ignored aggregate 1017 records source, executable/log hashes, regression fidelity
+and load metrics under `.cellar/cg17-payload-01/`. Owned RustFS and its VM are
+stopped, retaining objects and disks.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close cold S3 Queue
+onboarding and exact extent producer/claim/callback settlement, then EventStream
+activation/Consume and autonomous interrupted-binding recovery with safe
+unused-sequence sealing. Full primitive/recovery/release gates remain in scope.
+The generated plan is current; historical CG-01 evidence remains missing.
+
+## Previous private image preparation checkpoint
+
+Latest main `16c45b266` is included. **Runtime `000f92ef7` moves private command image verification and persistence
+off the fixed SQL worker.** Native RPC final results, Storage checkpoints,
+registered SQL and framework commands share a bounded execution-domain preparation
+owner. SQL capture and callbacks remain on their original worker. Prepared images
+supply no proposal or acknowledgement authority; the SQL owner rechecks its exact
+producer, route, engine, term and live execution authority before adoption.
+
+Entered I/O retains the original cell lease, bytes, image pins and log reservation
+through physical join, including cancellation and shutdown. Unsubmitted images
+are retired on refusal. Only typed physical inventory contention can retry the
+same captured input within the original deadline; SQL and callbacks never replay
+in that phase. A checkpoint cannot park its writer while preparation is pending.
+Private writer opening and enrollment still use the SQL worker.
+
+**All six new boundary selections pass: 20 native/real-RustFS configurations.**
+Both image formats cover RPC final results/checkpoints, registered commands and
+cancellation with joined host closure. A held image-directory sync precedes Raft
+submission; an unrelated public linearizable read must finish within the original
+one-second oracle. Final Quorum result/version and exact replay checks pass.
+Baseline `a2ec7de4` fails that read oracle. Fixture corrections isolate catalogs
+between runs and arm the extent fault after writer admission; the earlier
+miswired campaign remains failed, without a byte-identical whole-helper claim.
+
+**Original public cohort 991 is FAILED, 7/16.** Native/RustFS SDK source proof
+and current-history resolution, registration and Fleet conformance pass.
+**Real RustFS Queue load passes both image formats, each delivering 528 unique
+messages**, including the original archive-outage and load workload. Native
+materialized mode also delivers 528; native extent mode fails primary drain with
+**eight leased messages in its last successful strong inspection**. This is a
+selected live observation, not a conclusion about their eventual outcomes.
+All eight EventStream selections fail activation or ambiguous Consume **2**.
+Two Axum selections passed the preceding 959 campaign; this run does not establish
+stability, speedup or an exclusive cause for the changed outcomes.
+
+**Compatibility controls 993 are FAILED, 11/14.** Registered identity/receipts,
+leader-change reconciliation, retained producer admission, shutdown ownership and
+unrelated-apply RPC/checkpoint progress pass. The native Queue proof control fails
+`archive journal changed during read`; the RustFS control expires ambiguously at
+binding command **4**. The deadline-dequeue control observes queue count zero
+instead of one, with callback count zero. Frozen baseline/current comparison 994
+fails the same assertion using the byte-identical fixture; the control remains
+open rather than being relaxed or suppressed.
+
+Campaign 990 has empty compiler pre/postflight snapshots. An independent checkout
+compiled during public 991; compatibility 993 is explicitly diagnostic. Strict
+control preflight 992 stopped before any test and is recorded as failed. Voters
+share one process/separate workspace disks, RustFS uses one CPU/two GiB. These
+results add no isolated load timing, full-family or independent-voter release
+acceptance. All **33 current qualification failure disks** and earlier diagnostic
+failures are retained. Evidence, metrics and hashes are summarized by ignored
+aggregate 995 under `.cellar/cg17-payload-01/`.
+
+Final runtime `000f92ef7` adds only submitted-checkpoint storage indirection to
+functional source `4c70d0641`. **All eight final selections pass: 24 native/RustFS
+configurations** (the six new selections/20 configurations plus two original
+unrelated-apply checkpoint selections/four configurations). Locked build, strict
+library/all-test Clippy, formatting, layout, native dependency, documentation and
+generated-plan checks pass. Public 991 and compatibility 993 remain pinned to
+`4c70d0641`, before that representation-only follow-up; they were not rerun on
+the final enum layout. Final evidence is summarized by state 1003. Owned RustFS
+and its VM are stopped, with objects and failed disks retained.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close consistent S3 journal
+reads across publication, exact native Queue claim/callback settlement and
+EventStream activation/Consume within the original deadlines; then interrupted
+binding recovery and the remaining primitive/recovery matrix. The generated plan
+is current; historical CG-01 evidence remains missing.
+
+## Previous immutable Queue inspection checkpoint
+
+Latest main `16c45b266` is included. **Runtime `234d12f55` serves authenticated
+Queue `info` and `peek` through immutable linearizable queries.** Inspection of
+an existing Queue does not allocate an ingress sequence or append a Queue command.
+Mutating operator calls retain their command/receipt path. The private Queue
+transport purpose requires command authority and cannot be substituted for
+public or EventStream query admission. Original resource bounds, cancellation,
+birth/route fences and namespace Quorum/S3 minima remain.
+
+Queue inspection captures the leader's node policy and refuses a leadership/term
+change across SQL selection. Fresh quorum authority remains mandatory; an S3
+minimum also requires independently verified coverage of the selected version.
+Enrollment now installs the Queue schema, allowing inspection before any native
+RPC. The changed initializer digest requires fresh compatible namespaces and
+matching voters; format markers remain 1, without a legacy reader or migration.
+Only proven fresh name absence may enter the existing creation protocol.
+
+**31 Queue/query-wire units and all five owning public selections pass.** The
+public selections cover 12 native/real-RustFS image/minimum configurations plus
+the Fleet Queue reference: version/allocator preservation, mutating pause,
+private admission, minority refusal, bare enrollment and denied S3 publication.
+The S3 negative case first observes a newer committed cell version and an actual
+denied publication, refuses inspection, then restores successful reads. It does
+not infer whether the timed-out pause committed. Baseline `fc39365a` fails the
+same version/allocator preservation assertion. The minority endpoint was corrected
+after that baseline; no byte-identical whole-helper claim is made.
+
+**Compatibility controls are FAILED, 4/7.** Claim/lease proof gates pass on both
+backends, as do ordinary RustFS native/Axum Queue lifecycles. Native Queue passes
+materialized mode, then extent producer command **2** expires ambiguously. Both
+retained EventStream activation controls fail their deadlines.
+
+**The complete original public cohort 959 is FAILED, 8/16.** SDK source-proof
+and current-history resolution, registration/Fleet and native/RustFS Axum
+EventStream lifecycles pass. Six other EventStream selections fail activation
+or ambiguous Consume **2**. Both Queue loads deliver **528 unique messages in
+materialized mode**; extent mode fails native steady-load primary drain and
+RustFS producer **11**, whose outcome remains unknown. The original Queue load
+body is byte-identical to published `3445aa7fe`; budgets, quotas, minima and
+assertions remain unchanged. All **33 current failed voter disks** are retained.
+
+Locked integration/library builds, strict library/all-test Clippy, formatting,
+layout, native dependency, documentation and generated-plan checks pass.
+Aggregate 964 records frozen source, log and executable hashes under ignored
+`.cellar/cg17-payload-01/`. Runtime campaigns are explicitly **DIAGNOSTIC**;
+independent compiler activity is recorded at owning/public boundaries. Voters
+share one process with separate workspace disks; RustFS uses one CPU/two GiB.
+These results add no isolated timing, exclusive-cause, full-family or release
+acceptance. Owned RustFS/VM are stopped with objects retained.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close extent Queue
+producer/consumer settlement and autonomous drain, then EventStream activation
+and Consume/source settlement under their original deadlines. Interrupted
+bindings, safe unused-sequence sealing and the remaining primitive/recovery
+matrix still precede CG-13/15/16 cutover. The generated plan is current;
+historical CG-01 evidence remains missing.
+
+## Previous SQL query admission checkpoint
+
+Latest main `16c45b266` is included. **Runtime `1e9654506` releases completed
+S3 metadata queries from SQL admission into their already acquired archive
+reservation.** The callback and selected-image pin have finished before this
+handoff. Queued and buffered results keep their archive byte/item charge;
+remaining physical owners keep their SQL charge until they join. Ordinary query
+retention, archive coverage, current fences and original deadlines remain.
+
+The new admission regression fails baseline `7aa09947b` with `Overloaded` on
+the next read and passes final source with the byte-identical helper. It exercises
+the actual one-slot SQL and archive banks, retained physical ownership and output
+bytes/version. **20 additional functional controls pass**, including real RustFS
+and both image forms: registered-query cancellation/ownership, revoked readers,
+completed verification reuse, S3 output progress, namespace/stored minima, typed
+failure/result admission and deadline cleanup. Locked build, strict library/all-test
+Clippy, formatting, layout and dependency checks pass.
+
+**The complete original public cohort 937 is FAILED, 6/16.** Native/RustFS SDK
+source proof and current-history resolution pass, as do registration/Fleet.
+All eight EventStream selections fail initial activation or ambiguous Consume
+command **2**. Native Queue reaches the **steady-load primary drain** and expires
+in `quorum-jobs` empty wait; the preceding post-outage drains and producer join
+completed. RustFS Queue fails producer command **36**, whose outcome remains
+ambiguous. Neither Queue run emits a 528-message completion marker. All 30 failed
+voter disks remain. Queue fixture changes add error context only; original
+selectors, assertions, deadlines, quotas and durability minima remain.
+
+Both functional campaigns are explicitly **DIAGNOSTIC**, with no temporary
+runtime probes, because independent-checkout compiler activity is recorded at
+their boundaries. Existing strict isolated-run preflights remain available;
+these runs add no isolated timing, exclusive-cause, full-family or release
+acceptance. Voters share one process/separate workspace disks; real RustFS uses
+one CPU/two GiB. Owned backend/VM are stopped with objects retained. Aggregate
+940 records source, regression, log and executable hashes under ignored
+`.cellar/cg17-payload-01/`.
+
+Acceptance stays **13/17 tasks, 147/195 cases**. Next close native Queue's
+autonomous steady-load drain and RustFS producer settlement, alongside current
+EventStream activation/Consume deadlines. Interrupted bindings, safe sequence
+sealing and the remaining primitive/lifecycle/recovery matrix still precede
+CG-13/15/16 cutover. The generated plan index remains current; historical CG-01
+evidence remains missing.
+
+## Previous scratch-directory durability checkpoint
+
+Latest main `16c45b266` is included. **Runtime `af127fc3f` removes ancestor
+fsync from disposable materialized command directories.** Every open discards
+SQLite/WAL/capture scratch and rebuilds it from an independently authoritative
+image. Directory locks and bounded absolute paths remain mandatory. Immutable
+previews, committed images, replicated logs and root publication retain their
+persistence barriers; extent workspace allocation/reclamation keeps its separate
+durable inventory contract. The public `PrivateOptions` and LTX guide document
+this boundary. Bounded physical apply and shared progress-lane ownership remain.
+
+**28 owning/control selections pass**, including real RustFS. The new physical
+regression denies scratch-directory sync, verifies pre-commit invisibility,
+commits through actual RF3, deletes scratch and reopens the exact receipt without
+callback replay. It fails baseline `f5bc74137` at the denied sync and passes final
+source with a byte-identical helper. Baseline runtime directory preparation is
+identical to published `0ef32d4b9`. Image/manifest sync failures still refuse
+publication; cancellation, joined close, selected-root recovery, checkpoint
+pressure, S3 output/read fencing and RustFS reclamation/restart pass. Locked build,
+strict library/all-test Clippy, formatting, layout and dependency checks pass.
+
+**The complete original public cohort 899 remains FAILED, 6/16.** Native/RustFS
+SDK source proof and retained binding histories pass, as do registration/Fleet.
+All eight EventStream selections and both Queue loads fail, but their phases differ
+from 878: ordinary native Consume **2** succeeds within its original deadline,
+then retained materialized activation fails. Native Axum completes the materialized
+lifecycle, including retained restart and minority refusal, before failing initial
+extent activation. RustFS ordinary/Axum Consume parent **2** remains ambiguous;
+explicit and target-S3 ingresses fail activation. Both Queue loads expire in an
+unlabelled empty/drain wait. Neither has a 528-message completion marker; the call
+site does not establish which drain phase completed. All 30 failed disks remain.
+Original public fixtures, selectors, deadlines, quotas and minima are unchanged.
+These observations add no full primitive-family or release acceptance.
+
+Control compiler boundaries are empty. Public preflight is empty, but postflight
+observes compilation in independent `tikv-cursor-refusal`. No exclusive failure
+cause, speedup or latency-stability claim follows. Cumulative telemetry 910 is
+per host startup, with new sources after restart; it cannot attribute an exact
+command's deadline cost. Voters share one process/separate workspace disks;
+RustFS uses one CPU/two GiB. Owned backend/VM are stopped with objects retained.
+Aggregate 907 records frozen source, log and executable hashes under ignored
+`.cellar/cg17-payload-01/`.
+
+Acceptance stays **13/17 tasks, 147/195 cases**; the implementation-plan index is
+current and historical CG-01 evidence remains missing. Next close retained/extent/
+target-S3 activation and exact RustFS Consume settlement, then Queue work discovery
+and drain. Complete autonomous interrupted bindings, safe sequence sealing and
+all remaining primitive/lifecycle/recovery coverage before CG-13/15/16 cutover.
+
+## Previous physical-apply progress checkpoint
+
+Latest main `16c45b266` is included. **Runtime `4322aaf6f` runs physical image
+and manifest preparation off the SQL callback worker.** Physical work keeps the
+existing independent byte/item admission, controller limits and bounded task
+handles. One shared progress-lane lease and one queued progress entry let submit,
+finish and callbacks proceed during apply I/O. Shutdown joins entered physical work
+before retiring SQL owners. Results are delivered after that join; failed physical
+preparation releases its reservations before sending its result. Publication and
+acknowledgment still require the original durable barriers and contiguous prefix.
+
+**27 owning/control selections pass**, including real RustFS. The one-worker
+regression holds real manifest-directory sync, requires another cell's callback
+entry within the original one-second gate, refuses its response before release,
+and verifies exact replay with one callback. Both image forms fail baseline
+`58d0dc062` and pass current source; the helper is byte-identical. Baseline physical
+apply is identical to published `7c366ef53`; unrelated temporary Consume probes
+make that baseline diagnostic, not timing qualification. Existing cancellation,
+error cleanup, recovery, checkpoint pressure, S3 output/read fencing and RustFS
+reclamation/restart controls pass. Initial safety 871 exposed reply-before-join
+retirement; current source fixes it without changing the assertions. Locked builds,
+strict library/all-test Clippy, formatting, layout and dependency checks pass.
+
+**The complete original public cohort 878 is FAILED, 6/16.** Native and RustFS
+SDK source proof and retained binding histories pass; registration/Fleet pass.
+All eight EventStream selections and both Queue loads still fail. Preserve
+ambiguous Consume parent **2**, native Queue producer **11**, and RustFS Queue
+producer **18**. Neither load produces a 528-message completion marker. All
+30 failed voter disks remain. Original public fixture bodies, selectors, deadlines,
+quotas and durability minima are unchanged; scoped progress passes add no full
+primitive-family or cutover acceptance.
+
+Control and public compiler boundary snapshots are empty. RF3 voters share one
+process and separate workspace disks; real RustFS uses one CPU/two GiB. This adds
+no speedup, latency-stability or independent-voter release claim. Owned backend/VM
+are stopped with objects retained. Aggregate 884 records exact frozen hashes and
+the failed initial qualification under ignored `.cellar/cg17-payload-01/`.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close activation and exact
+Consume/source-parent settlement, then Queue production/drain within original
+budgets. Continue autonomous interrupted bindings, safe sequence sealing and the
+remaining primitive/lifecycle/recovery matrix before CG-13/15/16 cutover. The
+implementation-plan index is current; historical CG-01 evidence remains missing.
+
+## Previous immutable-read progress checkpoint
+
+Latest main `16c45b266` is included. **Runtime `3c088080a` preserves the first
+immutable automatic read under its original deadline while a serial fallback
+tries trusted replicas.** At most two waiters run concurrently. They share the
+captured request and finite attempt bank; every destination independently proves
+consistency and required S3 coverage. A late first result must match the current
+selected route and live original deadline. A successor or unfinished refresh
+refuses it. Cancelled physical SQL/transport work retains its existing admission
+until joined. Explicit replica-routing timeouts and mutation semantics are unchanged.
+
+**All 18 read/routing controls pass.** The new physical regression holds the first
+callback until a fallback enters, then releases only the first callback. Its result
+must finish before releasing the blocked peer, whose physical reservation remains
+charged. Both image forms fail this oracle at baseline `1842ddcf5` and pass at
+`3c088080a` with the same test body. Existing blocked-local failover, one-ticket
+refusal, explicit replica budgets, quorum, token, grant, stale-route and physical
+cleanup controls pass. Locked builds, strict library/all-test Clippy, formatting,
+layout and native dependency checks pass.
+
+**The complete original public cohort 839 is FAILED, 6/16.** SDK source-proof
+and retained-history binding recovery pass native/real RustFS; registration and
+ordinary Fleet conformance pass. All eight EventStream selections and both Queue
+loads still fail. Ordinary native and RustFS EventStream reach ambiguous Consume
+parent **2**; other paths miss activation deadlines. Native Queue producer **11**
+is ambiguous. RustFS Queue expires in the 30-second `empty` wait; its unlabelled
+call site does not establish which drain phase completed. Neither load has a
+528-message completion marker. All 30 failed voter disks are retained. Do not
+replace these failures with the new read controls or claim full primitive support.
+
+Read-control compiler boundary snapshots are empty. Public preflight is empty,
+but postflight observes an independent `tikv-cursor-refusal` checkout compiling;
+that limits isolation of the public campaign. No exclusive failure cause, speedup
+or latency-stability claim follows. RF3 voters share one process and separate
+workspace disks; real RustFS uses one CPU/two GiB. Owned backend/VM are stopped,
+objects retained. Aggregate 847 records exact source/binary/log hashes, unchanged
+regression body and qualification limits under ignored `.cellar/cg17-payload-01/`.
+
+Acceptance remains **13/17 tasks, 147/195 cases**. Next close catalog/broker
+activation, exact Consume/source-parent settlement and Queue production/drain
+under original budgets. Then finish autonomous interrupted binding/unused-sequence
+recovery and the remaining primitive/lifecycle/recovery matrix before CG-13/15/16
+cutover. Historical CG-01 evidence is still missing; no release acceptance is added.
+
+## Previous S3 output checkpoint
+
+Latest main `16c45b266` is included. **Runtime `ee69e0ce5`, qualified at
+`9f767cce`, lets an exact quorum-committed, S3-proven command response settle
+while later mutations for other cells await apply.** The current leader must
+certify every pending entry as its exact durably logged mutation for another
+cell within the existing event quantum. Same-cell, enrollment, administrative,
+unknown and inherited entries still refuse. The selected version must cover the
+receipt; current birth/route, live leadership and actual archive proof remain
+mandatory. Own receipt publication stays contiguous. Reads, request identities,
+deadlines and admission bounds retain their contracts.
+
+**21 owning/control selections and 191 units pass.** The physical regression
+passes eight configurations: native/real RustFS, both image forms and fresh/replay
+responses. It holds a later real manifest-directory sync, requires the earlier
+S3 response to finish before release and checks exact replay with one callback.
+Four same-cell configurations retain the blocking fence. Baseline `d6d89f3e`
+fails the positive oracle and passes the negative. The common regression body is
+unchanged. Initial qualification 808 has two `LostStableState` setup failures
+because fresh/replay variants reused catalog objects with different disks;
+`9f767cce` isolates their object prefixes and final 812 supersedes scoped acceptance.
+Original failed records and the joined baseline disk are retained. Controls cover
+minimum durability, exact results, missing dependencies, deadlines, enrollment,
+receipt failures, publication, membership, leadership and independent replay.
+Locked build, strict library/all-test Clippy, formatting, layout, dependency,
+docs and generated-index checks pass. A formatting-only follow-up wraps the
+renamed internal protocol error and adds its optional trailing comma.
+
+**Affected public controls 809 are FAILED, 4/6.** SDK source-proof dispatch and
+interrupted named-binding retained recovery pass native/real RustFS. Both
+independent target-S3 EventStream ingresses fail materialized initial activation
+at node 0. All six failed voter disks are retained. This is a selected affected-path
+run, not a replacement for prior source's complete cohort 787, FAILED **6/16**.
+EventStream/Consume and Queue load remain open; do not credit complete primitive
+support or cutover from these scoped passes.
+
+Selected-root diagnostic 800 restores full copies of 787's native activation
+failure with normal log resume and physical apply recovery. All three selected
+catalogs are active at accepted revision one, attempts one; no binding intent
+remains at shutdown. The original bytes are unchanged. This does not establish
+when readiness completed relative to the original deadline. Initial reader
+attempts with incorrect logical-name enumeration are excluded. No live quorum,
+network or serving rights are created by this inspection.
+
+Controls and affected public runs have empty compiler boundary snapshots. RF3
+voters remain in one process on separate workspace disks; real RustFS uses one
+CPU/two GiB. No exclusive failure cause, speedup, timing stability or independent
+Linux voter release acceptance is claimed. Owned RustFS/VM are stopped, objects
+retained. Aggregate 820 verifies source, frozen logs/binaries, eight progress
+markers, unchanged regression body and retained failures. Exact records are in
+ignored `.cellar/cg17-payload-01/output-progress-aggregate-820.json`.
+
+Acceptance stays **13/17 tasks, 147/195 cases**. Next close catalog/broker
+activation readiness, exact source Ack/final-parent settlement and Queue native
+work under original budgets; then finish autonomous interrupted binding/unused
+sequence recovery and the complete primitive/lifecycle/recovery matrix before
+CG-13/15/16 cutover. The index remains current; historical CG-01 evidence is missing.
+
+## Previous owned-image barrier checkpoint
+
+Latest `origin/main` `16c45b266` is included, rechecked after qualification.
+**Runtime `773cb123e` reuses completed materialized-image persistence barriers
+at the exact local prepared-apply handoff.** It rereads and verifies all bytes,
+requires the same open inventory and exact prepared input, and invalidates reuse
+after read or sync failure. Cold/reopened adoption and independent verification
+still sync file and directory. Root publication, ordered apply, query authority,
+quorum/S3 output proofs, original request deadlines and quotas remain unchanged.
+Barrier observations belong to the open inventory and are never serialized.
+
+**23 focused integration selections and 191 units pass.** Baseline `360b169e`
+fails the real committed-apply image/directory barrier counter. Final source
+passes with identical regression assertions, apart from Rust formatting. The new
+physical guards refuse foreign inventory, corrupt bytes, failed file/directory
+syncs and reuse after failed verification; cold adoption and independent checks
+must still attempt their barriers. Controls cover publication, leader change,
+receipts, reads, independent preparation/replay, archive safety and native/real
+RustFS interrupted bindings. Locked build, strict Cellar/LTX library/all-test
+Clippy, LTX minimal/all-feature checks, formatting, layout and dependencies pass.
+
+**Original public cohort 787 is FAILED, 6/16.** SDK source-proof and current-history
+dispatch pass native/RustFS, plus registration and Fleet. All eight EventStream
+selectors fail activation or Consume; both Axum Consume selectors retain
+ambiguous outer sequence **2**. Queue loads fail materialized production at native
+**21** and RustFS **25**, both ambiguous; neither emits a completed 528-message
+result or reaches extent load. Native Queue's target starts with **2,714 ms** of
+its original three-second budget remaining. This change closes repeated local
+barriers, not the public primitive gate. Preserve complete failed identities.
+
+Both public boundary compiler snapshots are empty, but a mid-campaign observation
+records Clippy from another checkout. Controls also overlap that checkout's
+compiler. Those processes are untouched. No exclusive failure cause, speedup,
+latency stability or release acceptance follows. Initial baseline preflight
+refusal and RustFS startup HTTP 503 are retained as setup failures before cases;
+the later signed readiness probe passes. No unchanged public replay replaces 787.
+
+Diagnostic 768 uses normal log resume and physical selected-root recovery on full
+disposable copies of the prior 762 native Consume disks. All three selected target
+roots contain the exact completed Ack receipt for child sequence **3**, matching
+request digest and incarnation. The selected source still has its parent sequence
+**2** intent, prepared on one voter and sealing on two. This establishes state at
+shutdown, not when the original deadline elapsed. Phase zero with a matching
+candidate does not prove an unused or undispatched child. No live quorum, network
+or serving authority is created; original disk hashes remain unchanged.
+
+Aggregate 791 verifies frozen artifacts, regression identity and **30 retained
+failed public voter disks**. Owned RustFS/VM are stopped; objects are retained.
+RF3 voters share one native process with separate workspace disks; public fixtures
+keep one SQL worker/voter and real RustFS uses one CPU/two GiB. Independent-Linux-voter
+release qualification remains open. Acceptance stays **13/17 tasks, 147/195 cases**;
+the generated index is current and historical CG-01 evidence is still missing.
+Next close public EventStream activation and exact source Ack settlement, then
+Queue producer settlement, autonomous interrupted bindings and full primitive
+lifecycle/recovery coverage before CG-13/15/16 release cutover. Exact records are in
+ignored `.cellar/cg17-payload-01/image-seal-aggregate-791.json`.
+
+## Previous independent preparation checkpoint
+
+Latest main `16c45b266` is included. **Runtime `37ceab030`, qualified at
+`2d9c2766e`, allows a private command to prepare while exact mutations for other
+cells await group apply.** Both dispatch and writer acquisition recheck the live
+leader's current-term applied barrier, route, membership and selected cell image.
+The entire pending suffix must match this leader's admitted mutations for other
+cells within the existing event quantum. Same-cell, enrollment, administrative,
+missing and inherited entries refuse the overlap. Group readiness, queries,
+contiguous root publication and quorum/S3 acknowledgement retain their proofs.
+No task, cache, format, quota or deadline is added.
+
+**49 focused integration selections and 191 units pass on the final source.**
+The two owning selections cover native/real RustFS and both image forms: four
+configurations. A real held physical sync permits the second cell's callback to
+enter but no response to settle; releasing it permits durable completion and
+exact replay with one callback invocation. Baseline `a7c3b0f6a` fails the callback
+entry oracle in native materialized mode. Runtime `37ceab030` passes with identical
+fixtures. Final `2d9c2766e` changes only the test's select macro to execution-domain
+polling, preserving its assertions, and requalifies it. The 47 controls cover
+sync, ordered apply, membership, leader replacement, reads, receipts, preparation,
+archive safety, checkpoint/continuation progress and interrupted named bindings.
+New unit guards reject altered entries, same-cell work, enrollment and controls.
+
+The final campaigns run sequentially. Earlier overlapping unit/control records
+and the initial Clippy macro refusal are retained; the final runs replace them
+for acceptance. Locked build, strict Cellar library/all-test Clippy, formatting,
+layout, dependency and docs checks pass. Owning/control compiler pre/post
+snapshots are empty; frozen executable copies are flushed before fixture entry.
+
+**The complete original public cohort 762 is FAILED, 7/16.** SDK source-proof and
+current-history dispatch pass native/RustFS, as do registration and Fleet. Only
+ordinary RustFS/Axum passes among eight EventStream selections. Native/Axum and
+ordinary RustFS Consume fail with ambiguous sequence **2**; explicit native/RustFS
+activation and both independent target-S3 ingresses also fail. The RustFS Consume
+error records target entry with **2,917 ms** of the original three-second budget
+remaining. Neither Queue load completes its 528-message oracle: native producer
+**18** and RustFS producer **7** expire ambiguously; RustFS target entry retains
+**2,867 ms**. Extent load is not reached. Preserve these full identities and earlier
+uncertain calls. The preparation feature does not close the public MVP gate.
+
+Public compiler preflight is empty, but postflight captures two compiler processes
+whose origin and overlap interval are unknown. Treat this as a contended failed
+run, not latency, stability, exclusive-cause or release qualification. The public
+bodies, supporting fixtures, budgets and quotas remain unchanged. No unchanged
+pass-seeking replay replaces it.
+
+Offline diagnostic 763 finds no remaining disposable working databases. Inventory
+763c reads copies of **92 retained materialized images** without changing originals.
+Native/Axum Consume images contain prepared/sealing `__streamAck` intents and a
+completed `__streamNextResolved`; activation images contain `__streamConfigure`
+intents. These can be historical generations: no selected root is decoded, so
+this proves neither current commit, an unresolved-obligation count nor the cause
+of a deadline. First correlate them with selected-root/receipt state, then close
+ack dispatch/sealing, configuration progress and Queue native-work settlement.
+Remaining whole-group waits in due-effect discovery and final S3 output are
+investigation opportunities, not established causes.
+
+Aggregate 765 verifies frozen logs/binaries, fixture identity, original public
+bodies, **27 failed public voter disks** and three baseline disks. Owned RustFS/VM
+are stopped with objects retained. Voters share one native process and separate
+workspace disks; RustFS uses one CPU/two GiB. This is below independent-Linux-voter
+release scope. Counts remain **13/17 tasks, 147/195 cases**. The generated index is
+current; full plan validation still lacks historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`. Next finish the public primitive
+execution/recovery matrix, then CG-13/15 managed recovery and release qualification
+and CG-16 cutover. Exact records are in ignored
+`.cellar/cg17-payload-01/preparation-state-767.json`.
+
+## Previous retained metadata checkpoint
+
+Latest main `16c45b266` is included. **Qualified runtime `0a6fb57b67` lets internal
+event metadata select a retained cell history from a live local voter's applied
+tree after verified, bounded namespace routing.** This is a locator only. The
+actual metadata query still obtains a fresh quorum ReadIndex and the target's
+independent minimum durability proof. Missing local enrollments use ordinary
+quorum name discovery. Public name discovery and absence observations retain
+their full quorum cuts. Source checkpoint, history/schema, membership and serving
+fences remain; no task, cache, format, deadline or quota is added.
+
+**43 current-source integration selections and 190 units pass.** The new owning
+regression passes native/real RustFS and both image forms: **four configurations**.
+After retained restart with cold namespace routes, it checks no separate name
+selection, fresh destination reads, ordinary public name absence and refusal after
+two voters stop. It settles restart elections before the cost oracle; it is not a
+cold-election latency gate. The unchanged fixture fails at baseline `b9e487500`
+on the independent name-ReadIndex predicate. That negative covers native
+materialized images and aborts before extents. Final production differs only in
+the two resolver files and the applied-hint contract comment. The observation
+counter records enrollment-selection attempts after a group quorum cut.
+
+The 41 existing controls cover commit/root sync, membership, follower and change
+reads, receipts/restart, fairness, preparation corruption/expiry and archive safety.
+Units also cover typed name deadlines, metadata admission and performance
+observations. Locked build, strict Cellar library/all-test Clippy, formatting,
+layout, dependency and docs checks pass. Leader commit/root batching,
+`LinearizableAfter`, exact preparation handoff and parallel bootstrap remain.
+
+Diagnostic 726 fails materialized inbox restart activation: catalog discovery
+returns `NotReady` at 2,253/2,818/2,963 ms, before any SQL/query stage starts for that
+invocation. This differs from 719's extent outbox failure and establishes no
+exclusive cause for it. All temporary probes are removed.
+
+**The complete original public cohort 735 is FAILED, 7/16.** SDK source-proof and
+current-history dispatch pass native/RustFS, as do registration and Fleet. Only
+the ordinary RustFS/Axum EventStream selection passes. Seven EventStream selections
+fail: native/Axum Consume time out with ambiguous sequence **2** after target entry
+with **2,745/2,803 ms** remaining; explicit native/RustFS activation fails initially
+at node 0; ordinary RustFS fails extent-image initial activation; both independent
+target-S3 ingresses fail materialized initial activation.
+
+Both Queue loads fail materialized production: native sequence **17**, RustFS
+sequence **12**, both ambiguous with **2,945/2,999 ms** of the original three-second
+budget remaining at target entry. Neither emits a completed 528-message result;
+extent load is not reached. Preserve those complete identities and earlier
+uncertain calls. These are current blockers, not accepted primitive families.
+
+Four counterbalanced frozen baseline/current native/Axum trials 735b all pass.
+They use the same current binary that failed those cases in the complete cohort.
+They do not replace that result or establish stability, exclusive cause, absence
+of performance regression or speedup. Historical 719's 13/16 is not current
+acceptance. The next change must target actual activation and command execution/
+settlement, rather than repeat unchanged campaigns to seek a pass.
+
+Aggregate 738 verifies frozen records/binaries, byte-identical owning fixtures,
+unchanged original public bodies and **27 retained failed public voter disks**,
+plus retained baseline/diagnostic failures. Public and paired compiler pre/post
+snapshots are empty. Owned RustFS/VM are stopped with objects retained. Voters
+share one native process on separate workspace disks; RustFS uses one CPU/two GiB.
+This remains below independent-Linux-voter release scope.
+
+Counts remain **13/17 tasks, 147/195 cases**. The generated implementation index
+is current; full plan validation still lacks historical ignored
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`. Ordinary docs checks pass. Next:
+close activation/Consume/Queue within original budgets, autonomous binding recovery
+and safe sequence sealing, then complete primitive lifecycle/recovery and the
+CG-13/15/16 combined release and hard cutover gates.
+
+## Previous proven binding-writer checkpoint
+
+Main `16c45b266` remains included. **Runtime `6c876b46` retains a proven,
+uncontended source writer across host-owned binding I/O.** Synchronously refused
+pre-enqueue writers now retain a cancellation-safe contention signal, allowing
+the SQL owner to park even without an I/O wake. Existing queued-writer ordering,
+source-history/term checks, receipt reconciliation, physical reservations and
+original deadlines remain. The test-only `eeeb4029` follow-up shares the existing
+physical fault adapter; production and regression assertions are unchanged.
+Temporary execution probes are removed.
+
+The causal baseline `feb44040` fails because returning from a remote child
+reopens the source's `working.lock`. The final regression denies that actual
+storage operation and passes native/real RustFS and both image forms: **four
+configurations**, zero reopens, exact parent replay and one child effect. Source
+and target have different leaders and one SQL worker per voter. Only this new
+fixture admits an extra immutable observer, three requests within the original
+64-KiB bank; original public fixtures keep their limits. Baseline/final test
+differences are formatter reflow and the shared-module import; disabled diagnostic
+probes were also removed. This is structural evidence, not timing acceptance.
+
+Compatibility cohort 528 passes **8/8 selections**: native/RustFS named bindings,
+interrupted retained recovery, same-cell interleaving and ready work passing a
+blocked resume. Named bindings cover eight backend/image/source-minimum
+configurations with their original five-second S3 budget. Five owning units pass,
+including writer-wait cancellation and source-SQL access fencing.
+
+**The complete original public cohort 529 is FAILED, 6/16.** SDK source-proof and
+recursive dispatch, current histories, registration and ordinary Fleet reference
+pass. All eight EventStream selections fail activation or Consume. Consume can
+start with 2,999 of 3,000 ms remaining and still expire inside target execution.
+Both Queue load selections fail during production: native materialized producer
+sequence 7 and RustFS extents producer sequence 23. RustFS materialized delivery
+completes 528 unique messages in 35,453 ms with batch p99 1,297 ms; its extents
+mode has no complete drain result. Earlier 7/16 and isolated passes are historical;
+these runs establish neither stability nor an exclusive cause for the variation.
+
+Final-source locked build, strict library/all-test Clippy, formatting, layout and
+dependency checks pass. Aggregate 535 verifies frozen records, binaries and
+**45 retained failed voter disks**, including diagnostic and baseline failures.
+The first observer-admission failure and zero-test unit selections are explicitly
+excluded from acceptance. Owned RustFS/VM are stopped with objects retained.
+Counts remain **13/17 tasks, 147/195 cases**. Next: implement autonomous catalog
+activation and target Consume/Queue producer progress within original budgets,
+then finish combined primitive/recovery and independent-voter release gates.
+
+## Previous bounded tail-read checkpoint
+
+Main `16c45b266` remains included. **Runtime `7937adc1` pipelines two archive-tail
+entry downloads within the existing validated byte and operation reservations.**
+It preserves descriptor order, complete digest/length checks, independent LTX
+replay and final physical closure verification. A failure stops window extension
+and joins its scheduled peer before releasing admission. No task, cache, format,
+deadline or quota is added.
+
+The serial baseline at `045e9fe8` fails the overlapping-read oracle. Final native
+and real-RustFS regressions pass both image forms: **four configurations**. They
+hold the first two GETs independently, check the two-read bound and exact recovered
+SQLite images, then corrupt a stored entry and require refusal, joined work and
+unchanged serving state. The sole production difference is `archive/tail.rs`;
+the fixture also has recorded formatter reflow and a correction from forbidden
+Tokio selection to the project wrapper. Assertions are unchanged, but test source
+is not byte-identical. Earlier setup failures are retained separately.
+
+**Archive safety passes 11/11. Named bindings pass all eight native/RustFS,
+image and source-minimum configurations**, including original five-second S3
+requests and retained restart. The prior S3 binding deadlines do not reproduce in
+this campaign. This is current scoped qualification, not exclusive attribution
+of those timing failures or a measured speedup/stability result.
+
+**The complete original public cohort is FAILED, 7/16.** Both SDK source-proof
+and history-resolution selections, registration, real-RustFS Queue and ordinary
+Fleet reference pass. All eight EventStream selections fail initial activation or
+Consume. An Axum Consume attempt starts with 2,999 ms of its original 3,000 ms
+remaining; follow-up must inspect execution inside the target command. Initial
+catalog history selection takes 451/835 ms in two failed cases before readiness
+polling expires. These observations localize follow-up without proving an exclusive
+cause. Native Queue completes materialized 528-message/unique-ID delivery, then
+extents producer sequence 11 times out; it has no complete extents drain result.
+RustFS completes both 528-message image forms, with batch p99 1,157/2,614 ms and
+elapsed load time 32,818/40,626 ms. Original limits remain. Neither its pass nor
+the focused binding passes replace the nine failed public selections. Historical
+8/16 at `2b4ae45e` and 14/16 at `a0fe85d1` are not current acceptance.
+
+Aggregate `CG-17-tail-window-aggregate-502-7937adc1` verifies frozen binaries,
+logs/backups, shared source pins and **27 retained failed voter disks**. Locked
+build, strict library/all-test Clippy, formatting, layout and dependency checks
+pass. Jobs are terminal; owned RustFS/VM are stopped with objects retained.
+In-process RF3 and RustFS with one CPU/two GiB remain below release scope.
+Counts remain **13/17 tasks, 147/195 cases**; no complete primitive family or
+release/hard cutover is accepted. Next: target-side EventStream execution and
+autonomous catalog/broker readiness, native Queue extents producer progress, then
+complete primitive lifecycle/recovery and independent-voter release qualification.
+
+## Previous retained-target checkpoint
+
+Main `16c45b266` remains included. **Runtime `2b4ae45e` tries one fresh retained
+history lookup after a proven pre-initializer enrollment refusal.** A different
+creator can join through the existing durable source-selection checkpoint before
+business dispatch. The original candidate still needs its creation proof;
+ambiguous failures retain their existing identity/reconciliation policy. Matching,
+missing or failed observations do not authorize a new selection. Existing target
+command admission and all source/target fences remain. No task, cache, capacity,
+timeout or format is added.
+
+**The new public regression has a causal failure/pass result.** At `f2b43cf7`,
+with only this fallback removed, it fails because no read-only discovery starts
+while enrollment admission is full. At `2b4ae45e`, native and real RustFS pass both
+image forms: **2/2 selections, four configurations**. All tracked inputs differ
+only in `application/cell_bindings.rs`; the test and backend adapter are identical.
+The fixture uses two real namespaces, different group leaders and one SQL worker
+per voter. Eight unpolled enrollment futures retain the target's original eight
+admission slots without entering its controller. An actual nonambiguous Overloaded
+probe proves the bank is full. Backend reads hold the namespace while node metadata
+admission is observed; reservations are released only after discovery starts.
+The original parent receipt/replay, exactly one child effect and exactly one
+initialization are required. Commands enter their controller at construction, so
+the earlier fixture using unpolled command futures was invalid and is retained as
+a prerequisite failure. Class-registration and self-transfer setup failures are
+also retained; none is causal evidence and no assertion was relaxed.
+
+**The original public cohort is FAILED, 8/16 at this runtime.** Both SDK source-proof
+and history-resolution selections, registration, native Queue load, independent
+target-S3 Axum and ordinary Fleet reference pass. Seven EventStream selections
+fail initial activation or Consume deadlines. Real-RustFS Queue completes the
+materialized 528-message/unique-ID oracle, then the extents drain/wait phase expires;
+its complete selector fails. Native Queue passes both images with 528 acknowledged
+and unique deliveries each. Original producer/admission/deadline limits remain.
+The previous 14/16 at `a0fe85d1` is historical, not this revision's acceptance.
+
+Focused counterfactuals run the frozen pre-feature `f2b43cf7` executable and the
+current `2b4ae45e` executable on the same original native ordinary/Axum EventStream
+cases. **Both are 2/2**, with identical test/adapter source and only the production
+fallback different. The current controls use the same binary as the failed public
+cohort. They establish neither stability, an exclusive regression attribution nor
+a speedup; the full 8/16 failure remains. Before the feature, instrumented cohort
+450 passed both selected activation cases and cohort 451 failed both. Its native
+initial catalog configuration took about 2.1 seconds of three, then status polling
+expired. This is an investigation boundary, not an exclusive retained-failure cause.
+All temporary probes are removed.
+
+Compatibility cohort 455 is **5/6 at `055c2183`**, whose production files are
+identical to final `2b4ae45e`; the causal fixture/adapter was added later. Native
+named bindings, both interrupted retained-recovery selectors and both binding-read
+regressions pass. RustFS named bindings pass both Quorum configurations but fail
+source-S3 materialized command 3 and extents command 7. The source-S3 proof/settlement
+cost remains open. Full backend-outage qualification also retains its previous
+warm-route assertion/cold-discovery gap.
+
+Aggregate `CG-17-retained-binding-aggregate-480-2b4ae45e` verifies source equivalence,
+frozen executables/logs/backups, exact causal inputs and **48 retained failed voter
+disks**. Locked build, strict library/all-test Clippy, formatting, layout and native
+dependency checks pass. Jobs are terminal; owned RustFS/VM are stopped with objects
+retained. RF3 voters share one process and separate workspace disks; RustFS uses
+one CPU/two GiB. Counts stay **13/17 tasks, 147/195 cases**; no complete primitive
+family or release/hard cutover is accepted.
+
+Next: combined initial/retained activation, Consume and extents Queue drain;
+then consecutive source-S3 checkpoint/final-output proof and physical verification
+costs under original budgets. Complete primitive APIs/lifecycles, cold-discovery/
+backend-outage coverage and CG-13/17/15/16 remain required. Do not substitute isolated
+passes for the combined gate or change unknown mutation identities.
+
+## Previous immutable archive checkpoint
+
+Main `16c45b266` was pulled and is already included. **Runtime `a0fe85d1`
+creates immutable archive objects conditionally before reading them back.** It
+removes the speculative missing GET for fresh generation objects. Every PUT
+outcome, including a lost response or create conflict, still requires bounded
+length/hash-checked GET confirmation. Local locator validation precedes I/O;
+inherited reuse, independent physical publication, current fences and original
+budgets/capacities remain. No new task, cache or format is introduced.
+
+The unchanged archive regression fails at `9daa1f4d` on the missing-GET oracle
+and passes **2/2 selections, eight configurations** at `a0fe85d1`: native/real
+RustFS, both images and denied/allowed confirmation. It verifies lost PUT
+responses, conflicting retries, corruption refusal without overwrite, denied
+confirmation and independently recovered SQL/LTX images. Binding controls are
+**5/6**: both read regressions and SDK source-proof selections and native named
+bindings pass. RustFS named bindings report all four configurations; only the
+materialized S3 source fails, at command 7 after retained restart. Its final child
+returns after 4668 ms of the original five-second budget. The other three named
+configurations pass. The earlier source-S3 failures remain recorded; this is not
+stability or comparative speedup evidence.
+
+**The complete original public cohort is 14/16 at this runtime.** Both SDK and
+history-resolution controls, ordinary EventStream native/Axum ingress on native
+storage and real RustFS, RustFS publication/subscription/outbox recovery, target-S3
+Axum, registration, Queue load and the ordinary Fleet reference pass. The two
+remaining failures are:
+
+- Native publication/subscription/outbox recovery: retained event activation at
+  node 0 in the extents image times out; materialized passes.
+- RustFS independent-target-S3 native ingress: initial event activation at node 0
+  in the materialized image times out; later image coverage is not established.
+
+**Queue load passes all four backend/image configurations.** Each verifies 528
+acknowledged deliveries and 528 unique message IDs, including 16 messages admitted
+while archive writes are denied and 512 steady-load messages. The original four
+producers, two in-flight requests, eight ordinary slots and two callback slots
+remain. Real RustFS reports batch p99 1200 ms (materialized) / 1183 ms (extents),
+with load/drain times 33685 / 33842 ms. These are scoped observations, not an
+independent-voter release benchmark or a before/after speedup claim.
+
+Seven archive compatibility controls pass: competing registry CAS on both
+backends, uncertain publication, missing/forged tails, unproved S3 output refusal,
+real-store dependencies and reclamation/restart. **Full backend-outage
+qualification remains open.** The first runner omitted its external controller;
+with the controller attached, an old assertion rejects a successful warm-route
+Quorum command. RO-07 permits known-route service while checked authority remains
+valid. A proposed cold-receiver fixture (`b882dd2f`) still receives the caller's
+verified route and fails the same assertion; it is withdrawn by `ce8c08ae`.
+No assertion is relaxed. The final tracked tree is identical to tested runtime
+`a0fe85d1`. A genuine cold-discovery boundary and the full outage matrix still need
+qualification; the controller restored the same backend after both failed runs.
+
+Aggregate `CG-17-immutable-create-aggregate-443-ce8c08ae` verifies source equality,
+frozen binaries/logs/backups, Queue observations and **nine retained failed voter
+disks**. Locked build, strict library/all-test Clippy, formatting, layout and
+native-dependency checks pass. All jobs are terminal; owned RustFS/VM are stopped
+with objects retained. RF3 voters share one process and separate workspace disks;
+RustFS uses one CPU/two GiB. Counts stay **13/17 tasks, 147/195 cases**. No complete
+primitive family or release/hard cutover is accepted.
+
+Next: retained outbox/inbox readiness and independent-target-S3 cold activation;
+then bounded consecutive source-S3 proof/settlement work after restart, autonomous
+interrupted bindings/delivery/ack recovery and safe unused-sequence sealing.
+Complete primitive lifecycle/recovery and CG-13/17/15/16 gates remain required.
+
+## Previous binding-read checkpoint
+
+Main `16c45b266` remains included. **Runtime `df36b88c` preserves an already
+clean Quorum source-read watermark through verified binding completion.** Only
+protected receipt/lane bookkeeping may advance that watermark. A following pure
+read still proves preceding application state and checks the current source
+fence and target authority. Application/schema changes, failed completions, S3,
+cursor restrictions and connection-local state retain checkpoint requirements. Every
+later mutation and final response still prove the complete physical source.
+No new task, cache, admission capacity or format is added.
+
+The causal RF3 regression fails at `7afa23cd`: after a verified named child, a
+following read creates a redundant source checkpoint. Another voter's fresh
+quorum observations bracket a physically blocked follower query. At `df36b88c`,
+clean Quorum keeps its version, dirty/S3 sources advance, and final parent
+receipts and exactly-once child values remain required. Regression source is
+identical across the failing baseline and final runtime. Native and isolated
+real-RustFS selections pass both images and all three cases: **12 configurations**.
+An earlier fixture failure used a counter helper without its SQL table; it is
+retained as a prerequisite failure, not causal evidence. Temporary tracing is
+removed. All **17 owning units** pass, including marker refusal/schema checks and
+the existing catalog tests.
+
+**Combined qualification remains FAILED.** Cohort 413 passes native but fails
+RustFS materialized S3 parent sequence 3 with an ambiguous deadline. The unchanged
+isolated RustFS control 414 passes; it does not erase that failure or establish
+stability. Compatibility cohort 415 is **7/8**: both initial-read, interleaving
+and interrupted named-binding recovery selections, plus native named bindings,
+pass. RustFS named bindings report all four configurations; materialized source
+S3 sequence 3 times out, while the other three pass. Its last child returns after
+3543 ms, leaving less than 1.5 seconds of the original five-second budget for final
+source settlement. Existing archive logs show successive cut publication and
+verification. This identifies an investigation boundary, not an exclusive cause.
+All three failed regression voters retain images containing the final S3 receipt;
+image presence alone proves neither current serving state nor timely S3 coverage.
+
+**Current-source public cohort 416 did not run**, because the compatibility gate
+failed. The last complete public cohort remains **7/16 at `c5f59695`**, not current
+acceptance. Instrumented Axum trace 400 also passes before this change; it is
+diagnostic only. No public stability, measured speedup or full primitive support
+is claimed.
+
+Aggregate `CG-17-binding-read-aggregate-419-df36b88c` verifies frozen inputs,
+binaries, logs/backups and **12 retained failed voter disks**. Voters share one
+process and separate workspace disks; RustFS uses one CPU/two GiB. Build, strict
+library/all-test Clippy, formatting, layout, dependency and docs checks pass.
+Jobs are terminal; owned backend/VM are stopped and objects remain. Counts stay
+**13/17 tasks, 147/195 cases**; the generated implementation index remains accurate.
+Next: bounded S3 checkpoint/final-output publication and physical verification
+progress under original budgets, then the full public cohort, interrupted binding
+sealing, remaining primitive lifecycles and CG-13/17/15/16 hard-cutover gates.
+
+## Previous catalog enrollment checkpoint
+
+Main `16c45b266` is fetched and included. **Runtime `c5f59695e` joins fresh
+catalog configuration to its owned enrollment response.** Enrollment commits the
+initializer's definition, operation receipt and autonomous work. The adapter
+matches the nonce-independent request's scope, resource, caller, operation and
+definition, then checks history, creation, schema and minimum durability against
+the retained response. It returns **creating only**; fresh catalog status and
+catalog/broker resolution still gate activation. Existing histories retain their
+authorized receipt join; genuine updates retain command dispatch. Enrollment
+output is released before ordinary producer admission. Static per-resource
+descriptors are charged to the namespace bank and support multiple resources in
+one catalog. Public quotas and deadlines are unchanged.
+
+**All 16 owning unit tests pass**, including changed/malformed request refusal,
+nonce normalization, multiple resources and agreement with the actual atomic
+initializer receipt/work. Both bootstrap selections pass **eight configurations**:
+native storage/real RustFS, both image forms and Quorum/S3 minima. Each requires
+all three hosts to activate, then a fresh quorum query proves catalog foreground
+ingress remains unused. Original public cases do not run that extra observer.
+
+**The original public cohort remains FAILED: 7/16 at this source and binary.**
+Both SDK source-proof controls, both history controls, registration, ordinary Fleet
+reference and native named EventStream pass. The latter completes both images.
+Native publication/outbox reaches inbox-recovery activation, then times out on
+node 0. Both Axum Quorum paths reach Consume, then exceed three seconds. RustFS
+native Quorum publication/named paths and both independent-target-S3 paths fail
+initial activation. Queue fails native producer sequence 11/RustFS sequence 9
+with ambiguous deadlines; neither complete 528-message oracle is established.
+The previous cohort was 6/16 at `cd50b272`; these single campaigns establish
+neither public stability nor speedup.
+
+Native Axum Consume spends 1 ms selecting its sequence and starts failed target
+dispatch with 2999 ms remaining; native Queue has 2910 ms left. Prioritize target
+execution/checkpoint/child settlement, intermittent cold readiness and retained
+inbox activation. Removing sequence reads alone is not a demonstrated solution.
+Then finish interrupted binding recovery/sealing and remaining primitive gates.
+
+Aggregate `CG-17-catalog-enrollment-aggregate-391-c5f59695` verifies frozen
+inputs, binaries, logs and backups; **27 failed voter disks** remain. The initial
+signed RustFS startup probe returns 503; a later probe passes on the same retained
+container without resetting data. Voters share one process and separate workspace
+disks; RustFS uses one CPU/two GiB. Full primitive and independent-voter release
+qualification remain open. Build, strict library/all-test Clippy, formatting,
+layout, dependency and docs checks pass. Jobs are terminal; owned backend/VM are
+stopped and objects remain. Counts stay **13/17 tasks, 147/195 cases**; the generated
+implementation index remains accurate. CG-13/17/15/16 and hard cutover remain open.
+
+## Previous shared SQL progress checkpoint
+
+Main `16c45b266` remains included. **Runtime `cd50b272` keeps a blocked writer
+reacquisition from hiding another cell's ready callback.** The SQL owner finishes
+one bounded suspended-work scan before declaring that no callback can run.
+It retains one work quantum before serving queued requests; it adds no worker,
+task, admission or execution authority.
+
+The physical regression fails at `e6a0a8f5`: while A's writer is held, an
+already-queued immutable observer overtakes B's ready callback. At `cd50b272`, B
+runs before that observer while A remains blocked. Final A=11/B=10 results and
+receipts preserve writer serialization. **Both native and real-RustFS selections
+pass both image forms.** The new fixture uses one SQL worker and five admissions
+(three RPCs, two observers) within the original 64-KiB command byte bank. Existing
+public fixture limits are unchanged.
+
+**All 14 compatibility controls pass**, including both SDK source-proof cases,
+both interleaving cases, both checkpoint and continuation cases, four generic
+reconciliation cases and both new-entry readiness/deadline cases. The SDK cases
+include S3-source recursion under its original deadline. A pre-fix isolated SDK
+run also passes, so the earlier S3 timeout remains intermittent; no exclusive
+cause or stability claim follows from these results. Temporary timing probes are
+removed, and no measured speedup is claimed.
+
+**The complete original public set remains FAILED: 6/16 pass at this source.**
+The two SDK controls, two history controls, registration and ordinary Fleet
+reference pass. All eight EventStream selections fail initial activation on
+node 0 in their first materialized mode. Native Queue fails producer sequence 7;
+RustFS Queue fails producer sequence 13. Both outcomes are ambiguous deadlines;
+neither complete 528-message delivery oracle is established. Public cohort 373
+is 4/14, combined only with the identical-source/binary SDK pair from cohort 372.
+The new scheduler regression and passing controls do not accept the primitive MVP.
+
+Aggregate `CG-17-resume-progress-aggregate-375-cd50b272` verifies frozen
+binaries/logs/backups and retains **33 failed voter disks** from the regression
+baseline and public cohort. Its scope supplement separates the new fixture,
+existing two-worker physical controls, original public profiles and Fleet
+reference. Voters share one process and separate workspace disks; RustFS has one
+CPU/two GiB. Build, strict library/all-test Clippy, formatting, layout, dependency
+and docs checks pass. All local qualification/build jobs are terminal; the owned
+backend/VM are stopped and object data remains. Counts stay **13/17 tasks and
+147/195 cases**.
+
+**Next:** deliver a proof-bound join of fresh catalog enrollment's existing
+configuration intent, while still requiring current catalog/broker readiness.
+Close Queue producer progress and qualify interrupted bindings/sequence sealing,
+then the remaining primitive lifecycle/recovery and CG-13/17/15/16 release gates.
+Fresh enrollment and successful receipt hints must never become mutation or
+readiness authority by themselves.
+
+## Previous checkpoint receipt checkpoint
+
+PR #170 is merged in main `16c45b266`. Follow-up code `aeb6e5d75` starts from
+that main and has **identical tracked files to qualified runtime `50d9e58fc`**.
+An exact current-term applied RPC checkpoint now reads its receipt from the
+frozen private writer that produced the proven image. It avoids reopening an
+immutable SQLite reader, while retaining owner/route/history/term checks, exact
+version and RPC-step binding, joined preview cleanup and log reservation release.
+Other images and terms retain committed-image reconciliation; S3 output still
+requires archival proof. Fresh catalog enrollment also skips a speculative
+configuration-receipt read; existing histories and concurrent command conflicts
+retain their original proofs.
+
+The physical reader regression fails at `38cdb6b3` with **one forbidden immutable
+reader open**. It passes native storage and real RustFS at `66ca85be` and final
+runtime `50d9e58fc`, in both image forms. The materialized branch rejects image
+opens on the original source SQL thread during checkpoint settlement. The extent
+branch retains the apply, data, version and exactly-once replay assertions without
+that I/O injection.
+
+Final cohort `CG-17-checkpoint-receipt-guards-350-50d9e58f` is **FAILED, 9/10
+passed**. Both checkpoint cases, four leader-change/expired/conflicting-receipt
+controls, native SDK source-proof and both interleaving cases pass. The RustFS
+SDK control fails in its materialized **S3-source** case: a nested sequence-1 call
+exceeds its original deadline with an ambiguous outcome. Conditional public
+cohort 351 did not run. There is no complete current-source public result; the
+last full sixteen-case cohort remains 6/16 at `086f1663`.
+
+Earlier uninstrumented cold catalog cohorts 329 and 335 fail both selected public
+cases. Instrumented cohorts 332 and 339 pass, but do not qualify the final source;
+339 emits no expiry dump. Logging-off diagnostic 337 fails activation. These
+observations leave timing sensitivity and its cause open. Temporary probes are
+removed. The fresh catalog change alone did not close activation, and no measured
+latency improvement is claimed.
+
+Aggregate `CG-17-checkpoint-receipt-aggregate-353-aeb6e5d7` verifies frozen
+logs/binaries/backups and retains all **21 failed voter disks** from this campaign.
+Its append-only scope supplement distinguishes the new two-worker/three-request
+physical fixture from public one-worker controls with unchanged quotas/deadlines.
+Voters share one process and separate workspace disks; RustFS has one CPU/two GiB.
+The locked optimized build, strict library/all-test Clippy, formatting, layout,
+dependency and docs checks pass. The incremental compiler ICE, initial backend
+503 and initial test-helper Clippy failure remain recorded alongside their later
+results. All jobs are terminal; the owned container/VM are stopped and object
+data remains. Full acceptance stays **13/17 tasks and 147/195 cases**.
+
+**Next:** reproduce the S3-source nested-call deadline at its exact source/target
+proof boundary, then finish autonomous interrupted binding recovery and safe
+sequence sealing, Queue load and the remaining primitive lifecycle/recovery gates.
+CG-13/17/15/16, independent-voter release qualification and hard cutover remain open.
+
+## Previous applied checkpoint readiness checkpoint
+
 Main `189edd9a` remains included. **Runtime source `701b6d6f1` lets an exact
 applied RPC checkpoint resume while a later committed entry for another cell
 awaits physical apply.** The invocation retains its writer and original ready

@@ -58,6 +58,24 @@ needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
 ## Primitive compatibility evidence
 
+`--suite provider-journals` runs the three fixed public journal, provider-proof
+and supervision functions in `native_cell_groups_primitives`. Both image forms
+and Quorum/S3 namespace minima retain their original request and recovery budgets.
+The runner records every standalone failure with `--keep-going`; zero selected
+or ignored-only results cannot pass.
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite provider-journals \
+  --backend /private/run/rustfs --output /private/run/provider-evidence \
+  --target-directory "$CARGO_TARGET_DIR" --keep-going
+```
+
+These are provider-journal and identity-checking maintenance fixtures on three
+native voters sharing one process. They do not execute a real provider, enforce
+remote execution fencing, restore provider volumes or qualify native Container
+and SandboxCatalog. Current failures and source-pinned results are tracked in
+the [integration checkpoint](../../docs/design/multi-raft/cell-groups/progress.md#current-integration-checkpoint).
+
 CG17-01's [coverage contract](../../docs/design/multi-raft/cell-groups/qualification.md#machine-readable-inventory-and-acceptance-evidence)
 has a partial SDK catalog and an independent admission verifier. Check them with:
 
@@ -153,6 +171,42 @@ committed async root; it reads that root's inserted key without a retained snaps
 The runner retains source, executable and log hashes. It does not accept the
 complete CG-17 primitive matrix or qualify declared bindings, other automatic
 output/dispatch gates, independent voter processes or disk loss.
+
+## Binding settlement and interrupted Consume/Ack
+
+Run the fixed settlement campaign against an owned RustFS backend:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite binding-settlement \
+  --backend /tmp/cellar-raft-local-001 \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-MY-CHECKOUT" \
+  --output /tmp/cellar-binding-settlement-001 --keep-going
+```
+
+Commit runtime and runner changes first; use fresh compatible namespaces after
+the binding confirmation schema/contract hard cutover. The eleven exact tests
+cover ordinary named bindings, native/Axum EventStream Consume/Ack, independent
+target S3 minima, live and retained-restart recovery, unused sequence sealing,
+interruption after a proven child Ack, and loss of a private S3 settlement output.
+Both image modes and original request/maintenance budgets remain in force.
+
+The focused `binding-ack-recovery` suite reruns both interrupted-Ack functions
+without replacing the original public binding/Consume deadline gates.
+
+The focused `binding-settlement-output-loss` suite first confirms an actual
+settlement archive write was denied, holds the fault beyond the admitted
+maintenance window, then restores the store without application traffic. It
+must observe autonomous confirmation, preserve the original unknown parent,
+avoid business redispatch and safely use the next target sequence. The separate
+`binding-settlement-diagnostic` suite traces one extent/S3 configuration only;
+its pass cannot replace the complete gate. Failures retain their original
+identities, logs, executable hashes and voter disks.
+
+The RF3 voters share a native process with one SQL worker each. RustFS uses the
+recorded container limits; this campaign does not qualify independent voter
+limits, sustained load, deployment/clock faults, all-voter disk loss or complete
+primitive families. See the [binding contract](../../docs/design/multi-raft/cell-groups/named-bindings.md#settlement-output-confirmation)
+and [CG-17 progress](../../docs/design/multi-raft/cell-groups/progress.md).
 
 ## EventStream publishing, subscriptions and outbox
 
@@ -353,6 +407,40 @@ The record includes source and binary digests, S3 probes, running resource
 settings, disk mounts and exit states. Logs and disks remain available after
 the run. The lab attests fixture capacity on one VM. Cross-host failure, complete
 RustFS loss and sustained load have separate acceptance gates.
+
+### Public SQL and KV bindings
+
+Add `--primitives` to select a separate SQL/KV campaign. It provisions two
+managed RF3 namespaces through the compiled application CLI, then creates two
+named resources per namespace through ordinary `Context.sql` and `Context.kv`
+calls. Inspection must find four logical cells in two physical groups on every
+voter. The shared image pool keeps its original bound. Placement conservatively
+reserves that bound for each group, within the unchanged one-CPU/3-GiB voter limit.
+The shared KV payload pool admits two operations and 600 MiB of retained bytes,
+with the complete 64-MiB external-wire bound required by the public adapter.
+Startup explicitly grants namespace reads and writes to the three configured
+nodes using their accepted managed-directory views. The transport preserves
+the existing process-refresh and permission-revocation fences.
+
+The runner selects both image forms and both namespace durability minima.
+Native handlers and `AxumApplication` handlers execute on the native daemon's
+public listener. SQL migration, writes, primary-session reads and failed-batch
+rollback, and KV writes/reads pass through the normal SDK adapters. The campaign
+checks each responder before and after a joined retained restart, kills the
+observed SQL leader, resumes its disk, blocks real archive writes, restores the
+backend, and verifies minority write and protected-read refusal. The independent
+oracle rejects missing operations, incorrect read results, incomplete resource
+observations and weaker acknowledgements.
+During retained startup, the fixture holds the readiness callback and requires
+a new node-lease generation and an actual renewal before releasing public
+admission. This detects log-maintenance owners started without their lease actor.
+
+This campaign does not qualify an external Axum-owned listener, same-command
+retry of an uncertain stateless binding response, or the other primitive
+families. Archive restoration uses fresh requests with idempotent application
+values. Full CG-17 coverage, including the original source-S3 and EventStream
+failures, remains required. Build and run logs, voter disks and every failed
+campaign remain retained; a passing configuration cannot replace a failed one.
 
 ## Sealed source archive holds
 
@@ -1237,3 +1325,51 @@ This scope does not qualify requests issued before initial group readiness,
 independent voter process crashes, all-voter disk loss, full-size values,
 deployment changes or the complete Workflow family. Runtime results belong in
 the source-pinned campaign record and CG-17 progress log.
+
+## Workflow deletion and recreation
+
+`--suite workflow-deletion` selects native and Axum public deletion cases, each
+with materialized and extent images against the owned RustFS backend:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite workflow-deletion --keep-going \
+  --backend /absolute/owned/rustfs-run \
+  --output /absolute/new/workflow-deletion-run \
+  --target-directory /absolute/checkout-private/target
+```
+
+Each image performs eight delete/recreate cycles while a Workflow callback is
+held. Deletion must commit, join that callback and report linearizable absence
+before recreation. The case also deletes and recreates a waiting Workflow after
+retained RF3 restart, then verifies fresh step execution and event completion.
+Original request/callback budgets, one SQL worker per voter and refusal checks
+remain. Voters share one process; provider interruption, independent host loss,
+clock/deployment changes and the complete Workflow matrix remain separate gates.
+
+## Live binding recovery
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite live-binding-recovery --keep-going \
+  --backend /absolute/owned/rustfs-run \
+  --output /absolute/new/live-binding-recovery-run \
+  --target-directory /absolute/checkout-private/target
+```
+
+Both materialized and extent cases cover Quorum and S3 source minima with the
+target's declared Quorum minimum. A child either checkpoints before losing its
+response or refuses and rolls back, leaving an unused reserved sequence. All
+original RF3 hosts stay running. Before any further application request, the
+case waits using synchronous host snapshots for an observed source settlement.
+It then checks the committed obligation guard, exact child state, parent replay
+and a subsequent child using the recovered lane. A refusing child must not run
+again. Counters are observations, never serving authority or an exact backlog.
+
+The suite retains original five-second requests, one SQL worker per voter and
+controller admission limits. In-process RF3 with local RustFS does not qualify
+independent voter crashes, all-voter disk loss, target S3 minima, providers or
+the complete binding/primitive family. `--keep-going` retains both case outcomes;
+any failed configuration keeps the campaign failed.
+
+The normal suite leaves verbose publication tracing disabled. The separate
+ignored `rustfs_trace_extent_binding_recovery` test enables it for diagnosis;
+run that test in its own isolated backend prefix, separately from qualification.

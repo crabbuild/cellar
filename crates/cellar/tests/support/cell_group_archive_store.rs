@@ -18,17 +18,80 @@ pub struct Gate {
 }
 
 #[derive(Debug)]
+pub struct ObjectIoGate {
+    paths: Vec<Path>,
+    pub started: AtomicU64,
+    released: AtomicU64,
+    pub entered: Notify,
+    resume: Notify,
+}
+
+impl ObjectIoGate {
+    fn hold(paths: Vec<Path>) -> ObjectIoHold {
+        assert!(!paths.is_empty() && paths.len() <= 64);
+        ObjectIoHold(Arc::new(Self {
+            paths,
+            started: AtomicU64::new(0),
+            released: AtomicU64::new(0),
+            entered: Notify::new(),
+            resume: Notify::new(),
+        }))
+    }
+
+    pub fn release(&self, index: usize) {
+        self.released.fetch_or(1 << index, Ordering::Release);
+        self.resume.notify_waiters();
+    }
+
+    async fn wait(&self, path: &Path) {
+        let Some(index) = self.paths.iter().position(|expected| expected == path) else {
+            return;
+        };
+        let bit = 1 << index;
+        self.started.fetch_or(bit, Ordering::AcqRel);
+        self.entered.notify_one();
+        loop {
+            let resumed = self.resume.notified();
+            tokio::pin!(resumed);
+            resumed.as_mut().enable();
+            if self.released.load(Ordering::Acquire) & bit != 0 {
+                return;
+            }
+            resumed.await;
+        }
+    }
+}
+
+pub struct ObjectIoHold(pub Arc<ObjectIoGate>);
+
+impl Drop for ObjectIoHold {
+    fn drop(&mut self) {
+        self.0.released.store(u64::MAX, Ordering::Release);
+        self.0.resume.notify_waiters();
+    }
+}
+
+#[derive(Debug)]
 pub struct Store {
     pub inner: Arc<dyn ObjectStore>,
     pub puts: AtomicUsize,
     pub gets: AtomicUsize,
+    pub immutable_missing_gets: AtomicUsize,
+    pub immutable_creates: AtomicUsize,
+    pub immutable_create_conflicts: AtomicUsize,
     pub payload_gets: AtomicUsize,
+    pub deny_payload_reads: AtomicBool,
+    pub denied_payload_reads: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub lose_immutable_put_response: AtomicBool,
     pub lose_directory_head_and_reads: AtomicBool,
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
     held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
+    object_reads: Mutex<Option<Arc<ObjectIoGate>>>,
+    chunk_creates: Mutex<Option<Arc<ObjectIoGate>>>,
+    pub deny_chunk_creates: AtomicBool,
+    pub denied_chunk_creates: AtomicUsize,
     held_put: Mutex<Option<(Path, Arc<Gate>)>>,
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
     publication: Mutex<Option<(u64, Arc<Gate>)>>,
@@ -51,13 +114,22 @@ impl Store {
             inner,
             puts: AtomicUsize::new(0),
             gets: AtomicUsize::new(0),
+            immutable_missing_gets: AtomicUsize::new(0),
+            immutable_creates: AtomicUsize::new(0),
+            immutable_create_conflicts: AtomicUsize::new(0),
             payload_gets: AtomicUsize::new(0),
+            deny_payload_reads: AtomicBool::new(false),
+            denied_payload_reads: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             lose_immutable_put_response: AtomicBool::new(false),
             lose_directory_head_and_reads: AtomicBool::new(false),
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
             held: Mutex::new(None),
+            object_reads: Mutex::new(None),
+            chunk_creates: Mutex::new(None),
+            deny_chunk_creates: AtomicBool::new(false),
+            denied_chunk_creates: AtomicUsize::new(0),
             held_put: Mutex::new(None),
             held_delete: Mutex::new(None),
             publication: Mutex::new(None),
@@ -105,6 +177,18 @@ impl Store {
 
     pub fn hold(&self, path: Path) -> Arc<Gate> {
         self.hold_after(path, 0)
+    }
+
+    pub fn hold_object_reads(&self, paths: Vec<Path>) -> ObjectIoHold {
+        let hold = ObjectIoGate::hold(paths);
+        *self.object_reads.lock().unwrap() = Some(hold.0.clone());
+        hold
+    }
+
+    pub fn hold_chunk_creates(&self, paths: Vec<Path>) -> ObjectIoHold {
+        let hold = ObjectIoGate::hold(paths);
+        *self.chunk_creates.lock().unwrap() = Some(hold.0.clone());
+        hold
     }
 
     pub fn hold_after(&self, path: Path, puts: usize) -> Arc<Gate> {
@@ -158,6 +242,19 @@ impl ObjectStore for Store {
             });
         }
         self.puts.fetch_add(1, Ordering::AcqRel);
+        if matches!(opts.mode, PutMode::Create) && path.as_ref().contains("/chunks/") {
+            let gate = self.chunk_creates.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate.wait(path).await;
+            }
+            if self.deny_chunk_creates.load(Ordering::Acquire) {
+                self.denied_chunk_creates.fetch_add(1, Ordering::AcqRel);
+                return Err(Error::Generic {
+                    store: "archive chunk creates denied",
+                    source: "injected before conditional create".into(),
+                });
+            }
+        }
         let gate = self
             .held_put
             .lock()
@@ -225,7 +322,20 @@ impl ObjectStore for Store {
         }
         let immutable =
             matches!(opts.mode, PutMode::Create) && path.as_ref().contains("/generations/");
-        let result = self.inner.put_opts(path, payload, opts).await?;
+        let result = self.inner.put_opts(path, payload, opts).await;
+        if immutable
+            && matches!(
+                &result,
+                Err(Error::AlreadyExists { .. } | Error::Precondition { .. })
+            )
+        {
+            self.immutable_create_conflicts
+                .fetch_add(1, Ordering::AcqRel);
+        }
+        let result = result?;
+        if immutable {
+            self.immutable_creates.fetch_add(1, Ordering::AcqRel);
+        }
         if immutable
             && self
                 .lose_immutable_put_response
@@ -285,8 +395,19 @@ impl ObjectStore for Store {
             && !path.as_ref().contains("/ownership/")
         {
             self.payload_gets.fetch_add(1, Ordering::AcqRel);
+            if self.deny_payload_reads.load(Ordering::Acquire) {
+                self.denied_payload_reads.fetch_add(1, Ordering::AcqRel);
+                return Err(Error::Generic {
+                    store: "payload GET outage",
+                    source: "injected temporary dependency read failure".into(),
+                });
+            }
         }
         self.available()?;
+        let entries = self.object_reads.lock().unwrap().clone();
+        if let Some(entries) = entries {
+            entries.wait(path).await;
+        }
         if path.as_ref().contains("/chunks/") && self.deny_chunk_reads.load(Ordering::Acquire) {
             self.denied_chunk_reads.fetch_add(1, Ordering::AcqRel);
             return Err(Error::Generic {
@@ -305,7 +426,12 @@ impl ObjectStore for Store {
             gate.entered.notify_one();
             gate.release.notified().await;
         }
-        self.inner.get_opts(path, opts).await
+        let result = self.inner.get_opts(path, opts).await;
+        if path.as_ref().contains("/generations/") && matches!(&result, Err(Error::NotFound { .. }))
+        {
+            self.immutable_missing_gets.fetch_add(1, Ordering::AcqRel);
+        }
+        result
     }
 
     async fn delete(&self, path: &Path) -> Result<()> {

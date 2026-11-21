@@ -18,6 +18,7 @@ import time
 from backend_control import atomic_json
 from cell_groups import backend
 from store_probe import probe
+from daemon_primitives import verify as verify_primitives
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/perf"))
@@ -243,12 +244,15 @@ def verify_repair(events):
                 "replacement changed the archived receipt or cell history")
 
 
-def execute(mode, output, remote, credentials, build, engine, lab, standby=False, repair=False, node_memory_gib=3):
+def execute(mode, output, remote, credentials, build, engine, lab, standby=False, repair=False, node_memory_gib=3,
+            primitive_minimum=None):
     docker, guest = lab.docker, lab.guest
     run = secrets.token_hex(8)
     directory = f"/tmp/cellar-daemon-{run}"
     result = {"mode": mode, "run": run, "guest_directory": directory, "status": "RUNNING"}
-    report = output / f"{mode}.json"
+    case = f"{mode}-{primitive_minimum}" if primitive_minimum else mode
+    result["primitive_minimum"] = primitive_minimum
+    report = output / f"{case}.json"
     atomic_json(report, result)
     start = time.monotonic()
     bucket = f"{remote['owner']}-cli-{run[:8]}"
@@ -268,6 +272,11 @@ def execute(mode, output, remote, credentials, build, engine, lab, standby=False
         env["CELLAR_RAFT_DAEMON_STANDBY_GATE"] = "1"
     if repair:
         env["CELLAR_RAFT_DAEMON_REPAIR_GATE"] = "1"
+    if primitive_minimum:
+        require(not standby and not repair and primitive_minimum in ("quorum", "s3"),
+                "invalid primitive campaign")
+        env["CELLAR_RAFT_DAEMON_PRIMITIVES"] = "1"
+        env["CELLAR_RAFT_PRIMITIVE_MINIMUM"] = primitive_minimum
     quoted = shlex.quote(directory)
     try:
         result["signed_s3"] = probe(remote["endpoint"], bucket, access, secret)
@@ -284,16 +293,45 @@ def execute(mode, output, remote, credentials, build, engine, lab, standby=False
         lines += [f"exec timeout --signal=TERM --kill-after=10s 12m {quoted}/cellar-raft-daemon"]
         completed = guest("\n".join(lines) + "\n")
         log = completed.stdout.replace(access, "[REDACTED]").replace(secret, "[REDACTED]")
-        (output / f"{mode}.log").write_text(log)
+        (output / f"{case}.log").write_text(log)
         rows = inventory(run, image, lab)
         result["voters"] = rows
         result["fixture_exit"] = completed.returncode
         ledger = guest(f"cat {quoted}/process.jsonl\n")
         if ledger.returncode == 0:
             ledger_text = ledger.stdout.replace(access, "[REDACTED]").replace(secret, "[REDACTED]")
-            (output / f"{mode}.jsonl").write_text(ledger_text)
-        require(completed.returncode == 0 and "production Raft CLI qualification passed" in log,
-                f"Linux daemon fixture failed in {mode}")
+            (output / f"{case}.jsonl").write_text(ledger_text)
+        success = ("public primitive daemon qualification passed" if primitive_minimum
+                   else "production Raft CLI qualification passed")
+        require(completed.returncode == 0 and success in log,
+                f"Linux daemon fixture failed in {case}")
+        if primitive_minimum:
+            require(all(not row["running"] for row in rows)
+                    and sorted(row["exit_code"] for row in rows) == [0] * 6 + [137],
+                    "primitive voter shutdown inventory differs")
+            require(ledger.returncode == 0, "primitive process ledger missing")
+            events = [json.loads(line) for line in ledger_text.splitlines()]
+            verify_primitives(events)
+            scope = next(event for event in events if event["phase"] == "primitive_scope")
+            require(scope["minimum"] == primitive_minimum and scope["image"] == mode,
+                    "primitive selected configuration differs")
+            observations = guest(f'''find {quoted} -maxdepth 2 -name '*-docker.json' -type f -exec sh -c '\nfor file do tr -d "\\n" < "$file"; printf "\\n"; done' sh {{}} +\n''')
+            require(observations.returncode == 0, "primitive cgroup observations missing")
+            proof = [json.loads(line) for line in observations.stdout.splitlines()]
+            require(len(proof) == 8 and {row["id"] for row in proof if row["running"]}
+                    == {row["id"] for row in rows}
+                    and sum(row["exit_code"] == 137 and not row["running"] for row in proof) == 1,
+                    "primitive live cgroup or SIGKILL observation missing")
+            for row in proof:
+                if row["running"]:
+                    effective = row["cgroup"]
+                    require(effective["cpu_quota_us"] > 0
+                            and effective["cpu_quota_us"] == effective["cpu_period_us"]
+                            and effective["memory_bytes"] == node_memory_gib * 1024**3
+                            and effective["swap_bytes"] == 0,
+                            "primitive effective cgroup limits differ")
+            result.update(status="PASSED", resources=proof)
+            return
         expected_exits = [0, 0, 0, 0, 137]
         if standby:
             expected_exits.insert(4, 1)
@@ -379,6 +417,8 @@ def main():
     extension = parser.add_mutually_exclusive_group()
     extension.add_argument("--standby", action="store_true", help="qualify and bind a fourth repair standby")
     extension.add_argument("--repair", action="store_true", help="qualify Docker-fenced replacement from RustFS")
+    extension.add_argument("--primitives", action="store_true",
+                           help="qualify normal SQL/KV bindings in two managed RF3 groups")
     args = parser.parse_args()
     remote, credentials = backend(args.backend.resolve())
     lab = Lab(remote["profile"], remote["context"], args.colima_home.resolve())
@@ -399,12 +439,14 @@ def main():
               "scope": "three Linux voters with separate cgroups and disks in one VM",
               "node_limits": {"cpus": 1, "memory_bytes": args.node_memory_gib * 1024**3},
               "repair_standby": args.standby, "failed_voter_repair": args.repair,
+              "primitive_bindings": args.primitives,
               "colima": {"profile": lab.profile, "context": lab.context, "home": str(lab.home), "engine_id": engine}}
     atomic_json(output / "record.json", report)
     try:
         for mode in ("materialized", "extents"):
-            execute(mode, output, remote, credentials, build, engine, lab, standby=args.standby, repair=args.repair,
-                    node_memory_gib=args.node_memory_gib)
+            for minimum in (("quorum", "s3") if args.primitives else (None,)):
+                execute(mode, output, remote, credentials, build, engine, lab, standby=args.standby, repair=args.repair,
+                        node_memory_gib=args.node_memory_gib, primitive_minimum=minimum)
         report["status"] = "PASSED"
     except Exception:
         report["status"] = "FAILED"

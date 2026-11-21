@@ -175,7 +175,8 @@ impl NativeDaemon {
     /// group, call [`RaftCells::start_managed_first_group`](crate::application::consensus::RaftCells::start_managed_first_group)
     /// with the planned history. It can wait while the operator provisions the
     /// group. Failure or cancellation closes the installed Raft owner and joins
-    /// its work.
+    /// its work. Node-lease renewal and log maintenance continue while readiness
+    /// waits; public ingress remains closed.
     pub fn raft_cells_with_startup<F, Fut, Bind, Bound>(
         mut self,
         script: impl Into<String>,

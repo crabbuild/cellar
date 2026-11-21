@@ -94,7 +94,26 @@ pub(in crate::raft::cell_groups) async fn mutation_peer(
     match status {
         Ok(status) => {
             let Some(leader) = status.leader else {
-                return Ok(None);
+                let group = runtime
+                    .log()
+                    .cell_group(&route.history)
+                    .map_err(|error| CellDispatchError::Runtime(error.into()))?;
+                // A former follower can reach the retained candidate without
+                // waiting for idle election ticks. This is not leader advice:
+                // the receiver still needs ordinary election/admission, and
+                // every unknown outcome retains the original identity.
+                let member = match transport.cell_command_leader(route) {
+                    Ok(LeaderLookup::Known(member)) => Some(member),
+                    // A physical voter need not have a separate non-voter
+                    // query cache. Its validated applied group can still name
+                    // a candidate, without claiming that candidate is leader.
+                    Ok(LeaderLookup::Unknown | LeaderLookup::Unverified) => group
+                        .startup_destination_hint(route)
+                        .map_err(|error| CellDispatchError::Runtime(error.into()))?,
+                    Ok(LeaderLookup::Membership) | Err(TransportError::UnknownGroup) => None,
+                    Err(error) => return Err(CellDispatchError::Transport(error)),
+                };
+                return Ok(member.filter(|member| *member != group.identity().member));
             };
             let local = runtime
                 .log()

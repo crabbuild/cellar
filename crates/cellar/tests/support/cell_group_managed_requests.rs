@@ -169,6 +169,20 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
     ensure!(cluster.managed.hosts[first]
         .grant_command_origin(foreign)
         .is_err());
+    let history = cluster.managed.history;
+    for namespace in [NamespaceId::new([211; 16])?, history.namespace] {
+        let node = if namespace == history.namespace {
+            NodeId::new([249; 16])?
+        } else {
+            cluster.managed.peers[origin].node
+        };
+        ensure!(cluster.managed.hosts[first]
+            .grant_managed_query_origin(history.cluster, namespace, node, 1)
+            .is_err());
+        ensure!(cluster.managed.hosts[first]
+            .grant_managed_command_origin(history.cluster, namespace, node, 1)
+            .is_err());
+    }
     cluster.authorize_commands()?;
     ensure!(
         cluster
@@ -330,6 +344,17 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         cluster.managed.peers[origin].node,
         2,
     )?;
+    ensure!(
+        cluster.managed.hosts[first]
+            .grant_managed_command_origin(
+                history.cluster,
+                history.namespace,
+                cluster.managed.peers[origin].node,
+                1,
+            )
+            .is_err(),
+        "managed discovery erased the revocation fence"
+    );
     ensure!(
         cluster
             .web()?

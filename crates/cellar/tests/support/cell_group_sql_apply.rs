@@ -3,6 +3,111 @@
 //! The production image adapter, exercised with actual committed three-voter work.
 use super::*;
 
+pub(crate) async fn committed_apply_reuses_verified_preview() -> Result<()> {
+    let (mut fixture, route, cell, _) = enrolled_sql_cells(false).await?;
+    let work = async {
+        for node in 0..3 {
+            install(&mut fixture, &cell, node).await?;
+        }
+        let generations = || -> Result<Vec<usize>> {
+            fixture
+                .cluster
+                .voters
+                .iter()
+                .map(|voter| Ok(voter.images.usage()?.generations))
+                .collect()
+        };
+        let before = generations()?;
+        let mut executor = fixture.private_cell(&cell).await?;
+        let (mut executor, prepared) = fixture
+            .cluster
+            .domain
+            .blocking(move || -> Result<_> {
+                let CellStageOutcome::Prepared(prepared) =
+                    executor.stage(cell_attempt(119)?, true, |tx| {
+                        tx.execute("UPDATE value SET n=n+1", [])?;
+                        Ok(b"verified-preview".to_vec())
+                    })?
+                else {
+                    anyhow::bail!("new preview required");
+                };
+                executor.mark_submitted(prepared.proposal())?;
+                Ok((executor, prepared))
+            })?
+            .await??;
+        let staged = generations()?;
+        anyhow::ensure!(
+            staged[0] == before[0] + 1,
+            "staging did not independently prepare one image"
+        );
+        anyhow::ensure!(
+            staged[1..] == before[1..],
+            "unsubmitted preview reached followers"
+        );
+        for runtime in &fixture.runtimes {
+            let proof = runtime
+                .reconciliation_authority(route.history, cell.clone())
+                .await?;
+            anyhow::ensure!(
+                proof.cell().version.sequence.get() == 1,
+                "preview published before commit"
+            );
+        }
+        let accepted = accepted_private(&fixture.runtimes[0], &prepared).await?;
+        fixture.drive(Some(accepted.position.index)).await?;
+        let applied: Vec<_> = fixture
+            .cluster
+            .voters
+            .iter()
+            .map(|voter| voter.images.usage().map(|usage| usage.generations))
+            .collect::<std::result::Result<_, _>>()?;
+        anyhow::ensure!(
+            applied[0] == staged[0],
+            "committed apply rebuilt the leader preview: staged={}, applied={}",
+            staged[0],
+            applied[0]
+        );
+        for node in 1..3 {
+            anyhow::ensure!(
+                applied[node] == before[node] + 1,
+                "follower did not independently prepare its committed image"
+            );
+        }
+        let authority = fixture.runtimes[0]
+            .execution_authority(route.history, cell.clone())
+            .await?;
+        let version = authority.cell().version.clone();
+        fixture
+            .cluster
+            .domain
+            .blocking(move || -> Result<()> {
+                let receipt = executor.finish(authority)?;
+                anyhow::ensure!(
+                    receipt.receipt.result() == b"verified-preview"
+                        && receipt.version.sequence.get() == 2
+                );
+                executor.close()?;
+                Ok(())
+            })?
+            .await??;
+        for runtime in &fixture.runtimes {
+            let proof = runtime
+                .reconciliation_authority(route.history, cell.clone())
+                .await?;
+            anyhow::ensure!(proof.cell().version == version, "voter image differs");
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if work.is_err() {
+        let root = std::mem::replace(&mut fixture.cluster._root, tempfile::tempdir()?);
+        eprintln!("retained preview reuse disk: {}", root.keep().display());
+    }
+    let cleanup = fixture.close().await;
+    work?;
+    cleanup
+}
+
 pub(super) fn pool(fixture: &RuntimeCluster, node: usize) -> Result<CellGroupSqlPool> {
     Ok(CellGroupSqlPool::start(
         &fixture.cluster.voters[node].log,

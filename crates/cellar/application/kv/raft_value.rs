@@ -9,8 +9,8 @@ pub(super) async fn put(
     identity: &str,
     entry: Entry,
     ttl: Option<i64>,
+    deadline: u64,
 ) -> Result<()> {
-    let deadline = raft_wire::deadline(context)?;
     let reference =
         raft_wire::publish_bytes(context, identity, entry.value.into(), deadline).await?;
     let args = StructuredValue::from_json(

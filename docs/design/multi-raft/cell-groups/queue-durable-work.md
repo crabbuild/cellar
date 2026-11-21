@@ -146,6 +146,57 @@ SQL, rollback and durability failures retain their host-failure and ambiguity
 semantics. The adapter classifies a private refusal type, never an error string.
 The transfer operation digest binds this response contract as well as the schema.
 
+The combined `4fd16eca3` transfer campaign passes five of six real RustFS image
+configurations. Native replay and the original S3 fault case pass both forms;
+Axum materialized passes, while extent archive readiness fails after purge and
+before retained restart. The separate `3500e49c5` six-configuration pass remains
+source-specific. See the [current checkpoint](progress.md#current-integration-checkpoint)
+for frozen evidence and remaining gates; this is not full Queue acceptance.
+
+### Immutable operator inspection
+
+On shared-group durability, authenticated `info` and `peek` inspect an existing
+Queue through a private linearizable query. They preserve its committed version
+and ingress allocator and never install work, expire leases or invoke a native
+factory. Pause, resume, purge and redrive retain their command/receipt path.
+Only verified fresh name absence may enroll a missing Queue at its declared
+minimum. Enrollment output is released before independently proving the query's
+selected image; cold inspection consumes no ingress command or sequence. An
+unknown enrollment retains its original candidate/creation and can only join a
+freshly discovered history. A read or discovery failure cannot create another
+candidate. Input bounds and identity are validated before creation.
+
+Inspection uses the leader's node-local Queue limits and rejects a leadership
+or term change across SQL selection. It still obtains fresh quorum authority.
+An S3 namespace minimum additionally gates the selected version on independent
+archive verification; archive failure cannot downgrade the read. The private
+Queue wire purpose requires command authority and cannot grant public queries
+or EventStream queries access to the operator. Existing byte/item reservations,
+response retention, cancellation, deadlines and birth/route fences remain.
+
+Queue enrollment installs the existing schema, so a committed enrollment image
+supports inspection before the first native RPC. The changed initializer digest
+requires fresh compatible namespaces and matching voters for this hard cutover.
+Format markers stay at 1, with no
+legacy reader or migration. See the [current qualification](progress.md#current-integration-checkpoint)
+for passing read/proof cases and the remaining extent Queue and EventStream gaps.
+
+### SDK metrics and cold schema genesis
+
+Normal stateful and stateless SDK `Queue.metrics()` uses its own private immutable
+query contract and authenticated wire purpose. Compiled Queue bindings authorize
+the read; public query, operator and EventStream grants cannot substitute for it.
+Current Queue policy/term checks, fresh quorum and independent target S3 coverage
+still apply. Neither metrics nor operator inspection consumes a target business
+command or ingress sequence.
+
+Verified absence may enroll the runtime-owned schema at the declared minimum.
+Unknown enrollment keeps one creation/candidate and can join only fresh name
+discovery. Stateful calls with no captured target history use the full source I/O
+checkpoint because genesis may write schema. Captured existing histories use
+read-only proof reuse and never fall through to genesis on query refusal. Source
+writes are proven before target work; exact parent replay does not repeat callbacks.
+
 ## Shared writer admission
 
 Ordinary requests and parked callbacks share a bounded per-cell FIFO writer.
@@ -161,6 +212,26 @@ serves parked continuations. Original term, route, history and receipt checks
 remain mandatory; authority waiting never authorizes callback replay.
 
 ## Qualification and remaining scope
+
+At qualification source `5a82ffc5e`, **all 24 SDK metrics configurations pass**:
+native/RustFS native/Axum, both images and independent source/target Quorum/S3
+minima. Runtime `0dcb6d9cc` joins entered fallback catalog confirmation before
+returning a completed first read; all 12 owning query controls pass, including
+typed replacement/unavailable refusals. Both images reproduce `StaleAttempt` on
+baseline `f595823e2`. All three original Queue lifecycles pass both images.
+Earlier claim/lease, cold operator, selected-S3 and private-protocol passes remain
+pinned to the previous SDK checkpoint; no new proof-family acceptance is inferred.
+
+Real RustFS load passes both images with **528 unique messages each**. Native
+materialized mode delivers 528; extent producer **15** expires ambiguously.
+The full public cohort is FAILED **13/22**, including eight EventStream failures.
+Original public lifecycle/load fixtures, budgets, quotas and assertions remain.
+Earlier leased messages and unknown identities remain; fresh passes do not
+reconcile them. These diagnostic results do not close full Queue compatibility;
+see the
+[current checkpoint](progress.md#current-integration-checkpoint) for exact scope,
+failed controls and the next producer/binding settlement work.
+
 
 The [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness)
 at `15b9bf46` passes deadline guards, four interleaving configurations and both

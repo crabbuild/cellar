@@ -150,6 +150,15 @@ An ambiguous submitted command is retried only with its original cell-scoped
 command identity. An unavailable catalog may prevent births
 and topology changes; it does not turn a known group's write path into S3 quorum.
 
+Automatic immutable reads keep the first destination's work alive under the
+original deadline while a serial fallback lane tries trusted replicas. At most
+two waiters run concurrently and every attempt consumes the same finite ticket
+bank. Captured input and invocation admission are shared; physical SQL, transport
+and archive work retain their existing bounded reservations until joined. Each
+destination independently proves the requested consistency and durability. A
+late first result must still match the invocation's currently selected route;
+an observed successor, incomplete refresh or expired deadline refuses it.
+
 ## Runtime and persistence
 
 Split the current host's combined `Cell` owner into a group owner and bounded cell
@@ -158,11 +167,36 @@ apply prefix, snapshot/archive jobs and topology transitions. A cell owns receip
 admission, private execution, pending proposal, image/query pins and effect state.
 The node owns log engine, extent store, transport, SQL worker pool and global quotas.
 
+Physical image and manifest apply runs in execution-domain blocking work under
+the independent apply byte/item bank and controller concurrency. Each SQL owner
+keeps one reserved progress lane while queued or physical apply uses it, with
+one queued progress envelope and bounded live task handles. Its callbacks continue
+while file I/O is pending. Shutdown joins all physical apply before releasing
+SQLite owners or the SQL-pool lease. Durable publication and acknowledgment
+retain the same barriers and complete-prefix checks. Preparation results are
+delivered after the physical task joins; failed preparation releases its apply
+reservation before returning the error.
+
+Materialized command directories contain disposable SQLite/WAL/capture scratch.
+Create them without persistence barriers and rebuild their contents on every
+open from the independently authoritative image. Directory locks still exclude
+concurrent owners. Immutable previews, committed images, log records and root
+publication retain their durability barriers. Extent workspaces retain the
+inventory's separate durable allocation and reclamation contract.
+
 One unresolved data proposal per cell is sufficient initially. Prepare different
 cells concurrently through fair queues; serialize publication by group log index.
 No slow callback or image preparation runs on the consensus tick loop. Group/node
 byte quotas include queued, prepared, in-flight and ambiguous work; charge physical
 owners until they release it, even after the request waiter is cancelled.
+
+Private command preparation keeps the current-term applied leader barrier and
+its selected cell image. It may overlap an unapplied committed suffix only when
+that leader matches every durably logged entry to its own admitted mutation of a
+different cell, within the existing event quantum. Same-cell, enrollment,
+administrative, missing and inherited entries keep admission closed. This grants
+private execution only; read barriers, ordered publication and quorum/S3
+acknowledgements retain their separate proofs.
 
 Data entries carry cell history, route binding, schema, mutation sequence,
 base/result image, receipt/proposal identity and bounded LTX payload. Administrative

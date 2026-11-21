@@ -5,6 +5,11 @@
 use super::*;
 
 pub(super) async fn run(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<()> {
+    configure(cluster).await?;
+    run_commands(cluster, backend).await
+}
+
+async fn configure(cluster: &ManagedCluster) -> Result<()> {
     use object_store::ObjectStore as _;
     cluster.fixtures[0]
         .store
@@ -13,6 +18,10 @@ pub(super) async fn run(cluster: &ManagedCluster, backend: &rustfs::StoreConfig)
             serde_json::to_vec(&json!({"version":1,"key":"0b".repeat(32)}))?.into(),
         )
         .await?;
+    Ok(())
+}
+
+async fn run_commands(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<()> {
     ensure!(
         command(cluster, backend, &["get", NAMESPACE, "warm"]).await? == b"quorum",
         "CLI selected a different namespace from the SDK"
@@ -31,6 +40,7 @@ pub(super) async fn run(cluster: &ManagedCluster, backend: &rustfs::StoreConfig)
 }
 
 pub(super) async fn large(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<()> {
+    configure(cluster).await?;
     let sdk_value = command(cluster, backend, &["get", NAMESPACE, "large"]).await?;
     ensure!(sdk_value.len() == cellar_logic::kv::MAX_VALUE_BYTES);
     ensure!(sdk_value

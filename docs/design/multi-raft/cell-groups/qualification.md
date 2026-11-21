@@ -438,6 +438,18 @@ The ordinary RPC adapter uses these identities and transitions:
   checkpoint's pending receipt from recovered archive bytes before continuation.
   Background archival for Quorum requests retains its documented RPO.
 
+Native asynchronous S3 invocations coalesce background archive attempts for their
+group while producing dependent checkpoints. The first original absolute deadline
+bounds a cohort; later arrivals may shorten it. Expiry opens the normal background
+lane until that cohort drains. A fresh final S3 receipt can finish an idle cohort
+after all output gates pass; older receipt replays cannot renew it. Foreground S3
+completion consumes its scheduling guard before response delivery, so a queued
+completed invocation cannot extend the next call's cohort. Foreground S3
+proofs and other groups continue through the existing scheduler. Physical archive
+verification, current authority and request deadlines remain required. Mixed
+Quorum/S3 release qualification must measure the resulting asynchronous archive
+lag against the selected profile's existing bounds.
+
 Ordinary RPC `Storage::sync()` reserves an owned boundary in the same call-order
 queue as root transactions. It checkpoints preceding private SQL/KV writes and
 waits for the invocation's exact quorum/S3 proof before completing. Dropping its
@@ -454,6 +466,15 @@ caller persists its original target identity/input. A dropped response retains
 admitted child work and gates parent output; this is not a cross-cell transaction
 or an automatic handler-recovery protocol. Synchronous callbacks, immutable
 queries and open atomic transactions cannot acquire this dispatch permit.
+
+New private command entry may overlap only independently certified mutations
+for other cells in the committed suffix. Recheck this authority after acquiring
+the cell writer, before any callback enters. The owning regression holds actual
+physical image/page sync, requires another cell's callback to enter, and refuses
+its response until contiguous durable publication; exact replay must not rerun
+the callback. This grants no read lease or background-effect/S3 output authority.
+The held-I/O fixture uses two SQL workers; original public qualification retains
+its one-worker profile, request budgets and admission quotas.
 
 A proven SDK wait can release the source writer, including for a recursive call
 to the same cell. If the child reaches admission before its parent parks, only

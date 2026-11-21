@@ -74,6 +74,7 @@ impl CellGroupApplyImages {
         &self,
         request: ImageApply<'_>,
         verify_existing: bool,
+        prepared_image: Option<&CellImagePin>,
     ) -> Result<EnrollmentImage, ExecutionError> {
         let ImageApply {
             cell,
@@ -148,7 +149,24 @@ impl CellGroupApplyImages {
                     segments,
                 };
                 let id = image_id(cell, sequence, update.result)?;
-                if verify_existing {
+                let local = match prepared_image {
+                    Some(CellImagePin::Materialized(pin)) if images.owns(pin) => Some(pin),
+                    _ => None,
+                };
+                if let Some(pin) = local {
+                    if pin.id() != id || pin.state() != update.result {
+                        return Err(ExecutionError::Invalid(
+                            "prepared materialized image result",
+                        ));
+                    }
+                    // The ticket binds the exact already replayed input. Read
+                    // the complete destination again so a warm pin never hides
+                    // missing or corrupt bytes. This exact inventory already
+                    // completed the immutable image's persistence barriers;
+                    // root publication retains its separate mandatory sync.
+                    images.recheck_owned(pin).map_err(storage)?;
+                    CellImagePin::Materialized(pin.clone())
+                } else if verify_existing {
                     CellImagePin::Materialized(
                         images
                             .prepare_verified(id, base, &update)
@@ -167,7 +185,13 @@ impl CellGroupApplyImages {
                             pin
                         }
                         Err(cellar_ltx::generation::GenerationError::Exists) => {
-                            images.pin_prepared(id, update.result).map_err(storage)?
+                            // A leader may already hold the independently
+                            // prepared preview under this exact image name.
+                            // Still replay this committed entry's supplied LTX;
+                            // a cached destination alone is not delta proof.
+                            images
+                                .prepare_verified(id, base, &update)
+                                .map_err(storage)?
                         }
                         Err(error) => return Err(storage(error)),
                     })
@@ -217,15 +241,38 @@ impl CellGroupApplyImages {
                         .map_err(storage)?,
                     segments,
                 };
-                let prepared = images
-                    .prepare_transient_image_root(
-                        base,
-                        &update,
-                        limits,
-                        &mut vec![0; EXTENT_BYTES as usize],
-                    )
-                    .map_err(storage)?;
-                CellImagePin::Extents(Arc::new(prepared.image))
+                let local = match prepared_image {
+                    Some(CellImagePin::Extents(pin)) if images.owns_image(pin) => Some(pin),
+                    _ => None,
+                };
+                let prepared = if let Some(pin) = local {
+                    if pin.reference() != update.result
+                        || pin.manifest().binding() != update.binding
+                        || pin.manifest().geometry() != update.geometry
+                    {
+                        return Err(ExecutionError::Invalid("prepared extent image result"));
+                    }
+                    // Recheck actual root and extent bytes on this same live
+                    // inventory. The original input proof supplies the exact
+                    // delta relation, never current serving/commit authority.
+                    images
+                        .seal_image_root(
+                            pin.manifest().clone(),
+                            &mut vec![0; EXTENT_BYTES as usize],
+                        )
+                        .map_err(storage)?
+                } else {
+                    images
+                        .prepare_transient_image_root(
+                            base,
+                            &update,
+                            limits,
+                            &mut vec![0; EXTENT_BYTES as usize],
+                        )
+                        .map_err(storage)?
+                        .image
+                };
+                CellImagePin::Extents(Arc::new(prepared))
             }
             _ => return Err(ExecutionError::Invalid("apply image representation")),
         };
@@ -276,7 +323,7 @@ impl CellGroupApplyImages {
 
 // Names are physical lookup hints. The selected manifest and exact image state
 // still have to verify; a filename never supplies publication authority.
-pub(in crate::raft::cell_groups) fn image_id(
+pub(crate) fn image_id(
     cell: &CellHistory,
     sequence: u64,
     image: ImageState,

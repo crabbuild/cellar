@@ -208,13 +208,37 @@ async fn select(
     })
 }
 
-/// Release an unused previous hold. False leaves its journaled ownership intact;
-/// it prevents another archive allocation, not verification of the current head.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Retirement {
+    Retained,
+    Unchanged,
+    Released,
+}
+
+impl Retirement {
+    /// A quiet completion has no successor intent to carry the cleared debt.
+    async fn flush(
+        self,
+        context: &Context,
+        execution: &ControllerExecution,
+        record: &Record,
+    ) -> Result<()> {
+        if self == Self::Released {
+            store(context, execution, record).await?;
+        }
+        Ok(())
+    }
+}
+
+/// Release an unused previous hold. A retained hold prevents allocation, not
+/// verification of the current head. After release, the next required intent or
+/// selection checkpoint also clears its debt. Failure before that checkpoint
+/// leaves the old durable debt intact; release is idempotent on exact replay.
 async fn retire(
     context: &Context,
     execution: &ControllerExecution,
     record: &mut Record,
-) -> Result<bool> {
+) -> Result<Retirement> {
     if let Some(previous) = &record.retire {
         let retained = {
             let mut uses = context
@@ -225,13 +249,13 @@ async fn retire(
             uses.iter().any(|usage| usage.retains(previous))
         };
         if retained {
-            return Ok(false);
+            return Ok(Retirement::Retained);
         }
         context.registry.release(execution, previous).await?;
         record.retire = None;
-        store(context, execution, record).await?;
+        return Ok(Retirement::Released);
     }
-    Ok(true)
+    Ok(Retirement::Unchanged)
 }
 
 /// Finish unretained predecessor debt after publication/proof work has joined.
@@ -241,7 +265,10 @@ pub(super) async fn finish(context: &Context, execution: &ControllerExecution) -
     let mut record = load(context, execution).await?;
     if record.retire.is_some() {
         context.authority.require_current().await?;
-        retire(context, execution, &mut record).await?;
+        retire(context, execution, &mut record)
+            .await?
+            .flush(context, execution, &record)
+            .await?;
     }
     Ok(())
 }
@@ -263,7 +290,8 @@ pub(super) async fn drive(
         .await
         .map_err(CellGroupArchiveBindingError::from)?;
     let mut record = load(context, execution).await?;
-    let allocation_ready = retire(context, execution, &mut record).await?;
+    let retirement = retire(context, execution, &mut record).await?;
+    let allocation_ready = retirement != Retirement::Retained;
     // Quiet maintenance can finish predecessor cleanup without discarding the
     // node's one physical proof. This is the exact journaled head, independently
     // recovered earlier and still admitted; the advisory marker cannot create it.
@@ -279,6 +307,7 @@ pub(super) async fn drive(
                 .map_err(|error| Error::Runtime(error.into()))?
                 .ok_or(Error::Runtime(RuntimeError::NotReady))?;
             if coverage.marker().position().index >= current.position().index {
+                retirement.flush(context, execution, &record).await?;
                 return Ok(Outcome::Verified(Driven {
                     published: coverage.marker().clone(),
                     coverage: coverage.clone(),
@@ -355,6 +384,7 @@ pub(super) async fn drive(
             {
                 tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group,
                     stage = "maintenance-complete", index = head.marker().position().index.get());
+                retirement.flush(context, execution, &record).await?;
                 return Ok(Outcome::Maintenance(head.marker().clone()));
             }
             // A queued output may already be covered even when later group
@@ -376,6 +406,7 @@ pub(super) async fn drive(
                         receiver(registration)?,
                     )
                     .await?;
+                retirement.flush(context, execution, &record).await?;
                 return Ok(Outcome::Verified(Driven {
                     published: coverage.marker().clone(),
                     coverage,
@@ -466,7 +497,11 @@ pub(super) async fn drive(
             }
             Err(error) => return Err(error.into()),
         }
-        store(context, execution, &record).await?;
+        // The already durable reservation intent reconciles this exact ticket,
+        // even across unrelated registry revisions. Immutable uploads need no
+        // second local checkpoint of that derived result. Failure/restart can
+        // replay Reserve; publication still persists its ticket and intent
+        // before CAS, then journals the selected head and predecessor debt.
     }
     let Pending::Upload(ticket) = record.pending else {
         return Err(Error::Invalid("archive upload stage"));

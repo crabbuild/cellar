@@ -7,9 +7,10 @@ pub use super::container_bindings::{
     BindingCheckpoint, BindingIntent, BindingJournal, BindingLifecycleGuard, BindingObservation,
     BindingRecord, MAX_BINDINGS, MAX_BINDING_BYTES,
 };
+pub use super::container_execution::{ExecutionClaim, ExecutionFenceAuthority, ExecutionGrant};
 pub use super::container_supervision::{
-    supervise, BackendIdentity, DeleteSafety, MaintenanceAction, MaintenanceBackend,
-    MaintenancePolicy, RetentionExpired, Supervision,
+    supervise, BackendIdentity, DeleteSafety, FencedMaintenanceBackend, MaintenanceAction,
+    MaintenanceBackend, MaintenancePolicy, RetentionExpired, Supervision,
 };
 pub use super::sandbox_catalog::{
     SandboxAllocation, SandboxAllocationPage, SandboxAllocationState, SandboxCatalog,
@@ -32,7 +33,7 @@ use std::{
 /// It belongs to one root-cell event; providers must enforce their own remote
 /// instance fencing and isolation in addition to this local authority.
 pub struct ProviderAuthority {
-    authority: InvocationAuthority,
+    authority: Arc<InvocationAuthority>,
 }
 
 impl Context {
@@ -47,7 +48,19 @@ impl Context {
             self.facet().is_none(),
             "containers must be controlled by their root cell"
         );
-        Ok(ProviderAuthority { authority })
+        if let Some(storage) = &self.raft_storage {
+            anyhow::ensure!(
+                storage
+                    .resources
+                    .provider_bindings
+                    .get()
+                    .is_some_and(|bindings| !bindings.is_empty()),
+                super::consensus::CommandFailure::UnsupportedCapability
+            );
+        }
+        Ok(ProviderAuthority {
+            authority: Arc::new(authority),
+        })
     }
 }
 
@@ -56,10 +69,25 @@ impl ProviderAuthority {
         self.authority.check(context)
     }
 
-    /// Await the native container durability/output gate before a provider effect.
+    /// Await the owner's durability/output gate before a provider effect. Raft
+    /// invocations retain their required quorum/S3 minimum and original fence.
     pub fn before_effect(&self, context: &Context) -> HandlerFuture<()> {
         if let Err(error) = self.check(context) {
             return Box::pin(async move { Err(error) });
+        }
+        if context.raft_storage.is_some() {
+            let flush = match context.storage() {
+                Ok(storage) => storage.confirm_checkpoint(),
+                Err(error) => return Box::pin(async move { Err(error) }),
+            };
+            let authority = self.authority.clone();
+            let context = context.clone();
+            return Box::pin(async move {
+                flush.await?;
+                // The checkpoint proves this namespace's required minimum;
+                // role loss or original expiry still refuses external work.
+                authority.check(&context)
+            });
         }
         let gate = host_gates::egress_gate_request(&context.io, cellar_logic::Channel::Container);
         let context = context.clone();

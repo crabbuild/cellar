@@ -29,6 +29,7 @@ use futures_util::TryStreamExt;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use std::future::Future;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -167,10 +168,11 @@ impl Namespace {
         method: &str,
         args: StructuredValue,
     ) -> Result<raft_wire::Reply> {
+        let deadline = Self::operation_deadline(context)?;
         let encoded = encode_rpc(&args)?;
         drop(args);
-        if raft_wire::enabled(context) {
-            return raft_wire::call(context, &self.identity, method, encoded).await;
+        if let Some(deadline) = deadline {
+            return raft_wire::call_at(context, &self.identity, method, encoded, deadline).await;
         }
         let reply = context
             .rpc_cell(
@@ -287,13 +289,22 @@ impl Namespace {
             .collect())
     }
 
-    async fn put(
+    fn operation_deadline(context: &Context) -> Result<Option<u64>> {
+        if raft_wire::enabled(context) {
+            Ok(Some(raft_wire::deadline(context)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn put_at(
         &self,
         context: &Context,
         key: &str,
         bytes: Vec<u8>,
         tag: &str,
         options: PutOptions,
+        deadline: Option<u64>,
     ) -> Result<()> {
         check_key(key)?;
         check_value(bytes.len())?;
@@ -309,21 +320,24 @@ impl Namespace {
         let ttl = options
             .expiration_ttl
             .and_then(|_| expires.and_then(|expires| expires.checked_sub(at)));
-        if raft_wire::enabled(context) && bytes.len() > policy::MAX_INLINE_VALUE_BYTES {
-            return raft_value::put(
-                context,
-                &self.identity,
-                Entry {
-                    key: key.into(),
-                    value: bytes,
-                    reference: None,
-                    tag: tag.into(),
-                    metadata,
-                    expires,
-                },
-                ttl,
-            )
-            .await;
+        if let Some(deadline) = deadline {
+            if bytes.len() > policy::MAX_INLINE_VALUE_BYTES {
+                return raft_value::put(
+                    context,
+                    &self.identity,
+                    Entry {
+                        key: key.into(),
+                        value: bytes,
+                        reference: None,
+                        tag: tag.into(),
+                        metadata,
+                        expires,
+                    },
+                    ttl,
+                    deadline,
+                )
+                .await;
+            }
         }
         let mut args = StructuredValue::from_json(
             json!([{ "entries":[{ "key":key, "value":null, "tag":tag, "metadata":metadata, "expiresAt":expires,"expirationTtlMs":ttl }] }]),
@@ -331,7 +345,18 @@ impl Namespace {
         let body = wire::array(&args, &args.root)?[0].clone();
         let entry = wire::array(&args, wire::field(&args, &body, "entries"))?[0].clone();
         wire::set_bytes(&mut args, &entry, "value", bytes)?;
-        self.call(context, "__kvPut", args).await?;
+        if let Some(deadline) = deadline {
+            raft_wire::call_at(
+                context,
+                &self.identity,
+                "__kvPut",
+                encode_rpc(&args)?,
+                deadline,
+            )
+            .await?;
+        } else {
+            self.call(context, "__kvPut", args).await?;
+        }
         Ok(())
     }
 
@@ -342,8 +367,16 @@ impl Namespace {
         text: &str,
         options: PutOptions,
     ) -> Result<()> {
-        self.put(context, key, text.as_bytes().to_vec(), "text", options)
-            .await
+        let deadline = Self::operation_deadline(context)?;
+        self.put_at(
+            context,
+            key,
+            text.as_bytes().to_vec(),
+            "text",
+            options,
+            deadline,
+        )
+        .await
     }
 
     pub async fn put_bytes(
@@ -353,11 +386,14 @@ impl Namespace {
         bytes: Vec<u8>,
         options: PutOptions,
     ) -> Result<()> {
-        self.put(context, key, bytes, "bytes", options).await
+        let deadline = Self::operation_deadline(context)?;
+        self.put_at(context, key, bytes, "bytes", options, deadline)
+            .await
     }
 
     /// Own and drain the source with a bound checked on every chunk. Dropping
     /// the source on refusal propagates cancellation through its host claim.
+    /// Raft intake, publication and commit share one operation deadline.
     pub async fn put_stream(
         &self,
         context: &Context,
@@ -366,20 +402,49 @@ impl Namespace {
         options: PutOptions,
     ) -> Result<()> {
         check_key(key)?;
-        let mut bytes = Vec::new();
-        while let Some(chunk) = stream.try_next().await.map_err(anyhow::Error::msg)? {
-            ensure!(
-                chunk.len()
-                    <= crate::application::limits::current()
-                        .kv
-                        .max_value_bytes
-                        .saturating_sub(bytes.len()),
-                "KV_ERROR: a value is at most {} bytes, and the stream is larger",
-                crate::application::limits::current().kv.max_value_bytes
-            );
-            bytes.extend(chunk);
-        }
-        self.put(context, key, bytes, "bytes", options).await
+        let deadline = Self::operation_deadline(context)?;
+        let mut input = Box::pin(async move {
+            let mut bytes = Vec::new();
+            while let Some(chunk) = stream.try_next().await.map_err(anyhow::Error::msg)? {
+                if let Some(deadline) = deadline {
+                    context.check_binding_turn()?;
+                    raft_wire::remaining(deadline)?;
+                }
+                ensure!(
+                    chunk.len()
+                        <= crate::application::limits::current()
+                            .kv
+                            .max_value_bytes
+                            .saturating_sub(bytes.len()),
+                    "KV_ERROR: a value is at most {} bytes, and the stream is larger",
+                    crate::application::limits::current().kv.max_value_bytes
+                );
+                bytes.extend(chunk);
+            }
+            Ok::<_, anyhow::Error>(bytes)
+        });
+        let bytes = if let Some(deadline) = deadline {
+            crate::asyncrt::timeout_at(
+                deadline,
+                futures_util::future::poll_fn(|cx| {
+                    if let Err(error) = context
+                        .check_binding_turn()
+                        .and_then(|()| raft_wire::remaining(deadline).map(|_| ()))
+                    {
+                        return std::task::Poll::Ready(Err(error));
+                    }
+                    input.as_mut().poll(cx)
+                }),
+            )
+            .await
+            .map_err(|_| super::consensus::RuntimeError::DeadlineExceeded)??
+        } else {
+            input.as_mut().await?
+        };
+        // Release the input claim before publication acquires another owner.
+        drop(input);
+        self.put_at(context, key, bytes, "bytes", options, deadline)
+            .await
     }
 
     pub async fn delete(&self, context: &Context, key: &str) -> Result<()> {

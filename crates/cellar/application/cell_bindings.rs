@@ -279,6 +279,71 @@ impl Intent {
     }
 }
 
+/// A stateless call can lose its creation response before a business command
+/// exists. Reconcile this exact history and creation at the original minimum;
+/// an ambiguous creation never authorizes a new incarnation or business replay.
+#[derive(Debug)]
+pub struct EnrollmentCallError {
+    /// Reuse this original proposal when reconciling the creation.
+    pub creation: ProposalId,
+    /// Original candidate history, including its proposed incarnation.
+    pub target: CellHistory,
+    /// Independently required target durability, including namespace policy.
+    pub minimum: Durability,
+    /// Concerns creation; no business command has been submitted yet.
+    pub ambiguous: bool,
+    pub cause: anyhow::Error,
+}
+
+impl std::fmt::Display for EnrollmentCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "cell binding enrollment {:?} for {:?}, ambiguous={}: {}",
+            self.creation, self.target, self.ambiguous, self.cause
+        )
+    }
+}
+
+impl std::error::Error for EnrollmentCallError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cause.as_ref())
+    }
+}
+
+/// A fresh name lookup failed while reconciling an original creation.
+///
+/// This is additional context on the enrollment error, which remains available
+/// through `anyhow::Error::downcast_ref`. The lookup's refusal describes only
+/// discovery: it never clears the original creation's ambiguity or authorizes
+/// replay. Inspect `resolution` separately to retain that distinction.
+#[derive(Debug)]
+pub struct EnrollmentReconciliationError {
+    pub resolution: anyhow::Error,
+}
+
+impl EnrollmentReconciliationError {
+    pub(crate) fn context(enrollment: anyhow::Error, resolution: anyhow::Error) -> anyhow::Error {
+        enrollment.context(Self { resolution })
+    }
+}
+
+impl std::fmt::Display for EnrollmentReconciliationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "cell enrollment reconciliation failed: {:#}",
+            self.resolution
+        )
+    }
+}
+
+impl std::error::Error for EnrollmentReconciliationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.resolution.as_ref())
+    }
+}
+
 /// An admitted ordinary call can outlive its response. Preserve this identity
 /// when reconciling; a source failure may leave a durable, unfinished intent.
 #[derive(Debug)]
@@ -312,10 +377,11 @@ enum ReadAccess {
 }
 
 fn read_resource(scope: &str, method: &str) -> bool {
-    scope
-        .split_once(':')
-        .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
-        && super::workflow::read_operation(method).is_some()
+    super::consensus::native_queue_metrics::is_method(scope, method)
+        || (scope
+            .split_once(':')
+            .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
+            && super::workflow::read_operation(method).is_some())
 }
 
 pub(crate) fn resource_rpc(
@@ -420,17 +486,35 @@ fn rpc_read(
                 route.max_input_bytes,
             )?,
             ReadAccess::Resource | ReadAccess::Binding => {
-                super::consensus::native_rpc::encode_request(
-                    name.as_deref(),
-                    &args,
-                    route.max_input_bytes,
-                )?
+                if super::consensus::native_queue_metrics::is_method(&scope, &method) {
+                    super::consensus::native_queue_metrics::encode(
+                        &scope,
+                        name.as_deref(),
+                        &args,
+                        route.max_input_bytes,
+                    )?
+                } else {
+                    super::consensus::native_rpc::encode_request(
+                        name.as_deref(),
+                        &args,
+                        route.max_input_bytes,
+                    )?
+                }
             }
         };
-        // Reads have no remote mutation/intent to reconcile. The same owned I/O
-        // driver proves prior source writes and retains physical read admission.
-        let call =
-            dispatch.schedule_read(move |remaining| source.host.query(route, input, remaining));
+        // Unknown Queue names and broker provisioning receipts can require
+        // schema genesis. Creation needs the full source I/O checkpoint;
+        // read-only proof reuse cannot authorize it. A captured existing history
+        // never enters genesis. Neither path allocates a child business sequence.
+        let genesis = route.history_hint.is_none()
+            && (super::consensus::native_queue_metrics::is_method(&scope, &method)
+                || (route.admission == super::consensus::CommandAdmission::Event
+                    && super::consensus::native_event_query::broker_genesis(&scope, &input)?));
+        let call = if genesis {
+            dispatch.schedule_io(move |remaining| source.host.query(route, input, remaining))
+        } else {
+            dispatch.schedule_read(move |remaining| source.host.query(route, input, remaining))
+        };
         Ok((
             call,
             crate::rpc_reservation::Reservation::shared(Arc::new(lease)),
@@ -491,6 +575,55 @@ pub(crate) fn event_rpc(
     authority: super::consensus::native_event_rpc::Authority,
 ) -> HandlerFuture<RpcData> {
     let call_scope = crate::host_rpc::CallScope::in_context(context, None, None);
+    if method == "__streamConfigure"
+        && matches!(&authority, super::consensus::native_event_rpc::Authority::Event(caller)
+            if caller.require_provisioning().is_ok())
+    {
+        // Broker genesis already installs the compiled definition. Join its
+        // exact independently proven receipt before allocating a mutation.
+        // Only known absence can enter ordinary durable-intent/enrollment work;
+        // neither a lost response nor a proof/authorization failure can replay it.
+        // Ordinary administrator updates retain their existing command path.
+        let probe = rpc_read(
+            context,
+            scope.clone(),
+            name.clone(),
+            "__streamConfigureReceipt".into(),
+            args.clone(),
+            crate::host_rpc::CallScope::in_context(context, None, None),
+            ReadAccess::Event(Box::new(authority.clone())),
+        );
+        let context = context.clone();
+        return Box::pin(async move {
+            match probe.await {
+                Ok(value) => {
+                    if !super::consensus::native_event_query::configuration_operation_absent(
+                        &value,
+                    )? {
+                        return Ok(value);
+                    }
+                    // Release the selected SQL/archive response before a new
+                    // mutation needs the same bounded operation and proof banks.
+                    drop(value);
+                }
+                Err(error)
+                    if super::consensus::native_event_query::configuration_target_missing(
+                        &error,
+                    ) => {}
+                Err(error) => return Err(error),
+            }
+            rpc_admitted(
+                &context,
+                scope,
+                name,
+                method,
+                args,
+                call_scope,
+                Some(authority),
+            )
+            .await
+        });
+    }
     if super::consensus::native_event_query::is_metadata(&method) {
         return rpc_read(
             context,
@@ -513,6 +646,31 @@ pub(crate) fn event_rpc(
     )
 }
 
+enum BindingInput {
+    Rpc {
+        args: RpcData,
+        event: Option<super::consensus::native_event_rpc::Authority>,
+    },
+    Fetch(super::Request),
+}
+
+pub(crate) fn fetch(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    request: super::Request,
+) -> HandlerFuture<crate::engine_api::HttpResponse> {
+    admitted(
+        context,
+        scope,
+        name,
+        super::consensus::native_fetch::OPERATION.into(),
+        BindingInput::Fetch(request),
+        crate::host_rpc::CallScope::in_context(context, None, None),
+        super::consensus::native_fetch::decode_response,
+    )
+}
+
 fn rpc_admitted(
     context: &Context,
     scope: String,
@@ -522,6 +680,26 @@ fn rpc_admitted(
     call_scope: crate::host_rpc::CallScope,
     event: Option<super::consensus::native_event_rpc::Authority>,
 ) -> HandlerFuture<RpcData> {
+    admitted(
+        context,
+        scope,
+        name,
+        method,
+        BindingInput::Rpc { args, event },
+        call_scope,
+        super::consensus::native_rpc::decode_response,
+    )
+}
+
+fn admitted<T: Send + 'static>(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    input: BindingInput,
+    call_scope: crate::host_rpc::CallScope,
+    decode: fn(&[u8]) -> Result<T>,
+) -> HandlerFuture<T> {
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
         context.check_binding_turn()?;
@@ -539,7 +717,11 @@ fn rpc_admitted(
             dispatch = dispatch.limit_source(Duration::from_millis(remaining))?;
         }
         let source = dispatch.binding_source()?;
-        let mut route = match &event {
+        let event = match &input {
+            BindingInput::Rpc { event, .. } => event.as_ref(),
+            BindingInput::Fetch(_) => None,
+        };
+        let mut route = match event {
             Some(authority) => {
                 authority.validate_target(&scope, name.as_deref(), &method)?;
                 source.host.event_route(
@@ -565,7 +747,14 @@ fn rpc_admitted(
             name.as_deref(),
         )?;
         anyhow::ensure!(
-            !route.json_only || matches!(&args, RpcData::Json(_)),
+            !route.json_only
+                || matches!(
+                    &input,
+                    BindingInput::Rpc {
+                        args: RpcData::Json(_),
+                        ..
+                    }
+                ),
             CommandFailure::UnsupportedCapability
         );
         // The source SQL stage does not own buffers retained by the child
@@ -583,8 +772,11 @@ fn rpc_admitted(
             .and_then(|n| n.checked_add(8192))
             .ok_or(CommandFailure::Overloaded)?;
         let lease = source.host.admit(source.group, bytes)?;
-        let input = match event {
-            Some(authority) => super::consensus::native_event_rpc::encode(
+        let input = match input {
+            BindingInput::Rpc {
+                args,
+                event: Some(authority),
+            } => super::consensus::native_event_rpc::encode(
                 &scope,
                 name.as_deref(),
                 &method,
@@ -592,9 +784,16 @@ fn rpc_admitted(
                 &args,
                 route.max_input_bytes,
             )?,
-            None => super::consensus::native_rpc::encode_request(
+            BindingInput::Rpc { args, event: None } => {
+                super::consensus::native_rpc::encode_request(
+                    name.as_deref(),
+                    &args,
+                    route.max_input_bytes,
+                )?
+            }
+            BindingInput::Fetch(request) => super::consensus::native_fetch::encode_request(
                 name.as_deref(),
-                &args,
+                &request,
                 route.max_input_bytes,
             )?,
         };
@@ -640,11 +839,15 @@ fn rpc_admitted(
                         observed_command,
                     )
                     .await
+                    .and_then(|bytes| decode(&bytes))
                     .map(|value| (value, lease))
                 })?;
                 Ok((identity, call))
             },
         )?;
+        tracing::debug!(target: "cellar::raft::binding", phase = "prepared",
+            source = ?source.history, parent = ?source.parent, ordinal, child = ?identity, method = %method,
+            at_ms = crate::asyncrt::mono_ms());
         Ok((identity, selected, command, call))
     })();
     Box::pin(async move {
@@ -686,7 +889,8 @@ async fn run(
     io: RaftDispatchIo,
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
-) -> Result<RpcData> {
+) -> Result<Vec<u8>> {
+    log_phase("source-proven", &intent);
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -720,29 +924,47 @@ async fn run(
                         )
                 });
             if !not_admitted {
-                break result;
+                break result.map(|()| intent.candidate.clone());
             }
             // A known admission refusal proves no initializer entered. Retain the
-            // durable source intent, candidate and creation ID. Unknown or
-            // transmitted enrollments never enter this wait.
+            // durable source intent, candidate and creation ID while waiting.
+            // A cold route may already have a different retained creator. Join
+            // only a fresh name observation; the selection below must still be
+            // committed in the source before any child command can begin.
+            // The candidate's own creation still needs its enrollment proof.
+            // One lookup bounds discovery work during repeated refusals.
             if !noted {
+                if let Ok(Some(history)) = source
+                    .host
+                    .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
+                    .await
+                {
+                    if history != intent.candidate {
+                        break Ok(history);
+                    }
+                }
                 tracing::debug!(target: "cellar::raft::enrollment", phase = "binding-admission-wait", creation = ?intent.creation);
                 noted = true;
             }
+            // Unknown or transmitted enrollment failures never enter this wait.
             dispatch.wait_admission().await?;
         };
         match enrolled {
-            Ok(()) => intent.candidate.clone(),
+            Ok(history) => history,
             Err(error) => match source
                 .host
                 .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
                 .await
             {
                 Ok(Some(history)) => history,
-                _ => return Err(error),
+                Ok(None) => return Err(error),
+                Err(resolution) => {
+                    return Err(EnrollmentReconciliationError::context(error, resolution));
+                }
             },
         }
     };
+    log_phase("target-resolved", &intent);
     if history != intent.candidate {
         // A different existing creator needs its own durable selection before
         // any business callback. Never retarget an unknown dispatched command.
@@ -750,9 +972,11 @@ async fn run(
         crate::storage::raft_bindings::select(&mut intent, &history)?;
         *command.lock().unwrap() = Some(intent.child);
         storage.sync().await?;
+        log_phase("selection-proven", &intent);
     }
     io.begin_io()?;
     *selected.lock().unwrap() = Some(history.clone());
+    log_phase("target-submitting", &intent);
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
     options.durability = intent.route.durability;
@@ -786,10 +1010,21 @@ async fn run(
         if !not_admitted {
             break result;
         }
+        tracing::trace!(target: "cellar::raft::binding", phase = "target-not-admitted",
+            parent = ?intent.parent, ordinal = intent.ordinal, child = ?intent.child,
+            at_ms = crate::asyncrt::mono_ms());
         // Only a refusal before admission may retry. Preserve the complete
         // child identity and input and consume the original deadline.
         dispatch.wait_admission().await?;
     };
+    log_phase(
+        if result.is_ok() {
+            "target-returned"
+        } else {
+            "target-error"
+        },
+        &intent,
+    );
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -799,7 +1034,9 @@ async fn run(
                 CommandFailure::CorruptState
             );
             io.resume_writer().await?;
+            log_phase("writer-resumed", &intent);
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
+            log_phase("completed-private", &intent);
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
             // A crash before either retains the original unresolved intent.
@@ -809,7 +1046,7 @@ async fn run(
                     _lease: memory,
                 });
             }
-            super::consensus::native_rpc::decode_response(&receipt.result)
+            Ok(receipt.result)
         }
         Err(cause) => {
             *source.hint.lock().unwrap() = None;
@@ -832,4 +1069,12 @@ async fn run(
             .into())
         }
     }
+}
+
+/// Diagnostic phases carry identities, never input, result bytes or authority.
+/// The logging macros evaluate the clock only when their target is enabled.
+fn log_phase(phase: &'static str, intent: &Intent) {
+    tracing::debug!(target: "cellar::raft::binding", phase,
+        parent = ?intent.parent, ordinal = intent.ordinal, child = ?intent.child,
+        enroll = intent.enroll, at_ms = crate::asyncrt::mono_ms());
 }

@@ -2014,6 +2014,20 @@ pub(crate) fn fetch_cell(
     request: Request,
     deliver_abort_to_handler: bool,
 ) -> HandlerFuture<HttpResponse> {
+    if context.raft_storage.is_some() {
+        return crate::application::cell_bindings::fetch(context, scope, name, request);
+    }
+    if context.identity().is_none()
+        && scope.split_once(':').is_some_and(|(class, _)| {
+            context
+                .state
+                .raft_cell_classes
+                .as_ref()
+                .is_some_and(|classes| classes.contains_key(class))
+        })
+    {
+        return crate::application::consensus::native_ingress::fetch(context, scope, name, request);
+    }
     if let Err(error) = context
         .check_turn()
         .and_then(|()| check_fleet_sql(context, &scope))

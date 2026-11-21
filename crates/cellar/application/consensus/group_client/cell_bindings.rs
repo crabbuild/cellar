@@ -143,6 +143,14 @@ impl Host for BindingHost {
         method: &str,
     ) -> anyhow::Result<Route> {
         let owner = self.owner()?;
+        if super::super::native_queue_metrics::is_method(scope, method) {
+            return Ok(owner.handle.core.host.queue_metrics_route(
+                Some(source),
+                Some(configuration),
+                scope,
+                &owner.handle.core.log,
+            )?);
+        }
         Ok(owner.handle.core.host.workflow_read_route(
             Some(source),
             configuration,
@@ -156,7 +164,9 @@ impl Host for BindingHost {
         let prepared = require_framework_dispatch()
             .and_then(|()| self.owner())
             .and_then(|owner| {
-                if route.admission == super::super::CommandAdmission::Event {
+                if route.contract == super::super::native_queue_metrics::contract() {
+                    Ok(owner.query_queue_metrics(route, input, timeout))
+                } else if route.admission == super::super::CommandAdmission::Event {
                     let deadline = owner
                         .handle
                         .domain
@@ -220,6 +230,10 @@ impl Host for BindingHost {
         let owner = self.owner();
         Box::pin(async move {
             let owner = owner?;
+            anyhow::ensure!(
+                pending.confirmation.is_none(),
+                super::super::CommandFailure::UnsupportedCapability
+            );
             let body = &pending.body;
             let history = CellHistory {
                 cluster: ClusterId::new(body.cluster)?,

@@ -60,7 +60,7 @@ fn fixture(phase: u8) -> Result<(Connection, CellHistory, Origin, Key)> {
         request_digest: [13; 32],
         retry_until_ms: 60_000,
     };
-    db.execute("INSERT INTO __sys_raft_binding_intents VALUES(?1,?2,?3,1,?4,?5,zeroblob(262144),?6,NULL,NULL,1000)",params![key.client.as_slice(),1_u64.to_be_bytes().as_slice(),1_u64.to_be_bytes().as_slice(),key.fingerprint.as_slice(),serde_json::to_vec(&body)?,phase])?;
+    db.execute("INSERT INTO __sys_raft_binding_intents(parent_client,parent_sequence,ordinal,format,fingerprint,body,args,phase,selected,result_digest,next_at) VALUES(?1,?2,?3,1,?4,?5,zeroblob(262144),?6,NULL,NULL,1000)",params![key.client.as_slice(),1_u64.to_be_bytes().as_slice(),1_u64.to_be_bytes().as_slice(),key.fingerprint.as_slice(),serde_json::to_vec(&body)?,phase])?;
     db.execute(
         "INSERT INTO __sys_raft_binding_lanes VALUES(?1,0,?2,?3)",
         params![
@@ -81,6 +81,18 @@ fn fixture(phase: u8) -> Result<(Connection, CellHistory, Origin, Key)> {
         ],
     )?;
     Ok((db, scope, origin, key))
+}
+
+fn maintenance() -> crate::raft::execution::CommandRequest {
+    use cellar_logic::consensus::{ClientId, CommandId};
+    crate::raft::execution::CommandRequest {
+        id: CommandId::new(ClientId::new([31; 16]).unwrap(), 1).unwrap(),
+        operation: SETTLE.into(),
+        contract_digest: [32; 32],
+        request_digest: [33; 32],
+        durability: Durability::S3,
+        retry_until_ms: 2000,
+    }
 }
 
 fn busy(db: &Connection) -> Result<bool> {
@@ -116,13 +128,52 @@ fn recovery_claim_and_exact_settlement_preserve_business_and_unknown_input() -> 
         digest: [99; 32],
         candidate_lost: false,
     };
-    assert!(settle(&db, &scope, origin, Durability::S3, &settlement).is_err());
+    assert!(settle(
+        &db,
+        &scope,
+        origin,
+        Durability::S3,
+        &settlement,
+        &maintenance()
+    )
+    .is_err());
     assert!(busy(&db)?);
     settlement.digest = pending.digest;
-    assert!(settle(&db, &scope, origin, Durability::Quorum, &settlement).is_err());
-    settle(&db, &scope, origin, Durability::S3, &settlement)?;
+    assert!(settle(
+        &db,
+        &scope,
+        origin,
+        Durability::Quorum,
+        &settlement,
+        &maintenance()
+    )
+    .is_err());
+    settle(
+        &db,
+        &scope,
+        origin,
+        Durability::S3,
+        &settlement,
+        &maintenance(),
+    )?;
     assert!(!busy(&db)?);
-    assert_eq!(rows(&db, "__sys_raft_binding_intents")?, 0);
+    // Logical settlement survives loss of its response. Discovery and receipt
+    // ownership remain until the independent output proof is confirmed.
+    assert_eq!(rows(&db, "__sys_raft_binding_intents")?, 1);
+    let waiting = due(&db, 1000)?.unwrap();
+    let reference = waiting.confirmation.clone().unwrap();
+    assert_eq!(reference.client, maintenance().id.client.bytes());
+    assert!(!prunable(&db, maintenance().id.client, 1)?);
+    assert!(claim(&db, &scope, origin, Durability::S3, 1000, &key)?.is_none());
+    assert!(due(&db, 1000)?.unwrap().confirmation.is_some());
+    assert_eq!(
+        db.query_row(
+            "SELECT length(args) FROM __sys_raft_binding_intents",
+            [],
+            |r| r.get::<_, usize>(0)
+        )?,
+        0
+    );
     assert_eq!(rows(&db, "__sys_raft_binding_sequences")?, 1);
     assert_eq!(
         db.query_row("SELECT value FROM business", [], |r| r.get::<_, u64>(0))?,
@@ -133,8 +184,29 @@ fn recovery_claim_and_exact_settlement_preserve_business_and_unknown_input() -> 
         "UPDATE __sys_raft_binding_lanes SET sequence=?1,busy=1",
         [2_u64.to_be_bytes().as_slice()],
     )?;
-    settle(&db, &scope, origin, Durability::S3, &settlement)?;
+    settle(
+        &db,
+        &scope,
+        origin,
+        Durability::S3,
+        &settlement,
+        &maintenance(),
+    )?;
     assert!(busy(&db)?);
+    let mut confirmation = Confirmation {
+        key: key.clone(),
+        digest: waiting.digest,
+        receipt: reference,
+    };
+    confirmation.receipt.sequence += 1;
+    assert!(confirm(&db, &scope, origin, Durability::S3, &confirmation).is_err());
+    confirmation.receipt.sequence -= 1;
+    assert!(confirm(&db, &scope, origin, Durability::Quorum, &confirmation).is_err());
+    confirm(&db, &scope, origin, Durability::S3, &confirmation)?;
+    assert!(busy(&db)?, "confirmation GC released a reused lane");
+    assert_eq!(rows(&db, "__sys_raft_binding_intents")?, 0);
+    assert!(prunable(&db, maintenance().id.client, 1)?);
+    confirm(&db, &scope, origin, Durability::S3, &confirmation)?;
     db.execute_batch("COMMIT")?;
     Ok(())
 }
@@ -149,7 +221,15 @@ fn recovery_rejects_unclaimed_or_wrong_lineage_and_handles_physical_movement() -
         digest: pending.digest,
         candidate_lost: false,
     };
-    assert!(settle(&db, &scope, origin, Durability::S3, &settlement).is_err());
+    assert!(settle(
+        &db,
+        &scope,
+        origin,
+        Durability::S3,
+        &settlement,
+        &maintenance()
+    )
+    .is_err());
     let mut fresh = scope.clone();
     fresh.incarnation = IncarnationId::new([20; 16])?;
     assert!(claim(&db, &fresh, origin, Durability::S3, 1000, &key).is_err());
@@ -190,13 +270,28 @@ fn candidate_retirement_and_outer_failure_do_not_publish_half_settlement() -> Re
         "UPDATE __sys_raft_binding_lanes SET sequence=?1",
         [2_u64.to_be_bytes().as_slice()],
     )?;
-    assert!(settle(&db, &scope, origin, Durability::S3, &settlement).is_err());
+    assert!(settle(
+        &db,
+        &scope,
+        origin,
+        Durability::S3,
+        &settlement,
+        &maintenance()
+    )
+    .is_err());
     db.execute_batch("ROLLBACK")?;
     assert_eq!(rows(&db, "__sys_raft_binding_sequences")?, 1);
     assert_eq!(rows(&db, "__sys_raft_binding_intents")?, 1);
     assert!(busy(&db)?);
     db.execute_batch("BEGIN")?;
-    settle(&db, &scope, origin, Durability::S3, &settlement)?;
+    settle(
+        &db,
+        &scope,
+        origin,
+        Durability::S3,
+        &settlement,
+        &maintenance(),
+    )?;
     db.execute_batch("COMMIT")?;
     assert_eq!(rows(&db, "__sys_raft_binding_sequences")?, 0);
     assert!(!busy(&db)?);

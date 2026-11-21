@@ -76,7 +76,11 @@ impl GenerationReceive {
             return Err(GenerationError::Identity);
         }
         apply::inspect(&mut self.file, &self.expected, None)?;
-        self.file.sync_all()?;
+        // This anonymous spool is never renamed, adopted or retained as an
+        // image. Reuse below verifies/syncs the existing destination; a new
+        // destination is copied, independently inspected and synced by
+        // prepare_private. Persisting the disposable input adds no recovery
+        // proof, and a lost spool can only abort this receive.
         match self.store.pin_prepared(self.id, self.expected) {
             Ok(pin) => {
                 // pin_prepared may reuse an in-memory seal. A transfer must

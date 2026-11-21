@@ -113,11 +113,18 @@ impl RequestHead {
 }
 
 #[derive(Serialize, Deserialize)]
+enum ResponseKind {
+    Result,
+    Refused,
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ResponseHead {
     route: Route,
     sequence: String,
     request: [u8; 32],
+    kind: ResponseKind,
     digest: [u8; 32],
 }
 
@@ -167,11 +174,40 @@ pub(super) fn response_head(
     body: &[u8],
     options: &TransportOptions,
 ) -> Result<FrameHead, TransportError> {
+    reply_head(auth, exporter, request, request_tag, Some(body), options)
+}
+
+/// A denied namespace grant supplies no result or mutation disposition. The
+/// denial still binds the authenticated channel and exact request, so a caller
+/// can distinguish it from an opaque disconnect without trusting the socket.
+pub(super) fn refusal_head(
+    auth: &PeerAuth,
+    exporter: &[u8; 32],
+    request: &RequestHead,
+    request_tag: &[u8; 32],
+    options: &TransportOptions,
+) -> Result<FrameHead, TransportError> {
+    reply_head(auth, exporter, request, request_tag, None, options)
+}
+
+fn reply_head(
+    auth: &PeerAuth,
+    exporter: &[u8; 32],
+    request: &RequestHead,
+    request_tag: &[u8; 32],
+    body: Option<&[u8]>,
+    options: &TransportOptions,
+) -> Result<FrameHead, TransportError> {
     let header = ResponseHead {
         route: request.route.reversed(),
         sequence: request.sequence.clone(),
         request: *request_tag,
-        digest: Sha256::digest(body).into(),
+        kind: if body.is_some() {
+            ResponseKind::Result
+        } else {
+            ResponseKind::Refused
+        },
+        digest: Sha256::digest(body.unwrap_or_default()).into(),
     };
     make_head(
         auth,
@@ -179,7 +215,7 @@ pub(super) fn response_head(
         Some(request_tag),
         b"CLQA",
         &serde_json::to_vec(&header).map_err(|_| TransportError::Protocol)?,
-        body.len(),
+        body.map_or(0, <[u8]>::len),
         options,
     )
 }
@@ -202,7 +238,15 @@ pub(super) fn read_response(
     {
         return Err(TransportError::Authentication);
     }
-    Ok(header.digest)
+    match header.kind {
+        ResponseKind::Result => Ok(header.digest),
+        ResponseKind::Refused => {
+            if head.payload_len != 0 || header.digest != <[u8; 32]>::from(Sha256::digest([])) {
+                return Err(TransportError::Protocol);
+            }
+            Err(TransportError::Refused)
+        }
+    }
 }
 
 fn make_head(

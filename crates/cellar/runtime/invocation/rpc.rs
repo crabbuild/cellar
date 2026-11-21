@@ -15,6 +15,8 @@ pub(crate) struct CallScope {
     pub deadline_ms: Option<u64>,
     pub parent_cancellation: Option<std::sync::Arc<crate::runtime::InvocationCancellation>>,
     pub signal: Option<cellar_native::web::AbortSignal>,
+    pub(crate) ingress_cursor:
+        Option<std::sync::Arc<crate::application::consensus::ingress_cursor::Cursor>>,
     reply_limit: Option<usize>,
 }
 
@@ -37,6 +39,7 @@ impl CallScope {
             deadline_ms,
             parent_cancellation: context.io.rpc_cancellation.get().cloned(),
             signal,
+            ingress_cursor: None,
             reply_limit: None,
         }
     }

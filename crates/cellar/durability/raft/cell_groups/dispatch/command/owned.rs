@@ -262,7 +262,22 @@ impl CellCommandInvocation {
                 }
                 break;
             }
-            match self.submit_at().await {
+            let submitted = self.submit_at().await;
+            match &submitted {
+                Ok(CellCommandSubmission::Accepted(proposal)) => {
+                    tracing::trace!(target: "cellar::raft::sql_publish", phase = "accepted",
+                        cell = ?self.cell, command = ?self.request.id, ?proposal);
+                }
+                Ok(CellCommandSubmission::Rejected) => {
+                    tracing::trace!(target: "cellar::raft::sql_publish", phase = "sealed",
+                        cell = ?self.cell, command = ?self.request.id);
+                }
+                Err(error) => {
+                    tracing::trace!(target: "cellar::raft::sql_publish", phase = "submission-refused",
+                        cell = ?self.cell, command = ?self.request.id, ?error);
+                }
+            }
+            match submitted {
                 Ok(CellCommandSubmission::Accepted(_)) => break,
                 Ok(CellCommandSubmission::Rejected) => {
                     return Err(CellDispatchError::Execution(ExecutionError::Refused(
@@ -338,11 +353,12 @@ impl CellCommandInvocation {
         }
     }
 
-    // A sampled ready leader can commit another cell's entry before this
-    // command asks for execution authority. Wait for that durable apply prefix
-    // without minting a SQL producer, spending another routing attempt or
-    // weakening the owner's applied == committed check. Once physical SQL may
-    // have entered, the existing exact-producer reconciliation owns the result.
+    // A sampled ready leader can acquire an uncertified or same-cell pending
+    // entry before this command requests private preparation. Wait without
+    // minting a producer or spending another routing attempt. Certified other
+    // cells can overlap preparation, but acknowledgement still requires exact
+    // contiguous durable apply. After SQL entry, exact-producer reconciliation
+    // owns the result.
     async fn prepare_when_applied(
         &mut self,
         attempt: &CellRouteAttempt,
@@ -368,13 +384,18 @@ impl CellCommandInvocation {
                 Err(CellDispatchError::Execution(ExecutionError::Busy))
                     if self.writer_wait && self.origin.is_none() && self.output.is_none() =>
                 {
-                    if self.admission_kind.is_system()
+                    if crate::application::consensus::native_work::is_provider_reconciliation(
+                        self.admission_kind,
+                        self.dispatcher.class.name(),
+                        &self.request.contract.operation,
+                        &self.request.input,
+                    ) || (self.admission_kind.is_system()
                         && matches!(
                             self.request.contract.operation.as_str(),
                             crate::storage::raft_binding_recovery::CLAIM
                                 | crate::storage::raft_binding_recovery::SETTLE
                                 | crate::raft::execution::binding_seal::OPERATION
-                        )
+                        ))
                     {
                         // The durable maintenance scheduler rereads committed
                         // state on its next turn. Release this command slot
@@ -387,6 +408,9 @@ impl CellCommandInvocation {
                     // or finish, then acquire fresh authority under this same
                     // request ID, inputs, route ticket and original deadline.
                     // Worker/callback errors never acquire this retry proof.
+                    let _writer_wait = sql
+                        .note_writer_wait(&attempt.request().cell)
+                        .map_err(CellDispatchError::Execution)?;
                     let timer = self
                         .dispatcher
                         .domain

@@ -498,3 +498,31 @@ fn binding_seal_reserves_both_receipts_and_rolls_back_with_maintenance() -> anyh
     connection.execute_batch("ROLLBACK")?;
     Ok(())
 }
+
+#[test]
+fn binding_confirmation_pins_expired_receipts_until_proven_cleanup() -> anyhow::Result<()> {
+    let db = Connection::open_in_memory()?;
+    install(&db)?;
+    crate::storage::raft_bindings::install(&db)?;
+    let original = request(1, 1000);
+    record(&db, &original, vec![1])?;
+    db.execute("INSERT INTO __sys_raft_binding_intents(parent_client,parent_sequence,ordinal,format,fingerprint,body,args,phase,selected,result_digest,next_at,settlement,settlement_client,settlement_sequence) VALUES(?1,?2,?2,1,?3,?4,X'',5,NULL,NULL,0,?4,?1,?2)",
+        params![original.id.client.bytes().as_slice(),1_u64.to_be_bytes().as_slice(),[9_u8;32].as_slice(),b"{}".as_slice()])?;
+    assert!(matches!(
+        prune(&db, original.id.client, 1, 1001),
+        Err(ExecutionError::RetentionNotExpired)
+    ));
+    assert_eq!(client(&db, original.id.client)?, Some((1, 0)));
+    assert_eq!(
+        lookup_identity(&db, &original, &ExecutionLimits::default())?
+            .unwrap()
+            .result(),
+        [1]
+    );
+    // The private, proof-gated confirmation owner is the only production
+    // remover; exercise the pruning boundary independently of that owner.
+    db.execute("DELETE FROM __sys_raft_binding_intents", [])?;
+    prune(&db, original.id.client, 1, 1001)?;
+    assert_eq!(client(&db, original.id.client)?, Some((1, 1)));
+    Ok(())
+}

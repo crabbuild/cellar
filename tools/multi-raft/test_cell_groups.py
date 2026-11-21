@@ -43,7 +43,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+                if suite in ("provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -55,7 +55,7 @@ class SqlCampaignTests(unittest.TestCase):
                 if suite == "queue-primitives":
                     self.assertEqual("--nocapture" in argv,
                                      selection == "rustfs_queue_load_preserves_acknowledged_messages")
-                if suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle"):
+                if suite in ("provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle"):
                     self.assertIn("--show-output", argv)
                     self.assertNotIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
@@ -108,7 +108,9 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(record["status"], "PASSED")
                 self.assertEqual(executed, list(cases))
                 summary = json.loads(report.getvalue().splitlines()[-1])
-                self.assertEqual(summary["image_modes_per_case"], 0 if suite == "immutable-payloads" else 2)
+                self.assertEqual(summary["image_modes_per_case"],
+                                 0 if suite == "immutable-payloads" else
+                                 1 if suite == "binding-settlement-diagnostic" else 2)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
                 else:
@@ -144,6 +146,23 @@ class AlarmCampaignTests(unittest.TestCase):
 
     def test_alarms_collect_independent_cases_without_waiving_failures(self):
         self.campaign("zero", "ordinary-alarms", keep_going=True)
+
+
+class LiveBindingRecoveryCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_recovery_captures_both_image_cases_without_claiming_cli(self):
+        self.assertEqual(cell_groups.SUITES["live-binding-recovery"][1], (
+            "rustfs_live_materialized_binding_recovery_and_unused_sequence",
+            "rustfs_live_extent_binding_recovery_and_unused_sequence",
+        ))
+        self.campaign(suite="live-binding-recovery")
+
+    def test_recovery_refuses_success_with_no_selected_test(self):
+        self.campaign("zero", "live-binding-recovery")
+
+    def test_recovery_preserves_each_failed_case(self):
+        self.campaign("zero", "live-binding-recovery", keep_going=True)
 
 
 class EventStreamCampaignTests(unittest.TestCase):
@@ -236,19 +255,37 @@ class WorkflowLifecycleCampaignTests(unittest.TestCase):
     campaign = SqlCampaignTests.campaign
 
     def test_lifecycle_captures_native_and_axum_cases(self):
-        for suite in ("workflow-lifecycle", "workflow-deletion", "queue-transfer-identity"):
+        for suite in ("workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "binding-settlement", "binding-settlement-diagnostic", "binding-settlement-output-loss", "binding-ack-recovery"):
             with self.subTest(suite=suite):
                 self.campaign(suite=suite)
 
     def test_lifecycle_refuses_zero_selection(self):
-        for suite in ("workflow-lifecycle", "workflow-deletion", "queue-transfer-identity"):
+        for suite in ("workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "binding-settlement", "binding-settlement-diagnostic", "binding-settlement-output-loss", "binding-ack-recovery"):
             with self.subTest(suite=suite):
                 self.campaign("zero", suite)
 
     def test_lifecycle_preserves_each_failed_case(self):
-        for suite in ("workflow-lifecycle", "workflow-deletion", "queue-transfer-identity"):
+        for suite in ("workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "binding-settlement", "binding-settlement-diagnostic", "binding-settlement-output-loss", "binding-ack-recovery"):
             with self.subTest(suite=suite):
                 self.campaign("zero", suite, keep_going=True)
+
+
+class ProviderJournalCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_provider_suite_selects_the_fixed_public_entrypoints(self):
+        self.assertEqual(cell_groups.SUITES["provider-journals"][1], (
+            "rustfs_provider_binding_journals_use_shared_quorum",
+            "rustfs_provider_effects_reuse_only_unchanged_invocation_checkpoints",
+            "rustfs_provider_supervision_recovers_without_application_requests",
+        ))
+        self.campaign(suite="provider-journals")
+
+    def test_provider_suite_refuses_zero_selection(self):
+        self.campaign("zero", "provider-journals")
+
+    def test_provider_suite_preserves_every_failure(self):
+        self.campaign("zero", "provider-journals", keep_going=True)
 
 
 class PayloadLifecycleCampaignTests(unittest.TestCase):

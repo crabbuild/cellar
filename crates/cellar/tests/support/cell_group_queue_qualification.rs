@@ -84,7 +84,15 @@ fn counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [41; 32])?
         .initializer([42; 32], |_, _| Ok(()))?
         .json_cell_rpc("Send", [43; 32])?
-        .json_cell_rpc("Metrics", [44; 32])?)
+        .json_cell_rpc("Metrics", [44; 32])?
+        .query("MetricsReads", [45; 32], |query, _| {
+            Ok(serde_json::to_vec(
+                &query
+                    .storage()
+                    .get_json("metrics-reads")?
+                    .unwrap_or(json!(0)),
+            )?)
+        })?)
 }
 
 fn binding(environment: &str, queue: &str) -> cellar::engine_api::QueueBinding {
@@ -118,6 +126,24 @@ fn applications(signals: Arc<Signals>, minimums: Minimums) -> Result<Deployments
                 } else {
                     "Q"
                 };
+                if request.url.contains("/metrics") {
+                    let result = context.queue(queue)?.metrics(&context).await;
+                    return Ok(Output::Http(cellar::engine_api::HttpResponse {
+                        status: if result.is_ok() { 200 } else { 503 },
+                        headers: vec![],
+                        body: result
+                            .map(|metrics| {
+                                json!({"count":metrics.backlog_count,"bytes":metrics.backlog_bytes})
+                                    .to_string()
+                                    .into_bytes()
+                            })
+                            .unwrap_or_else(|error| format!("{error:#}").into_bytes()),
+                        stream: None,
+                        websocket: None,
+                        write_position: None,
+                        observed_position: None,
+                    }));
+                }
                 let bytes = context
                     .take_body(request.body)?
                     .try_concat()
@@ -322,6 +348,27 @@ impl Scenario {
         ordinary_slots: usize,
         minimums: Minimums,
     ) -> Result<Self> {
+        Self::prepare(
+            rooted,
+            store,
+            external,
+            callback_ms,
+            retention_ms,
+            ordinary_slots,
+            (minimums, true),
+        )
+        .await
+    }
+
+    async fn prepare(
+        rooted: bool,
+        store: Arc<catalog_fault::Store>,
+        external: bool,
+        callback_ms: u64,
+        retention_ms: Option<i64>,
+        ordinary_slots: usize,
+        (minimums, warm): (Minimums, bool),
+    ) -> Result<Self> {
         let signals = Arc::new(Signals::default());
         let Deployments {
             application,
@@ -370,6 +417,9 @@ impl Scenario {
                 let queue = install_group(&cluster, 0, 181).await?;
                 let dead = install_group(&cluster, 1, 185).await?;
                 ready(&cluster, &[cluster.history, queue, dead]).await?;
+                if !warm {
+                    return Ok((queue, dead));
+                }
                 admin(&cluster, QUEUE, json!({"op":"info"}))
                     .await
                     .context("warm consumer Queue")?;
@@ -458,21 +508,25 @@ impl Scenario {
     }
 
     async fn empty(&self, queue: &str) -> Result<()> {
-        cellar::asyncrt::timeout(Duration::from_secs(30), async {
+        let mut last = None;
+        let result = cellar::asyncrt::timeout(Duration::from_secs(30), async {
             loop {
                 let value = admin(&self.cluster, queue, json!({"op":"info"}))
                     .await
                     .with_context(|| format!("empty {queue}"))?;
                 let rows = admin(&self.cluster, queue, json!({"op":"peek","limit":100})).await?;
-                if value["backlogCount"] == 0.0
-                    && rows["messages"].as_array().is_some_and(Vec::is_empty)
-                {
+                let empty = value["backlogCount"] == 0.0
+                    && rows["messages"].as_array().is_some_and(Vec::is_empty);
+                last = Some((value, rows));
+                if empty {
                     return Ok::<_, anyhow::Error>(());
                 }
                 cellar::asyncrt::sleep(Duration::from_millis(30)).await;
             }
         })
-        .await??;
+        .await;
+        result
+            .with_context(|| format!("Queue {queue} empty wait; last strong reads: {last:?}"))??;
         Ok(())
     }
 }
@@ -1020,8 +1074,529 @@ pub async fn qualify_long(real: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn qualify_load(real: bool) -> Result<()> {
+/// Cold operator inspection enrolls the resource, then reads that exact state;
+/// it must not consume a business/ingress command just to inspect an empty Queue.
+pub async fn qualify_cold_metadata(real: bool) -> Result<()> {
     for rooted in [false, true] {
+        for minimum in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(if real {
+                catalog_fault::Store::around(rustfs::store(
+                    if minimum == Durability::S3 {
+                        "queue-cold-inspection-s3"
+                    } else {
+                        "queue-cold-inspection-quorum"
+                    },
+                    rooted,
+                )?)
+            } else {
+                catalog_fault::Store::default()
+            });
+            let s = Scenario::prepare(
+                rooted,
+                store,
+                false,
+                5000,
+                None,
+                8,
+                (
+                    Minimums {
+                        queue: minimum,
+                        dead: Durability::Quorum,
+                    },
+                    false,
+                ),
+            )
+            .await?;
+            let domain = s.cluster.fixtures[0].domain.clone();
+            let outcome = domain
+                .run(async {
+                    for (name, body) in [
+                        (QUEUE, json!({"op":"info"})),
+                        (FAST, json!({"op":"peek","limit":100})),
+                    ] {
+                        let id = CellId::new(cellar::engine_api::queue_cell_scope(name))?;
+                        ensure!(
+                            s.cluster.hosts[0]
+                                .resolve_cell_history(
+                                    s.queue.cluster,
+                                    s.queue.namespace,
+                                    id.clone(),
+                                    QueryOptions::default(),
+                                )
+                                .await?
+                                .is_none(),
+                            "cold Queue already existed"
+                        );
+                        let reply = admin(&s.cluster, name, body).await?;
+                        if name == QUEUE {
+                            ensure!(reply["stored"] == 0.0 && reply["paused"] == false);
+                        } else {
+                            ensure!(reply["messages"].as_array().is_some_and(Vec::is_empty));
+                        }
+                        let history = s.cluster.hosts[0]
+                            .resolve_cell_history(
+                                s.queue.cluster,
+                                s.queue.namespace,
+                                id,
+                                QueryOptions::default(),
+                            )
+                            .await?
+                            .context("cold inspection enrolled its Queue")?;
+                        let cell = s.cluster.hosts[0].cell(history)?;
+                        let inspect = cell.contract("__sqlIngressSequence")?;
+                        let observed = cell
+                            .query(
+                                ProposalId::new([238; 16])?,
+                                &inspect,
+                                0u64.to_be_bytes().to_vec(),
+                                QueryOptions::default(),
+                            )
+                            .await?;
+                        let mut empty = 1u64.to_be_bytes().to_vec();
+                        empty.push(0);
+                        ensure!(
+                            observed.result == empty && observed.version.sequence.get() == 1,
+                            "cold Queue inspection consumed an ingress command instead of reading enrollment"
+                        );
+                        let info = admin(&s.cluster, name, json!({"op":"info"})).await?;
+                        ensure!(info["stored"] == 0.0);
+                        let after = cell
+                            .query(
+                                ProposalId::new([239; 16])?,
+                                &inspect,
+                                0u64.to_be_bytes().to_vec(),
+                                QueryOptions::default(),
+                            )
+                            .await?;
+                        ensure!(
+                            observed.result == after.result && observed.version == after.version,
+                            "repeated cold Queue inspection changed the enrollment state"
+                        );
+                    }
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await;
+            let cleanup = s.close(!matches!(&outcome, Ok(Ok(())))).await;
+            outcome??;
+            cleanup?;
+            eprintln!(
+                "QUEUE_COLD_METADATA realRustFS={real} extents={rooted} minimum={minimum:?}: PASS"
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn public_metrics(cluster: &ManagedCluster) -> Result<serde_json::Value> {
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(TIMEOUT + Duration::from_secs(1))
+        .build()?
+        .post(format!(
+            "http://{}/metrics",
+            cluster.nodes[0].info().public_address
+        ))
+        .send()
+        .await?;
+    let status = response.status();
+    let body = response.text().await?;
+    ensure!(status == 200, "Queue public metrics {status}: {body}");
+    Ok(serde_json::from_str(&body)?)
+}
+
+fn empty_metrics(value: serde_json::Value) -> bool {
+    value["count"] == 0.0 && value["bytes"] == 0.0
+}
+
+pub async fn qualify_sdk_metadata(real: bool, external: bool) -> Result<()> {
+    for rooted in [false, true] {
+        for source_minimum in [Durability::Quorum, Durability::S3] {
+            for target_minimum in [Durability::Quorum, Durability::S3] {
+                let store = Arc::new(if real {
+                    let purpose = format!(
+                        "queue-sdk-metrics-{source_minimum:?}-{target_minimum:?}-axum-{external}"
+                    );
+                    catalog_fault::Store::around(rustfs::store(&purpose, rooted)?)
+                } else {
+                    catalog_fault::Store::default()
+                });
+                let mut s = Scenario::prepare(
+                    rooted,
+                    store.clone(),
+                    external,
+                    5000,
+                    None,
+                    8,
+                    (
+                        Minimums {
+                            queue: target_minimum,
+                            dead: Durability::Quorum,
+                        },
+                        false,
+                    ),
+                )
+                .await?;
+                let domain = s.cluster.fixtures[0].domain.clone();
+                let outcome = domain.run(async {
+                    let id = CellId::new(cellar::engine_api::queue_cell_scope(QUEUE))?;
+                    ensure!(s.cluster.hosts[0].resolve_cell_history(
+                        s.queue.cluster, s.queue.namespace, id.clone(), QueryOptions::default(),
+                    ).await?.is_none());
+                    ensure!(empty_metrics(public_metrics(&s.cluster).await?));
+                    let history = s.cluster.hosts[0].resolve_cell_history(
+                        s.queue.cluster, s.queue.namespace, id, QueryOptions::default(),
+                    ).await?.context("cold SDK metrics enrolled its Queue")?;
+                    let cell = s.cluster.hosts[0].cell(history)?;
+                    let inspect = cell.contract("__sqlIngressSequence")?;
+                    let invocation = ProposalId::new([232;16])?;
+                    let query = || cell.query(
+                        invocation, &inspect,
+                        0u64.to_be_bytes().to_vec(), QueryOptions::default(),
+                    );
+                    let before = query().await?;
+                    let mut unused = 1u64.to_be_bytes().to_vec(); unused.push(0);
+                    ensure!(before.version.sequence.get() == 1 && before.result == unused,
+                        "SDK Queue metrics consumed a command instead of reading enrollment");
+
+                    let group = s.cluster.history;
+                    let source = s.cluster.hosts[0].cell(CellHistory {
+                        cluster:group.cluster, namespace:group.namespace,
+                        cell:identity("metrics-source")?, incarnation:IncarnationId::new([233;16])?,
+                    })?;
+                    source.enroll(CellEnrollmentRequest {
+                        creation:ProposalId::new([234;16])?, durability:source_minimum,
+                    },TIMEOUT).await?;
+                    let mut request = options(1)?; request.durability=source_minimum;
+                    let input=serde_json::to_vec(&json!({"queue":"Q","record":true}))?;
+                    let contract=source.contract("Metrics")?;
+                    let receipt=source.command(&contract,input.clone(),request.clone()).await?;
+                    ensure!(empty_metrics(serde_json::from_slice(&receipt.result)?));
+                    ensure!(receipt.durability >= source_minimum);
+                    let replay=source.command(&contract,input,request).await?;
+                    ensure!(replay.result == receipt.result && replay.version == receipt.version);
+                    let recorded=source.query(ProposalId::new([235;16])?,&source.contract("MetricsReads")?,vec![],QueryOptions::default()).await?;
+                    ensure!(recorded.result == b"1", "metrics source writes or exact replay changed");
+                    ensure!(empty_metrics(public_metrics(&s.cluster).await?));
+                    let after=query().await?;
+                    ensure!(before.version == after.version && before.result == after.result,
+                        "stateful/stateless SDK Queue metrics changed its target version or allocator");
+
+                    // Exercise lazy genesis from the source-proof I/O driver,
+                    // independently of the stateless cold-read oracle above.
+                    drop((receipt, replay, recorded));
+                    let fast_id = CellId::new(cellar::engine_api::queue_cell_scope(FAST))?;
+                    ensure!(s.cluster.hosts[0].resolve_cell_history(
+                        s.queue.cluster, s.queue.namespace, fast_id.clone(), QueryOptions::default(),
+                    ).await?.is_none());
+                    let mut second = options(2)?; second.durability = source_minimum;
+                    let cold = source.command(&contract,
+                        serde_json::to_vec(&json!({"queue":"FAST","record":true}))?, second,
+                    ).await?;
+                    ensure!(empty_metrics(serde_json::from_slice(&cold.result)?));
+                    ensure!(cold.durability >= source_minimum);
+                    let fast_history = s.cluster.hosts[0].resolve_cell_history(
+                        s.queue.cluster, s.queue.namespace, fast_id, QueryOptions::default(),
+                    ).await?.context("source metrics enrolled its exact Queue")?;
+                    let fast = s.cluster.hosts[0].cell(fast_history)?;
+                    let fast_state = fast.query(ProposalId::new([236;16])?,
+                        &fast.contract("__sqlIngressSequence")?, 0u64.to_be_bytes().to_vec(), QueryOptions::default(),
+                    ).await?;
+                    ensure!(fast_state.version.sequence.get() == 1 && fast_state.result == unused,
+                        "source-proven cold metrics dispatched a target business command");
+                    let recorded = source.query(ProposalId::new([237;16])?,
+                        &source.contract("MetricsReads")?, vec![], QueryOptions::default(),
+                    ).await?;
+                    ensure!(recorded.result == b"2");
+                    ensure!(s.signals.deliveries.lock().unwrap().is_empty());
+
+                    if target_minimum == Durability::S3 {
+                        let denied=store.denied_group_archive_writes.load(Ordering::Acquire);
+                        store.deny_group_archive_writes.store(true,Ordering::Release);
+                        let blocked=BlockArchive(store.clone());
+                        let (pause,refusal)=tokio::join!(admin(&s.cluster,QUEUE,json!({"op":"pause"})),async {
+                            cellar::asyncrt::timeout(TIMEOUT,async {
+                                loop {
+                                    let selected=query().await?;
+                                    if selected.version.sequence > after.version.sequence
+                                        && store.denied_group_archive_writes.load(Ordering::Acquire)>denied {break Ok::<_,anyhow::Error>(());}
+                                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                                }
+                            }).await.context("SDK metrics did not observe denied archive publication")??;
+                            ensure!(public_metrics(&s.cluster).await.is_err(),"SDK metrics exposed unarchived selected state");
+                            Ok::<_,anyhow::Error>(())
+                        });
+                        drop(blocked); refusal?;
+                        ensure!(pause.is_err(),"S3 pause acknowledged during archive denial");
+                        ensure!(empty_metrics(public_metrics(&s.cluster).await?));
+                    }
+                    for node in s.cluster.nodes.split_off(1) {node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;}
+                    ensure!(public_metrics(&s.cluster).await.is_err(),"SDK Queue metrics served without fresh quorum");
+                    Ok::<_,anyhow::Error>(())
+                }).await;
+                let cleanup = s.close(!matches!(&outcome, Ok(Ok(())))).await;
+                outcome??;
+                cleanup?;
+                eprintln!("QUEUE_SDK_METRICS realRustFS={real} extents={rooted} Axum={external} source={source_minimum:?} target={target_minimum:?}: PASS");
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn qualify_metadata_reads(real: bool) -> Result<()> {
+    for rooted in [false, true] {
+        for minimum in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(if real {
+                catalog_fault::Store::around(rustfs::store(
+                    if minimum == Durability::S3 {
+                        "queue-inspection-s3"
+                    } else {
+                        "queue-inspection-quorum"
+                    },
+                    rooted,
+                )?)
+            } else {
+                catalog_fault::Store::default()
+            });
+            let mut s = Scenario::start(
+                rooted,
+                store,
+                false,
+                5000,
+                None,
+                8,
+                Minimums {
+                    queue: minimum,
+                    dead: Durability::Quorum,
+                },
+            )
+            .await?;
+            let domain = s.cluster.fixtures[0].domain.clone();
+            let outcome = domain
+                .run(async {
+                    let history = s.cluster.hosts[0]
+                        .resolve_cell_history(
+                            s.queue.cluster,
+                            s.queue.namespace,
+                            CellId::new(cellar::engine_api::queue_cell_scope(QUEUE))?,
+                            QueryOptions::default(),
+                        )
+                        .await?
+                        .context("onboarded Queue history")?;
+                    let cell = s.cluster.hosts[0].cell(history)?;
+                    ensure!(
+                        cell.contract("__sys_raft_queue_query").is_err(),
+                        "Queue operator query became a public contract"
+                    );
+                    let inspect = cell.contract("__sqlIngressSequence")?;
+                    let before = cell
+                        .query(
+                            ProposalId::new([246; 16])?,
+                            &inspect,
+                            0u64.to_be_bytes().to_vec(),
+                            QueryOptions::default(),
+                        )
+                        .await?;
+                    let info = admin(&s.cluster, QUEUE, json!({"op":"info"})).await?;
+                    ensure!(info["backlogCount"] == 0.0 && info["paused"] == false);
+                    let peek = admin(&s.cluster, QUEUE, json!({"op":"peek","limit":100})).await?;
+                    ensure!(peek["messages"].as_array().is_some_and(Vec::is_empty));
+                    let after = cell
+                        .query(
+                            ProposalId::new([247; 16])?,
+                            &inspect,
+                            0u64.to_be_bytes().to_vec(),
+                            QueryOptions::default(),
+                        )
+                        .await?;
+                    ensure!(
+                        before.result == after.result && before.version == after.version,
+                        "Queue info/peek mutated its ingress allocator or committed cell version"
+                    );
+                    admin(&s.cluster, QUEUE, json!({"op":"pause"})).await?;
+                    let paused = cell
+                        .query(
+                            ProposalId::new([248; 16])?,
+                            &inspect,
+                            0u64.to_be_bytes().to_vec(),
+                            QueryOptions::default(),
+                        )
+                        .await?;
+                    ensure!(
+                        paused.version.sequence > after.version.sequence,
+                        "Queue pause lost its mutation receipt"
+                    );
+                    let info = admin(&s.cluster, QUEUE, json!({"op":"info"})).await?;
+                    ensure!(info["paused"] == true);
+                    let observed = cell
+                        .query(
+                            ProposalId::new([249; 16])?,
+                            &inspect,
+                            0u64.to_be_bytes().to_vec(),
+                            QueryOptions::default(),
+                        )
+                        .await?;
+                    ensure!(
+                        observed.result == paused.result && observed.version == paused.version,
+                        "paused Queue inspection committed another mutation"
+                    );
+                    for node in s.cluster.nodes.split_off(1) {
+                        node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+                    }
+                    ensure!(
+                        admin_on(&s.cluster, 0, QUEUE, json!({"op":"info"}))
+                            .await
+                            .is_err(),
+                        "Queue info served without a fresh quorum"
+                    );
+                    ensure!(
+                        admin_on(&s.cluster, 0, QUEUE, json!({"op":"peek","limit":1}))
+                            .await
+                            .is_err(),
+                        "Queue peek served without a fresh quorum"
+                    );
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await;
+            let retain = !matches!(&outcome, Ok(Ok(())));
+            let cleanup = s.close(retain).await;
+            outcome??;
+            cleanup?;
+            eprintln!(
+                "QUEUE_METADATA_READS realRustFS={real} extents={rooted} minimum={minimum:?}: PASS"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The enrollment image alone supports inspection; newer unarchived state
+/// cannot be returned by the authenticated S3 operator path.
+pub async fn qualify_metadata_s3(real: bool) -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(if real {
+            catalog_fault::Store::around(rustfs::store("queue-inspection-proof", rooted)?)
+        } else {
+            catalog_fault::Store::default()
+        });
+        let s = Scenario::prepare(
+            rooted,
+            store.clone(),
+            false,
+            5000,
+            None,
+            8,
+            (
+                Minimums {
+                    queue: Durability::S3,
+                    dead: Durability::Quorum,
+                },
+                false,
+            ),
+        )
+        .await?;
+        let domain = s.cluster.fixtures[0].domain.clone();
+        let outcome = domain
+            .run(async {
+                let fresh = QUEUE;
+                let cell = s.cluster.hosts[0].cell(CellHistory {
+                    cluster: s.queue.cluster,
+                    namespace: s.queue.namespace,
+                    cell: CellId::new(cellar::engine_api::queue_cell_scope(fresh))?,
+                    incarnation: IncarnationId::new([250; 16])?,
+                })?;
+                cell.enroll(
+                    CellEnrollmentRequest {
+                        creation: ProposalId::new([251; 16])?,
+                        durability: Durability::S3,
+                    },
+                    TIMEOUT,
+                )
+                .await?;
+                let inspect = cell.contract("__sqlIngressSequence")?;
+                let invocation = ProposalId::new([252; 16])?;
+                let query = || {
+                    cell.query(
+                        invocation,
+                        &inspect,
+                        0u64.to_be_bytes().to_vec(),
+                        QueryOptions::default(),
+                    )
+                };
+                let before = query().await?;
+                ensure!(admin(&s.cluster, fresh, json!({"op":"info"})).await?["stored"] == 0.0);
+                ensure!(
+                    admin(&s.cluster, fresh, json!({"op":"peek"})).await?["messages"]
+                        .as_array()
+                        .is_some_and(Vec::is_empty)
+                );
+                let after = query().await?;
+                ensure!(
+                    before.version == after.version && before.result == after.result,
+                    "inspection after bare enrollment must not create a command"
+                );
+
+                let denied = store.denied_group_archive_writes.load(Ordering::Acquire);
+                store
+                    .deny_group_archive_writes
+                    .store(true, Ordering::Release);
+                let blocked = BlockArchive(store.clone());
+                let (pause, refusal) =
+                    tokio::join!(admin(&s.cluster, fresh, json!({"op":"pause"})), async {
+                        // A newer committed cell version plus an actual denied
+                        // publication proves this selected state is not archived.
+                        // It does not prove whether the pause itself committed.
+                        cellar::asyncrt::timeout(TIMEOUT, async {
+                            loop {
+                                let selected = query().await?;
+                                if selected.version.sequence > after.version.sequence
+                                    && store.denied_group_archive_writes.load(Ordering::Acquire)
+                                        > denied
+                                {
+                                    break Ok::<_, anyhow::Error>(());
+                                }
+                                cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                            }
+                        })
+                        .await
+                        .context("unarchived Queue version was not observed")??;
+                        for body in [json!({"op":"info"}), json!({"op":"peek"})] {
+                            ensure!(
+                                admin(&s.cluster, fresh, body).await.is_err(),
+                                "S3 Queue inspection returned an unarchived version"
+                            );
+                        }
+                        Ok::<_, anyhow::Error>(())
+                    });
+                drop(blocked);
+                refusal?;
+                ensure!(
+                    pause.is_err(),
+                    "S3 pause acknowledged during archive denial"
+                );
+                admin(&s.cluster, fresh, json!({"op":"info"})).await?;
+                admin(&s.cluster, fresh, json!({"op":"peek"})).await?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await;
+        let cleanup = s.close(!matches!(&outcome, Ok(Ok(())))).await;
+        outcome??;
+        cleanup?;
+        eprintln!("QUEUE_METADATA_S3 realRustFS={real} extents={rooted}: PASS");
+    }
+    Ok(())
+}
+
+pub async fn qualify_load(real: bool) -> Result<()> {
+    qualify_load_images(real, &[false, true]).await
+}
+
+pub async fn qualify_extent_load(real: bool) -> Result<()> {
+    qualify_load_images(real, &[true]).await
+}
+
+async fn qualify_load_images(real: bool, images: &[bool]) -> Result<()> {
+    for &rooted in images {
         let backend = real
             .then(|| rustfs::StoreConfig::load("queue-load", rooted))
             .transpose()?;
@@ -1058,7 +1633,8 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             }.await;
             store.deny_group_archive_writes.store(false,Ordering::Release);
             outage?;
-            s.empty(QUEUE).await?;s.empty(FAST).await?;
+            s.empty(QUEUE).await.context("post-outage primary Queue drain")?;
+            s.empty(FAST).await.context("post-outage fast Queue drain")?;
             let start=cellar::asyncrt::mono_ms();
             let credits=[tokio::sync::Semaphore::new(1),tokio::sync::Semaphore::new(1)];
             let producers=(0..4).map(|client| { let cluster=&s.cluster; let credits=&credits; async move {
@@ -1072,7 +1648,8 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             let results=futures_util::future::join_all(producers).await;
             if results.iter().any(Result::is_err) { snapshot(&s.cluster,&[s.queue,s.dead]).await; }
             let mut latencies=Vec::new();for result in results {latencies.extend(result?);}
-            s.empty(QUEUE).await?;s.empty(FAST).await?;
+            s.empty(QUEUE).await.context("steady-load primary Queue drain")?;
+            s.empty(FAST).await.context("steady-load fast Queue drain")?;
 
             let completed=s.signals.completed.lock().unwrap();ensure!(completed.len()==528,"acknowledged load lost messages: {}",completed.len());
             let delivered=s.signals.deliveries.lock().unwrap();
@@ -1081,6 +1658,11 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             eprintln!("QUEUE_LOAD {}",json!({"realRustFS":real,"extents":rooted,"producers":4,"inFlightRequests":2,"perQueueInFlight":1,"ordinarySlots":8,"ordinaryBytes":131072,"callbackSlots":2,"queues":2,"batchMessages":8,"steadyMessages":512,"archiveOutageMessages":16,"delivered":delivered.len(),"uniqueMessageIds":unique.len(),"elapsedMs":cellar::asyncrt::mono_ms()-start,"enqueueBatchP50Ms":latencies[latencies.len()/2],"enqueueBatchP99Ms":latencies[(latencies.len()*99/100).min(latencies.len()-1)]}));
             Ok::<_,anyhow::Error>(())
         }).await;
+        if !matches!(&outcome, Ok(Ok(()))) {
+            if let Err(error) = domain.run(snapshot(&s.cluster, &[s.queue, s.dead])).await {
+                eprintln!("Queue failure snapshot unavailable: {error}");
+            }
+        }
         let retain = !matches!(&outcome, Ok(Ok(())));
         let cleanup = s.close(retain).await;
         outcome??;

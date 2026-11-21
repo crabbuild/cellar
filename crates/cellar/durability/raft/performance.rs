@@ -243,9 +243,13 @@ pub(crate) enum Counter {
     CellBindingAppliedHistoryHints,
     CellKvLocalPayloadPreparations,
     CellKvResolvedPayloadPreparations,
+    CellNameSelections,
+    CellBindingRecoveryClaims,
+    CellBindingRecoverySettlements,
+    CellIngressSequenceHints,
 }
 
-const COUNTERS: [Counter; 57] = [
+const COUNTERS: [Counter; 61] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -303,11 +307,19 @@ const COUNTERS: [Counter; 57] = [
     Counter::CellBindingAppliedHistoryHints,
     Counter::CellKvLocalPayloadPreparations,
     Counter::CellKvResolvedPayloadPreparations,
+    Counter::CellNameSelections,
+    Counter::CellBindingRecoveryClaims,
+    Counter::CellBindingRecoverySettlements,
+    Counter::CellIngressSequenceHints,
 ];
 
 impl Counter {
     fn name(self) -> &'static str {
         match self {
+            Self::CellIngressSequenceHints => "cell_ingress_sequence_hints",
+            Self::CellBindingRecoveryClaims => "cell_binding_recovery_claims",
+            Self::CellBindingRecoverySettlements => "cell_binding_recovery_settlements",
+            Self::CellNameSelections => "cell_name_quorum_selections",
             Self::CellKvResolvedPayloadPreparations => "cell_kv_resolved_payload_preparations",
             Self::CellKvLocalPayloadPreparations => "cell_kv_local_payload_preparations",
             Self::CellBindingAppliedHistoryHints => "cell_binding_applied_history_hints",

@@ -61,6 +61,8 @@ pub enum QueryConsistency {
     Stale,
     AtLeast(CellVersionToken),
     Linearizable,
+    /// Wait for a strictly newer cell version and require a fresh quorum read.
+    LinearizableAfter(CellVersionToken),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,9 +130,13 @@ mod names;
 mod node;
 mod observation;
 mod origins;
+mod queue_metrics;
+mod queue_read;
 mod read_admission;
 mod recovery;
 mod repair;
+mod resource_genesis;
+mod resource_read;
 mod scoped_dispatch;
 mod services;
 mod sql_ingress;
@@ -563,6 +569,9 @@ impl RaftCellHandle {
             },
             QueryConsistency::AtLeast(token) => CellQueryConsistency::AtLeast(token),
             QueryConsistency::Linearizable => CellQueryConsistency::Linearizable,
+            QueryConsistency::LinearizableAfter(token) => {
+                CellQueryConsistency::LinearizableAfter(token)
+            }
         };
         Ok((
             CellQueryRequest {

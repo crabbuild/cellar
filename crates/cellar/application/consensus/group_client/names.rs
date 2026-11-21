@@ -21,6 +21,7 @@ struct Resolution {
     started: u64,
     deadline: u64,
     _memory: Permit,
+    local_locator: bool,
 }
 
 impl RaftCells {
@@ -37,7 +38,7 @@ impl RaftCells {
         options: QueryOptions,
     ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
     {
-        self.resolve_cell_history_scoped(cluster, namespace, cell, options, false)
+        self.resolve_cell_history_scoped(cluster, namespace, cell, options, false, false)
     }
 
     pub(crate) fn resolve_cell_history_direct(
@@ -48,7 +49,23 @@ impl RaftCells {
         options: QueryOptions,
     ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
     {
-        self.resolve_cell_history_scoped(cluster, namespace, cell, options, true)
+        self.resolve_cell_history_scoped(cluster, namespace, cell, options, true, false)
+    }
+
+    /// Internal resource metadata may use an applied local enrollment as a locator
+    /// behind a verified namespace route. The subsequent metadata query still
+    /// requires fresh quorum and its independent target durability minimum.
+    /// Public name discovery and all absence observations keep their full cut.
+    pub(super) fn locate_resource_history(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+        cell: CellId,
+        options: QueryOptions,
+        source_proven: bool,
+    ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
+    {
+        self.resolve_cell_history_scoped(cluster, namespace, cell, options, source_proven, true)
     }
 
     fn resolve_cell_history_scoped(
@@ -58,6 +75,7 @@ impl RaftCells {
         cell: CellId,
         mut options: QueryOptions,
         direct: bool,
+        local_locator: bool,
     ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
     {
         let prepared = (|| {
@@ -128,6 +146,7 @@ impl RaftCells {
                 deadline,
                 options,
                 _memory: memory,
+                local_locator,
             };
             let domain = self.handle.domain.clone();
             let future: BoxFuture<'static, Result<_, Arc<CellDispatchError>>> = Box::pin(
@@ -208,9 +227,11 @@ impl Resolution {
             }
             let local = match self.owner.handle.core.log.cell_group(&route.history) {
                 Ok(group) => {
-                    if new_route && matches!(self.options.routing, QueryRouting::Automatic) {
-                        match group.read() {
-                            Ok(cache) => {
+                    let member = group.identity().member;
+                    let current_member = match group.read() {
+                        Ok(cache) => {
+                            if new_route && matches!(self.options.routing, QueryRouting::Automatic)
+                            {
                                 let vote = cache.hard_state.vote;
                                 if cache.conf_state.voters.contains(&vote)
                                     || cache.conf_state.voters_outgoing.contains(&vote)
@@ -218,11 +239,32 @@ impl Resolution {
                                     preferred = MemberId::new(vote).ok();
                                 }
                             }
-                            Err(LogError::Closed | LogError::NotFound) => (),
-                            Err(error) => return Err(CellDispatchError::Runtime(error.into())),
+                            crate::raft::member_state::members(&cache.conf_state)
+                                .contains(&member.get())
+                        }
+                        Err(LogError::NotFound) => false,
+                        Err(error) => return Err(CellDispatchError::Runtime(error.into())),
+                    };
+                    // A removed member can retain its log through restart, but
+                    // has no local consensus dispatch. Treat it as an ingress
+                    // so an absent router can discover the current replicas.
+                    if current_member && self.local_locator {
+                        if let Some(history) = group
+                            .applied_history_hint(
+                                &route,
+                                &self.candidate.cell,
+                                self.directory.namespace_config().schema_digest,
+                            )
+                            .map_err(|error| CellDispatchError::Runtime(error.into()))?
+                        {
+                            self.live()?;
+                            session
+                                .validate_attempt(&attempt)
+                                .map_err(name_routing_failure)?;
+                            return Ok(Some(history));
                         }
                     }
-                    Some(group.identity().member)
+                    current_member.then_some(member)
                 }
                 Err(LogError::NotFound) => None,
                 Err(error) => return Err(CellDispatchError::Runtime(error.into())),

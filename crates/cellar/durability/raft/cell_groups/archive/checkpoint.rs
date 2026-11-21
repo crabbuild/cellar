@@ -1,7 +1,11 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::{objects::Object, *};
+use futures_util::{stream::FuturesOrdered, StreamExt};
 use std::io::Write;
+
+const CHECKPOINT_READ_WINDOW: usize = 2;
+const CHECKPOINT_WRITE_WINDOW: usize = 2;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -189,25 +193,74 @@ impl CellGroupArchiveUpload {
                 })
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?;
-        let upload = async {
-            while let Some(chunk) = receiver.recv().await {
-                index.bytes = index
-                    .bytes
-                    .checked_add(chunk.bytes.len() as u64)
-                    .filter(|n| *n <= self.limits.max_checkpoint_bytes)
-                    .ok_or(CellGroupArchiveError::Limit)?;
-                if index.chunks.len() >= self.limits.max_chunks {
-                    return Err(CellGroupArchiveError::Limit);
-                }
-                let object = self.put("chunks", chunk.bytes, CHUNK_BYTES).await?;
-                index.chunks.push(Chunk {
-                    part: chunk.part,
-                    offset: chunk.offset,
-                    length: chunk.length,
-                    object,
-                });
+        let upload: Result<()> = async {
+            enum UploadEvent {
+                Source(Option<wire::Chunk>),
+                Confirmed(Option<Result<Chunk>>),
             }
-            Ok(())
+
+            // Two creates, their exact GET confirmations, transport copies,
+            // producer and one-slot channel fit the existing eight-chunk I/O
+            // workspace. Poll writes while waiting for more physical bytes;
+            // a slow producer must not stall an already admitted upload.
+            let mut writes = FuturesOrdered::new();
+            let mut source_done = false;
+            let mut failure = None;
+            loop {
+                let event = if writes.is_empty() {
+                    if source_done || failure.is_some() {
+                        break;
+                    }
+                    UploadEvent::Source(receiver.recv().await)
+                } else if source_done
+                    || failure.is_some()
+                    || writes.len() >= CHECKPOINT_WRITE_WINDOW
+                {
+                    UploadEvent::Confirmed(writes.next().await)
+                } else {
+                    crate::asyncrt::select_biased! { "completed confirmations retire buffers before more source admission";
+                        result = writes.next() => UploadEvent::Confirmed(result),
+                        chunk = receiver.recv() => UploadEvent::Source(chunk),
+                    }
+                };
+                match event {
+                    UploadEvent::Source(Some(chunk)) => {
+                        let bytes = index
+                            .bytes
+                            .checked_add(chunk.bytes.len() as u64)
+                            .filter(|n| *n <= self.limits.max_checkpoint_bytes);
+                        if bytes.is_none()
+                            || index.chunks.len() + writes.len() >= self.limits.max_chunks
+                        {
+                            failure = Some(CellGroupArchiveError::Limit);
+                            continue;
+                        }
+                        index.bytes = bytes.ok_or(CellGroupArchiveError::Limit)?;
+                        writes.push_back(async move {
+                            let object = self.put("chunks", chunk.bytes, CHUNK_BYTES).await?;
+                            Ok(Chunk {
+                                part: chunk.part,
+                                offset: chunk.offset,
+                                length: chunk.length,
+                                object,
+                            })
+                        });
+                    }
+                    UploadEvent::Source(None) => source_done = true,
+                    UploadEvent::Confirmed(Some(Ok(chunk))) if failure.is_none() => {
+                        index.chunks.push(chunk);
+                    }
+                    UploadEvent::Confirmed(Some(Err(error))) if failure.is_none() => {
+                        failure = Some(error);
+                    }
+                    UploadEvent::Confirmed(Some(_)) => (),
+                    UploadEvent::Confirmed(None) => break,
+                }
+            }
+            // Keep the producer and archive admission until entered writes
+            // finish, including ambiguous PUTs and their confirmation reads.
+            drop(writes);
+            failure.map_or(Ok(()), Err)
         }
         .await;
         drop(receiver); // Release a blocked producer before joining any error.
@@ -339,24 +392,45 @@ impl CellGroupArchive {
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?;
         let download: Result<()> = async {
-            for chunk in index.chunks {
-                let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
-                if sender
-                    .send(wire::Chunk {
-                        part: chunk.part,
-                        offset: chunk.offset,
-                        length: chunk.length,
-                        bytes,
-                    })
-                    .await
-                    .is_err()
-                {
-                    // The consumer owns the checkpoint failure. Join it below
-                    // so a rejected chunk keeps its typed cause.
+            // The existing eight-chunk workspace covers two GETs (including
+            // transport copies), an ordered result, the one-slot channel and
+            // the physical consumer. FuturesOrdered bounds both in-flight and
+            // completed reads while preserving the validated descriptor order.
+            let mut remaining = index.chunks.into_iter();
+            let mut reads = FuturesOrdered::new();
+            let mut failure = None;
+            let mut receiving = true;
+            loop {
+                while failure.is_none() && receiving && reads.len() < CHECKPOINT_READ_WINDOW {
+                    let Some(chunk) = remaining.next() else {
+                        break;
+                    };
+                    reads.push_back(async move {
+                        let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
+                        Ok(wire::Chunk {
+                            part: chunk.part,
+                            offset: chunk.offset,
+                            length: chunk.length,
+                            bytes,
+                        })
+                    });
+                }
+                let Some(result) = reads.next().await else {
                     break;
+                };
+                match result {
+                    Ok(chunk) if failure.is_none() && receiving => {
+                        // Preserve the consumer's typed checkpoint failure.
+                        receiving = sender.send(chunk).await.is_ok();
+                    }
+                    Err(error) if failure.is_none() && receiving => failure = Some(error),
+                    _ => (),
                 }
             }
-            Ok(())
+            // A download or consumer failure stops admission, but already
+            // entered reads must finish before their buffers/permits are freed.
+            drop(reads);
+            failure.map_or(Ok(()), Err)
         }
         .await;
         drop(sender);

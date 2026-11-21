@@ -53,11 +53,12 @@ pub use controller::{
     CellGroupProvisionLimits, CellGroupProvisionNamespace, CellGroupProvisioning,
     CellGroupRegistration, CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
 };
-pub(crate) use controller::{RetiredSource, S3Client, S3OutputProof};
+pub(crate) use controller::{RetiredSource, S3Client, S3OutputProof, S3ReadSourceProof};
 mod disaster;
 mod dispatch;
 pub use disaster::CellGroupPermanentFenceAuthority;
 mod host;
+pub(crate) use apply::images::image_id as materialized_image_id;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
 pub use dispatch::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
@@ -109,6 +110,7 @@ pub(crate) mod log_retention;
 mod membership_observation;
 mod observation;
 mod owner;
+mod startup;
 pub use membership_observation::CellGroupQuorumMembership;
 pub use observation::{
     CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionContext,

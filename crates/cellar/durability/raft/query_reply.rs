@@ -4,11 +4,13 @@
 use super::TransportError;
 use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{
-    CellCommandResponse, CellQueryResponse, CellReceiptResponse, CellSqlEnrollment,
+    CellCommandResponse, CellEnrollmentError, CellQueryResponse, CellReceiptResponse,
+    CellSqlEnrollment,
 };
 use crate::raft::leader_advice::{LeaderAdvice, MutationDisposition};
 use crate::raft::query_wire as wire;
 use cellar_logic::consensus::Durability;
+use std::sync::Arc;
 
 enum Owner {
     Query { _response: Box<CellQueryResponse> },
@@ -86,13 +88,13 @@ impl Reply {
     }
 
     pub(super) fn enrollment(
-        result: Result<CellSqlEnrollment, CommandFailure>,
+        result: Result<CellSqlEnrollment, Arc<CellEnrollmentError>>,
         limit: usize,
     ) -> Result<Self, TransportError> {
         let encoded = result
             .as_ref()
             .map(|r| (r.record(), r.durability()))
-            .map_err(Clone::clone);
+            .map_err(Arc::as_ref);
         let bytes = wire::enrollment::encode_result(&encoded, limit)?;
         let owner = result
             .ok()

@@ -8,14 +8,15 @@ mod rpc_commit;
 pub(super) use rpc_cache::RpcCache;
 pub(crate) use rpc_commit::RpcCommitContext;
 mod apply;
-pub(in crate::raft::host_sql) use apply::ApplyRequest;
+mod preparation;
 pub use apply::CellGroupPreparedApply;
+pub(in crate::raft::host_sql) use apply::{ApplyRequest, ApplyTasks};
 mod query;
 pub(crate) use query::{ReadRetention, RegisteredQuery};
 mod worker;
 pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 
-use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker};
+use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker, WorkerReservation};
 use crate::application::consensus::CommandAdmission;
 use crate::raft::cell_groups::{
     cell_image_history_digest, CellEnrollmentAuthority, CellEnrollmentState,
@@ -43,6 +44,7 @@ pub(super) use worker::{Cells, Request};
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct CellSqlLimits {
+    /// Fixed SQL owners; physical apply shares the independent node admission bank.
     pub workers: usize,
     pub queue_per_worker: usize,
     pub max_pending_cells: usize,
@@ -386,6 +388,8 @@ pub struct CellSqlUsage {
     pub running_workers: usize,
     pub worker_capacity: usize,
     pub queued_or_running: usize,
+    /// Reserved progress lanes, retained through queued and physical apply.
+    /// The independent apply bank counts individual retained operations.
     pub completion_reservations: usize,
 }
 
@@ -572,6 +576,14 @@ impl CellGroupSqlPool {
         self.inner.admission.writer_progress()
     }
 
+    pub(crate) fn note_writer_wait(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<impl Send + Sync, ExecutionError> {
+        self.admit()?;
+        self.inner.admission.note_writer_wait(cell)
+    }
+
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
         let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;
@@ -626,18 +638,23 @@ impl CellGroupSqlPool {
         ) % self.inner.workers.len() as u64;
         let worker = &self.inner.workers[index as usize];
         worker.domain.mono_ms().map_err(|_| unavailable())?;
-        let slots = if action.progress_priority() {
-            &worker.completion_slots
+        let slot = if action.progress_priority() {
+            let (lane, queue) = worker.completion_slots.acquire()?;
+            WorkerReservation::Progress {
+                _lane: lane,
+                _queue: queue,
+            }
         } else {
-            &worker.slots
+            let permit = worker
+                .slots
+                .clone()
+                .try_acquire_owned()
+                .map_err(|error| match error {
+                    tokio::sync::TryAcquireError::Closed => unavailable(),
+                    tokio::sync::TryAcquireError::NoPermits => overloaded(),
+                })?;
+            WorkerReservation::Ordinary { _permit: permit }
         };
-        let slot = slots
-            .clone()
-            .try_acquire_owned()
-            .map_err(|error| match error {
-                tokio::sync::TryAcquireError::Closed => unavailable(),
-                tokio::sync::TryAcquireError::NoPermits => overloaded(),
-            })?;
         self.admit()?;
         let (reply, wait) = oneshot::channel();
         worker
@@ -898,21 +915,35 @@ impl CellGroupSqlPool {
             CellSqlStageMode::InvokeBefore(deadline),
             worker::Callback::Registered {
                 class,
+                input,
+                admission,
                 commits: Some(commits),
-                ..
             },
         ) = (mode, &callback)
         {
+            let maintenance =
+                crate::application::consensus::native_work::is_provider_reconciliation(
+                    *admission,
+                    class.name(),
+                    &attempt.request.operation,
+                    input,
+                );
             if class.is_cell_rpc(&attempt.request.operation) {
                 let fence = authority.activation_fence();
                 let domain = self.inner.workers[0].domain.clone();
                 let timeout = domain.sleep_until(deadline).map_err(|_| unavailable())?;
                 let waiting = async {
-                    let reserved = self
-                        .inner
-                        .admission
-                        .reserve_queued(&cell, group, bytes)
-                        .await?;
+                    let reserved = if maintenance {
+                        // Background cleanup cannot make a foreground lifecycle
+                        // owner park merely to wait for that same guard. A
+                        // pre-enqueue refusal leaves its installation untouched.
+                        self.inner.admission.reserve(&cell, group, bytes)?
+                    } else {
+                        self.inner
+                            .admission
+                            .reserve_queued(&cell, group, bytes)
+                            .await?
+                    };
                     self.admit()?;
                     // The old writer may have proven several roots while this
                     // request waited. Rebase only before any application entry,

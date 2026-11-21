@@ -180,15 +180,6 @@ fn public_method(method: &str) -> bool {
     )
 }
 
-pub(super) async fn call(
-    context: &Context,
-    identity: &str,
-    method: &str,
-    args: RpcData,
-) -> Result<Reply> {
-    call_at(context, identity, method, args, deadline(context)?).await
-}
-
 pub(super) async fn call_at(
     context: &Context,
     identity: &str,

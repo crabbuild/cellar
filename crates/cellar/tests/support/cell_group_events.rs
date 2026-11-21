@@ -255,28 +255,46 @@ async fn read(cluster: &ManagedCluster, node: usize) -> Result<serde_json::Value
 }
 
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
-    qualify_host(real_rustfs, false, Durability::Quorum).await
+    qualify_host(real_rustfs, false, Durability::Quorum, false).await
 }
 
 pub async fn qualify_axum(real_rustfs: bool) -> Result<()> {
-    qualify_host(real_rustfs, true, Durability::Quorum).await
+    qualify_host(real_rustfs, true, Durability::Quorum, false).await
 }
 
 pub async fn qualify_target_s3(external: bool) -> Result<()> {
-    qualify_host(true, external, Durability::S3).await
+    qualify_host(true, external, Durability::S3, false).await
 }
 
-async fn qualify_host(real_rustfs: bool, external: bool, target_minimum: Durability) -> Result<()> {
+pub async fn qualify_enrollment(real_rustfs: bool) -> Result<()> {
+    for minimum in [Durability::Quorum, Durability::S3] {
+        qualify_host(real_rustfs, false, minimum, true)
+            .await
+            .with_context(|| format!("catalog enrollment minimum={minimum:?}"))?;
+    }
+    Ok(())
+}
+
+async fn qualify_host(
+    real_rustfs: bool,
+    external: bool,
+    target_minimum: Durability,
+    enrollment_only: bool,
+) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_groups::controller::effects=debug")
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::cell_groups::controller::effects=debug")
         .with_test_writer()
         .try_init();
     for rooted in [false, true] {
-        let label = match (external, target_minimum) {
-            (false, Durability::Quorum) => "events",
-            (true, Durability::Quorum) => "events-axum",
-            (false, Durability::S3) => "events-target-s3",
-            (true, Durability::S3) => "events-axum-target-s3",
+        let label = match (enrollment_only, external, target_minimum) {
+            (true, false, Durability::Quorum) => "events-genesis",
+            (true, true, Durability::Quorum) => "events-axum-genesis",
+            (true, false, Durability::S3) => "events-genesis-target-s3",
+            (true, true, Durability::S3) => "events-axum-genesis-target-s3",
+            (false, false, Durability::Quorum) => "events",
+            (false, true, Durability::Quorum) => "events-axum",
+            (false, false, Durability::S3) => "events-target-s3",
+            (false, true, Durability::S3) => "events-axum-target-s3",
         };
         let store = Arc::new(if real_rustfs {
             catalog_fault::Store::around(rustfs::store(label, rooted)?)
@@ -341,10 +359,44 @@ async fn qualify_host(real_rustfs: bool, external: bool, target_minimum: Durabil
         };
         let work = domain
             .run(async {
-                named_service::activate_namespace(&cluster, 0, "stream-archive").await.context("provision stream service group")?;
-                named_service::activate_namespace(&cluster, 1, "catalog-archive").await.context("provision catalog service group")?;
+                let stream_group = named_service::activate_namespace(&cluster, 0, "stream-archive").await.context("provision stream service group")?;
+                let catalog_group = named_service::activate_namespace(&cluster, 1, "catalog-archive").await.context("provision catalog service group")?;
                 for (index, node) in cluster.nodes.iter().enumerate() {
                     node.activate_event_resources().await.with_context(|| format!("initial event activation node={index} extents={rooted} Axum={external}"))?;
+                }
+                if enrollment_only {
+                    // Use the same persisted catalog address as ordinary Fleet
+                    // conformance. The existing private sequence query reads
+                    // an immutable image under the normal public SDK barrier.
+                    let resource = definition().resource;
+                    let name = serde_json::to_string(&(&resource.tenant, &resource.application))?;
+                    let id = cellar_native::cell_id::for_name("cells:v1:event-catalog:__EventCatalog", &name);
+                    let scope = CellId::new(format!("{}:{}", cellar::deploy::EVENT_CATALOG_CLASS, cellar_native::cell_id::encode_hex(&id)))?;
+                    let history = cluster.hosts[0].resolve_cell_history(
+                        catalog_group.cluster, catalog_group.namespace, scope, QueryOptions::default(),
+                    ).await?.context("activated catalog history")?;
+                    let cell = cluster.hosts[0].cell(history)?;
+                    let selected = cell.query(
+                        ProposalId::new([240;16])?, &cell.contract("__sqlIngressSequence")?,
+                        0u64.to_be_bytes().to_vec(), QueryOptions::default(),
+                    ).await?;
+                    let mut untouched = 1u64.to_be_bytes().to_vec(); untouched.push(0);
+                    ensure!(selected.result == untouched,
+                        "fresh catalog activation allocated a foreground ingress command");
+                    let name = serde_json::to_string(&(&resource.tenant, &resource.application, &resource.id, 0u32))?;
+                    let id = cellar_native::cell_id::for_name("cells:v1:event-stream:__EventStream", &name);
+                    let scope = CellId::new(format!("{}:{}", cellar::deploy::EVENT_STREAM_CLASS, cellar_native::cell_id::encode_hex(&id)))?;
+                    let history = cluster.hosts[0].resolve_cell_history(
+                        stream_group.cluster, stream_group.namespace, scope, QueryOptions::default(),
+                    ).await?.context("activated broker history")?;
+                    let cell = cluster.hosts[0].cell(history)?;
+                    let selected = cell.query(
+                        ProposalId::new([241;16])?, &cell.contract("__sqlIngressSequence")?,
+                        0u64.to_be_bytes().to_vec(), QueryOptions::default(),
+                    ).await?;
+                    ensure!(selected.version.sequence.get() == 1 && selected.result == untouched,
+                        "fresh broker configuration appended a command after its initialized enrollment: {:?}", selected.version);
+                    return Ok::<_, anyhow::Error>(());
                 }
                 let group = cluster.history;
                 let leader = managed_fixture::leader(&cluster.hosts, group).await?;

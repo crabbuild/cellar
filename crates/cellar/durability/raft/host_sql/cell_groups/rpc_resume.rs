@@ -9,9 +9,14 @@ impl Suspended {
         if self.commits.is_none() || !self.turn.can_park()? {
             return Ok(());
         }
-        // Pure queries need no target writer. Keep the already admitted source
-        // connection between chunk reads, unless another source writer waits.
-        if !self.retention.lease.contended() && self.turn.waiting_on_queries() {
+        // The source root is proven and only host-owned I/O can be polled.
+        // Keep its admitted connection while uncontended, including bindings.
+        // Foreground queued or synchronously refused writers mark contention,
+        // so a target-write dependency can force parking without an I/O wake.
+        // Resource cleanup instead declines busy admission: it cannot progress
+        // through a held lifecycle guard and must not force this owner to park.
+        // Resume still revalidates the original history/term and receipt.
+        if !self.retention.lease.contended() && self.turn.waiting_on_owned_io() {
             return Ok(());
         }
         let mut executor = self.executor.take().ok_or_else(unavailable)?;

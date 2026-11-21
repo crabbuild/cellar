@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::application::consensus::VersionSigningKey;
-use crate::raft::cell_groups::CellQueryConsistency;
+use crate::raft::cell_groups::{CellDispatchError, CellEnrollmentError, CellQueryConsistency};
+use crate::raft::completion::RuntimeError;
+use crate::raft::execution::ExecutionError;
 use cellar_logic::cell_group::{CellHistory, CellId, GroupHistory};
 use cellar_logic::consensus::*;
 use std::time::Duration;
@@ -125,7 +127,8 @@ fn query_wire_preserves_explicit_constraints() {
     for consistency in [
         CellQueryConsistency::Stale,
         CellQueryConsistency::RecentSource { max_age_ms: 5000 },
-        CellQueryConsistency::AtLeast(token),
+        CellQueryConsistency::AtLeast(token.clone()),
+        CellQueryConsistency::LinearizableAfter(token),
         CellQueryConsistency::Linearizable,
     ] {
         let call = cell_call(consistency);
@@ -455,7 +458,8 @@ fn shared_query_wire_preserves_cell_constraints_and_refuses_other_payloads() {
     for consistency in [
         CellQueryConsistency::Stale,
         CellQueryConsistency::Linearizable,
-        CellQueryConsistency::AtLeast(token),
+        CellQueryConsistency::AtLeast(token.clone()),
+        CellQueryConsistency::LinearizableAfter(token),
     ] {
         let call = cell_call(consistency);
         let bytes = call.encode(4096).unwrap();
@@ -732,6 +736,8 @@ fn private_event_commands_bind_purpose_and_refuse_public_command_bodies() {
     for purpose in [
         "Query",
         "EventQuery",
+        "QueueQuery",
+        "QueueMetricsQuery",
         "Command",
         "BindingRetirement",
         "Enrollment",
@@ -751,23 +757,122 @@ fn private_event_commands_bind_purpose_and_refuse_public_command_bodies() {
 }
 
 #[test]
-fn private_event_queries_authenticate_purpose_and_minimum_without_public_admission() {
+fn private_resource_queries_authenticate_purpose_and_minimum_without_public_admission() {
+    use crate::application::consensus::QueryAdmission;
+    use crate::raft::cell_groups::CellQueryConsistency;
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    for admission in [
+        QueryAdmission::Event(Durability::Quorum),
+        QueryAdmission::Event(Durability::S3),
+        QueryAdmission::QueueOperator(Durability::Quorum),
+        QueryAdmission::QueueOperator(Durability::S3),
+    ] {
+        let token = keys()
+            .issue_cell(&cell_observation(), [9; 32], 1000)
+            .unwrap();
+        for consistency in [
+            CellQueryConsistency::Linearizable,
+            CellQueryConsistency::LinearizableAfter(token),
+        ] {
+            let queue = matches!(admission, QueryAdmission::QueueOperator(_));
+            let decode = if queue {
+                cell::CellQueryCall::decode_queue
+            } else {
+                cell::CellQueryCall::decode_event
+            };
+            let other = if queue {
+                cell::CellQueryCall::decode_event
+            } else {
+                cell::CellQueryCall::decode_queue
+            };
+            let mut call = cell_call(consistency);
+            let public = call.encode(4096).unwrap();
+            assert!(decode(&public, 4096).is_err());
+            call.admission = admission;
+            let bytes = call.encode(4096).unwrap();
+            assert!(cell::CellQueryCall::decode(&bytes, 4096).is_err());
+            assert!(other(&bytes, 4096).is_err());
+            let decoded = decode(&bytes, 4096).unwrap();
+            assert!(decoded.admission == call.admission);
+            assert_eq!(decoded.encode(4096).unwrap(), bytes);
+            for end in 0..bytes.len() {
+                assert!(decode(&bytes[..end], 4096).is_err());
+            }
+            let route = Route::new_shared(
+                identity(1).node_identity(),
+                "node-1",
+                &identity(2),
+                "node-2",
+                &cell_observation().version.history,
+                [9; 32],
+            )
+            .unwrap();
+            let route = if queue {
+                route.for_queue_query()
+            } else {
+                route.for_event_query()
+            }
+            .unwrap();
+            assert!(route.requires_command_grant());
+            assert!(!route.is_event_command());
+            let request = RequestHead::new(route, 4, &bytes);
+            let head = request_head(&auth, &[3; 32], &request, &bytes, &options).unwrap();
+            for purpose in [
+                "Query",
+                if queue { "EventQuery" } else { "QueueQuery" },
+                "QueueMetricsQuery",
+                "Command",
+                "EventCommand",
+                "Enrollment",
+                "Receipt",
+                "Name",
+            ] {
+                let mut value = serde_json::to_value(&request).unwrap();
+                value["route"]["purpose"] = serde_json::json!(purpose);
+                let changed = FrameHead {
+                    prefix: head.prefix,
+                    header: serde_json::to_vec(&value).unwrap(),
+                    tag: head.tag,
+                    payload_len: head.payload_len,
+                };
+                assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+            }
+            let mut changed = bytes;
+            changed[8] = 9;
+            assert!(decode(&changed, 4096).is_err());
+            call.request.consistency = CellQueryConsistency::Stale;
+            assert!(call.encode(4096).is_err());
+        }
+    }
+}
+
+#[test]
+fn queue_metrics_queries_keep_a_distinct_authenticated_purpose_and_minimum() {
     use crate::application::consensus::QueryAdmission;
     use crate::raft::cell_groups::CellQueryConsistency;
     let auth = PeerAuth::new([17; 32], "node-1").unwrap();
     let options = TransportOptions::default();
     for minimum in [Durability::Quorum, Durability::S3] {
         let mut call = cell_call(CellQueryConsistency::Linearizable);
-        let public = call.encode(4096).unwrap();
-        assert!(cell::CellQueryCall::decode_event(&public, 4096).is_err());
-        call.admission = QueryAdmission::Event(minimum);
+        assert!(
+            cell::CellQueryCall::decode_queue_metrics(&call.encode(4096).unwrap(), 4096).is_err()
+        );
+        call.admission = QueryAdmission::QueueMetrics(minimum);
         let bytes = call.encode(4096).unwrap();
+        assert_eq!(
+            cell::CellQueryCall::decode_queue_metrics(&bytes, 4096)
+                .unwrap()
+                .encode(4096)
+                .unwrap(),
+            bytes
+        );
         assert!(cell::CellQueryCall::decode(&bytes, 4096).is_err());
-        let decoded = cell::CellQueryCall::decode_event(&bytes, 4096).unwrap();
-        assert!(decoded.admission == call.admission);
-        assert_eq!(decoded.encode(4096).unwrap(), bytes);
+        assert!(cell::CellQueryCall::decode_event(&bytes, 4096).is_err());
+        assert!(cell::CellQueryCall::decode_queue(&bytes, 4096).is_err());
+        assert!(cell::CellQueryCall::decode_queue_metrics(&bytes, bytes.len() - 1).is_err());
         for end in 0..bytes.len() {
-            assert!(cell::CellQueryCall::decode_event(&bytes[..end], 4096).is_err());
+            assert!(cell::CellQueryCall::decode_queue_metrics(&bytes[..end], 4096).is_err());
         }
         let route = Route::new_shared(
             identity(1).node_identity(),
@@ -778,14 +883,17 @@ fn private_event_queries_authenticate_purpose_and_minimum_without_public_admissi
             [9; 32],
         )
         .unwrap()
-        .for_event_query()
+        .for_queue_metrics_query()
         .unwrap();
         assert!(route.requires_command_grant());
-        assert!(!route.is_event_command());
+        assert!(route.is_queue_metrics_query());
+        assert!(!route.is_queue_query() && !route.is_event_query() && !route.is_command());
         let request = RequestHead::new(route, 4, &bytes);
         let head = request_head(&auth, &[3; 32], &request, &bytes, &options).unwrap();
         for purpose in [
             "Query",
+            "QueueQuery",
+            "EventQuery",
             "Command",
             "EventCommand",
             "Enrollment",
@@ -802,12 +910,128 @@ fn private_event_queries_authenticate_purpose_and_minimum_without_public_admissi
             };
             assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
         }
-        let mut changed = bytes;
-        changed[8] = 9;
-        assert!(cell::CellQueryCall::decode_event(&changed, 4096).is_err());
+        let mut corrupt = bytes;
+        corrupt[8] = 9;
+        assert!(cell::CellQueryCall::decode_queue_metrics(&corrupt, 4096).is_err());
         call.request.consistency = CellQueryConsistency::Stale;
         assert!(call.encode(4096).is_err());
     }
+}
+
+#[test]
+fn authenticated_transport_refusal_binds_request_channel_and_purpose() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = cell_call(CellQueryConsistency::Linearizable)
+        .encode(4096)
+        .unwrap();
+    let request = RequestHead::new(route(), 7, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    let refusal = refusal_head(&auth, &[3; 32], &request, &head.tag, &options).unwrap();
+    assert_eq!(
+        read_response(&refusal, &auth, &[3; 32], &request, &head.tag, &options),
+        Err(TransportError::Refused)
+    );
+    for exporter in [[4; 32], [0; 32]] {
+        assert_eq!(
+            read_response(&refusal, &auth, &exporter, &request, &head.tag, &options),
+            Err(TransportError::Authentication)
+        );
+    }
+    assert_eq!(
+        read_response(&refusal, &auth, &[3; 32], &request, &[5; 32], &options),
+        Err(TransportError::Authentication)
+    );
+    for changed in [
+        RequestHead::new(route(), 8, &body),
+        RequestHead::new(route().for_command().unwrap(), 7, &body),
+        RequestHead::new(route().for_enrollment().unwrap(), 7, &body),
+        RequestHead::new(
+            Route::new_shared(
+                identity(1).node_identity(),
+                "node-1",
+                &identity(3),
+                "node-3",
+                &cell_history(),
+                [9; 32],
+            )
+            .unwrap(),
+            7,
+            &body,
+        ),
+    ] {
+        assert_eq!(
+            read_response(&refusal, &auth, &[3; 32], &changed, &head.tag, &options),
+            Err(TransportError::Authentication)
+        );
+    }
+    for index in 0..refusal.header.len() {
+        let mut header = refusal.header.clone();
+        header[index] ^= 1;
+        let changed = FrameHead {
+            prefix: refusal.prefix,
+            header,
+            tag: refusal.tag,
+            payload_len: 0,
+        };
+        assert_eq!(
+            read_response(&changed, &auth, &[3; 32], &request, &head.tag, &options),
+            Err(TransportError::Authentication)
+        );
+    }
+    let result = response_head(&auth, &[3; 32], &request, &head.tag, &[], &options).unwrap();
+    assert_eq!(
+        read_response(&result, &auth, &[3; 32], &request, &head.tag, &options).unwrap(),
+        <[u8; 32]>::from(Sha256::digest([]))
+    );
+}
+
+#[test]
+fn authenticated_transport_refusal_rejects_payloads_and_unknown_kinds() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let request = RequestHead::new(route(), 7, &[]);
+    let head = request_head(&auth, &[3; 32], &request, &[], &options).unwrap();
+    for (digest, payload_len) in [(Sha256::digest(b"not empty"), 0), (Sha256::digest([]), 1)] {
+        let header = ResponseHead {
+            route: request.route.reversed(),
+            sequence: request.sequence.clone(),
+            request: head.tag,
+            kind: ResponseKind::Refused,
+            digest: digest.into(),
+        };
+        let malformed = make_head(
+            &auth,
+            &[3; 32],
+            Some(&head.tag),
+            b"CLQA",
+            &serde_json::to_vec(&header).unwrap(),
+            payload_len,
+            &options,
+        )
+        .unwrap();
+        assert_eq!(
+            read_response(&malformed, &auth, &[3; 32], &request, &head.tag, &options),
+            Err(TransportError::Protocol)
+        );
+    }
+    let refusal = refusal_head(&auth, &[3; 32], &request, &head.tag, &options).unwrap();
+    let mut unknown: serde_json::Value = serde_json::from_slice(&refusal.header).unwrap();
+    unknown["kind"] = serde_json::json!("Unknown");
+    let unknown = make_head(
+        &auth,
+        &[3; 32],
+        Some(&head.tag),
+        b"CLQA",
+        &serde_json::to_vec(&unknown).unwrap(),
+        0,
+        &options,
+    )
+    .unwrap();
+    assert_eq!(
+        read_response(&unknown, &auth, &[3; 32], &request, &head.tag, &options),
+        Err(TransportError::Protocol)
+    );
 }
 
 #[test]
@@ -820,6 +1044,7 @@ fn read_transport_unavailability_preserves_security_and_mutation_failures() {
         TransportError::Authentication,
         TransportError::Identity,
         TransportError::Protocol,
+        TransportError::Refused,
         TransportError::CommandRejected(CommandFailure::Unavailable),
         TransportError::Timeout,
     ] {
@@ -1409,7 +1634,8 @@ fn shared_enrollment_purpose_cannot_be_reinterpreted_as_command_or_read() {
         };
         assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
     }
-    let bytes = enrollment::encode_result(&Err(CommandFailure::CommandConflict), 4096).unwrap();
+    let failure = enrollment_refusal(CommandFailure::CommandConflict, false);
+    let bytes = enrollment::encode_result(&Err(&failure), 4096).unwrap();
     let response = response_head(&auth, &[3; 32], &request, &head.tag, &bytes, &options).unwrap();
     for route in [read.clone(), read.for_command().unwrap()] {
         let other = RequestHead::new(route, 4, &body);
@@ -1499,20 +1725,124 @@ fn shared_enrollment_reply_binds_creation_cell_schema_and_initial_image() {
         },
         CommandFailure::Overloaded,
     ] {
-        let bytes = enrollment::encode_result(&Err(failure.clone()), 4096).unwrap();
-        assert_eq!(
-            enrollment::decode_result(
+        let original = enrollment_refusal(failure.clone(), false);
+        let bytes = enrollment::encode_result(&Err(&original), 4096).unwrap();
+        let decoded = enrollment::decode_result(
+            &bytes,
+            (call.request.creation, Durability::Quorum),
+            &cell,
+            [9; 32],
+            4096,
+        )
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(decoded.creation, original.creation);
+        assert!(!decoded.ambiguous);
+        assert!(matches!(decoded.cause.as_ref(),
+            CellDispatchError::Execution(ExecutionError::Refused(actual)) if actual == &failure));
+    }
+}
+
+fn enrollment_refusal(failure: CommandFailure, ambiguous: bool) -> CellEnrollmentError {
+    CellEnrollmentError {
+        creation: enrollment_call().request.creation,
+        ambiguous,
+        cause: Box::new(CellDispatchError::Execution(ExecutionError::Refused(
+            failure,
+        ))),
+    }
+}
+
+#[test]
+fn enrollment_reply_preserves_typed_runtime_cause_and_entry_disposition() {
+    let call = enrollment_call();
+    let cell = cell_observation().version.history;
+    for ambiguous in [false, true] {
+        for reason in [
+            RuntimeError::NotReady,
+            RuntimeError::NotFound,
+            RuntimeError::NotLeader,
+            RuntimeError::Overloaded,
+            RuntimeError::DeadlineExceeded,
+            RuntimeError::Closed,
+            RuntimeError::StaleCompletion,
+        ] {
+            let expected = std::mem::discriminant(&reason);
+            let original = CellEnrollmentError {
+                creation: call.request.creation,
+                ambiguous,
+                cause: Box::new(CellDispatchError::Runtime(reason)),
+            };
+            let bytes = enrollment::encode_result(&Err(&original), 4096).unwrap();
+            let decoded = enrollment::decode_result(
                 &bytes,
-                (call.request.creation, Durability::Quorum),
+                (call.request.creation, Durability::S3),
                 &cell,
                 [9; 32],
-                4096
+                4096,
             )
             .unwrap()
-            .unwrap_err(),
-            failure
-        );
+            .unwrap_err();
+            assert_eq!(decoded.creation, original.creation);
+            assert_eq!(decoded.ambiguous, ambiguous);
+            let CellDispatchError::Runtime(actual) = decoded.cause.as_ref() else {
+                panic!("runtime enrollment failure changed its domain");
+            };
+            assert_eq!(std::mem::discriminant(actual), expected);
+        }
     }
+}
+
+#[test]
+fn enrollment_non_entry_reply_rejects_foreign_creation_and_malformed_disposition() {
+    let call = enrollment_call();
+    let cell = cell_observation().version.history;
+    let failure = CellEnrollmentError {
+        creation: call.request.creation,
+        ambiguous: false,
+        cause: Box::new(CellDispatchError::Runtime(RuntimeError::NotReady)),
+    };
+    let bytes = enrollment::encode_result(&Err(&failure), 4096).unwrap();
+    let decode = |body: &[u8]| {
+        enrollment::decode_result(
+            body,
+            (call.request.creation, Durability::S3),
+            &cell,
+            [9; 32],
+            4096,
+        )
+    };
+    assert!(matches!(
+        enrollment::decode_result(
+            &bytes,
+            (ProposalId::new([231; 16]).unwrap(), Durability::S3),
+            &cell,
+            [9; 32],
+            4096
+        ),
+        Err(TransportError::Authentication)
+    ));
+    for end in 0..bytes.len() {
+        assert!(decode(&bytes[..end]).is_err());
+    }
+    let mut extra = bytes.clone();
+    extra.push(0);
+    assert!(matches!(decode(&extra), Err(TransportError::Protocol)));
+    // Every field that could claim non-entry must reject unknown encodings.
+    for offset in [25, 26, 27] {
+        let mut changed = bytes.clone();
+        changed[offset] = 255;
+        assert!(matches!(decode(&changed), Err(TransportError::Protocol)));
+    }
+    assert!(enrollment::decode_result(
+        &bytes,
+        (call.request.creation, Durability::S3),
+        &cell,
+        [9; 32],
+        bytes.len() - 1
+    )
+    .is_err());
+    assert!(enrollment::encode_result(&Err(&failure), bytes.len() - 1).is_err());
 }
 
 fn receipt_call() -> receipt::CellReceiptCall {

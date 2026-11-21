@@ -40,6 +40,14 @@ pub(crate) struct Admitted {
     pub(crate) args: RpcData,
 }
 
+/// Owned buffered HTTP input shares the same call and byte bank as RPC.
+pub(crate) struct AdmittedFetch {
+    pub(crate) reservation: Reservation,
+    pub(crate) scope: String,
+    pub(crate) name: Option<String>,
+    pub(crate) request: crate::application::Request,
+}
+
 fn text(value: &str) -> Option<String> {
     let mut dense = String::new();
     dense.try_reserve_exact(value.len()).ok()?;
@@ -98,20 +106,7 @@ impl Budget {
                 }
             }
         };
-        let weight = payload
-            .checked_mul(2)?
-            .checked_add(metadata.checked_mul(4)?)?
-            .checked_add(CONTROL_BYTES)?;
-        let call = self.calls.clone().try_acquire_owned().ok()?;
-        let bytes = self
-            .bytes
-            .clone()
-            .try_acquire_many_owned(u32::try_from(weight).ok()?)
-            .ok()?;
-        let reservation = Reservation::shared(Arc::new(Held {
-            _call: call,
-            _bytes: bytes,
-        }));
+        let reservation = self.reserve(payload, metadata)?;
         // Reserve before allocating any dense copies. Caller-owned unknown
         // backing is relinquished by the submission boundary before it waits.
         let args = match args {
@@ -136,6 +131,79 @@ impl Budget {
         })
     }
 
+    fn reserve(&self, payload: usize, metadata: usize) -> Option<Reservation> {
+        let weight = payload
+            .checked_mul(2)?
+            .checked_add(metadata.checked_mul(4)?)?
+            .checked_add(CONTROL_BYTES)?;
+        let call = self.calls.clone().try_acquire_owned().ok()?;
+        let bytes = self
+            .bytes
+            .clone()
+            .try_acquire_many_owned(u32::try_from(weight).ok()?)
+            .ok()?;
+        Some(Reservation::shared(Arc::new(Held {
+            _call: call,
+            _bytes: bytes,
+        })))
+    }
+
+    pub(crate) fn admit_fetch(
+        &self,
+        scope: &str,
+        name: Option<&str>,
+        request: &crate::application::Request,
+    ) -> Option<AdmittedFetch> {
+        if request.entrypoint.is_some() {
+            return None;
+        }
+        let crate::engine_api::RequestBody::Bytes(body) = &request.body else {
+            return None;
+        };
+        let metadata = scope
+            .len()
+            .checked_add(name.map_or(0, str::len))?
+            .checked_add(request.method.len())?
+            .checked_add(request.url.len())?
+            .checked_add(
+                request
+                    .headers
+                    .len()
+                    .checked_mul(std::mem::size_of::<(String, String)>())?,
+            )?;
+        let metadata = request
+            .headers
+            .iter()
+            .try_fold(metadata, |total, (key, value)| {
+                total.checked_add(key.len())?.checked_add(value.len())
+            })?;
+        let reservation = self.reserve(body.len(), metadata)?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(body.len()).ok()?;
+        bytes.extend_from_slice(body);
+        let mut headers = Vec::new();
+        headers.try_reserve_exact(request.headers.len()).ok()?;
+        for (key, value) in &request.headers {
+            headers.push((text(key)?, text(value)?));
+        }
+        let body = reservation.retain_bytes(bytes.into());
+        Some(AdmittedFetch {
+            reservation,
+            scope: text(scope)?,
+            name: match name {
+                Some(name) => Some(text(name)?),
+                None => None,
+            },
+            request: crate::application::Request {
+                url: text(&request.url)?,
+                method: text(&request.method)?,
+                headers,
+                body: crate::engine_api::RequestBody::Bytes(body),
+                entrypoint: None,
+            },
+        })
+    }
+
     pub(crate) fn usage(&self) -> Usage {
         Usage {
             active_requests: self.max_calls - self.calls.available_permits(),
@@ -148,6 +216,57 @@ impl Budget {
 mod tests {
     use super::*;
     use crate::application::rpc::Lease;
+
+    #[test]
+    fn buffered_fetch_shares_rpc_admission_and_retains_dense_byte_aliases() {
+        let budget = Budget::new(RuntimePolicy {
+            max_outbound_rpc_requests: 1,
+            ..Default::default()
+        });
+        let backing = bytes::Bytes::from(vec![7; 8192]);
+        let request = crate::application::Request {
+            method: "POST".into(),
+            url: "https://cell.test/".into(),
+            headers: vec![("x-test".into(), "value".into())],
+            body: crate::engine_api::RequestBody::Bytes(backing.slice(0..4)),
+            entrypoint: None,
+        };
+        let rpc = budget
+            .admit("scope", None, "method", &RpcData::Json("null".into()))
+            .unwrap();
+        assert!(budget.admit_fetch("scope", None, &request).is_none());
+        drop(rpc);
+        let admitted = budget
+            .admit_fetch("scope", Some("named"), &request)
+            .unwrap();
+        assert!(budget
+            .admit("scope", None, "method", &RpcData::Json("null".into()))
+            .is_none());
+        let crate::engine_api::RequestBody::Bytes(body) = &admitted.request.body else {
+            panic!("owned body required")
+        };
+        assert_eq!(body.as_ref(), &[7; 4]);
+        assert_ne!(body.as_ptr(), backing.as_ptr());
+        let retained = body.clone();
+        drop(admitted);
+        assert_eq!(budget.usage().active_requests, 1);
+        drop(retained);
+        assert_eq!(budget.usage(), Usage::default());
+    }
+
+    #[test]
+    fn buffered_fetch_refuses_host_streams_without_consuming_admission() {
+        let budget = Budget::new(RuntimePolicy::default());
+        let request = crate::application::Request {
+            method: "POST".into(),
+            url: "https://cell.test/".into(),
+            headers: vec![],
+            body: crate::engine_api::RequestBody::Stream(1),
+            entrypoint: None,
+        };
+        assert!(budget.admit_fetch("scope", None, &request).is_none());
+        assert_eq!(budget.usage(), Usage::default());
+    }
 
     #[test]
     fn normalization_preserves_lease_revocation_and_refuses_nested_leases() {

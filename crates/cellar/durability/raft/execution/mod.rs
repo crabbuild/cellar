@@ -8,10 +8,13 @@ use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
+mod prepared_image;
 mod submission;
 pub(crate) use cell::{
-    authority_failure, CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn,
+    authority_failure, CellPrivatePreparation, CellPrivatePrepared, CellRpcDispatch,
+    CellRpcEnvironment, CellRpcStart, CellRpcTurn, CellStageCapture,
 };
+pub(crate) use prepared_image::CellPreparedImage;
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
 pub(crate) mod binding_seal;
 mod command;
@@ -314,6 +317,8 @@ impl CommandAuthority {
 
 #[derive(Clone)]
 pub struct PrivateOptions {
+    /// Disposable SQLite/WAL scratch rebuilt from the committed image on open.
+    /// Its directory and contents supply no recovery or acknowledgement proof.
     pub directory: PathBuf,
     pub host: LtxHost,
     /// Must select the same SQLite storage surface as the supplied host. None

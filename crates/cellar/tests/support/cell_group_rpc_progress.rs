@@ -8,22 +8,41 @@ use std::sync::Condvar;
 
 #[path = "raft_ltx_fault.rs"]
 #[allow(dead_code)]
-mod physical;
+pub(super) mod physical;
+
+type ArmPreparation = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 
 struct PausedCell {
     storage: Storage,
+    preparation: ArmPreparation,
     gates: Arc<[RpcGate; 2]>,
     calls: Arc<AtomicUsize>,
+    sql_thread: Arc<Mutex<Option<std::thread::ThreadId>>>,
 }
 
 impl Cell for PausedCell {
     fn invoke(self: Arc<Self>, _: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
+            if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Prepare") {
+                self.calls.fetch_add(1, Ordering::AcqRel);
+                let value = update(&self.storage, 1)?;
+                self.gates[0].entered.notify_one();
+                self.gates[0].release.notified().await;
+                return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
+            }
             if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Add") {
                 let value = update(&self.storage, 2)?;
+                arm_preparation(&self.preparation);
+                return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
+            }
+            if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Sync") {
+                let value = update(&self.storage, 2)?;
+                arm_preparation(&self.preparation);
+                self.storage.sync().await?;
                 return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
             }
             self.calls.fetch_add(1, Ordering::AcqRel);
+            *self.sql_thread.lock().unwrap() = Some(std::thread::current().id());
             update(&self.storage, 1)?;
             self.storage.sync().await?;
             self.gates[0].entered.notify_one();
@@ -45,6 +64,30 @@ impl Drop for Release {
             let _ = sender.send(());
         }
     }
+}
+
+fn arm_preparation(preparation: &ArmPreparation) {
+    let arm = preparation.lock().unwrap().take();
+    if let Some(arm) = arm {
+        arm();
+    }
+}
+
+fn hold_private_preparation(
+    faults: Arc<physical::Faults>,
+    preparation: &ArmPreparation,
+) -> (Release, tokio::sync::oneshot::Receiver<()>) {
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, held) = std::sync::mpsc::sync_channel(1);
+    // Opening an extent workspace uses the same inventory directory. Arm only
+    // after SQL has run so that this gate selects immutable image persistence.
+    *preparation.lock().unwrap() = Some(Box::new(move || {
+        *faults.before_directory_sync.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered.send(());
+            let _ = held.recv_timeout(Duration::from_secs(15));
+        }));
+    }));
+    (Release(Some(release)), started)
 }
 
 #[derive(Default)]
@@ -77,6 +120,14 @@ impl Drop for ReleaseRead {
     }
 }
 
+struct DenyReopen(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for DenyReopen {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 fn hold_apply(faults: &physical::Faults) -> (Release, tokio::sync::oneshot::Receiver<()>) {
     let (entered, started) = tokio::sync::oneshot::channel();
     let (release, held) = std::sync::mpsc::sync_channel(1);
@@ -88,18 +139,104 @@ fn hold_apply(faults: &physical::Faults) -> (Release, tokio::sync::oneshot::Rece
 }
 
 pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
-    run_mode(rooted, store, false).await
+    run_mode(rooted, store, Mode::Continuation).await
 }
 
 pub async fn checkpoint(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
-    run_mode(rooted, store, true).await
+    run_mode(rooted, store, Mode::Checkpoint).await
 }
 
-async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bool) -> Result<()> {
+pub async fn preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode(rooted, store, Mode::Preparation).await
+}
+
+pub async fn preparation_one_worker(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode_with_workers(rooted, store, Mode::Preparation, 1).await
+}
+
+pub async fn private_preparation(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    checkpoint: bool,
+) -> Result<()> {
+    run_mode_with_workers(
+        rooted,
+        store,
+        if checkpoint {
+            Mode::CheckpointPreview
+        } else {
+            Mode::Preview
+        },
+        1,
+    )
+    .await
+    .with_context(|| format!("private image rooted={rooted} checkpoint={checkpoint}"))
+}
+
+pub async fn registered_preparation(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode_with_workers(rooted, store, Mode::RegisteredPreview, 1).await
+}
+
+pub async fn cancelled_preparation(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    checkpoint: bool,
+) -> Result<()> {
+    run_mode_with_workers(
+        rooted,
+        store,
+        if checkpoint {
+            Mode::CancelledCheckpointPreview
+        } else {
+            Mode::CancelledPreview
+        },
+        1,
+    )
+    .await
+    .with_context(|| format!("cancelled private image rooted={rooted} checkpoint={checkpoint}"))
+}
+
+enum Mode {
+    Continuation,
+    Checkpoint,
+    Preparation,
+    Preview,
+    CheckpointPreview,
+    RegisteredPreview,
+    CancelledPreview,
+    CancelledCheckpointPreview,
+}
+
+async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) -> Result<()> {
+    run_mode_with_workers(rooted, store, mode, 2).await
+}
+
+async fn run_mode_with_workers(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    mode: Mode,
+    workers: usize,
+) -> Result<()> {
+    let checkpoint = matches!(mode, Mode::Checkpoint);
+    let preview = matches!(
+        mode,
+        Mode::Preview
+            | Mode::CheckpointPreview
+            | Mode::RegisteredPreview
+            | Mode::CancelledPreview
+            | Mode::CancelledCheckpointPreview
+    );
+    let preparation: ArmPreparation = Arc::new(Mutex::new(None));
     let calls = Arc::new(AtomicUsize::new(0));
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
     let reader = Arc::new(ReadGate::default());
     let query_reader = reader.clone();
+    let sql_thread = Arc::new(Mutex::new(None));
+    let source_thread = sql_thread.clone();
+    let cell_preparation = preparation.clone();
+    let deny_reopen = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reopened = Arc::new(AtomicUsize::new(0));
+    let probes = calls.clone();
     let class = RaftClass::new("Counter", 1, [181; 32])?
         .initializer([182; 32], |_, tx| {
             tx.execute_batch("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(0)")?;
@@ -107,10 +244,31 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
         })?
         .json_cell_rpc("Run", [183; 32])?
         .json_cell_rpc("Add", [184; 32])?
+        .json_cell_rpc("Prepare", [186; 32])?
+        .json_cell_rpc("Sync", [187; 32])?
+        .query("Probe", [188; 32], move |query, _| {
+            probes.fetch_add(1, Ordering::AcqRel);
+            Ok(query
+                .storage()
+                .get_json("value")?
+                .context("probe value")?
+                .to_string()
+                .into_bytes())
+        })?
         .query("Hold", [185; 32], move |_, _| {
             query_reader.hold();
             Ok(vec![])
         })?;
+    let registered_preparation = preparation.clone();
+    let class = if matches!(mode, Mode::RegisteredPreview) {
+        class.command("Registered", [189; 32], move |context, _| {
+            let value = update(&context.storage()?, 2)?;
+            arm_preparation(&registered_preparation);
+            Ok(value.to_string().into_bytes())
+        })?
+    } else {
+        class
+    };
     let called = calls.clone();
     let waiting = gates.clone();
     let application = Arc::new(
@@ -119,8 +277,10 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
             move |context, _| {
                 Ok(Arc::new(PausedCell {
                     storage: context.storage()?,
+                    preparation: cell_preparation.clone(),
                     gates: waiting.clone(),
                     calls: called.clone(),
+                    sql_thread: source_thread.clone(),
                 }))
             },
         )?,
@@ -129,9 +289,9 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
     application.validate_deployment(&configuration::deployment(declared.clone()))?;
     let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
     fixture.configuration = Some(declared);
-    // Group apply and the source callback must use different workers: this
-    // test holds synchronous physical I/O, not the whole SQL executor.
-    fixture.sql_workers = 2;
+    // The one-worker variant requires physical group apply to leave SQL
+    // available. Existing variants retain their original two-worker profile.
+    fixture.sql_workers = workers;
     if checkpoint {
         // The physical worker gate is a third, fully admitted request beside
         // the two commands. Keep the original byte bank and all public profiles.
@@ -148,7 +308,31 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
         .join(hex::encode([3; 16]))
         .join(hex::encode([7; 16]))
         .join("pages");
-    let faults = physical::Faults::new(pages, None);
+    let faults = physical::Faults::new(
+        if preview {
+            roots[0].path().join(if rooted {
+                "raft-cells/extent-inventory"
+            } else {
+                "raft-cells/images"
+            })
+        } else {
+            pages
+        },
+        None,
+    );
+    let images = roots[0].path().join("raft-cells/images");
+    let forbidden = deny_reopen.clone();
+    let observed_opens = reopened.clone();
+    *faults.read_open.lock().unwrap() = Some(Arc::new(move |path| {
+        if forbidden.load(Ordering::Acquire)
+            && path.starts_with(&images)
+            && *sql_thread.lock().unwrap() == Some(std::thread::current().id())
+        {
+            observed_opens.fetch_add(1, Ordering::AcqRel);
+            return Err(std::io::Error::other("checkpoint reopened a proven image"));
+        }
+        Ok(())
+    }));
     fixture.filesystem = Arc::new(physical::FaultFileSystem {
         faults: faults.clone(),
     });
@@ -200,8 +384,8 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
                     &source_history,
                 );
             ensure!(
-                u64::from_le_bytes(group_hash[..8].try_into()?) % 2
-                    != u64::from_le_bytes(source_hash[..8].try_into()?) % 2,
+                workers == 1 || u64::from_le_bytes(group_hash[..8].try_into()?) % workers as u64
+                    != u64::from_le_bytes(source_hash[..8].try_into()?) % workers as u64,
                 "physical gate must not occupy source worker"
             );
             let source = cluster.hosts[0].cell(source_history.clone())?;
@@ -213,8 +397,8 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
                 })
                 .find(|history| {
                     let hash = cellar::sdk::consensus::verification::cell_groups::cell_image_history_digest(history);
-                    u64::from_le_bytes(hash[..8].try_into().unwrap()) % 2
-                        == u64::from_le_bytes(group_hash[..8].try_into().unwrap()) % 2
+                    u64::from_le_bytes(hash[..8].try_into().unwrap()) % workers as u64
+                        == u64::from_le_bytes(group_hash[..8].try_into().unwrap()) % workers as u64
                 })
                 .context("unrelated worker")?;
             let other = cluster.hosts[0].cell(other_history)?;
@@ -230,7 +414,110 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
             }
             let options = interleaving::command(188, 1, Durability::Quorum)?;
             let run = source.contract("Run")?;
-            let add = other.contract("Add")?;
+            let add = other.contract(match mode {
+                Mode::CheckpointPreview | Mode::CancelledCheckpointPreview => "Sync",
+                Mode::RegisteredPreview => "Registered",
+                _ => "Add",
+            })?;
+            if matches!(mode, Mode::CancelledPreview | Mode::CancelledCheckpointPreview) {
+                let (release, started) = hold_private_preparation(faults.clone(), &preparation);
+                let mut command = Box::pin(other.command(
+                    &add, b"{}".to_vec(), interleaving::command(189, 1, Durability::Quorum)?,
+                ));
+                cellar::asyncrt::select! {
+                    result = &mut command => anyhow::bail!("private command escaped persistence barrier: {result:?}"),
+                    entered = cellar::asyncrt::timeout(TIMEOUT, started) => { entered??; }
+                }
+                drop(command);
+                let status = cluster.hosts[0].group(group)?.status().await?;
+                ensure!(status.applied.index == status.committed, "cancelled private image was submitted");
+                let usage = cluster.hosts[0].resource_usage().sql.context("SQL custody")?;
+                ensure!(usage.active_cells == 1 && usage.retained_bytes != 0, "cancellation released entered image I/O");
+                let mut close = Box::pin(cluster.hosts[0].close());
+                ensure!(cellar::asyncrt::timeout(Duration::from_millis(30), &mut close).await.is_err(), "host close detached entered image I/O");
+                let usage = cluster.hosts[0].resource_usage().sql.context("closing SQL custody")?;
+                ensure!(usage.active_cells == 1 && usage.retained_bytes != 0, "close released physical custody before join");
+                drop(release);
+                let report = cellar::asyncrt::timeout(TIMEOUT, close).await??;
+                ensure!(report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers);
+                return Ok(());
+            }
+            if preview {
+                let (release, started) = hold_private_preparation(faults.clone(), &preparation);
+                let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let completed = finished.clone();
+                let write_options = interleaving::command(189, 1, Durability::Quorum)?;
+                let (written, read) = tokio::join!(
+                    async {
+                        let result = other.command(&add, b"{}".to_vec(), write_options.clone()).await;
+                        completed.store(true, Ordering::Release);
+                        result
+                    },
+                    async {
+                        cellar::asyncrt::timeout(TIMEOUT, started).await??;
+                        let status = cluster.hosts[0].group(group)?.status().await?;
+                        ensure!(status.applied.index == status.committed, "private image reached Raft before its persistence barrier");
+                        let response = cellar::asyncrt::timeout(Duration::from_secs(1), source.query(
+                            ProposalId::new([193; 16])?, &source.contract("Probe")?, vec![], QueryOptions::default(),
+                        )).await.context("SQL query blocked by unrelated private image preparation")??;
+                        ensure!(response.result == b"0" && calls.load(Ordering::Acquire) == 1);
+                        ensure!(!finished.load(Ordering::Acquire), "write completed before its private image persistence barrier");
+                        drop(release);
+                        Ok::<_, anyhow::Error>(())
+                    },
+                );
+                read?;
+                let written = written?;
+                ensure!(written.result == b"2" && written.durability == Durability::Quorum);
+                let replay = other.command(&add, b"{}".to_vec(), write_options).await?;
+                ensure!(replay.version == written.version && replay.result == written.result);
+                return Ok(());
+            }
+            if matches!(mode, Mode::Preparation) {
+                let (release, started) = hold_apply(&faults);
+                let (other_result, prepared) = tokio::join!(
+                    other.command(
+                        &add,
+                        b"{}".to_vec(),
+                        interleaving::command(189, 1, Durability::Quorum)?,
+                    ),
+                    async {
+                        let observed = async {
+                            cellar::asyncrt::timeout(TIMEOUT, started).await??;
+                            let status = cluster.hosts[0].group(group)?.status().await?;
+                            ensure!(status.applied.index < status.committed, "held unrelated committed apply");
+                            let contract = source.contract("Prepare")?;
+                            let mut command = Box::pin(source.command(&contract, b"{}".to_vec(), options.clone()));
+                            cellar::asyncrt::select! {
+                                result = &mut command => anyhow::bail!("command completed before preparation: {result:?}"),
+                                result = cellar::asyncrt::timeout(Duration::from_secs(1), gates[0].entered.notified()) => {
+                                    result.context("new cell preparation blocked by unrelated committed apply")?;
+                                }
+                            }
+                            ensure!(calls.load(Ordering::Acquire) == 1);
+                            let status = cluster.hosts[0].group(group)?.status().await?;
+                            ensure!(status.applied.index < status.committed, "preparation waited for group catch-up");
+                            gates[0].release.notify_one();
+                            ensure!(
+                                cellar::asyncrt::timeout(Duration::from_millis(30), &mut command).await.is_err(),
+                                "private preparation acknowledged before contiguous root publication"
+                            );
+                            drop(release);
+                            let result = command.await?;
+                            ensure!(result.durability == Durability::Quorum && result.result == b"1");
+                            let replay = source.command(&contract, b"{}".to_vec(), options.clone()).await?;
+                            ensure!(replay.version == result.version && replay.result == result.result);
+                            ensure!(calls.load(Ordering::Acquire) == 1, "replay reran preparation");
+                            Ok::<_, anyhow::Error>(())
+                        }.await;
+                        gates[0].release.notify_one();
+                        observed
+                    },
+                );
+                prepared?;
+                other_result?;
+                return Ok(());
+            }
             let initial_apply = checkpoint.then(|| hold_apply(&faults));
             let (result, observed) = tokio::join!(
                 source.command(&run, b"{}".to_vec(), options.clone()),
@@ -276,11 +563,17 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
                                             cellar::asyncrt::timeout(TIMEOUT, started).await??;
                                             let status = cluster.hosts[0].group(group)?.status().await?;
                                             ensure!(status.applied.index < status.committed, "held unrelated committed apply");
+                                            // The retained writer already contains this exact
+                                            // captured checkpoint. Its settlement must not
+                                            // open another materialized receipt reader.
+                                            deny_reopen.store(!rooted, Ordering::Release);
+                                            let _no_reader = DenyReopen(deny_reopen.clone());
                                             reader.release();
                                             cellar::asyncrt::timeout(
                                                 Duration::from_secs(1),
                                                 gates[0].entered.notified(),
-                                            ).await.context("applied source checkpoint blocked by unrelated apply")?;
+                                            ).await.with_context(|| format!("applied checkpoint settlement stalled; immutable receipt reopens={}", reopened.load(Ordering::Acquire)))?;
+                                            ensure!(reopened.load(Ordering::Acquire) == 0, "checkpoint reopened an immutable receipt reader");
                                             let status = cluster.hosts[0].group(group)?.status().await?;
                                             ensure!(status.applied.index < status.committed, "checkpoint waited for group catch-up");
                                             Ok::<_, anyhow::Error>(())

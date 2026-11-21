@@ -4,6 +4,10 @@ use super::reconciliation::apply_through;
 use super::*;
 use raft::prelude::Entry;
 
+#[path = "cell_group_change_reads.rs"]
+mod changes;
+pub(crate) use changes::run as change_reads;
+
 #[path = "cell_group_read_cohorts.rs"]
 mod cohorts;
 pub(crate) use cohorts::{invalidated as cohort_invalidated, run as cohort_reads};

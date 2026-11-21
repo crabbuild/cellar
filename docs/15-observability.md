@@ -51,6 +51,21 @@ deadline and image pin; these counters do not establish quorum freshness or a
 reusable leadership lease. Low-traffic or intervening control work can require
 one barrier per read.
 
+`cell_binding_recovery_claims` counts observed nonempty claims of expired
+outgoing binding obligations. `cell_binding_recovery_settlements` counts observed
+successful source settlement replies, including the source's required durability
+proof. These fixed counters reset with their Raft owner; compare snapshots only
+while their `source` identity remains unchanged. A claim may repeat, and a lost
+reply can leave a committed settlement uncounted. They are historical observations,
+not unique-operation counts, serving authority, quiescence or durability proofs.
+Subtracting them does not measure pending work. Prometheus exports them with the
+`cellar_raft_` prefix and `_total` suffix, without per-cell labels.
+
+Trace targets `cellar::raft::sql_publish` and `cellar::raft::cell_reconciliation`
+report unresolved private-publication attempts and their receipt/authority phase.
+They distinguish an unchanged checkpoint from missing receipt or authority
+readiness. These traces describe an attempt, not whether a mutation committed.
+
 ## Event-delivery observations
 
 ### Host counters and histograms

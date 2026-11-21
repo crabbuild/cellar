@@ -113,12 +113,11 @@ outbound/query byte admission without consuming another subrequest per chunk.
 Deletion clears only the reserved Workflow key range through the fenced writable
 scope and cancels its alarm. It retains framework receipts and sequence floors;
 committing deletion retires the old activation before a new instance can run.
-Dropping the completed delete handler records a retirement request; it does not
-invalidate the producer that still owns immutable image preparation. That work
-retains its activation, term, route, image and original-deadline checks. The SQL
-owner consumes the request at the committed-result handoff, closes the old
-activation and returns the receipt. Abort and owner-loss paths keep their
-existing fences, and a lost response retains its original ambiguity.
+A successful handler requests that retirement while retaining its live private
+producer through immutable preparation. The committed-result handoff closes the
+old activation before releasing its writer lease; recreation receives fresh
+resources. Cancellation, stop, term and route fences retain their existing
+immediate refusal behavior.
 
 Delivery and callback execution are at least once after interruption. Completed
 step replay reuses its durable result. External effects still require their own
@@ -164,14 +163,63 @@ See [the read-deadline checkpoint](progress.md#cg-17-workflow-native-read-progre
 for the exact passing profile and failed controls. This closes the scoped MVP
 read-liveness qualification, not the complete Workflow family matrix.
 
-Full-size params/results, longer continuous callbacks, provider I/O, clock faults,
-deployment changes,
-remaining movement/wake fault combinations and fenced disk-loss recovery require
-their own qualifications. The common callback budget is bounded to 300 seconds;
-long sleeps and event
+At `c6e9f7e95`, a dedicated lifecycle fixture passes all eight native/Axum and
+real-RustFS native/Axum image configurations. It preserves completed steps and
+exact stream bytes through S3-seeded voter replacement, verifies replacement-local
+image coverage and current RF3 membership, parks the whole group, wakes it with
+a public read, restarts retained disks and completes the owed event once. The
+repository's `workflow-lifecycle` command passes its four RustFS configurations
+at the same source and executable hash. Cold creation waits only for the initial
+physical group's quorum readiness; it does not pre-enroll or prewarm the cell.
+
+The removed-voter discovery regression selects the actual replaced member after
+restart. Its retained log cannot establish serving authority or suppress current
+router discovery. The first public name lookup returns the original history;
+the subsequent fresh query is served by a current member without local reattach.
+Native and real-RustFS selectors pass both images after a causal materialized
+baseline failure. Fully joined removed owners also classify late metadata as
+retired; the fatal retained-apply guard remains.
+
+The original RustFS/Axum ordinary Workflow case failed at `c6e9f7e95`:
+materialized `delete/delete-held` refuses ambiguously with
+`Execution(Refused(Unavailable))` after 281 ms, before its three-second deadline.
+Its logs and voter disks remain. Do not retry this mutation as if it were known
+uncommitted or infer complete Workflow acceptance from the lifecycle passes.
+These outcomes remain historical unknowns.
+
+At `177c7f7f5`, successful deletion defers self-retirement until exact committed
+result settlement. The producer retains its writer lease through retirement;
+the existing preparation liveness, term, route, image and deadline guards remain.
+The focused RustFS deletion suite passes both native/Axum selectors and both
+image modes, with eight held-callback delete/recreate cycles per image, joined
+cancellation and linearizable absence. Waiting-instance deletion and recreation
+also pass after retained RF3 restart.
+
+The same combined source and executable pass all five ordinary Workflow
+selectors (ten image configurations), including schedules and concurrent
+status/delete/recreate with streams. Both replacement/park/wake selectors also
+pass both images. These 18 scenario configurations qualify the scoped ordinary
+and lifecycle paths. They do not establish timing stability or replace the
+remaining family matrix. See [the current checkpoint](progress.md#current-integration-checkpoint)
+for exact records, earlier failures and resource limits.
+
+Full-size params/results, longer
+continuous callbacks, provider I/O, clock faults, deployment changes,
+split/merge, placement and fenced disk-loss recovery require their own qualifications.
+The common callback budget is bounded to 300 seconds; long sleeps and event
 waits release that owner, but continuous callback work must fit its admitted
 budget. Full Workflow/CG-17 acceptance remains open until its complete public
 contract and independent scenario matrix pass.
+
+At `387f5a12c`, public reconciliation also reuses the exact frozen final writer
+only with retained committed-entry proof. An unchanged unfinished checkpoint
+stays uncertain without reopening its base; it cannot prove final completion or
+absence. Real-RustFS native/Axum deletion/recreation passes all four image
+configurations again (1218), including cancellation and retained restart. The
+broader 18-configuration result above remains pinned to `177c7f7f5`; complete
+family and combined recovery qualification remain open.
+
+## Qualification integrated from main
 
 The scoped `workflow-lifecycle` gate exercises completed results and stream
 bytes across S3-seeded RF3 voter replacement, whole-group park/public-read wake,

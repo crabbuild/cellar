@@ -50,8 +50,13 @@ pub struct CellGroupTicket {
     sequence: u64,
     position: LogPosition,
     digest: [u8; 32],
+    // A live owner can prepare an already durable log entry before its
+    // commit-only metadata joins the applied-root sync. This is not serving
+    // authority and is never restored from disk or accepted from a peer.
+    pending_commit: Option<HardState>,
     pub(super) admission: Option<Arc<crate::raft::budget::Permit>>,
     pub(crate) preparation: Option<Arc<crate::raft::budget::Permit>>,
+    pub(crate) prepared_image: Option<Arc<crate::raft::execution::CellPreparedImage>>,
 }
 
 impl CellGroupTicket {
@@ -68,6 +73,23 @@ impl CellGroupTicket {
             && self.sequence == other.sequence
             && self.position == other.position
             && self.digest == other.digest
+            && self.pending_commit == other.pending_commit
+    }
+
+    pub(super) fn covers_committed_entry(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        cache: &crate::raft::cache::CachedGroup,
+    ) -> bool {
+        cache.hard_state.commit >= self.position.index.get()
+            || (Arc::ptr_eq(&self.lease.0, &group.consensus_claimed)
+                && self.lease.0.load(Ordering::Acquire)
+                && self.pending_commit.as_ref().is_some_and(|hard| {
+                    hard.term == cache.hard_state.term
+                        && hard.vote == cache.hard_state.vote
+                        && hard.commit >= self.position.index.get()
+                        && hard.commit <= cache.last_index()
+                }))
     }
 }
 
@@ -264,6 +286,10 @@ pub struct CellGroupOwner {
     options: RaftRuntimeOptions,
     phase: Option<Phase>,
     waiting: Option<CellGroupTicket>,
+    // A leader's retained SQL preparation can join commit metadata to its root
+    // publication. Follower and administrative acknowledgements keep their
+    // existing barriers; term/vote, entries and snapshots always sync first.
+    deferred_commit: Option<HardState>,
     effects: VecDeque<CellGroupEffect>,
     deliveries: Vec<Weak<crate::raft::budget::Permit>>,
     configuration_fence: Option<ConfigurationFence>,
@@ -287,9 +313,9 @@ pub struct CellGroupOwner {
     pending_park: Option<Box<PendingPark>>,
     parked: Option<ParkGeneration>,
     waking_after: Option<LogIndex>,
-    // One prior durable self-vote selects a restart candidate. This is only a
-    // bounded liveness hint; campaigning still needs PreVote and quorum votes.
-    startup_read_candidate: bool,
+    // One prior self-vote or the unvoted genesis minimum selects a candidate.
+    // This is only a bounded hint; campaigning needs PreVote and quorum votes.
+    startup_candidate: bool,
 }
 
 impl CellGroupOwner {
@@ -343,13 +369,11 @@ impl CellGroupOwner {
                 current.marker().position().index <= *floor
                     || current.marker().position().term.get() != cache.hard_state.term
             });
-        let startup_read_candidate = cache.hard_state.term > 0
-            && cache.hard_state.vote == group.identity().member.get()
-            && (cache.conf_state.voters.contains(&cache.hard_state.vote)
-                || cache
-                    .conf_state
-                    .voters_outgoing
-                    .contains(&cache.hard_state.vote));
+        let startup_candidate = super::startup::candidate(
+            &cache.hard_state,
+            &cache.conf_state,
+            current.marker().position(),
+        ) == Some(group.identity().member);
         drop(cache);
         current
             .require_checkpoint(&group)
@@ -400,6 +424,7 @@ impl CellGroupOwner {
             options,
             phase: None,
             waiting: None,
+            deferred_commit: None,
             effects: VecDeque::new(),
             deliveries: Vec::new(),
             configuration_fence: None,
@@ -422,7 +447,7 @@ impl CellGroupOwner {
             pending_park: None,
             parked: None,
             waking_after,
-            startup_read_candidate,
+            startup_candidate,
         })
     }
 
@@ -463,7 +488,7 @@ impl CellGroupOwner {
 
     fn refresh_execution_fence(&mut self) {
         if self.node.raft.leader_id != 0 || self.node.raft.state != StateRole::Follower {
-            self.startup_read_candidate = false;
+            self.startup_candidate = false;
         }
         let source = (self.node.raft.term, self.node.raft.leader_id);
         if source != self.source_identity {
@@ -535,6 +560,50 @@ impl CellGroupOwner {
         )
     }
 
+    /// Private preparation and an already committed S3 response can progress
+    /// while other cells await apply. Every pending entry must be this leader's
+    /// exact durably logged mutation for another cell, within the event quantum.
+    /// Same-cell, enrollment, control and inherited work still refuse. This is
+    /// not a read barrier or permission to skip contiguous root publication;
+    /// output must separately retain and check its receipt/archive proofs.
+    pub(crate) fn independent_cell_authority(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<super::CellExecutionAuthority, RuntimeError> {
+        let status = self.status()?;
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        if !status.ready {
+            return Err(RuntimeError::NotReady);
+        }
+        let pending = status
+            .committed
+            .get()
+            .checked_sub(status.applied.index.get())
+            .ok_or(RuntimeError::NotReady)?;
+        if pending > self.options.max_events as u64 {
+            return Err(RuntimeError::NotReady);
+        }
+        let cache = self.group.read()?;
+        if (status.applied.index.get() + 1..=status.committed.get()).any(|index| {
+            cache.entries.get(&index).is_none_or(|entry| {
+                entry.term != status.term.get()
+                    || !self.proposals.independent_mutation(entry, &cell.cell)
+            })
+        }) {
+            return Err(RuntimeError::NotReady);
+        }
+        drop(cache);
+        super::CellExecutionAuthority::new(
+            self.group.clone(),
+            &self.current,
+            cell,
+            status.term,
+            self.leader_term.clone(),
+        )
+    }
+
     pub(crate) fn next_effect(
         &self,
         now: u64,
@@ -578,6 +647,31 @@ impl CellGroupOwner {
         pool.capture_owner(&self.group, &self.current)
     }
 
+    /// Advisory readiness only. The subsequent read still needs fresh quorum.
+    pub(super) fn require_cell_advanced(
+        &self,
+        cell: &CellHistory,
+        observed: &CellVersion,
+    ) -> Result<(), RuntimeError> {
+        self.require_application_active()?;
+        let (leaf, _) = self
+            .current
+            .pin_cell(&cell.cell)
+            .ok_or(RuntimeError::NotFound)?;
+        if &leaf.version.history != cell || &observed.history != cell {
+            return Err(RuntimeError::Invalid("cell change history".into()));
+        }
+        if !leaf
+            .version
+            .covers(observed)
+            .map_err(|_| RuntimeError::Invalid("cell change version".into()))?
+            || leaf.version.sequence <= observed.sequence
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        Ok(())
+    }
+
     pub(super) fn select_read(
         &self,
         cell: &CellHistory,
@@ -589,7 +683,7 @@ impl CellGroupOwner {
         let status = self.status()?;
         let mut source = None;
         let mut source_deadline = None;
-        let leader = if matches!(consistency, super::CellReadConsistency::Linearizable) {
+        let leader = if consistency.is_linearizable() {
             if term.is_none() {
                 return Err(RuntimeError::NotReady);
             }
@@ -647,11 +741,17 @@ impl CellGroupOwner {
         if &leaf.version.history != cell {
             return Err(RuntimeError::Invalid("cell read history".into()));
         }
-        if let super::CellReadConsistency::AtLeast(minimum) = consistency {
+        if let super::CellReadConsistency::AtLeast(minimum)
+        | super::CellReadConsistency::LinearizableAfter(minimum) = consistency
+        {
             if !leaf
                 .version
                 .covers(minimum)
                 .map_err(|_| RuntimeError::Invalid("cell read version".into()))?
+                || matches!(
+                    consistency,
+                    super::CellReadConsistency::LinearizableAfter(_)
+                ) && leaf.version.sequence <= minimum.sequence
             {
                 return Err(RuntimeError::NotReady);
             }
@@ -889,7 +989,13 @@ impl CellGroupOwner {
             term: Term::new(self.node.raft.term),
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
-            committed: LogIndex::new(cache.hard_state.commit),
+            committed: LogIndex::new(
+                self.node
+                    .raft
+                    .raft_log
+                    .committed
+                    .max(cache.hard_state.commit),
+            ),
             ready: !self.managed_recovery_fenced
                 && !self.park_fenced()
                 && self.pending_seal.is_none()
@@ -1978,14 +2084,27 @@ impl CellGroupOwner {
         if !prepared.belongs_to(&engine, group) {
             return Err(RuntimeError::Invalid("prepared submission owner".into()));
         }
+        let image = prepared.prepared_image();
+        if image
+            .upgrade()
+            .is_some_and(|image| !image.accepts(&engine, group, prepared.term(), prepared.bytes()))
+        {
+            return Err(RuntimeError::Invalid(
+                "prepared image submission binding".into(),
+            ));
+        }
         self.prepared_only = true;
-        prepared.submit(&engine, group, || {
+        let result = prepared.submit(&engine, group, || {
             self.live()?;
             if prepared.term().get() != self.node.raft.term {
                 return Err(RuntimeError::StaleCompletion);
             }
             self.try_propose(prepared.bytes().to_vec(), Some(prepared.log_reservation()?))
-        })
+        })?;
+        if let crate::raft::execution::CellSubmissionOutcome::Accepted(accepted) = &result {
+            self.proposals.attach_prepared_image(accepted, image);
+        }
+        Ok(result)
     }
 
     fn try_propose(
@@ -1993,7 +2112,12 @@ impl CellGroupOwner {
         data: Vec<u8>,
         reservation: Option<&Arc<super::log_retention::LogReservation>>,
     ) -> Result<Option<CellGroupProposal>, RuntimeError> {
-        if !self.status()?.ready {
+        let status = self.status()?;
+        if !status.ready {
+            tracing::trace!(target: "cellar::raft::sql_publish", phase = "owner-not-ready",
+                group = ?self.group.identity().scope, member = self.node.raft.id,
+                ?status, applying = self.phase.is_some(), checkpoint = self.checkpoint.is_some(),
+                apply_bytes = self.apply_bytes, apply_limit = self.options.max_group_apply_bytes);
             return Err(RuntimeError::NotReady);
         }
         if data.len() > self.options.max_proposal_bytes {
@@ -2114,7 +2238,7 @@ impl CellGroupOwner {
         if context.is_empty() || context.len() > 4096 {
             return Err(RuntimeError::Invalid("read context".into()));
         }
-        self.begin_startup_read_election()?;
+        self.begin_startup_election()?;
         if !self.status()?.ready {
             return Err(RuntimeError::NotReady);
         }
@@ -2153,20 +2277,42 @@ impl CellGroupOwner {
         self.group.identity().member.get()
     }
 
-    /// A recovered voter that last voted for itself may try one ordinary
-    /// election when a strong read arrives before any leader is known. Waiting
+    /// An admitted private request can spend the same one-shot restart hint as
+    /// a strong read. Route mismatch cannot consume it; this grants no private
+    /// execution or enrollment authority before the normal quorum/apply gates.
+    pub(super) fn begin_private_startup_election(
+        &mut self,
+        cell: &CellHistory,
+    ) -> Result<bool, RuntimeError> {
+        let route = self.current.marker().route();
+        if !route.history.same_namespace(cell)
+            || !route
+                .range
+                .contains(&crate::application::consensus::cell_routing_key(
+                    cell.namespace,
+                    &cell.cell,
+                ))
+        {
+            return Ok(false);
+        }
+        self.begin_startup_election()
+    }
+
+    /// The selected genesis voter or retained self-voter may try one ordinary
+    /// election when an admitted request arrives before any leader is known. Waiting
     /// for the full idle election timeout can consume the request deadline.
     /// The hint grants no authority: unchanged PreVote, durable vote admission,
-    /// membership fences and the new term's applied ReadIndex barrier remain.
-    pub(super) fn begin_startup_read_election(&mut self) -> Result<bool, RuntimeError> {
-        if !self.startup_read_candidate {
+    /// membership fences and the new term's applied barrier remain. Reads still
+    /// need their fresh ReadIndex proof; private commands need current authority.
+    pub(super) fn begin_startup_election(&mut self) -> Result<bool, RuntimeError> {
+        if !self.startup_candidate {
             return Ok(false);
         }
         if self.node.raft.leader_id != 0
             || self.node.raft.state != StateRole::Follower
             || !self.node.raft.promotable()
         {
-            self.startup_read_candidate = false;
+            self.startup_candidate = false;
             return Ok(false);
         }
         self.require_application_active()?;
@@ -2178,7 +2324,22 @@ impl CellGroupOwner {
         {
             return Ok(false);
         }
-        self.startup_read_candidate = false;
+        // The attachment hint cannot override a later vote for another voter.
+        // Recheck the actor's current term/vote after its Ready work has joined;
+        // a follower may have granted that vote without learning its leader yet.
+        let candidate = {
+            let cache = self.group.read()?;
+            super::startup::candidate(
+                &self.node.raft.hard_state(),
+                &cache.conf_state,
+                self.current.marker().position(),
+            )
+        };
+        if candidate != Some(self.group.identity().member) {
+            self.startup_candidate = false;
+            return Ok(false);
+        }
+        self.startup_candidate = false;
         self.campaign()?;
         Ok(true)
     }
@@ -2506,6 +2667,11 @@ impl CellGroupOwner {
         }
         self.last_sync = completed.sequence;
         self.waiting = None;
+        if let Some(commit) = &self.deferred_commit {
+            if self.group.initial_state()?.hard_state.commit >= commit.commit {
+                self.deferred_commit = None;
+            }
+        }
         Ok(())
     }
 
@@ -2660,8 +2826,10 @@ impl CellGroupOwner {
             sequence: self.next_ticket,
             position,
             digest,
+            pending_commit: None,
             admission: None,
             preparation: None,
+            prepared_image: None,
         })
     }
 
@@ -2677,6 +2845,15 @@ impl CellGroupOwner {
         &mut self,
         mut write: GroupWrite<GroupHistory>,
     ) -> Result<Box<CellGroupPersist>, RuntimeError> {
+        if let Some(commit) = &self.deferred_commit {
+            match &write.hard_state {
+                Some(hard) if hard.commit < commit.commit => {
+                    return Err(RuntimeError::Protocol("deferred commit regression".into()));
+                }
+                Some(_) => (),
+                None => write.hard_state = Some(commit.clone()),
+            }
+        }
         let ticket = self.ticket(LogPosition::default(), [0; 32])?;
         write.log_reservations = self.log_admission.persistence(&write.entries)?;
         write.consensus_pin = Some(self.lease.clone());
@@ -2703,7 +2880,7 @@ impl CellGroupOwner {
             .map_or(self.current.marker().position().index.get(), |pending| {
                 pending.entry.index
             });
-        let committed = self.group.initial_state()?.hard_state.commit;
+        let committed = self.node.raft.raft_log.committed;
         for entry in entries {
             if entry.index != previous + 1 || entry.index > committed {
                 return Err(RuntimeError::Protocol(
@@ -2729,6 +2906,47 @@ impl CellGroupOwner {
             });
         }
         Ok(())
+    }
+
+    fn defer_commit(&mut self, hard: HardState) -> Result<bool, RuntimeError> {
+        let cache = self.group.read()?;
+        if hard.term != cache.hard_state.term
+            || hard.vote != cache.hard_state.vote
+            || hard.commit < cache.hard_state.commit
+            || hard.commit > cache.last_index()
+            || hard.commit > self.node.raft.raft_log.committed
+            || self
+                .deferred_commit
+                .as_ref()
+                .is_some_and(|prior| hard.commit < prior.commit)
+        {
+            return Err(RuntimeError::Protocol(
+                "commit-only publication binding".into(),
+            ));
+        }
+        if hard.commit == cache.hard_state.commit {
+            return Ok(true);
+        }
+        // Bound owner-thread inspection by the existing event quantum. A
+        // complete retained preparation is required for every newly committed
+        // entry; ordinary protocol/configuration work keeps its prior sync.
+        if self.node.raft.state != StateRole::Leader
+            || hard.commit - cache.hard_state.commit > self.options.max_events as u64
+            || (cache.hard_state.commit + 1..=hard.commit).any(|index| {
+                cache.entries.get(&index).is_none_or(|entry| {
+                    entry.get_entry_type() != EntryType::EntryNormal
+                        || entry.data.is_empty()
+                        || self
+                            .proposals
+                            .prepared_image(entry_position(entry), &entry.data)
+                            .is_none()
+                })
+            })
+        {
+            return Ok(false);
+        }
+        self.deferred_commit = Some(hard);
+        Ok(true)
     }
 
     fn messages(&mut self, messages: Vec<Message>) -> Result<(), RuntimeError> {
@@ -2899,11 +3117,13 @@ impl CellGroupOwner {
                     let commit = light.commit_index();
                     self.phase = Some(Phase::Light(light));
                     if let Some(commit) = commit {
-                        let mut write = GroupWrite::new(&self.group);
                         let mut hard = self.group.initial_state()?.hard_state;
                         hard.commit = commit;
-                        write.hard_state = Some(hard);
-                        return self.persistence(write).map(Some);
+                        if !self.defer_commit(hard.clone())? {
+                            let mut write = GroupWrite::new(&self.group);
+                            write.hard_state = Some(hard);
+                            return self.persistence(write).map(Some);
+                        }
                     }
                 }
                 Some(Phase::Light(mut light)) => {
@@ -3101,6 +3321,7 @@ impl CellGroupOwner {
                         if size > self.options.max_ready_bytes {
                             return Err(RuntimeError::Overloaded);
                         }
+                        let must_sync = ready.must_sync();
                         let changed = !ready.entries().is_empty()
                             || ready.hs().is_some()
                             || !ready.snapshot().is_empty();
@@ -3120,6 +3341,20 @@ impl CellGroupOwner {
                             Term::new(self.node.raft.term),
                         ));
                         if changed {
+                            if !must_sync {
+                                if !write.entries.is_empty() || write.snapshot.is_some() {
+                                    return Err(RuntimeError::Protocol(
+                                        "unsynced Raft payload".into(),
+                                    ));
+                                }
+                                let hard = write.hard_state.take().ok_or_else(|| {
+                                    RuntimeError::Protocol("missing commit-only hard state".into())
+                                })?;
+                                if self.defer_commit(hard.clone())? {
+                                    continue;
+                                }
+                                write.hard_state = Some(hard);
+                            }
                             return self.persistence(write).map(Some);
                         }
                         continue;
@@ -3152,7 +3387,15 @@ impl CellGroupOwner {
                     else {
                         return Ok(None);
                     };
-                    let ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;
+                    let mut ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;
+                    if self.group.initial_state()?.hard_state.commit < entry.index {
+                        ticket.pending_commit =
+                            Some(self.deferred_commit.clone().ok_or_else(|| {
+                                RuntimeError::Protocol("missing deferred commit ticket".into())
+                            })?);
+                    }
+                    ticket.prepared_image =
+                        self.proposals.prepared_image(ticket.position, &entry.data);
                     self.applying = Some(ticket.clone());
                     return Ok(Some(CellGroupEffect::Apply(Box::new(CellGroupApply {
                         ticket,

@@ -18,6 +18,7 @@ pub struct CellReceiptInvocation {
     dispatcher: CellGroupDispatcher,
     cell: CellHistory,
     request: CellReceiptRequest,
+    system: bool,
     session: CellRoutingSession,
     attempt: Option<CellRouteAttempt>,
     dispatched: bool,
@@ -114,9 +115,30 @@ impl CellGroupDispatcher {
     pub fn lookup_receipt(
         &self,
         cell: CellHistory,
+        request: CellReceiptRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+    ) -> Result<CellReceiptInvocation, CellDispatchError> {
+        self.prepare_receipt_lookup(cell, request, limits, cached, false)
+    }
+
+    /// Private maintenance reconciliation cannot grant public command authority.
+    pub(crate) fn lookup_system_receipt(
+        &self,
+        cell: CellHistory,
+        request: CellReceiptRequest,
+        limits: CellRoutingLimits,
+    ) -> Result<CellReceiptInvocation, CellDispatchError> {
+        self.prepare_receipt_lookup(cell, request, limits, None, true)
+    }
+
+    fn prepare_receipt_lookup(
+        &self,
+        cell: CellHistory,
         mut request: CellReceiptRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
+        system: bool,
     ) -> Result<CellReceiptInvocation, CellDispatchError> {
         request.durability = request
             .durability
@@ -131,9 +153,12 @@ impl CellGroupDispatcher {
                 RegistrationError::KindMismatch,
             ));
         }
-        self.class
-            .validate_operation(&request.contract)
-            .map_err(CellDispatchError::Registration)?;
+        if system {
+            self.class.validate_system_operation(&request.contract)
+        } else {
+            self.class.validate_operation(&request.contract)
+        }
+        .map_err(CellDispatchError::Registration)?;
         if request.contract.operation.len() > 128
             || request.input.len() > self.limits.max_input_bytes
         {
@@ -154,6 +179,9 @@ impl CellGroupDispatcher {
         let started = self.domain.mono_ms().map_err(|_| closed())?;
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-receipt-invocation-1\0");
+        if system {
+            hash.update(b"private-maintenance-1");
+        }
         hash.update(cell_image_history_digest(&cell));
         hash.update(request.id.client.bytes());
         hash.update(request.id.sequence().to_be_bytes());
@@ -188,6 +216,7 @@ impl CellGroupDispatcher {
             dispatcher: self.clone(),
             cell,
             request,
+            system,
             session,
             attempt: None,
             dispatched: false,
@@ -373,8 +402,8 @@ impl CellReceiptInvocation {
         if authority.route() != attempt.route() || authority.cell().version.history != self.cell {
             return Err(CellDispatchError::Invalid("receipt destination route"));
         }
-        let selected = sql
-            .lookup_receipt_registered(
+        let selected = if self.system {
+            sql.lookup_system_receipt_registered(
                 options,
                 authority,
                 self.dispatcher.class.clone(),
@@ -382,7 +411,17 @@ impl CellReceiptInvocation {
                 self.request.input.clone(),
             )
             .await
-            .map_err(CellDispatchError::Execution)?;
+        } else {
+            sql.lookup_receipt_registered(
+                options,
+                authority,
+                self.dispatcher.class.clone(),
+                request.clone(),
+                self.request.input.clone(),
+            )
+            .await
+        }
+        .map_err(CellDispatchError::Execution)?;
         self.session
             .validate_attempt(&attempt)
             .map_err(CellDispatchError::Routing)?;

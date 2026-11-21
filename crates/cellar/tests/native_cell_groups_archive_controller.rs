@@ -23,6 +23,87 @@ mod rustfs;
 
 include!("support/cell_group_engine_fixture.rs");
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_retirement_shares_next_intent_without_early_allocation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_retirement_joins_next_intent(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_retirement_shares_next_intent_without_early_allocation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_retirement_joins_next_intent(
+            rooted,
+            rustfs::store("archive-retirement-intent", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_reservation_intent_recovers_failed_chunk_io_without_ticket_rewrite() -> Result<()>
+{
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::archive_reservation_retries_from_durable_intent(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_reservation_intent_recovers_failed_chunk_io_without_ticket_rewrite(
+) -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::archive_reservation_retries_from_durable_intent(
+                rooted,
+                rustfs::store("archive-reserve-recovery", rooted)?,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn payload_get_outage_recovers_without_application_requests() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_payload_outage(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_payload_get_outage_recovers_without_application_requests() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_payload_outage(
+            rooted,
+            rustfs::store("payload-get-outage-retry", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
     Box::pin(runtime_fixture::archived_groups_reclaim_independently(
@@ -734,6 +815,35 @@ async fn rustfs_s3_receipt_lookup_deadlines_refund_read_admission() -> Result<()
             ))
             .await?;
         }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn foreground_s3_receipt_precedes_queued_background_archive() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_receipt_precedes_queued_background_archive(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_foreground_s3_receipt_precedes_queued_background_archive() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_receipt_precedes_queued_background_archive(
+                rooted,
+                rustfs::store("foreground-publication-priority", rooted)?,
+            ),
+        )
+        .await?;
     }
     Ok(())
 }

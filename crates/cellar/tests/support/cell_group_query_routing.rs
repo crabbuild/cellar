@@ -18,6 +18,119 @@ pub(crate) async fn automatic_queries_leave_blocked_local(rooted: bool) -> Resul
     routed_queries(rooted, 4..7).await
 }
 
+/// A replica slice starts failover without discarding useful work. Only the
+/// first callback is released; every fallback stays physically blocked until
+/// the original response has been observed and cleanup releases its owner.
+pub(crate) async fn automatic_queries_keep_first_progress(rooted: bool) -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (entered, mut entries) = tokio::sync::mpsc::unbounded_channel();
+    let first = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let peers = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let count = calls.clone();
+    let first_callback = first.clone();
+    let peer_callback = peers.clone();
+    let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.query(
+        "Get",
+        [82; 32],
+        move |ctx, _| {
+            let ordinal = count.fetch_add(1, Ordering::SeqCst);
+            let gate = if ordinal == 0 {
+                &first_callback
+            } else {
+                &peer_callback
+            };
+            entered
+                .send(ordinal)
+                .map_err(|_| anyhow::anyhow!("entry observer"))?;
+            let (lock, wake) = gate.as_ref();
+            let released = wake
+                .wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(15), |released| {
+                    !*released
+                })
+                .unwrap();
+            anyhow::ensure!(*released.0, "query callback was not released");
+            Ok(ctx
+                .query_row("SELECT n FROM value", [], |r| r.get::<_, i64>(0))?
+                .to_be_bytes()
+                .to_vec())
+        },
+    )?);
+    let (mut fixture, route, cell, _) = Box::pin(registered::setup(rooted, &class)).await?;
+    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    let owners = gateways(&fixture, &controllers, class.clone()).await?;
+    let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
+    let query = dispatch.query_routed(
+        cell.clone(),
+        CellQueryRequest {
+            invocation: ProposalId::new([216; 16])?,
+            contract: class.contract("Get").context("Get")?,
+            input: vec![],
+            consistency: CellQueryConsistency::Linearizable,
+        },
+        CellRoutingLimits {
+            timeout: Duration::from_secs(2),
+            max_attempts: 4,
+        },
+        None,
+        CellQueryRouting::Automatic,
+    )?;
+    let call = controllers[1].query(query, fixture.cell_options_at(&cell, 1).await?)?;
+    let result: Result<()> = async {
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(3), entries.recv()).await?,
+            Some(0)
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(3), entries.recv()).await?,
+            Some(1)
+        );
+        *first.0.lock().unwrap() = true;
+        first.1.notify_all();
+        let response = call
+            .response()
+            .await
+            .context("first query progress must survive replica failover")?;
+        assert_eq!(response.result(), 0i64.to_be_bytes());
+        assert_eq!(response.replica().member, MemberId::new(2)?);
+        assert_eq!(response.observation().version.history, cell);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "at most two concurrent attempts"
+        );
+        drop(response);
+        // The losing physical callback still owns its SQL and node admission.
+        let physical = fixture.appliers[&(0, route.history)]
+            .0
+            .usage()?
+            .retained_operations
+            + fixture.appliers[&(2, route.history)]
+                .0
+                .usage()?
+                .retained_operations;
+        assert_eq!(physical, 1);
+        Ok(())
+    }
+    .await;
+    for gate in [&first, &peers] {
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_all();
+    }
+    wait_for(async || {
+        Ok(controllers
+            .iter()
+            .all(|owner| owner.usage().retained_commands == 0)
+            && dispatch.usage() == (0, 0))
+    })
+    .await?;
+    drop(owners);
+    for controller in controllers {
+        controller.close().await?;
+    }
+    fixture.close().await?;
+    result
+}
+
 async fn routed_queries(rooted: bool, modes: std::ops::Range<usize>) -> Result<()> {
     for mode in modes {
         let (entered, started) = tokio::sync::oneshot::channel();

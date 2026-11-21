@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! A fixed node-wide blocking pool owns SQLite and image directories. Domain
-//! cancellation joins a running callback before these owners release locks.
+//! Fixed SQL owners share admission with bounded physical apply tasks. Domain
+//! cancellation joins callbacks and file work before these owners release locks.
 
 pub(crate) mod cell_groups;
 use super::budget::{Budget, Permit};
@@ -36,6 +36,18 @@ impl WorkerWake {
         if let Some(thread) = self.0.get() {
             thread.unpark();
         }
+    }
+}
+
+struct ApplyWake(Arc<WorkerWake>);
+
+impl std::task::Wake for ApplyWake {
+    fn wake(self: Arc<Self>) {
+        self.0.wake();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.wake();
     }
 }
 
@@ -156,7 +168,7 @@ pub(crate) struct Pool {
     performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
     senders: Vec<Port>,
-    completion_slots: Vec<Arc<Semaphore>>,
+    completion_slots: Vec<Arc<CompletionLane>>,
     slots: Vec<Arc<Semaphore>>,
     workers: Vec<crate::asyncrt::TaskHandle<Result<(), ExecutionError>>>,
     stopped: Arc<AtomicBool>,
@@ -221,6 +233,85 @@ impl Drop for Running {
     }
 }
 
+enum WorkerReservation {
+    Ordinary {
+        _permit: tokio::sync::OwnedSemaphorePermit,
+    },
+    Progress {
+        _lane: Arc<tokio::sync::OwnedSemaphorePermit>,
+        _queue: tokio::sync::OwnedSemaphorePermit,
+    },
+}
+
+/// One reserved progress lane per SQL owner. Its lease survives every queued
+/// or physical user, while a separate one-entry queue permit prevents apply
+/// and SQL completion envelopes from occupying ordinary queue capacity. Physical operations
+/// still own the independent apply byte/item bank and controller concurrency.
+struct CompletionLane {
+    slots: Arc<Semaphore>,
+    queue: Arc<Semaphore>,
+    lease: std::sync::Mutex<std::sync::Weak<tokio::sync::OwnedSemaphorePermit>>,
+}
+
+impl CompletionLane {
+    fn new() -> Self {
+        Self {
+            slots: Arc::new(Semaphore::new(1)),
+            queue: Arc::new(Semaphore::new(1)),
+            lease: std::sync::Mutex::new(std::sync::Weak::new()),
+        }
+    }
+
+    fn acquire(
+        &self,
+    ) -> Result<
+        (
+            Arc<tokio::sync::OwnedSemaphorePermit>,
+            tokio::sync::OwnedSemaphorePermit,
+        ),
+        ExecutionError,
+    > {
+        let queued = self
+            .queue
+            .clone()
+            .try_acquire_owned()
+            .map_err(Self::refusal)?;
+        let mut prior = self
+            .lease
+            .lock()
+            .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
+        let held = match prior.upgrade() {
+            Some(held) => held,
+            None => {
+                let held = Arc::new(
+                    self.slots
+                        .clone()
+                        .try_acquire_owned()
+                        .map_err(Self::refusal)?,
+                );
+                *prior = Arc::downgrade(&held);
+                held
+            }
+        };
+        Ok((held, queued))
+    }
+
+    fn refusal(error: tokio::sync::TryAcquireError) -> ExecutionError {
+        match error {
+            tokio::sync::TryAcquireError::Closed => {
+                ExecutionError::Refused(CommandFailure::Unavailable)
+            }
+            tokio::sync::TryAcquireError::NoPermits => {
+                ExecutionError::Refused(CommandFailure::Overloaded)
+            }
+        }
+    }
+
+    fn available_permits(&self) -> usize {
+        self.slots.available_permits()
+    }
+}
+
 /// A bounded port into one existing SQL owner. It owns no worker and cannot
 /// outlive pool shutdown admission; dynamic initialization uses this same port.
 #[derive(Clone)]
@@ -228,7 +319,7 @@ pub(crate) struct Worker {
     performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
     sender: Port,
-    completion_slots: Arc<Semaphore>,
+    completion_slots: Arc<CompletionLane>,
     slots: Arc<Semaphore>,
 }
 
@@ -275,39 +366,62 @@ impl Pool {
                     worker_wake.0.set(std::thread::current()).map_err(|_| {
                         ExecutionError::Invalid("SQL worker wake already installed")
                     })?;
+                    let apply_waker =
+                        std::task::Waker::from(Arc::new(ApplyWake(worker_wake.clone())));
                     let mut shared = cell_groups::Cells::new(activations, worker_wake);
+                    // Drop apply owners before cells/connections on unwinding.
+                    let mut applying = cell_groups::ApplyTasks::new(apply_waker, max_cells);
                     let mut requests = RequestQueue::new(receiver, capacity);
-                    loop {
-                        if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
-                            break;
-                        }
-                        let wait = if shared.poll_suspended(&owner, &stopped, &performance) {
-                            // Give queued work its turn before trying the next
-                            // ready continuation without the idle tick delay.
-                            Duration::ZERO
-                        } else {
-                            Duration::from_millis(10)
-                        };
-                        let request = match requests.next(wait) {
-                            Ok(request) => request,
-                            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                        };
-                        match request {
-                            Envelope::GroupApply(request) => {
-                                request.execute(&owner, &stopped, &performance);
+                    let result = (|| {
+                        loop {
+                            applying.poll()?;
+                            if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
+                                break;
                             }
-                            Envelope::Shared(request) => {
-                                shared.execute(request, max_cells, &owner, &stopped, &performance);
+                            let wait = if shared.poll_suspended(&owner, &stopped, &performance) {
+                                // Give queued work its turn before trying the next
+                                // ready continuation without the idle tick delay.
+                                Duration::ZERO
+                            } else {
+                                Duration::from_millis(10)
+                            };
+                            let request = match requests.next(wait) {
+                                Ok(request) => request,
+                                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                            };
+                            match request {
+                                Envelope::GroupApply(request) => {
+                                    applying.start(
+                                        *request,
+                                        &owner,
+                                        stopped.clone(),
+                                        performance.clone(),
+                                    )?;
+                                }
+                                Envelope::Shared(request) => {
+                                    shared.execute(
+                                        request,
+                                        max_cells,
+                                        &owner,
+                                        &stopped,
+                                        &performance,
+                                    );
+                                }
                             }
                         }
-                    }
-                    shared.close()
+                        Ok(())
+                    })();
+                    // Join physical apply before retiring callbacks, image
+                    // custody or the physical SQL-owner count, even on errors.
+                    let applied = applying.join();
+                    let closed = shared.close();
+                    result.and(applied).and(closed)
                 })
                 .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
             pool.senders.push(Port { sender, wake });
             pool.slots.push(Arc::new(Semaphore::new(queue)));
-            pool.completion_slots.push(Arc::new(Semaphore::new(1)));
+            pool.completion_slots.push(Arc::new(CompletionLane::new()));
             pool.workers.push(task);
         }
         Ok(pool)
@@ -341,8 +455,12 @@ impl Pool {
 
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::Release);
-        for slots in self.slots.iter().chain(&self.completion_slots) {
+        for slots in &self.slots {
             slots.close();
+        }
+        for lane in &self.completion_slots {
+            lane.slots.close();
+            lane.queue.close();
         }
         for port in &self.senders {
             port.wake.wake();

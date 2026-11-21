@@ -18,6 +18,7 @@ pub(super) enum Error {
     Command(Arc<crate::raft::cell_groups::CellCommandError>),
     BindingRetirement(anyhow::Error),
     BindingAllocator(Box<crate::raft::cell_groups::CellDispatchError>),
+    BindingReceipt(Box<crate::raft::cell_groups::CellDispatchError>),
     Effect(CommandFailure),
     Invalid(&'static str),
 }
@@ -30,6 +31,7 @@ impl std::fmt::Display for Error {
             Self::Command(e) => std::fmt::Display::fmt(e, f),
             Self::BindingRetirement(e) => write!(f, "binding retirement: {e:#}"),
             Self::BindingAllocator(e) => write!(f, "binding settlement allocator: {e}"),
+            Self::BindingReceipt(e) => write!(f, "binding settlement receipt: {e}"),
             Self::Effect(e) => std::fmt::Display::fmt(e, f),
             Self::Invalid(e) => f.write_str(e),
         }
@@ -51,7 +53,7 @@ pub(super) fn clock(shared: &Shared) -> Result<u64, Error> {
         .map_err(|_| Error::Runtime(RuntimeError::Closed))
 }
 
-fn wall() -> Result<u64, Error> {
+pub(super) fn wall() -> Result<u64, Error> {
     u64::try_from(crate::asyncrt::wall_ms()).map_err(|_| Error::Runtime(RuntimeError::Closed))
 }
 
@@ -166,6 +168,19 @@ pub(super) async fn run(
     let Some(mut due) = due else {
         return Ok(());
     };
+    if let DueEffect::Binding(pending) = &due {
+        if pending.confirmation.is_some() {
+            return super::binding_confirmation::resume(
+                shared,
+                registration,
+                &cell,
+                options,
+                execution,
+                pending,
+            )
+            .await;
+        }
+    }
     let native_callback = matches!(due, DueEffect::Work(_));
     if native_callback
         && shared
@@ -242,6 +257,10 @@ pub(super) async fn run(
             // loopback target needs the same admission bank.
             drop(receipt);
             authority.check().map_err(Error::Runtime)?;
+            shared.runtime.log().performance().increment(
+                crate::raft::performance::Counter::CellBindingRecoveryClaims,
+                1,
+            );
             let host = registration
                 .dispatcher
                 .bindings
@@ -265,13 +284,13 @@ pub(super) async fn run(
                 &registration.dispatcher,
                 options.clone(),
                 cell.clone(),
-                route,
+                route.clone(),
                 deadline,
             )
             .await
             .map_err(|error| Error::BindingAllocator(Box::new(error)))?;
             let input = serde_json::to_vec(&crate::storage::raft_binding_recovery::Settlement {
-                key: pending.key,
+                key: pending.key.clone(),
                 digest: pending.digest,
                 candidate_lost,
             })
@@ -280,7 +299,7 @@ pub(super) async fn run(
                 shared,
                 registration,
                 &cell,
-                options,
+                options.clone(),
                 request(
                     registration,
                     next,
@@ -291,7 +310,16 @@ pub(super) async fn run(
                 )?,
             )
             .await?;
-            check_result(receipt.result())
+            super::binding_confirmation::settled(
+                shared,
+                registration,
+                &cell,
+                options,
+                (route, authority),
+                pending,
+                (receipt, candidate_lost),
+            )
+            .await
         }
         DueEffect::Alarm(_) | DueEffect::Work(_) | DueEffect::Payload(_) => {
             check_result(receipt.result())
@@ -359,7 +387,7 @@ pub(super) async fn run(
     }
 }
 
-fn check_result(result: &[u8]) -> Result<(), Error> {
+pub(super) fn check_result(result: &[u8]) -> Result<(), Error> {
     if result == [0] || result == [1] {
         Ok(())
     } else {
@@ -367,7 +395,7 @@ fn check_result(result: &[u8]) -> Result<(), Error> {
     }
 }
 
-fn request(
+pub(super) fn request(
     registration: &Registration,
     id: CommandId,
     operation: &str,
@@ -388,7 +416,7 @@ fn request(
     })
 }
 
-async fn command(
+pub(super) async fn command(
     shared: &Arc<Shared>,
     registration: &Registration,
     cell: &CellHistory,

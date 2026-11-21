@@ -85,6 +85,7 @@ fn named_binding_seal_is_private_and_binds_the_schema() -> anyhow::Result<()> {
     for operation in [
         crate::storage::raft_binding_recovery::CLAIM,
         crate::storage::raft_binding_recovery::SETTLE,
+        crate::storage::raft_binding_recovery::CONFIRM,
     ] {
         assert!(plain.system_contract(operation).is_none());
         let contract = class.system_contract(operation).unwrap();

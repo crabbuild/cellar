@@ -8,6 +8,14 @@ use crate::raft::leader_advice::LeaderAdvice;
 use crate::raft::version::{CellVersionObservation, CellVersionToken};
 use cellar_logic::{cell_group::CellHistory, consensus::ProposalId};
 
+#[derive(Clone, Copy)]
+enum Family {
+    Public,
+    Event,
+    Queue,
+    QueueMetrics,
+}
+
 pub(in crate::raft) struct CellQueryCall {
     pub request: CellQueryRequest,
     pub admission: QueryAdmission,
@@ -39,18 +47,19 @@ impl CellQueryCall {
         }
         let mut body = match self.admission {
             QueryAdmission::Public => b"CLGCQQ01".to_vec(),
-            QueryAdmission::Event(minimum) => {
-                if !matches!(request.consistency, CellQueryConsistency::Linearizable) {
-                    return Err(TransportError::Protocol);
-                }
-                let mut body = b"CLGCEY01".to_vec();
-                body.push(match minimum {
-                    cellar_logic::consensus::Durability::Quorum => 0,
-                    cellar_logic::consensus::Durability::S3 => 1,
-                });
-                body
-            }
+            QueryAdmission::Event(_) => b"CLGCEY01".to_vec(),
+            QueryAdmission::QueueOperator(_) => b"CLGCQY01".to_vec(),
+            QueryAdmission::QueueMetrics(_) => b"CLGQMY01".to_vec(),
         };
+        if let Some(minimum) = self.admission.minimum() {
+            if !request.consistency.is_linearizable() {
+                return Err(TransportError::Protocol);
+            }
+            body.push(match minimum {
+                cellar_logic::consensus::Durability::Quorum => 0,
+                cellar_logic::consensus::Durability::S3 => 1,
+            });
+        }
         body.extend_from_slice(&request.invocation.bytes());
         body.extend_from_slice(&self.route_epoch.to_be_bytes());
         body.extend_from_slice(&self.birth_digest);
@@ -70,6 +79,10 @@ impl CellQueryCall {
                 body.push(2);
                 string(&mut body, token.as_str())?;
             }
+            CellQueryConsistency::LinearizableAfter(token) => {
+                body.push(4);
+                string(&mut body, token.as_str())?;
+            }
         }
         body.extend_from_slice(&self.timeout_ms.to_be_bytes());
         let length = u32::try_from(request.input.len()).map_err(|_| TransportError::Limit)?;
@@ -87,29 +100,49 @@ impl CellQueryCall {
     }
 
     pub fn decode(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
-        Self::decode_inner(bytes, limit, false)
+        Self::decode_inner(bytes, limit, Family::Public)
     }
 
     pub fn decode_event(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
-        Self::decode_inner(bytes, limit, true)
+        Self::decode_inner(bytes, limit, Family::Event)
     }
 
-    fn decode_inner(bytes: &[u8], limit: usize, event: bool) -> Result<Self, TransportError> {
+    pub fn decode_queue(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
+        Self::decode_inner(bytes, limit, Family::Queue)
+    }
+
+    pub fn decode_queue_metrics(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
+        Self::decode_inner(bytes, limit, Family::QueueMetrics)
+    }
+
+    fn decode_inner(bytes: &[u8], limit: usize, family: Family) -> Result<Self, TransportError> {
         if bytes.len() > limit {
             return Err(TransportError::Limit);
         }
         let mut body = Reader(bytes);
-        if body.take(8)? != if event { b"CLGCEY01" } else { b"CLGCQQ01" } {
+        let expected = match family {
+            Family::Public => b"CLGCQQ01",
+            Family::Event => b"CLGCEY01",
+            Family::Queue => b"CLGCQY01",
+            Family::QueueMetrics => b"CLGQMY01",
+        };
+        if body.take(8)? != expected {
             return Err(TransportError::Protocol);
         }
-        let admission = if event {
-            QueryAdmission::Event(match body.byte()? {
+        let admission = if matches!(family, Family::Public) {
+            QueryAdmission::Public
+        } else {
+            let minimum = match body.byte()? {
                 0 => cellar_logic::consensus::Durability::Quorum,
                 1 => cellar_logic::consensus::Durability::S3,
                 _ => return Err(TransportError::Protocol),
-            })
-        } else {
-            QueryAdmission::Public
+            };
+            match family {
+                Family::Event => QueryAdmission::Event(minimum),
+                Family::Queue => QueryAdmission::QueueOperator(minimum),
+                Family::QueueMetrics => QueryAdmission::QueueMetrics(minimum),
+                Family::Public => return Err(TransportError::Protocol),
+            }
         };
         let invocation = ProposalId::new(body.array()?).map_err(|_| TransportError::Identity)?;
         let route_epoch = u64::from_be_bytes(body.array()?);
@@ -133,6 +166,10 @@ impl CellQueryCall {
                 CellVersionToken::from_encoded(&body.string(4096)?)
                     .map_err(|_| TransportError::Authentication)?,
             ),
+            4 => CellQueryConsistency::LinearizableAfter(
+                CellVersionToken::from_encoded(&body.string(4096)?)
+                    .map_err(|_| TransportError::Authentication)?,
+            ),
             3 => {
                 let max_age_ms = u64::from_be_bytes(body.array()?);
                 if !(1..=3_600_000).contains(&max_age_ms) {
@@ -143,7 +180,7 @@ impl CellQueryCall {
             _ => return Err(TransportError::Protocol),
         };
         let timeout_ms = u64::from_be_bytes(body.array()?);
-        if event && !matches!(consistency, CellQueryConsistency::Linearizable) {
+        if !matches!(family, Family::Public) && !consistency.is_linearizable() {
             return Err(TransportError::Protocol);
         }
         if !(1..=3_600_000).contains(&timeout_ms) {

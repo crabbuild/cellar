@@ -13,11 +13,15 @@ use crate::raft::cell_groups::{
 use crate::raft::completion::RuntimeError;
 use cellar_logic::cell_group::{CellVersion, MutationSequence};
 
+#[path = "cell_preparation.rs"]
+mod preparation;
+pub(crate) use preparation::{CellPrivatePreparation, CellPrivatePrepared, CellStageCapture};
+
 #[path = "cell_rpc.rs"]
 mod rpc;
 pub(crate) use rpc::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 
-/// A receipt read from the exact committed cell image. This is not S3 coverage.
+/// A receipt proven against the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {
     pub receipt: StoredReceipt,
     pub version: CellVersion,
@@ -57,6 +61,7 @@ struct PendingCell {
     request: CommandRequest,
     result: CellVersion,
     _preview: Preview,
+    _prepared_image: std::sync::Arc<super::CellPreparedImage>,
     submitted: bool,
     rpc_step: Option<u64>,
     rpc_prior_steps: u64,
@@ -78,6 +83,7 @@ pub struct CellPrivateExecutor {
     authority: CellExecutionAuthority,
     working: Option<WorkingImage>,
     pending: Option<PendingCell>,
+    preparing: Option<std::sync::Arc<()>>,
     poisoned: bool,
     receipt_cursor: Option<ClientId>,
     _lock: PrivateLock,
@@ -169,6 +175,7 @@ impl CellPrivateExecutor {
             authority,
             working: Some(working),
             pending: None,
+            preparing: None,
             poisoned: false,
             receipt_cursor: None,
             _lock: lock,
@@ -184,57 +191,19 @@ impl CellPrivateExecutor {
         input: &[u8],
         allow_new: bool,
     ) -> Result<CellStageOutcome, ExecutionError> {
-        self.stage_registered_kind(attempt, class, input, allow_new, false)
+        let captured =
+            self.capture_registered(attempt, class, input, allow_new, CommandAdmission::Public)?;
+        self.complete_capture(captured)
     }
 
-    pub(crate) fn stage_system_registered(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-        allow_new: bool,
-    ) -> Result<CellStageOutcome, ExecutionError> {
-        self.stage_registered_kind(attempt, class, input, allow_new, true)
-    }
-
-    pub(crate) fn lookup_event_registered(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-    ) -> Result<CellStageOutcome, ExecutionError> {
-        self.stage_admitted_registered(attempt, class, input, false, CommandAdmission::Event)
-    }
-
-    fn stage_registered_kind(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-        allow_new: bool,
-        system: bool,
-    ) -> Result<CellStageOutcome, ExecutionError> {
-        self.stage_admitted_registered(
-            attempt,
-            class,
-            input,
-            allow_new,
-            if system {
-                CommandAdmission::System
-            } else {
-                CommandAdmission::Public
-            },
-        )
-    }
-
-    fn stage_admitted_registered(
+    pub(crate) fn capture_registered(
         &mut self,
         attempt: CommandAttempt,
         class: &RaftClass,
         input: &[u8],
         allow_new: bool,
         admission: CommandAdmission,
-    ) -> Result<CellStageOutcome, ExecutionError> {
+    ) -> Result<CellStageCapture, ExecutionError> {
         let history = self.authority.cell().version.history.clone();
         let contract = super::registered::validate_admission(
             self.options.limits,
@@ -254,7 +223,7 @@ impl CellPrivateExecutor {
             group: self.authority.route().history,
             term: self.authority.term().get(),
         };
-        self.stage(attempt, allow_new, |transaction| {
+        self.capture(attempt, allow_new, |transaction| {
             if let Some(request) = system_request {
                 class.invoke_system_command(&history, &request, transaction, input, limits, origin)
             } else {
@@ -283,8 +252,18 @@ impl CellPrivateExecutor {
         allow_new: bool,
         callback: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<CellStageOutcome, ExecutionError> {
+        let captured = self.capture(attempt, allow_new, callback)?;
+        self.complete_capture(captured)
+    }
+
+    pub(crate) fn capture(
+        &mut self,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
+    ) -> Result<CellStageCapture, ExecutionError> {
         let mut preparation = match self.prepare_stage(&attempt, allow_new)? {
-            StageAdmission::Duplicate(receipt) => return Ok(CellStageOutcome::Duplicate(receipt)),
+            StageAdmission::Duplicate(receipt) => return Ok(CellStageCapture::Duplicate(receipt)),
             StageAdmission::New(preparation) => preparation,
         };
         let working = self
@@ -298,7 +277,8 @@ impl CellPrivateExecutor {
             preparation.maintenance.take(),
             callback,
         )?;
-        self.capture_stage(attempt, preparation)
+        self.capture_stage_input(attempt, preparation)
+            .map(|input| CellStageCapture::Captured(Box::new(input)))
     }
 
     fn prepare_stage(
@@ -306,7 +286,7 @@ impl CellPrivateExecutor {
         attempt: &CommandAttempt,
         allow_new: bool,
     ) -> Result<StageAdmission, ExecutionError> {
-        if self.pending.is_some() {
+        if self.pending.is_some() || self.preparing.is_some() {
             return Err(ExecutionError::Busy);
         }
         if self.poisoned {
@@ -355,104 +335,6 @@ impl CellPrivateExecutor {
         }))
     }
 
-    fn capture_stage(
-        &mut self,
-        attempt: CommandAttempt,
-        preparation: StagePreparation,
-    ) -> Result<CellStageOutcome, ExecutionError> {
-        let StagePreparation {
-            sequence,
-            log_reservation,
-            ..
-        } = preparation;
-        let working = self
-            .working
-            .as_mut()
-            .ok_or(ExecutionError::RebuildRequired)?;
-        let update = working
-            .capture_cell(&self.options, self.authority.image())
-            .map_err(private_failure)?;
-        if cellar_logic::cell_group::CellImage::from(update.base)
-            != self.authority.cell().version.image
-        {
-            return Err(ExecutionError::Invalid("captured cell base"));
-        }
-        let route = self.authority.route();
-        let entry = CellGroupEntry {
-            binding: GroupEntryBinding {
-                group: route.history,
-                route_epoch: route.epoch,
-                birth_digest: route.birth_digest,
-                schema_digest: route.schema_digest,
-                proposal: attempt.proposal,
-            },
-            command: GroupCommand::Mutation(GroupMutation {
-                cell: self.authority.cell().version.history.clone(),
-                sequence,
-                base: update.base,
-                result: update.result,
-                files: update
-                    .files
-                    .iter()
-                    .map(|file| GroupLtx {
-                        min_txid: file.min_txid,
-                        max_txid: file.max_txid,
-                        page_count: file.page_count,
-                        decoded_bytes: file.decoded_bytes,
-                        bytes: &file.bytes,
-                    })
-                    .collect(),
-            }),
-        };
-        let bytes = entry
-            .encode(
-                route,
-                GroupEntryLimits {
-                    envelope: self.options.limits.envelope,
-                    ..Default::default()
-                },
-            )
-            .map_err(ExecutionError::Protocol)?;
-        let preview = self
-            .options
-            .images
-            .preview_cell(
-                &self.options,
-                self.authority.image(),
-                attempt.preview,
-                &update,
-                cell_image_history_digest(&self.authority.cell().version.history),
-            )
-            .map_err(storage)?;
-        self.authority.check().map_err(authority_failure)?;
-        log_reservation
-            .encoded(bytes.len())
-            .map_err(|error| authority_failure(error.into()))?;
-        let prepared = CellPreparedCommand::new(
-            bytes,
-            attempt.proposal,
-            self.authority.term(),
-            route.history,
-            self.authority.engine_owner().clone(),
-        )
-        .with_log_reservation(log_reservation);
-        self.pending = Some(PendingCell {
-            prepared: prepared.clone(),
-            request: attempt.request,
-            result: CellVersion {
-                history: self.authority.cell().version.history.clone(),
-                sequence,
-                image: update.result.into(),
-            },
-            _preview: preview,
-            submitted: false,
-            rpc_step: None,
-            rpc_prior_steps: 0,
-        });
-        self.poisoned = false;
-        Ok(CellStageOutcome::Prepared(prepared))
-    }
-
     /// Set before awaiting proposal submission. A dropped response never frees
     /// this producer for another callback or establishes that its effect failed.
     pub fn mark_submitted(&mut self, proposal: ProposalId) -> Result<(), ExecutionError> {
@@ -489,7 +371,34 @@ impl CellPrivateExecutor {
         committed
             .check_committed_entry(pending.prepared.bytes())
             .map_err(authority_failure)?;
-        let receipt = self.read_receipt(&committed, &pending.request)?;
+        committed.check().map_err(authority_failure)?;
+        // No application work can run between capture and exact settlement.
+        // This frozen writer produced the prepared image that the committed
+        // entry proves above, just as for an intermediate RPC checkpoint.
+        // Independent replay and reconciliation of other images still read
+        // the selected immutable state.
+        let receipt = {
+            let connection = self
+                .working
+                .as_ref()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database()
+                .framework();
+            if !connection.is_autocommit() {
+                return Err(ExecutionError::Invalid(
+                    "final receipt writer is not frozen",
+                ));
+            }
+            receipts::preflight(connection, &pending.request, &self.options.limits)?
+                .ok_or(ExecutionError::Invalid("committed cell receipt missing"))?
+        };
+        committed.check().map_err(authority_failure)?;
+        let receipt = CellCommittedReceipt {
+            receipt,
+            version: committed.cell().version.clone(),
+            position: committed.cell().last_mutation,
+            witness: committed.cell().witness,
+        };
         // Only exact committed/reconciliation authority retires a private
         // preview. Pending retains its live pin through physical settlement.
         self.options
@@ -530,41 +439,77 @@ impl CellPrivateExecutor {
         {
             return Err(ExecutionError::Invalid("cell reconciliation identity"));
         }
-        let check = || {
-            authority.check().map_err(|error| match error {
-                RuntimeError::NotReady => ExecutionError::Uncertain,
-                error => authority_failure(error),
-            })
+        let observe_uncertain = |phase: &'static str| {
+            tracing::trace!(target: "cellar::raft::cell_reconciliation", phase,
+                command = ?pending.request.id,
+                base_sequence = self.authority.cell().version.sequence.get(),
+                expected_sequence = pending.result.sequence.get(),
+                observed_sequence = authority.cell().version.sequence.get(),
+                base_term = self.authority.term().get(),
+                observed_term = authority.term().get(),
+                submitted = pending.submitted,
+                prior_steps = pending.rpc_prior_steps,
+                rpc_step = ?pending.rpc_step,
+                "private receipt remains uncertain");
         };
+        let current_error = |error| match error {
+            RuntimeError::NotReady => {
+                observe_uncertain("authority-not-ready");
+                ExecutionError::Uncertain
+            }
+            error => authority_failure(error),
+        };
+        let check = || authority.check().map_err(current_error);
         check()?;
-        // Staging already established absence in this exact immutable base.
-        // In particular an enrollment image need not yet have receipt tables.
-        let receipt = if authority.cell().version == self.authority.cell().version
-            && pending.rpc_prior_steps == 0
+        let lookup = |connection: &rusqlite::Connection| {
+            if let Some(step) = pending.rpc_step {
+                receipts::lookup_rpc_identity(connection, &pending.request, &self.options.limits)
+                    .map(|receipt| {
+                        receipt
+                            .filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
+                    })
+            } else {
+                receipts::lookup_identity(connection, &pending.request, &self.options.limits)
+            }
+        };
+        let receipt = if authority.cell().version == self.authority.cell().version {
+            if pending.rpc_prior_steps == 0 {
+                // Staging established absence in this exact immutable base;
+                // an enrollment image need not yet have receipt tables.
+                Ok(None)
+            } else {
+                // Continuing this RPC already validated its unfinished receipt
+                // in this exact base. The final private receipt proves neither
+                // completion nor absence until its own result image applies.
+                observe_uncertain("unchanged-checkpoint");
+                Err(ExecutionError::Uncertain)
+            }
+        } else if pending.submitted
+            && authority.cell().version == pending.result
+            && authority
+                .retains_committed_entry(pending.prepared.bytes())
+                .map_err(current_error)?
         {
-            Ok(None)
+            // The pending producer still owns the writer, with no application
+            // work since capture. Exact version and committed-entry evidence
+            // bind its frozen SQL state to the selected immutable image.
+            let connection = self
+                .working
+                .as_ref()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database()
+                .framework();
+            if !connection.is_autocommit() {
+                return Err(ExecutionError::Invalid("cell receipt writer is not frozen"));
+            }
+            lookup(connection)
         } else {
             let database = self
                 .options
                 .images
                 .read_cell(&self.options, authority.image())
                 .map_err(storage)?;
-            if let Some(step) = pending.rpc_step {
-                receipts::lookup_rpc_identity(
-                    database.connection(),
-                    &pending.request,
-                    &self.options.limits,
-                )
-                .map(|receipt| {
-                    receipt.filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
-                })
-            } else {
-                receipts::lookup_identity(
-                    database.connection(),
-                    &pending.request,
-                    &self.options.limits,
-                )
-            }
+            lookup(database.connection())
         };
         let resolution = match receipt {
             Ok(Some(receipt)) => CellReconciliation::Committed(Box::new(CellCommittedReceipt {
@@ -586,10 +531,26 @@ impl CellPrivateExecutor {
             {
                 CellReconciliation::Refused(CommandFailure::Unavailable)
             }
-            Err(error) => return Err(error),
-            Ok(None) => return Err(ExecutionError::Uncertain),
+            Err(error) => {
+                if matches!(&error, ExecutionError::Uncertain) {
+                    observe_uncertain("unfinished-receipt");
+                }
+                return Err(error);
+            }
+            Ok(None) => {
+                observe_uncertain("receipt-absent-same-term");
+                return Err(ExecutionError::Uncertain);
+            }
         };
         check()?;
+        self.retire_reconciled()?;
+        Ok(resolution)
+    }
+
+    /// The caller has established the matching applied receipt or newer-term
+    /// absence proof. Keep the preview and log reservation until cleanup joins.
+    fn retire_reconciled(&mut self) -> Result<(), ExecutionError> {
+        let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
         // Only exact committed/reconciliation authority retires a private
         // preview. Pending retains its live pin through physical settlement.
         self.options
@@ -602,7 +563,7 @@ impl CellPrivateExecutor {
             .map_err(authority_failure)?;
         self.pending = None;
         self.poisoned = true;
-        Ok(resolution)
+        Ok(())
     }
 
     fn read_receipt(

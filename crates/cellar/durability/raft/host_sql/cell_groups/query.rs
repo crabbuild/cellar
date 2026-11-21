@@ -28,6 +28,7 @@ enum Callback {
         class: Arc<crate::application::consensus::RaftClass>,
         request: crate::raft::execution::CommandRequest,
         input: Box<[u8]>,
+        system: bool,
     },
     Verification(VerificationCallback),
     Registered {
@@ -83,11 +84,21 @@ pub struct CellSqlQueryResult {
     result: Vec<u8>,
     replica: cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory>,
     observation: crate::raft::version::CellVersionObservation,
-    _bytes: Arc<Bytes>,
+    _retention: OutputRetention,
     _archive: Option<Box<crate::raft::cell_groups::S3OutputProof>>,
 }
 
 impl CellSqlQueryResult {
+    /// The callback and image pin have joined before this immutable result
+    /// exists. Acquire archive admission before releasing its SQL reservation.
+    pub(crate) fn retain_for_archive(
+        mut self: Box<Self>,
+        permit: Arc<Mutex<crate::raft::budget::Permit>>,
+    ) -> Box<Self> {
+        self._retention = OutputRetention::Archive { _permit: permit };
+        self
+    }
+
     pub(crate) fn retain_archive(&mut self, proof: Box<crate::raft::cell_groups::S3OutputProof>) {
         self._archive = Some(proof);
     }
@@ -301,8 +312,36 @@ impl CellGroupSqlPool {
         options: CellSqlOptions,
         authority: CellReadAuthority,
         class: Arc<crate::application::consensus::RaftClass>,
+        request: crate::raft::execution::CommandRequest,
+        input: Vec<u8>,
+    ) -> Result<CellSqlReceiptLookup, ExecutionError> {
+        self.lookup_receipt_admitted(options, authority, class, request, input, false)
+            .await
+    }
+
+    /// Private reconciliation retains the registered system contract and exact
+    /// system client checks on the physical SQL worker. Public reads cannot
+    /// select this admission, and neither path invokes a command callback.
+    pub(crate) async fn lookup_system_receipt_registered(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        class: Arc<crate::application::consensus::RaftClass>,
+        request: crate::raft::execution::CommandRequest,
+        input: Vec<u8>,
+    ) -> Result<CellSqlReceiptLookup, ExecutionError> {
+        self.lookup_receipt_admitted(options, authority, class, request, input, true)
+            .await
+    }
+
+    async fn lookup_receipt_admitted(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        class: Arc<crate::application::consensus::RaftClass>,
         mut request: crate::raft::execution::CommandRequest,
         input: Vec<u8>,
+        system: bool,
     ) -> Result<CellSqlReceiptLookup, ExecutionError> {
         if authority.barrier().is_none() {
             return Err(ExecutionError::Invalid(
@@ -323,6 +362,7 @@ impl CellGroupSqlPool {
                     class,
                     request,
                     input: input.into_boxed_slice(),
+                    system,
                 },
             )
             .await?
@@ -540,6 +580,7 @@ pub(super) fn run(
             class,
             request,
             input,
+            system,
         } => {
             crate::raft::execution::validate_registered_command(
                 query.options.limits(),
@@ -548,7 +589,7 @@ pub(super) fn run(
                 &request,
                 &class,
                 &input,
-                false,
+                system,
             )?;
             let receipt = crate::raft::receipts::lookup_cell_identity(
                 database.connection(),
@@ -588,7 +629,9 @@ pub(super) fn run(
             result,
             replica,
             observation,
-            _bytes: query.bytes,
+            _retention: OutputRetention::Sql {
+                _bytes: query.bytes,
+            },
             _archive: None,
         }),
         Output::Receipt(receipt) => CellSqlOutcome::ReceiptLookedUp(CellSqlReceiptLookup {
@@ -600,3 +643,7 @@ pub(super) fn run(
         }),
     })
 }
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "query_tests.rs"]
+mod tests;

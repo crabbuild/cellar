@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Ordinary cell construction and JSON RPC on the private Raft worker.
+//! Ordinary cell construction, RPC and buffered HTTP on the private Raft worker.
 
 use super::{
     native_configuration::AdmittedCellConfiguration, CellHistory, CommandFailure,
@@ -28,6 +28,7 @@ pub(super) enum CellRpcMethod<'a> {
     Json(&'a str),
     Work,
     Event,
+    Fetch,
     Owned { method: &'a str, json_only: bool },
 }
 
@@ -163,6 +164,45 @@ struct NativeActivation {
     owner: Arc<()>,
     instance: Mutex<Option<Arc<dyn Cell>>>,
     resources: Arc<crate::application::storage::Resources>,
+}
+
+// Framework cleanup needs cache/resource continuity while its writer is parked.
+// Construct the business cell only when an application invocation actually runs.
+struct DeferredCell {
+    owner: Arc<NativeCellFactory>,
+    instance: Mutex<Option<Arc<dyn Cell>>>,
+}
+
+impl Cell for DeferredCell {
+    fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
+        let prepared = (|| -> Result<Arc<dyn Cell>> {
+            let mut instance = self
+                .instance
+                .lock()
+                .map_err(|_| CommandFailure::Unavailable)?;
+            if let Some(instance) = instance.as_ref() {
+                return Ok(instance.clone());
+            }
+            let identity = context
+                .identity()
+                .cloned()
+                .ok_or(CommandFailure::Unavailable)?;
+            let authority = context
+                .raft_storage
+                .as_ref()
+                .ok_or(CommandFailure::Unavailable)?;
+            let constructor = self
+                .owner
+                .context(identity.clone(), authority.activation())?;
+            let created = (self.owner.factory)(constructor, &identity)?;
+            *instance = Some(created.clone());
+            Ok(created)
+        })();
+        match prepared {
+            Ok(instance) => instance.invoke(context, invocation),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
+    }
 }
 
 impl CellRpcActivation {
@@ -402,9 +442,31 @@ impl NativeCellFactory {
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>> {
+        let fetch = if matches!(method, CellRpcMethod::Fetch) {
+            let (name, request) = super::native_fetch::decode_request(input)?;
+            super::native_rpc::validate_identity(
+                &self.config.script_name,
+                &self.class,
+                cell.cell.as_str(),
+                name.as_deref(),
+            )?;
+            let limit = transaction.result_limit()?;
+            Some((name, request, limit))
+        } else {
+            None
+        };
         let owned_wire = matches!(method, CellRpcMethod::Owned { .. } | CellRpcMethod::Event);
         let work = if matches!(method, CellRpcMethod::Work) {
-            anyhow::ensure!(self.callbacks, CommandFailure::UnsupportedCapability);
+            let supervised = transaction
+                .storage()?
+                .resources()
+                .provider_supervision
+                .get()
+                .is_some();
+            anyhow::ensure!(
+                self.callbacks || supervised,
+                CommandFailure::UnsupportedCapability
+            );
             anyhow::ensure!(input.len() <= 1024, CommandFailure::Overloaded);
             let work: super::native_work::Work = serde_json::from_slice(input)?;
             anyhow::ensure!(
@@ -414,7 +476,7 @@ impl NativeCellFactory {
                     || (work.reason == "stream-maintenance"
                         && self.class == crate::deploy::EVENT_STREAM_CLASS)
                     || (work.reason == "resource-reconciliation"
-                        && self.class == crate::deploy::EVENT_CATALOG_CLASS)
+                        && (self.class == crate::deploy::EVENT_CATALOG_CLASS || supervised))
                     || (work.reason == "queue" && self.class == crate::deploy::QUEUE_CLASS),
                 CommandFailure::UnsupportedCapability
             );
@@ -461,6 +523,12 @@ impl NativeCellFactory {
                     Some(request.authority),
                 )
             }
+            CellRpcMethod::Fetch => (
+                String::new(),
+                RpcData::Json("null".into()),
+                fetch.as_ref().and_then(|(name, _, _)| name.clone()),
+                None,
+            ),
             CellRpcMethod::Work => (String::new(), RpcData::Json("null".into()), None, None),
             CellRpcMethod::Json(operation) => {
                 let json = std::str::from_utf8(input)?;
@@ -509,7 +577,65 @@ impl NativeCellFactory {
                 self.accepts(cached) && Arc::ptr_eq(&cached.resources(), &authority.resources),
                 "Raft activation factory or storage changed"
             );
-        } else {
+        }
+        if let Some((work, leased_until)) = work.as_ref().filter(|(work, _)| {
+            work.reason == "resource-reconciliation"
+                && self.class != crate::deploy::EVENT_CATALOG_CLASS
+                && authority.resources.provider_supervision.get().is_some()
+        }) {
+            // Cleanup owns a fresh framework invocation, not a business cell.
+            // A broken constructor after restart must not strand provider debt.
+            if activation.is_none() {
+                *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
+                    owner: self.identity.clone(),
+                    instance: Mutex::new(Some(Arc::new(DeferredCell {
+                        owner: self.clone(),
+                        instance: Mutex::new(None),
+                    }))),
+                    resources: authority.resources.clone(),
+                })));
+            }
+            let keepalive = activation
+                .as_ref()
+                .ok_or(CommandFailure::Unavailable)?
+                .clone();
+            let context = self.context(identity, authority)?;
+            let resources = context.raft_storage.as_ref().unwrap().resources.clone();
+            let state = context.state.clone();
+            let workflow = crate::deploy::is_workflow_class(&self.class);
+            let work = work.clone();
+            let leased_until = *leased_until;
+            let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
+                let _activation = keepalive;
+                crate::application::container_supervision::recover(&context)?;
+                let storage = context.storage()?;
+                if let Some(installation) =
+                    storage.work_installation(cellar_logic::work::Reason::ResourceReconciliation)?
+                {
+                    let output =
+                        crate::application::container_supervision::maintain(context, installation)
+                            .await?;
+                    anyhow::ensure!(
+                        matches!(output, Output::Done),
+                        CommandFailure::UnsupportedCapability
+                    );
+                }
+                crate::storage::raft_native_work(|db| {
+                    super::native_work::complete(db, &work, leased_until)
+                })?;
+                Ok(vec![1])
+            });
+            return Ok(if workflow {
+                Box::pin(WorkflowTurn {
+                    future,
+                    resources,
+                    state,
+                })
+            } else {
+                future
+            });
+        }
+        if activation.is_none() {
             let context = self.context(identity.clone(), authority.activation())?;
             let instance = (self.factory)(context, &identity)?;
             *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
@@ -522,11 +648,13 @@ impl NativeCellFactory {
         if let Some(authority) = event_authority {
             authority.install(&mut context);
         }
-        let invocation = match &work {
-            Some((work, _)) => Invocation::Alarm {
+        let fetch_limit = fetch.as_ref().map(|(_, _, limit)| *limit);
+        let invocation = match (&work, fetch) {
+            (None, Some((_, request, _))) => Invocation::Fetch(request),
+            (Some((work, _)), _) => Invocation::Alarm {
                 scheduled_ms: i64::try_from(work.due)?,
             },
-            None => Invocation::CellRpc {
+            (None, None) => Invocation::CellRpc {
                 method: operation.to_owned(),
                 args,
             },
@@ -540,12 +668,16 @@ impl NativeCellFactory {
         let workflow = crate::deploy::is_workflow_class(&self.class);
         let retire = workflow.then(|| (instance.resources(), state.clone()));
         let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
+            if context.container_supervision.is_some() {
+                crate::application::container_supervision::recover(&context)?;
+            }
             if let Some((work, leased_until)) = work {
                 // Queue proves the claim with its lease before consumer entry
                 // or its DLQ intent before dispatch. Trusted catalog preparation
-                // likewise proves claim + binding intent before any child I/O;
-                // it never enters application code. Other callbacks still need
-                // their entry proof here. Final completion retains its minimum.
+                // likewise proves claim + binding intent before any child I/O.
+                // Provider maintenance proves its task claim before backend I/O.
+                // Other callbacks still need their entry proof here. Final
+                // completion retains its minimum.
                 if !matches!(work.reason.as_str(), "queue" | "resource-reconciliation") {
                     storage.sync().await?;
                 }
@@ -570,6 +702,7 @@ impl NativeCellFactory {
                                 .await?
                             }
                             cellar_logic::work::Reason::ResourceReconciliation => {
+                                // Provider cleanup returned before construction.
                                 crate::application::event_stream::catalog::maintain(
                                     context,
                                     installation,
@@ -644,6 +777,12 @@ impl NativeCellFactory {
             } else {
                 future.await?
             };
+            if let Some(limit) = fetch_limit {
+                let Output::Http(response) = output else {
+                    anyhow::bail!(CommandFailure::UnsupportedCapability);
+                };
+                return super::native_fetch::encode_response(&response, limit);
+            }
             let Output::Rpc(result) = output else {
                 anyhow::bail!(CommandFailure::UnsupportedCapability);
             };
@@ -682,17 +821,18 @@ impl NativeCellFactory {
                 CommandFailure::UnsupportedCapability
             );
         }
-        storage
-            .resources
-            .durable_callbacks
-            .store(self.callbacks, std::sync::atomic::Ordering::Release);
+        let container_supervision = storage.resources.provider_supervision.get().cloned();
+        storage.resources.durable_callbacks.store(
+            self.callbacks || container_supervision.is_some(),
+            std::sync::atomic::Ordering::Release,
+        );
         storage.resources.delete_all_deletes_alarm.store(
             self.config.compat.delete_all_deletes_alarm,
             std::sync::atomic::Ordering::Release,
         );
         Ok(Context {
             raft_storage: Some(storage),
-            container_supervision: None,
+            container_supervision,
             rpc_catalog: None,
             event_authority: None,
             name_authority: None,
