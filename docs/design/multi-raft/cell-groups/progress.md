@@ -34,6 +34,80 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 deletion-intent recovery
+
+Production `6c3471b5b` fixes a stranded provider deletion after its source intent
+became durable but before the controller reserved or submitted Delete. The
+retained `6ef149a2b` failure has `Deleted/Pending` binding revision 3, repeated
+successful maintenance attempts and no pending source binding-intent rows. The
+independent controller has completed Create/Write receipts, three completed
+Inspect operations and a current fence for the deleted intent, but no Delete.
+This narrows the cause beyond the earlier source-confirmation hypothesis.
+
+The old maintenance Inspect and public Reconcile branches looked up an original
+Delete and returned success/Deleting when none existed. They could repeat forever
+without advancing the durable intent. Both now use the existing fenced deletion
+protocol: reconcile every original pending mutation, observe an existing Delete
+under the current claim, use its stable ID when no entry exists, and retire only
+after a confirmed outcome. Unknown mutation receipts still block deletion; fresh
+attempt IDs still require authoritative no-effect proof. Completed effects are
+not replayed, deadlines are not renewed, and generic provider delete policies
+are unchanged.
+
+Two deterministic regressions persist the intent through the public SDK, then
+use a fresh invocation to drive the actual maintenance adapter or ordinary
+Reconcile. Both fail at the exact pending-intent assertion on `5d0a5d9df` in about
+six seconds. On `6c3471b5b`, both verify retirement, one physical Create/Delete
+and no repeated Delete when subsequently reconciling the retired generation.
+An earlier fixture control at `29d149c5c` failed onboarding before the intended
+cut; it is retained as a wrong repro rather than claimed as causal evidence.
+
+| Focused current-source gate | Native | Real RustFS |
+| --- | ---: | ---: |
+| Maintenance + Reconcile regressions, both images and minima | 8/8 pass | 8/8 pass |
+| Original live-write, controller-restart, live-exec, basic and expiry profiles | 20/20 pass | 20/20 pass |
+| Container library unit tests | 26/26 pass | Not a remote-backend gate |
+
+The original live-write workload hides the completed Write receipt, proves that
+Delete cannot proceed while it is unknown, releases lookup later and requires
+retirement without a business constructor. Exact original IDs/digests/deadlines
+match; Write executes once. Controller restart, lost create/delete replies,
+live-exec reconciliation, normal reads/writes and expiry retain their original
+assertions. Five-second requests, three-second maintenance attempts, 60-second
+recovery observers, ten-second lifetime and 500-ms expiry remain unchanged.
+These passing runs do not establish a latency distribution or resolve every
+older deadline/load control.
+
+Builds and strict Clippy pass for the container package's full target set and the
+native primitive target. Formatting, layout, native dependency/documentation
+checks and all 44 plan-validator unit tests also pass. Reviewed source anchors
+and the generated implementation index are current. CG-17's declared edit scope
+now includes its existing `cellar-container` adapter package; task status,
+dependencies, all 32 acceptance oracles and stop conditions are unchanged.
+Scope remains one native macOS RF3 process plus a controlled protocol peer. Real RustFS is constrained to 1 CPU/2 GiB in a
+6-CPU/12-GiB VM. No actual native compute, independent authenticated provider
+process faults or provider-volume disaster recovery is claimed. The owned lab
+is stopped with objects and volumes retained.
+
+Source, frozen binaries, raw results and retained disks are in
+`CG-17-delete-intent-red-29d149c5c-2246`,
+`CG-17-delete-intent-red-5d0a5d9df-2248` and
+`CG-17-delete-intent-6c3471b5b-2252`, with checksum-verified second copies in this
+checkout's Workspace target. Earlier failures and their source pins remain
+preserved. The regressions and original recovery workloads were qualified
+without retrying a failed case to obtain a passing result.
+
+**The missing-Delete transition is fixed; full CG-17 stays open at 0/32 formal
+cases.** These focused drivers do not substitute for the complete family/API/
+feature/fault ledgers. Next deliver normal native Container/Sandbox and
+interactive adapters with an owned asynchronous prologue, actual independently
+fenced/authenticated execution and volume recovery; then receipt retention with
+origin/recovery floors, WebSockets and the full compatibility matrix. Broader
+cancelled-import, archive-outage remote-admission and remote-enrollment gates,
+constrained Linux/load qualification and CG-13/15/16 remain open. Full plan
+validation still needs the missing historical CG-01 evidence; no substitute
+record is fabricated. Default backend cutover remains gated.
+
 ### CG-17 bounded archive packing and remaining recovery gates
 
 Production `6ef149a2b` packs original checkpoint wire fragments into immutable

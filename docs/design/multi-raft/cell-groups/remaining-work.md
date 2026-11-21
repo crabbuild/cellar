@@ -41,42 +41,37 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Production `6ef149a2b` delivers bounded S3 checkpoint packing with strict physical
-verification and a format-1 hard cutover. The recorded Create profiles reduce
-chunk uploads from 36 to 7 and reads from 214 to 28 natively / 30 with real RustFS.
-These individual observations do not establish latency stability.
+Production `6c3471b5b` closes the stranded deletion-intent transition: both
+maintenance and public Reconcile now drive a proven `Deleted/Pending` intent
+through the stable-ID fenced deletion protocol even when no Delete receipt
+exists. Unknown earlier mutations still block; completed effects are not replayed.
 
-The combined gate remains **FAILED**. Of 36 native provider configurations,
-28 pass, four fail and four remain unrun. Of 28 real RustFS configurations,
-19 pass, three fail and six remain unrun. Ten real-backend archive packing,
-recovery and retention configurations pass. Broader native targets report
-38 archive passes/two failures and 30 controller passes/one failure. Original
-budgets, IDs, minima and assertions remain. See the
-[current checkpoint](progress.md#cg-17-bounded-archive-packing-and-remaining-recovery-gates)
-for exact sources, failures, measurements and custody limits.
+Both new regressions and the original live-write, restart, live-exec, basic and
+expiry profiles pass **28/28 native and 28/28 real RustFS configurations**, with
+26 library unit tests passing. Original budgets, IDs, minima and assertions
+remain. These focused passes do not establish every primitive's full contract
+or all response/load guarantees. See the
+[current checkpoint](progress.md#cg-17-deletion-intent-recovery).
 
-The generated implementation index is current. Full plan validation/preflight
-also remains blocked by missing historical CG-01 evidence; restore verified
-custody or requalify the actual required cases rather than synthesizing a record.
+The earlier bounded archive packing and its failed controls remain source-pinned
+below. Broader native archive/controller gates and complete release acceptance
+remain unresolved. The generated implementation index is current; full plan
+validation/preflight still requires missing historical CG-01 evidence.
 
 The next feature deliveries are:
 
-1. Fix local binding confirmation and autonomous cleanup before Delete admission,
-   plus the original Data/Delete and contended-holder response deadlines. The
-   failed native live-write journal already has completed Create/Write receipts,
-   three completed Inspect calls and no Delete. Explain the source-side state
-   transition; never replay that Write, remint its ID or extend its budget. Also
-   resolve cancelled-import admission, archive-outage remote authorization and
-   remote-enrollment deadline gates. Two archive failures reproduce before
-   packing; they remain open rather than being hidden by the new format passes.
-2. Connect built-in native Container/Sandbox and interactive APIs to the
-   request-bound controller and actual fenced execution. Complete the owned
+1. Connect normal native Container/Sandbox and interactive APIs to the
+   request-bound controller and actual fenced execution. Deliver the owned
    asynchronous invocation prologue, per-operation authorization, independent
    controller/backend faults and real provider-volume/fresh-incarnation recovery.
-3. Complete safe receipt reclamation with origin/recovery floors, WebSockets and
-   every required public primitive/feature/deployment/clock/retention/lifecycle
-   ledger. Resolve the retained Fleet, cold-start and S3 controls before the
-   combined release and backend cutover gates.
+2. Finish safe receipt reclamation with origin/recovery floors, WebSockets and
+   every public primitive/feature/deployment/clock/retention/lifecycle ledger.
+   Resolve the broader cancelled-import, archive-outage remote-admission and
+   remote-enrollment gates; qualify the original response budgets under load.
+   Focused provider passes do not override those independent gates.
+3. Run the complete constrained Linux/RustFS recovery and release matrix on one
+   source before default backend cutover and CG-13/15/16 acceptance. Restore
+   verified CG-01 custody or requalify the actual required cases.
 
 The [controller contract](../../../../crates/cellar-container/controller.md)
 explains the delivered adapter and restart ownership. Current tests use a
@@ -586,7 +581,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. `6ef149a2b` adds bounded checkpoint packing; recorded Create uploads fall 36→7. Native provider configurations: 28 pass, 4 fail, 4 unrun; real RustFS: 19 pass, 3 fail, 6 unrun. Ten real archive configurations pass. | Fix source confirmation/cleanup and response deadlines, resolve the broader recovery gates, then finish native Container/Sandbox, independent fenced execution, receipt GC, WebSockets and the full 32-case ledger. No default cutover. See the [current checkpoint](progress.md#cg-17-bounded-archive-packing-and-remaining-recovery-gates). |
+| CG-17 | In progress. `6c3471b5b` fixes durable deletion intent with no controller receipt. Focused provider configurations pass 28/28 native and 28/28 real RustFS; 26 library tests pass. | Deliver normal native Container/Sandbox, independent fenced/authenticated execution and volume recovery, receipt GC, WebSockets and every full API/feature/fault ledger. Broader recovery/load gates and all 32 formal cases remain required. See the [current checkpoint](progress.md#cg-17-deletion-intent-recovery). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 

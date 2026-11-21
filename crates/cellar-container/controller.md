@@ -73,10 +73,11 @@ execution fence before I/O and task settlement with the final native-work result
 Cancellation before that first proof leaves the previous committed obligation
 available; after it, the reserved next attempt remains durable.
 
-The [current qualification](../../docs/design/multi-raft/cell-groups/progress.md#cg-17-provider-admission-proof-batching)
-retains successful proof-count regressions and unresolved S3 response deadlines.
-The combined gate remains failed; these optimizations do not establish full
-Container/Sandbox or CG-17 compatibility.
+The [current qualification](../../docs/design/multi-raft/cell-groups/progress.md#current-integration-checkpoint)
+records missing-Delete regressions and original uncertain-operation recovery with
+native RF3 and real RustFS. Focused passes do not establish full native
+Container/Sandbox, independent backend faults or CG-17 compatibility; complete
+release gates remain open.
 
 After proving a delete intent and its claim, one admitted closure reconciles old
 mutation debt, looks up the original deletion and submits only when permitted.
