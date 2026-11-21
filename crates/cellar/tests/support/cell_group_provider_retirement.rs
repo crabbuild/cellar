@@ -88,7 +88,7 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
             let claim = peer.active.lock().unwrap().clone().context("confirmation claim missing")?;
             ensure!(claim.checkpoint().record.is_retired());
             let payload = serde_json::to_vec(&Request { format: 1, operation: Operation::Running.name().into(), input: json!({}) })?;
-            let operation = ExecutionOperation::new([37;16], ExecutionOperationKind::Read, &payload, u64::try_from(cellar::asyncrt::wall_ms())? + 1000)?;
+            let operation = ExecutionOperation::new([37;16], ExecutionOperationKind::Inspect, &payload, u64::try_from(cellar::asyncrt::wall_ms())? + 1000)?;
             let before = peer.calls.load(Ordering::Acquire);
             let refused = controller.execute(claim, operation, payload).await;
             ensure!(refused.err().is_some_and(|error| error.downcast_ref::<ExecutionControllerFailure>() == Some(&ExecutionControllerFailure::StaleClaim)) && peer.calls.load(Ordering::Acquire) == before, "controller admitted retired provider execution");

@@ -190,7 +190,6 @@ fn save(connection: &Connection, task: &Task) -> anyhow::Result<()> {
     let minimum = match task.minimum {
         Durability::Quorum => 0,
         Durability::S3 => 1,
-        _ => anyhow::bail!("invalid provider maintenance durability"),
     };
     connection.execute(
         "INSERT INTO __sys_container_binding_maintenance
