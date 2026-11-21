@@ -7,6 +7,11 @@ pub use super::container_bindings::{
     BindingCheckpoint, BindingIntent, BindingJournal, BindingLifecycleGuard, BindingObservation,
     BindingRecord, MAX_BINDINGS, MAX_BINDING_BYTES,
 };
+pub use super::container_controller::{
+    ExecutionController, ExecutionControllerBackend, ExecutionControllerFailure,
+    ExecutionControllerLimits, ExecutionControllerOptions, ExecutionOperation,
+    ExecutionOperationKind, ExecutionOutcome, ExecutionPendingOperation,
+};
 pub use super::container_execution::{ExecutionClaim, ExecutionFenceAuthority, ExecutionGrant};
 pub use super::container_supervision::{
     supervise, BackendIdentity, DeleteSafety, FencedMaintenanceBackend, MaintenanceAction,

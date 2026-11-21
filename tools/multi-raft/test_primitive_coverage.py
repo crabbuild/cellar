@@ -249,6 +249,18 @@ class CoverageTests(unittest.TestCase):
             with self.assertRaisesRegex(coverage.CoverageError, expected):
                 coverage.load_contracts(contracts, self.cases)
 
+    def test_adapter_symbols_require_their_exact_owner_and_family(self):
+        for change, expected in (
+                (lambda entry: entry["symbols"].append("unrelated::ControllerProvider"), "qualified public API"),
+                (lambda entry: entry["owners"].remove("crates/cellar-container/lib.rs"), "owning family/module"),
+                (lambda entry: entry.update(family="other"), "owning family/module")):
+            contracts = dict(self.contracts)
+            value = json.loads(contracts["primitive-inventory.json"])
+            change(next(entry for entry in value["entries"] if entry["id"] == "container"))
+            contracts["primitive-inventory.json"] = self.encode(value)
+            with self.assertRaisesRegex(coverage.CoverageError, expected):
+                coverage.load_contracts(contracts, self.cases)
+
     def test_sdk_root_change_requires_catalog_review(self):
         root = self.root / "source"
         package = root / coverage.PACKAGE

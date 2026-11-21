@@ -58,6 +58,26 @@ needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
 ## Primitive compatibility evidence
 
+`--suite controller-provider` runs the three ordinary SDK/controller cases in
+`native_cell_groups_primitives`, each across both image modes and Quorum/S3.
+The durable controller directory survives a joined controller-domain and voter
+restart. Accepted create/delete reply loss must reconcile without replay, and
+cleanup must work while the business constructor refuses. Recovery uses the
+existing ten-second resource lifetime. A separate 500 ms lifetime case delays
+activation past that cap and requires zero creates/deletes and sealed retirement.
+The five-second requests and three-second maintenance attempts stay unchanged.
+The suite also checks
+files, buffered exec, stale Context refusal and real S3 output failure. Its
+Linux-protocol peer is controlled in-process state; this does not qualify native
+container execution, authenticated transport or independent process/physical
+fencing. Use a fresh output directory and the existing owned RustFS backend:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite controller-provider \
+  --backend /absolute/owned/rustfs-run --output /absolute/new/evidence \
+  --target-directory /absolute/checkout-private/target
+```
+
 `--suite provider-journals` runs the three fixed public journal, provider-proof
 and supervision functions in `native_cell_groups_primitives`. Both image forms
 and Quorum/S3 namespace minima retain their original request and recovery budgets.

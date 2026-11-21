@@ -3094,3 +3094,117 @@ async fn rustfs_docker_provider_sessions_retain_existing_fenced_lifecycle_admiss
 {
     fenced_maintenance::qualify_sessions(true, true).await
 }
+
+#[path = "support/cell_group_controller_provider.rs"]
+mod controller_provider;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_sessions_preserve_shared_group_durability() -> Result<()> {
+    controller_provider::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_recovers_without_replaying_compute() -> Result<()> {
+    controller_provider::qualify(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_sessions_preserve_shared_group_durability() -> Result<()> {
+    controller_provider::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_recovers_without_replaying_compute() -> Result<()> {
+    controller_provider::qualify(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_expiry_seals_unsubmitted_creates() -> Result<()> {
+    controller_provider::qualify_expiry(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_expiry_seals_unsubmitted_creates() -> Result<()> {
+    controller_provider::qualify_expiry(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_recovers_live_write_without_replay() -> Result<()> {
+    controller_provider::qualify_data_recovery(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_provider_reconciles_live_exec_before_destroy() -> Result<()> {
+    controller_provider::qualify_data_recovery(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_recovers_live_write_without_replay() -> Result<()> {
+    controller_provider::qualify_data_recovery(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_provider_reconciles_live_exec_before_destroy() -> Result<()> {
+    controller_provider::qualify_data_recovery(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_lifecycle_wait_reuses_unchanged_command_proof() -> Result<()> {
+    controller_provider::qualify_lifecycle_wait(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_lifecycle_wait_proves_dirty_work_before_parking() -> Result<()> {
+    controller_provider::qualify_lifecycle_wait(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_lifecycle_wait_reuses_unchanged_command_proof() -> Result<()> {
+    controller_provider::qualify_lifecycle_wait(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_lifecycle_wait_proves_dirty_work_before_parking() -> Result<()> {
+    controller_provider::qualify_lifecycle_wait(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only: original extent/S3 provider Create latency"]
+async fn profile_extent_s3_controller_provider_create() -> Result<()> {
+    controller_provider::profile_extent_create(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only: original extent/S3 Create with isolated real RustFS"]
+async fn profile_rustfs_extent_s3_controller_provider_create() -> Result<()> {
+    controller_provider::profile_extent_create(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_maintenance_finishes_intent_without_delete_receipt() -> Result<()> {
+    controller_provider::qualify_delete_intent(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_maintenance_finishes_intent_without_delete_receipt() -> Result<()> {
+    controller_provider::qualify_delete_intent(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_reconciliation_finishes_intent_without_delete_receipt() -> Result<()> {
+    controller_provider::qualify_delete_intent(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_reconciliation_finishes_intent_without_delete_receipt() -> Result<()> {
+    controller_provider::qualify_delete_intent(true, false).await
+}

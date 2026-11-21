@@ -34,6 +34,13 @@ pub(crate) struct DispatchCall<T> {
     pub started: Arc<AtomicBool>,
 }
 
+#[derive(Clone, Copy)]
+enum SourceProof {
+    Checkpoint,
+    Read,
+    Effect,
+}
+
 /// Only framework-owned work can switch between pure external I/O and source
 /// SQLite mutations. Requesting the writer disables parked polling before any
 /// mutation, and wakes the same SQL owner to resume it.
@@ -266,7 +273,11 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        self.try_schedule_inner(action, Arc::new(AtomicBool::new(false)), false)
+        self.try_schedule_inner(
+            action,
+            Arc::new(AtomicBool::new(false)),
+            SourceProof::Checkpoint,
+        )
     }
 
     /// The binding adapter alone owns both its remote I/O and private intent
@@ -283,7 +294,7 @@ impl RaftDispatch {
             authority: self.authority.clone(),
             parked_io: parked_io.clone(),
         };
-        self.try_schedule_inner(move |_| action(io), parked_io, false)
+        self.try_schedule_inner(move |_| action(io), parked_io, SourceProof::Checkpoint)
     }
 
     /// Target calls and payload adapters execute owned I/O after source proof.
@@ -295,7 +306,7 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        self.schedule_owned_io(action, false)
+        self.schedule_owned_io(action, SourceProof::Checkpoint)
     }
 
     /// Read-only target queries and provider GET bodies may reuse an unchanged
@@ -306,16 +317,27 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        self.schedule_owned_io(action, true)
+        self.schedule_owned_io(action, SourceProof::Read)
     }
 
-    fn schedule_owned_io<T, F, Fut>(self, action: F, read_only: bool) -> DispatchCall<T>
+    /// Provider effects may reuse only this exact invocation's unchanged,
+    /// proven unfinished receipt. Entry/read authority alone cannot admit them.
+    pub(crate) fn schedule_effect<T, F, Fut>(self, action: F) -> DispatchCall<T>
     where
         T: Send + 'static,
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        match self.try_schedule_inner(action, Arc::new(AtomicBool::new(true)), read_only) {
+        self.schedule_owned_io(action, SourceProof::Effect)
+    }
+
+    fn schedule_owned_io<T, F, Fut>(self, action: F, proof: SourceProof) -> DispatchCall<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(Duration) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        match self.try_schedule_inner(action, Arc::new(AtomicBool::new(true)), proof) {
             Ok(call) => call,
             Err(error) => DispatchCall {
                 started: Arc::new(AtomicBool::new(false)),
@@ -328,13 +350,14 @@ impl RaftDispatch {
         self,
         action: F,
         parked_io: Arc<AtomicBool>,
-        read_only: bool,
+        proof: SourceProof,
     ) -> Result<DispatchCall<T>>
     where
         T: Send + 'static,
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
+        let read_only = matches!(proof, SourceProof::Read);
         let started = Arc::new(AtomicBool::new(false));
         let submitted = started.clone();
         let prepared = (|| -> Result<_> {
@@ -363,9 +386,11 @@ impl RaftDispatch {
                         tracing::debug!(target: "cellar::raft::resource_read", phase = "source-proving",
                             source = ?self.context.binding_source.as_ref().map(|s| &s.history.cell),
                             at_ms = crate::asyncrt::mono_ms());
-                        crate::storage::confirm_raft_read_work(&self.authority).await
-                    } else {
-                        crate::storage::commit_raft_work(&self.authority).await
+                    }
+                    match proof {
+                        SourceProof::Read => crate::storage::confirm_raft_read_work(&self.authority).await,
+                        SourceProof::Effect => crate::storage::confirm_raft_checkpoint_work(&self.authority).await,
+                        SourceProof::Checkpoint => crate::storage::commit_raft_work(&self.authority).await,
                     }
                 }
                 .await;

@@ -69,8 +69,9 @@ the control operation that stops them. They retain their exact invocation and
 resource generation; every provider request and retained stream still requires
 independent remote fencing. A local guard or ownership claim is not a remote lease.
 Native/Fleet events refuse shared execution fencing before reserving a claim.
-Normal native Container/sandbox adapters, durable independent controllers and
-provider-volume recovery remain separate CG-17 requirements.
+The [durable controller core](controller.md) supplies independent high-water and
+original-operation persistence. Its transport/provider integration, normal native
+Container/sandbox adapters and provider-volume recovery remain CG-17 requirements.
 
 Shared-group background maintenance declines a busy lifecycle slot without
 parking its writer or publishing its private work claim. The committed obligation

@@ -20,7 +20,7 @@ async fn entered(gate: &archive_store::ObjectIoGate) {
 
 pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Result<()> {
     let (mut cluster, expected) =
-        checkpoint_fixture::populate_images(rooted, true, false, 2, 8192).await?;
+        checkpoint_fixture::populate_images(rooted, true, false, 2, 131072).await?;
     retain_archive_fixture_disks(&mut cluster);
     let store = archive_store::Store::around(backend);
     let archive = new_archive(
@@ -152,6 +152,88 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
     assert_eq!(receiver_group.group_manifest()?, selected);
     drop(hold);
     store.inner.put(&paths[0], original.into()).await?;
+    cluster.close().await?;
+    Ok(())
+}
+
+/// Small extent fragments share a bounded object, without changing physical
+/// recovery or allowing a damaged packed body to authorize a checkpoint.
+pub(super) async fn packed(rooted: bool, backend: Arc<dyn ObjectStore>) -> Result<()> {
+    let (mut cluster, expected) =
+        checkpoint_fixture::populate_images(rooted, true, false, 2, 8192).await?;
+    retain_archive_fixture_disks(&mut cluster);
+    let store = archive_store::Store::around(backend);
+    let archive = new_archive(
+        &cluster,
+        store.clone(),
+        Path::from("checkpoint-packed"),
+        Default::default(),
+    )
+    .await?;
+    let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+    let reference = archive
+        .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
+        .await?;
+    let (index_path, encoded) = index(store.as_ref(), &reference).await?;
+    let chunks = encoded["chunks"].as_array().context("checkpoint chunks")?;
+    let packed = chunks
+        .iter()
+        .find(|chunk| {
+            chunk["parts"]
+                .as_array()
+                .is_some_and(|parts| parts.len() > 1)
+        })
+        .context("small checkpoint fragments were uploaded separately")?;
+    for chunk in chunks {
+        let parts = chunk["parts"].as_array().context("packed parts")?;
+        let bytes = parts
+            .iter()
+            .map(|part| part["bytes"].as_u64().context("part bytes"))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .sum::<u64>();
+        ensure!(
+            bytes
+                == chunk["object"]["length"]
+                    .as_u64()
+                    .context("object length")?
+                && bytes <= 65536
+        );
+    }
+    let applier = destination(&cluster).await?;
+    let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+    let received = archive
+        .verify_checkpoint(
+            &cluster.domain,
+            &reference,
+            receiver(&pool, &applier, &cluster)?,
+        )
+        .await?;
+    tail_fixture::check_images(&cluster, received.checkpoint().manifest(), &expected).await?;
+    drop(received);
+    let (prefix, _) = generation_prefix(&index_path)?;
+    let object = &packed["object"];
+    let digest: Vec<u8> = serde_json::from_value(object["digest"].clone())?;
+    let path = Path::from(format!(
+        "{prefix}/generations/{}/chunks/{}-{}",
+        object["generation"],
+        object["length"],
+        hex::encode(digest)
+    ));
+    let original = store.get(&path).await?.bytes().await?;
+    let mut damaged = original.to_vec();
+    *damaged.last_mut().context("packed bytes")? ^= 1;
+    store.put(&path, damaged.into()).await?;
+    assert!(archive
+        .verify_checkpoint(
+            &cluster.domain,
+            &reference,
+            receiver(&pool, &applier, &cluster)?
+        )
+        .await
+        .is_err());
+    assert_eq!(archive.usage().operations, 0);
+    assert_eq!(pool.usage().sources, 0);
     cluster.close().await?;
     Ok(())
 }

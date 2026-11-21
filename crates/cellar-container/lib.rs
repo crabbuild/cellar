@@ -7,6 +7,7 @@
 mod bindings;
 mod capabilities;
 mod child_executor;
+pub mod controller;
 pub mod e2b;
 mod files;
 mod native;
@@ -25,6 +26,7 @@ pub use bindings::{BindingCapabilities, BindingSessions, Bindings};
 pub use capabilities::{Capabilities, Environment, Fencing, Ownership};
 use cellar::sdk::{containers::ProviderAuthority, Context};
 pub use child_executor::ChildExecutor;
+pub use controller::ControllerProvider;
 pub use outbound::ServiceTarget;
 pub use reconciliation::{Reconciliation, ReconciliationState};
 use serde_json::Value;
@@ -335,6 +337,17 @@ pub trait Provider: Send + Sync {
 /// Invocation-local backend resources. Drop must cancel work and release streams.
 /// See the README for authority, isolation, response and retry requirements.
 pub trait ProviderSession: Send + Sync {
+    /// Select binding serialization before the ordinary output proof. This
+    /// hook performs no I/O. A backend opting in for data operations must use
+    /// the supplied guard in execute_admitted instead of locking it again.
+    /// Stream observations should remain concurrent with lifecycle control.
+    fn lifecycle_admission(&self, operation: Operation) -> bool {
+        matches!(
+            operation,
+            Operation::Start | Operation::Destroy | Operation::Reconcile
+        )
+    }
+
     /// Validate configured backend prerequisites without I/O or effects.
     /// Shared shape, operation and invocation checks precede this hook.
     fn preflight(&self, _context: &Context, _operation: Operation, _input: &Value) -> Result<()> {
@@ -348,9 +361,9 @@ pub trait ProviderSession: Send + Sync {
     }
 
     /// Execute after the adapter's ordinary checks and output gate, retaining
-    /// its existing lifecycle admission for named Start/Destroy/Reconcile.
+    /// the lifecycle admission selected by lifecycle_admission for named bindings.
     /// Fenced backends must use this guard rather than locking the binding
-    /// again. Other operations receive None so data/stream observations remain
+    /// again. Other operations receive None so observations can remain
     /// concurrent with lifecycle control. Retained resources still belong to
     /// the original invocation; admission never supplies remote fencing itself.
     /// Existing providers retain their execute contract through this default.
@@ -676,12 +689,10 @@ impl Session {
             Some(self.control.lock().await)
         };
         // Event-local sessions and native maintenance share the activation's
-        // lifecycle admission. Data operations remain concurrent so a retiring
-        // generation can fence their late results without waiting for them.
-        let lifecycle = if matches!(
-            operation,
-            Operation::Start | Operation::Destroy | Operation::Reconcile
-        ) {
+        // lifecycle admission. Fenced backends may also protect bounded data
+        // proofs from background maintenance. Observation/stream admission
+        // remains selected by the backend, independent of session control.
+        let lifecycle = if self.backend.lifecycle_admission(operation) {
             if let Some(binding) = self.provider.binding_name() {
                 Some(
                     cellar::sdk::containers::BindingJournal::open(context, binding)?

@@ -62,7 +62,8 @@ pub enum DeleteSafety {
 }
 
 /// Credential-free registration identity; the backend retains host credentials.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BackendIdentity {
     pub binding: String,
     pub provider: String,

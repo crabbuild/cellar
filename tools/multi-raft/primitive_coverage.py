@@ -172,8 +172,11 @@ def load_contracts(contract_bytes, cases):
         require(entry["provider"] in ("none", "rustfs", "container", "external-service"),
                 "Unclassified primitive provider")
         symbols = unique(array(entry["symbols"], 2048, "public symbols"), "public symbol")
-        require(all(symbol.startswith("cellar::sdk::") and text(symbol) for symbol in symbols)
+        require(all(symbol.startswith(("cellar::sdk::", "cellar_container::")) and text(symbol) for symbol in symbols)
                 and not symbols & seen_symbols, "Invalid/duplicate qualified public API")
+        require(not any(symbol.startswith("cellar_container::") for symbol in symbols)
+                or (entry["family"] == "container" and "crates/cellar-container/lib.rs" in entry["owners"]),
+                "Container adapter API lacks its owning family/module")
         seen_symbols.update(symbols)
         require(isinstance(entry["refusals"], dict) and set(entry["refusals"]) <= symbols
                 and all(text(code) for code in entry["refusals"].values()), "Invalid documented refusal inventory")
