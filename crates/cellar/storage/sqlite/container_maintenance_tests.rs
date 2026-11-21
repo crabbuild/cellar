@@ -170,7 +170,8 @@ fn stale_quorum_discovery_cannot_claim_a_strengthened_s3_obligation() -> anyhow:
     let initial = shared_change_with_minimum(&db, None, record(), 1000, Durability::Quorum)?;
     // Model the earlier Quorum obligation observed by the scanner. Its wake is
     // still unclaimed when a producer strengthens the same retained generation.
-    let wake = crate::application::consensus::native_work::due(&db, 1100)?.unwrap();
+    let wake =
+        serde_json::to_value(crate::application::consensus::native_work::due(&db, 1100)?.unwrap())?;
     assert_eq!(next_minimum(&db)?, Durability::Quorum);
     db.execute_batch("BEGIN")?;
     changed(
@@ -184,8 +185,8 @@ fn stale_quorum_discovery_cannot_claim_a_strengthened_s3_obligation() -> anyhow:
     )?;
     db.execute_batch("COMMIT")?;
     assert_eq!(
-        crate::application::consensus::native_work::due(&db, 1100)?,
-        Some(wake)
+        serde_json::to_value(crate::application::consensus::native_work::due(&db, 1100)?.unwrap())?,
+        wake
     );
     let task = tasks(&db)?.remove(0);
     assert_eq!(task.minimum, Durability::S3);
@@ -198,8 +199,8 @@ fn stale_quorum_discovery_cannot_claim_a_strengthened_s3_obligation() -> anyhow:
     );
     assert_eq!(tasks(&db)?, vec![task.clone()]);
     assert_eq!(
-        crate::application::consensus::native_work::due(&db, 1100)?,
-        Some(wake)
+        serde_json::to_value(crate::application::consensus::native_work::due(&db, 1100)?.unwrap())?,
+        wake
     );
     db.execute_batch("BEGIN")?;
     let claimed = claim_in(&db, RAFT_STORAGE_SCOPE, &task, 1100, Durability::S3)?.unwrap();
