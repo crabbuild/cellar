@@ -94,6 +94,14 @@ impl ExecutionControllerBackend for Peer {
         payload: Vec<u8>,
     ) -> HandlerFuture<ExecutionOutcome> {
         Box::pin(async move {
+            eprintln!(
+                "controller_provider_backend_start kind={:?} id={} remaining_ms={}",
+                operation.kind,
+                hex::encode(operation.id),
+                operation
+                    .expires_unix_ms
+                    .saturating_sub(cellar::asyncrt::wall_ms().max(0) as u64)
+            );
             ensure!(
                 self.active.lock().unwrap().as_ref() == Some(&claim),
                 "stale provider request"
@@ -183,6 +191,11 @@ impl ExecutionControllerBackend for Peer {
                     )
                     .is_none(),
                 "provider submission replayed an operation ID"
+            );
+            eprintln!(
+                "controller_provider_backend_completed kind={:?} id={}",
+                operation.kind,
+                hex::encode(operation.id)
             );
             if (method == Operation::Start && self.lose_create.swap(false, Ordering::AcqRel))
                 || (method == Operation::Destroy && self.lose_delete.swap(false, Ordering::AcqRel))
@@ -529,6 +542,10 @@ pub async fn qualify_data_recovery(real: bool, write: bool) -> Result<()> {
 }
 
 async fn selected(real: bool, scenario: Scenario) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug")
+        .with_ansi(false)
+        .try_init();
     let recovery = scenario != Scenario::Basic;
     let expiry = scenario == Scenario::Expired;
     let lost_write = scenario == Scenario::LostWrite;
@@ -615,7 +632,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                     let error=data.err().context("data mutation unexpectedly returned a result")?;
                     let original=bindings::options(2,minimum)?.id;
                     ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous && error.command==original),"lost data reply lost its original ambiguous command identity");
-                    ensure!(peer.lost_data.lock().unwrap().is_some(),"data loss cut was never entered");
+                    ensure!(peer.lost_data.lock().unwrap().is_some(),"data loss cut was never entered; writes={} execs={} source_error={error:#}",peer.writes.load(Ordering::Acquire),peer.executions.load(Ordering::Acquire));
                     if lost_write {
                         // The controller remains live. Cleanup must settle the
                         // original write without constructing a business cell.
