@@ -29,6 +29,10 @@ pub(super) async fn qualify(real: bool, maintenance: bool) -> Result<()> {
             let result = domain.run(async {
                 let group = cluster.history;
                 let history = CellHistory {cluster: group.cluster, namespace: group.namespace, cell: CellId::new("Counter:controller-provider")?, incarnation: IncarnationId::new([246;16])?};
+                let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+                cluster.hosts[leader].cell(history.clone())?.enroll(CellEnrollmentRequest {
+                    creation: ProposalId::new([247;16])?, durability: minimum,
+                }, TIMEOUT).await?;
                 call(&cluster, &history, minimum, 1, "Create").await?;
                 let staged = call(&cluster, &history, minimum, 2, "StageDeleteIntent").await?;
                 ensure!(staged.durability >= minimum);
