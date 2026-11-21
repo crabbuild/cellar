@@ -209,8 +209,24 @@ impl ExecutionControllerBackend for Peer {
     }
 }
 
+// Supervision retains its authority at registration. Model a stable host-owned
+// endpoint, not an old closed controller handle, across independent restart.
+// Only the endpoint changes: every supplied claim remains the original claim.
+struct Authority(Arc<RwLock<Arc<ControllerProvider>>>);
+
+impl ExecutionFenceAuthority for Authority {
+    fn identity(&self) -> BackendIdentity {
+        self.0.read().unwrap().identity()
+    }
+
+    fn activate(self: Arc<Self>, claim: ExecutionClaim) -> HandlerFuture<()> {
+        let authority = self.0.read().unwrap().authority();
+        authority.activate(claim)
+    }
+}
+
 struct Route {
-    provider: RwLock<Arc<ControllerProvider>>,
+    provider: Arc<RwLock<Arc<ControllerProvider>>>,
     factory_refused: AtomicBool,
     retired: AtomicBool,
     changed: Notify,
@@ -231,7 +247,7 @@ impl FencedMaintenanceBackend for Route {
     }
 
     fn authority(&self) -> Arc<dyn ExecutionFenceAuthority> {
-        self.selected().authority()
+        Arc::new(Authority(self.provider.clone()))
     }
 
     fn maintain(
@@ -513,7 +529,9 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                 catalog_fault::Store::default()
             });
             let route = Arc::new(Route {
-                provider: RwLock::new(Arc::new(ControllerProvider::new(controller.clone())?)),
+                provider: Arc::new(RwLock::new(Arc::new(ControllerProvider::new(
+                    controller.clone(),
+                )?))),
                 factory_refused: AtomicBool::new(false),
                 retired: AtomicBool::new(false),
                 changed: Notify::new(),

@@ -43,6 +43,13 @@ an absence check alone cannot fence a queued create. Reconciliation never
 replays an uncertain mutation. The same adapter implements fenced background
 maintenance, including cleanup when the business constructor is unavailable.
 
+Supervision captures its fencing authority when registered. If an embedding
+reopens an in-process controller independently, rebuild that registration or use
+a host-owned endpoint forwarder for both sessions and fencing. Replacing only
+foreground sessions leaves maintenance using the closed handle. A forwarder
+must preserve the pinned controller identity and pass the original claim through;
+it must never substitute a newer invocation's grant.
+
 ## Storage ownership
 
 Create with a new absolute directory and a zero controller ID. Creation generates
