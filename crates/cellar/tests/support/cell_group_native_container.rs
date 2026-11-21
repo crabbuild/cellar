@@ -2,7 +2,7 @@
 
 //! Normal Context.container calls, independent cells and deferred construction.
 use super::*;
-use cellar::sdk::containers::{Container, FilePath, StartOptions};
+use cellar::sdk::containers::{Container, ContainerAdapter, FilePath, StartOptions};
 
 #[derive(Default)]
 struct Peers(Mutex<BTreeMap<String, (String, Arc<Peer>)>>);
@@ -97,8 +97,42 @@ impl ExecutionControllerBackend for Peers {
 struct Track {
     constructed: Mutex<BTreeMap<String, usize>>,
     reads: AtomicUsize,
+    prepared_starts: AtomicUsize,
     old: Mutex<Option<(Container, Context)>>,
     restarted: AtomicBool,
+}
+
+struct PreparedAdapter {
+    inner: cellar_container::controller::NativeContainerAdapter,
+    track: std::sync::Weak<Track>,
+}
+
+impl ContainerAdapter for PreparedAdapter {
+    fn identity(&self) -> BackendIdentity {
+        self.inner.identity()
+    }
+
+    fn max_body_bytes(&self) -> usize {
+        self.inner.max_body_bytes()
+    }
+
+    fn prepare<'a>(
+        &'a self,
+        context: &'a Context,
+        request: cellar::sdk::containers::ContainerRequest,
+        lifecycle: Option<&'a BindingLifecycleGuard>,
+    ) -> Result<cellar::sdk::containers::PreparedContainerCall<'a>> {
+        let start = matches!(request, cellar::sdk::containers::ContainerRequest::Start(_));
+        let call = self.inner.prepare(context, request, lifecycle)?;
+        if start {
+            self.track
+                .upgrade()
+                .context("native preparation tracker was released")?
+                .prepared_starts
+                .fetch_add(1, Ordering::AcqRel);
+        }
+        Ok(call)
+    }
 }
 
 struct NativeRoot {
@@ -247,12 +281,15 @@ async fn start_native(
     track: Arc<Track>,
 ) -> Result<ManagedCluster> {
     let provider = Arc::new(ControllerProvider::new(controller)?);
-    let adapter = Arc::new(cellar_container::controller::NativeContainerAdapter::new(
-        provider,
-        cellar_container::Limits {
-            max_body_bytes: 4096,
-        },
-    )?);
+    let adapter = Arc::new(PreparedAdapter {
+        inner: cellar_container::controller::NativeContainerAdapter::new(
+            provider,
+            cellar_container::Limits {
+                max_body_bytes: 4096,
+            },
+        )?,
+        track: Arc::downgrade(&track),
+    });
     let class = RaftClass::new("Counter", 1, [221; 32])?
         .initializer([222; 32], |_, _| Ok(()))?
         .json_cell_rpc("Run", [223; 32])?
@@ -385,6 +422,7 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
                     let denied=store.denied_group_archive_writes.load(Ordering::Acquire);
                     store.deny_group_archive_writes.store(true,Ordering::Release);
                     let result=call(&cluster,&a,minimum,1,"Create").await;
+                    ensure!(track.prepared_starts.load(Ordering::Acquire)==1,"native archive case did not finish private Start preparation");
                     if minimum==Durability::S3 {
                         let error=result.err().context("native provider escaped S3 gate")?;
                         let original=bindings::options(1,minimum)?.id;
@@ -396,10 +434,10 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
                     }
                     store.deny_group_archive_writes.store(false,Ordering::Release);
                 } else {
-                    for h in [&a,&b] {
+                    for (offset,h) in [&a,&b].into_iter().enumerate() {
                         let leader=managed_fixture::leader(&cluster.hosts,cluster.history).await?;
                         let cell=cluster.hosts[leader].cell(h.clone())?;
-                        let before=cell.query(ProposalId::new([217;16])?,&cell.contract("Version")?,vec![],QueryOptions::default()).await?;
+                        let before=cell.query(ProposalId::new([216-offset as u8;16])?,&cell.contract("Version")?,vec![],QueryOptions::default()).await?;
                         let created=call(&cluster,h,minimum,1,"Create").await?;
                         ensure!(created.version.sequence.get()==before.version.sequence.get()+2,"native first Start added a pre-constructor proof");
                     }
