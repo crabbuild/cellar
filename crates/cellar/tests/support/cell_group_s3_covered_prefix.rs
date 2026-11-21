@@ -14,15 +14,17 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
         Durability::Quorum,
         None,
         None,
-        Some(Resources::SlowMaintenance),
+        Some(Resources::DeferredBackground),
     )
     .await?;
     let work = async {
         let written = h
             .command(1, b"archived-cell", Durability::S3, Duration::from_secs(5))
-            .await?
+            .await
+            .context("initial S3 command admission")?
             .response()
-            .await?;
+            .await
+            .context("initial S3 command output")?;
         let version = written.observation().version;
         let archived = written
             .local_receipt()
@@ -73,11 +75,13 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
                 },
                 None,
             )
-            .await?;
+            .await
+            .context("sibling command admission")?;
         let sibling_result = h.controllers[0]
             .command(sibling_call, h.fixture.cell_options(&sibling).await?)?
             .response()
-            .await?;
+            .await
+            .context("sibling Quorum command")?;
         anyhow::ensure!(sibling_result.durability() == Durability::Quorum);
         anyhow::ensure!(
             sibling_result
@@ -121,6 +125,17 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
         );
         h.token(&response).await?;
         anyhow::ensure!(
+            h.controllers[0]
+                .archive_status(h.route.history)?
+                .context("lookup archive status")?
+                .published
+                .context("lookup archive prefix")?
+                .position()
+                .index
+                == archived,
+            "covered lookup published a newer group cut"
+        );
+        anyhow::ensure!(
             h.remote.denied_chunk_creates.load(Ordering::Acquire) == denied,
             "covered lookup attempted a new archive upload"
         );
@@ -163,14 +178,16 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
         );
         drop(unavailable);
         h.remote.deny_chunk_creates.store(false, Ordering::Release);
-        let mut recovered = h.lookup(request, Duration::from_secs(5)).await?;
+        let mut recovered = h.lookup(request, Duration::from_secs(5)).await
+            .context("healed receipt discovery")?;
         let response = recovered
             .execute(
                 &h.fixture.runtimes[0],
                 &h.fixture.appliers[&(0, h.route.history)].0,
                 h.fixture.cell_options(&h.cell).await?,
             )
-            .await?;
+            .await
+            .context("healed target after archive-write refusal")?;
         anyhow::ensure!(response.durability() == Durability::S3);
         anyhow::ensure!(
             response.receipt().context("healed result")?.result() == b"unarchived-cell"
