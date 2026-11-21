@@ -491,6 +491,7 @@ async fn restart(
         track.restarted.store(true, Ordering::Release);
         bindings::restart(cluster).await?;
         call(cluster, a, minimum, 5, "Status").await?;
+        call(cluster, b, minimum, 2, "Status").await?;
         if minimum == Durability::S3 {
             ensure!(
                 first.creates.load(Ordering::Acquire) == 1
@@ -499,7 +500,8 @@ async fn restart(
             );
             call(cluster, a, minimum, 6, "Restart").await?;
         }
-        call(cluster, a, minimum, 7, "Destroy").await?;
+        let final_sequence = if minimum == Durability::S3 { 7 } else { 6 };
+        call(cluster, a, minimum, final_sequence, "Destroy").await?;
         ensure!(
             first.creates.load(Ordering::Acquire) == 2
                 && first.deletes.load(Ordering::Acquire) == 2
