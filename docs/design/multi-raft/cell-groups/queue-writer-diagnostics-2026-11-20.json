@@ -1,0 +1,559 @@
+{
+  "purpose": "Original C4 Queue failures narrowed to cell-writer occupancy and submission/settlement costs. Diagnostic evidence only: no production fix, speedup or full acceptance claim.",
+  "published_baseline_revision": "81e177e896fce8dcd525e1b63c2f35cb6fb5b1eb",
+  "production_code_revision": "77efa0e2982440f4460db32308921eb1a0345548",
+  "included_main": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+  "restored_compiler_inputs_sha256": "de694bac16735691391100bf6888797fa3adb1b1ed671cbc4f762fde78a38a4f",
+  "toolchain": "1.98.1",
+  "build_contract": {
+    "locked": true,
+    "all_features": true,
+    "internal_test_cfg_enabled": false,
+    "incremental": false,
+    "build_jobs": 1,
+    "test_threads": 1,
+    "test_opt_level": 1,
+    "debug_info": 0,
+    "debug_assertions": true,
+    "overflow_checks": true
+  },
+  "unchanged_fixture": "Host-native RF3/three-group original C4 workload, two queues, batch eight, four producers; one SQL worker per host, eight ordinary slots/131072 bytes and two callback slots. Original callback/request deadlines, producer operations, exact-drain assertions and proof checks unchanged. Independent fixtures only; original failed histories never reset or mutations reissued.",
+  "hypotheses_in_rank_order": [
+    "Writer occupancy and checkpoint/finalization handoffs",
+    "Single SQL-worker queue/service saturation",
+    "Consensus persistence/apply and fresh-authority waits",
+    "Missed writer/capacity release notification"
+  ],
+  "cohorts": [
+    {
+      "label": "queue-prepare-diagnostics-01",
+      "diagnostic_compiler_inputs_sha256": "6142ce23afa364d8d9a78270714a5e4a930fd46310d1caed7090aea829d0810b",
+      "record_sha256": "42a0cb0786a941b4c5f81dc804cb492cf8a1cf4e935611dd96b3782f64f8f053",
+      "completion_record_sha256": "2adb81388d49f6dcddfbc97e7da401d55fb9a91dca8aa6c0133167a7cb8145ac",
+      "executable_sha256": "a242562ca3908c30ad28ad545e061e8ff65b943398fc629f34c105e40f388555",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "stages": [
+        {
+          "name": "compile-native",
+          "status": "PASSED",
+          "elapsed_seconds": 1302.2902645830181,
+          "log_sha256": "dd95e485c6b3054854d4e82471961725839cfe0ba0bb535f7b59610fc3c8092c",
+          "footers": []
+        },
+        {
+          "name": "trial-1-rooted",
+          "status": "FAILED",
+          "elapsed_seconds": 40.645101958012674,
+          "log_sha256": "ebf0b0dde801df264c73e3b50158123f362aeace635a62ebb34badaeaf98132a",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "trial-2-materialized",
+          "status": "FAILED",
+          "elapsed_seconds": 58.699254625011235,
+          "log_sha256": "2136e314987c4b2e42db6de3eeea12ae4dd5d45539c5660ee7cc13ab389a3cfe",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "trial-3-rooted",
+          "status": "FAILED",
+          "elapsed_seconds": 88.42045400000643,
+          "log_sha256": "2266c0d1604519d399fa335c2d11b22ab90a807dbb1d61be6e1913e4d128db63",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "trial-4-materialized",
+          "status": "FAILED",
+          "elapsed_seconds": 77.33550241700141,
+          "log_sha256": "000fb978da55d3eed987e756a5db292f4fa129f2b6688f1b844779d6991596b2",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      ],
+      "retained": {
+        "files": 2358,
+        "bytes": 73187800,
+        "manifest_sha256": "22af59d075cbd536ca65eed8832ab21de729e4db679fd35eb02ed6aa2326a02e",
+        "closed_copy_matches": true
+      },
+      "returned_failures": [
+        {
+          "stage": "trial-1-rooted",
+          "status": "FAILED",
+          "load_failure_snapshot": true,
+          "failed_producer_responses": 4,
+          "all_returned_producer_failures_captured": true,
+          "consumer_observation_captured": true,
+          "consumer_observation_is_not_durable_settlement_proof": true
+        },
+        {
+          "stage": "trial-2-materialized",
+          "status": "FAILED",
+          "load_failure_snapshot": true,
+          "failed_producer_responses": 4,
+          "all_returned_producer_failures_captured": true,
+          "consumer_observation_captured": true,
+          "consumer_observation_is_not_durable_settlement_proof": true
+        },
+        {
+          "stage": "trial-3-rooted",
+          "status": "FAILED",
+          "load_failure_snapshot": true,
+          "failed_producer_responses": 2,
+          "all_returned_producer_failures_captured": true,
+          "consumer_observation_captured": true,
+          "consumer_observation_is_not_durable_settlement_proof": true
+        },
+        {
+          "stage": "trial-4-materialized",
+          "status": "FAILED",
+          "load_failure_snapshot": true,
+          "failed_producer_responses": 2,
+          "all_returned_producer_failures_captured": true,
+          "consumer_observation_captured": true,
+          "consumer_observation_is_not_durable_settlement_proof": true
+        }
+      ],
+      "observations": [
+        {
+          "case": "trial-1-rooted",
+          "returned_producer_failures": 4,
+          "completed_phase_samples": {
+            "authority": 20,
+            "sql": 20
+          },
+          "phase_p95_ms": {
+            "authority": 74,
+            "sql": 3412
+          },
+          "phase_max_ms": {
+            "authority": 74,
+            "sql": 3412
+          }
+        },
+        {
+          "case": "trial-2-materialized",
+          "returned_producer_failures": 4,
+          "completed_phase_samples": {
+            "authority": 28,
+            "sql": 26
+          },
+          "phase_p95_ms": {
+            "authority": 64,
+            "sql": 2368
+          },
+          "phase_max_ms": {
+            "authority": 166,
+            "sql": 3150
+          }
+        },
+        {
+          "case": "trial-3-rooted",
+          "returned_producer_failures": 2,
+          "completed_phase_samples": {
+            "authority": 208,
+            "sql": 67
+          },
+          "phase_p95_ms": {
+            "authority": 46,
+            "sql": 3201
+          },
+          "phase_max_ms": {
+            "authority": 91,
+            "sql": 3708
+          }
+        },
+        {
+          "case": "trial-4-materialized",
+          "returned_producer_failures": 2,
+          "completed_phase_samples": {
+            "authority": 232,
+            "sql": 76
+          },
+          "phase_p95_ms": {
+            "authority": 42,
+            "sql": 2307
+          },
+          "phase_max_ms": {
+            "authority": 72,
+            "sql": 2918
+          }
+        }
+      ],
+      "attribution_limit": "First probe recorded CommandId without CellHistory. Its per-ID response matches can combine different cells and are not accepted as individual-command causal attribution."
+    },
+    {
+      "label": "queue-prepare-diagnostics-02",
+      "diagnostic_compiler_inputs_sha256": "dc44a62bbad98446076427e78c393ded10ff26c909e29806ee6ed689432d43cd",
+      "record_sha256": "9a1c0c4e7c10d904ddcfbbf6d016de2e7552ccd2eb85c81f3299bd67113a61ae",
+      "completion_record_sha256": "6ad51aa63fa2d75275455b6f686bc36a436b10c4764deedc34aa37688557edc0",
+      "executable_sha256": "f5048677a249ac307a79cb89426c20210c2bf46b9ec52890440ee1ea2c446dc2",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "stages": [
+        {
+          "name": "compile-native",
+          "status": "PASSED",
+          "elapsed_seconds": 618.1797794579761,
+          "log_sha256": "afedb43df8d6b8b47f65440eb06ca9e08f28a45bde876763890d6ded26e87530",
+          "footers": []
+        },
+        {
+          "name": "trial-1-rooted",
+          "status": "FAILED",
+          "elapsed_seconds": 34.33109304198297,
+          "log_sha256": "c525daa096a097b676daf385fbf51d69812ee0ce368adf39fafab00cb69ea92f",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "trial-2-materialized",
+          "status": "FAILED",
+          "elapsed_seconds": 65.61365320900222,
+          "log_sha256": "c264b7ce975bb20649185676118832eaef07cf0d1c08c9c341f2ee253157b684",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "trial-3-rooted",
+          "status": "FAILED",
+          "elapsed_seconds": 32.797703916963656,
+          "log_sha256": "5b6ae382dc044ae9d9f0571632b87c7077c52c9653e3e514de5e951047e4e638",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "trial-4-materialized",
+          "status": "FAILED",
+          "elapsed_seconds": 84.08969900000375,
+          "log_sha256": "f00b026cdf976eefc8fa53e0e18dd1d7b4be49c440e5f912c386d57f4a5131b4",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      ],
+      "retained": {
+        "files": 1626,
+        "bytes": 42434644,
+        "manifest_sha256": "af815d1a48716cb40e9f8317aefd39d82b3645a86c6101b0099f65ff7cb73cf3",
+        "closed_copy_matches": true
+      },
+      "returned_failures": [
+        {
+          "stage": "trial-1-rooted",
+          "status": "FAILED",
+          "load_failure_snapshot": true,
+          "failed_producer_responses": 4,
+          "all_returned_producer_failures_captured": true,
+          "consumer_observation_captured": true,
+          "consumer_observation_is_not_durable_settlement_proof": true
+        },
+        {
+          "stage": "trial-2-materialized",
+          "status": "FAILED",
+          "load_failure_snapshot": true,
+          "failed_producer_responses": 4,
+          "all_returned_producer_failures_captured": true,
+          "consumer_observation_captured": true,
+          "consumer_observation_is_not_durable_settlement_proof": true
+        },
+        {
+          "stage": "trial-3-rooted",
+          "status": "FAILED",
+          "load_failure_snapshot": true,
+          "failed_producer_responses": 4,
+          "all_returned_producer_failures_captured": true,
+          "consumer_observation_captured": true,
+          "consumer_observation_is_not_durable_settlement_proof": true
+        },
+        {
+          "stage": "trial-4-materialized",
+          "status": "FAILED",
+          "load_failure_snapshot": true,
+          "failed_producer_responses": 2,
+          "all_returned_producer_failures_captured": true,
+          "consumer_observation_captured": true,
+          "consumer_observation_is_not_durable_settlement_proof": true
+        }
+      ],
+      "observations": [
+        {
+          "case": "trial-1-rooted",
+          "returned_producer_failures": 4,
+          "completed_phase_samples": {
+            "authority": 62,
+            "writer_admission": 19,
+            "entry_rebase": 19,
+            "sql_worker_queue": 19,
+            "owned_prepare": 21,
+            "owned_submit": 19,
+            "owned_settle": 19
+          },
+          "phase_p95_ms": {
+            "authority": 44,
+            "writer_admission": 1608,
+            "entry_rebase": 13,
+            "sql_worker_queue": 425,
+            "owned_prepare": 3237,
+            "owned_submit": 743,
+            "owned_settle": 907
+          },
+          "phase_max_ms": {
+            "authority": 71,
+            "writer_admission": 1608,
+            "entry_rebase": 13,
+            "sql_worker_queue": 425,
+            "owned_prepare": 3455,
+            "owned_submit": 743,
+            "owned_settle": 907
+          },
+          "returned_failure_matches_by_full_history": [
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "case": "trial-2-materialized",
+          "returned_producer_failures": 4,
+          "completed_phase_samples": {
+            "authority": 44,
+            "writer_admission": 26,
+            "entry_rebase": 26,
+            "sql_worker_queue": 26,
+            "owned_prepare": 25,
+            "owned_submit": 24,
+            "owned_settle": 22
+          },
+          "phase_p95_ms": {
+            "authority": 96,
+            "writer_admission": 848,
+            "entry_rebase": 1,
+            "sql_worker_queue": 139,
+            "owned_prepare": 2278,
+            "owned_submit": 581,
+            "owned_settle": 1457
+          },
+          "phase_max_ms": {
+            "authority": 111,
+            "writer_admission": 1021,
+            "entry_rebase": 34,
+            "sql_worker_queue": 152,
+            "owned_prepare": 3429,
+            "owned_submit": 594,
+            "owned_settle": 1556
+          },
+          "returned_failure_matches_by_full_history": [
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "case": "trial-3-rooted",
+          "returned_producer_failures": 4,
+          "completed_phase_samples": {
+            "authority": 50,
+            "writer_admission": 22,
+            "entry_rebase": 22,
+            "sql_worker_queue": 22,
+            "owned_prepare": 23,
+            "owned_submit": 21,
+            "owned_settle": 20
+          },
+          "phase_p95_ms": {
+            "authority": 40,
+            "writer_admission": 742,
+            "entry_rebase": 1,
+            "sql_worker_queue": 258,
+            "owned_prepare": 3058,
+            "owned_submit": 305,
+            "owned_settle": 1088
+          },
+          "phase_max_ms": {
+            "authority": 81,
+            "writer_admission": 1590,
+            "entry_rebase": 26,
+            "sql_worker_queue": 421,
+            "owned_prepare": 3437,
+            "owned_submit": 308,
+            "owned_settle": 1088
+          },
+          "returned_failure_matches_by_full_history": [
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "case": "trial-4-materialized",
+          "returned_producer_failures": 2,
+          "completed_phase_samples": {
+            "authority": 64,
+            "writer_admission": 64,
+            "entry_rebase": 64,
+            "sql_worker_queue": 64,
+            "owned_prepare": 63,
+            "owned_submit": 62,
+            "owned_settle": 61
+          },
+          "phase_p95_ms": {
+            "authority": 48,
+            "writer_admission": 899,
+            "entry_rebase": 24,
+            "sql_worker_queue": 83,
+            "owned_prepare": 2085,
+            "owned_submit": 94,
+            "owned_settle": 680
+          },
+          "phase_max_ms": {
+            "authority": 83,
+            "writer_admission": 1066,
+            "entry_rebase": 98,
+            "sql_worker_queue": 235,
+            "owned_prepare": 2170,
+            "owned_submit": 194,
+            "owned_settle": 928
+          },
+          "returned_failure_matches_by_full_history": [
+            1,
+            1
+          ]
+        }
+      ],
+      "normalization": {
+        "proof_sha256": "46715cef4a8299c2e7164f91ba82c2e7d8779fa433abecbf5de518f476fde1f2",
+        "method": "Remove only complete timestamped DEBUG events from the two explicitly enabled tracing targets; preserve original raw logs. This reconstructs stderr JSON records interrupted by atomic stdout trace writes.",
+        "cases": [
+          {
+            "stage": "trial-1-rooted",
+            "raw_sha256": "c525daa096a097b676daf385fbf51d69812ee0ce368adf39fafab00cb69ea92f",
+            "normalized_sha256": "cbcb6bfeaa79a12ad0a6b4f779160c38d7da210cf692932ffe8bc32cc02c1281",
+            "removed_known_complete_trace_events": 325,
+            "recovered_failure_records": 4,
+            "expected_failed_producers": 4
+          },
+          {
+            "stage": "trial-2-materialized",
+            "raw_sha256": "c264b7ce975bb20649185676118832eaef07cf0d1c08c9c341f2ee253157b684",
+            "normalized_sha256": "be76bafaeb739034d9361dfc83617745bd9c4d20b76bc0a08e1de64f24a6d90b",
+            "removed_known_complete_trace_events": 349,
+            "recovered_failure_records": 4,
+            "expected_failed_producers": 4
+          },
+          {
+            "stage": "trial-3-rooted",
+            "raw_sha256": "5b6ae382dc044ae9d9f0571632b87c7077c52c9653e3e514de5e951047e4e638",
+            "normalized_sha256": "96b41b1d995328052cf39903cc4632f6283ebdaee6fad1f55f0a6848d09e97b8",
+            "removed_known_complete_trace_events": 324,
+            "recovered_failure_records": 4,
+            "expected_failed_producers": 4
+          },
+          {
+            "stage": "trial-4-materialized",
+            "raw_sha256": "f00b026cdf976eefc8fa53e0e18dd1d7b4be49c440e5f912c386d57f4a5131b4",
+            "normalized_sha256": "f6fca1d53a341b9f572d96f5d0b7ac87651c6c75af96c4c0c8cb9c2f7e5967a2",
+            "removed_known_complete_trace_events": 796,
+            "recovered_failure_records": 2,
+            "expected_failed_producers": 2
+          }
+        ]
+      },
+      "canonical_scope_mapping": "Full history includes the runtime Queue scope. The private parser uses the two-round HMAC-SHA256 derivation from cellar-native/cell_id.rs and runtime/contracts.rs; the existing public customer:alpha reference vector (with its Unicode character) matches. Each returned producer failure maps to exactly one full history; repeated attempts still remain separate events."
+    }
+  ],
+  "interpretation": [
+    "All eight original C4 invocations fail; no assertion or deadline was weakened. Initial authority calls are usually short. The refined probe records completed writer waits up to 1608 ms, while entry-authority rebase maxima are 13/34/26/98 ms across its four invocations.",
+    "SQL-worker queue medians are zero in all four refined invocations; p95 values are 425/139/258/83 ms. Queue tails can contribute, but these captures do not establish continuous worker-queue saturation.",
+    "Owned submission and settlement remain additional costs: phase p95 values reach 743 and 1457 ms respectively. These overlap broader operations and some physical work continues after response expiry. Per-phase statistics include setup/diagnostic teardown; they are not successful business-request latency or constrained performance percentiles.",
+    "Writer ownership includes callback checkpoints and producer finalization. Long teardown ownership spans are not used to infer live request cost. The captures do not prove a missed wake or authorize changing retry rules, command identities, clocks or ownership.",
+    "Next owning investigation: reduce measured same-cell write/persistence/finalization work within the existing authority, contiguous-apply, exact-receipt and required S3 boundaries; qualify against the complete unchanged C2/C4 and exact-drain tests. Existing held-consumer regression already permits another producer on the same Queue, so it cannot substitute for the failing immediate-consumer load."
+  ],
+  "retention": "All original node files, closed copies, source inputs, executable/profile and raw logs match frozen hashes. All 12 first-capture and 14 refined-capture returned producer failures are retained privately, with offered values and consumer observations. Refined stdout tracing interleaved stderr JSON; only complete known trace events are removed from a separate copy to reconstruct records, and recovered counts match failedProducers. Original raw bytes remain unchanged. Consumer observations are not durable settlement proofs.",
+  "cleanup": "All temporary probes removed after joined compilation/harness completion; all six source files restored byte-for-byte to the published compiler-input manifest. Previous source-bound library/application results retain their original scope; no new full-library or release acceptance inferred from these diagnostics.",
+  "original_store_capacity": {
+    "observed_at_utc": "2026-11-20T03:11:34.682481+00:00",
+    "reserve_bytes": 6442450944,
+    "admissible": false,
+    "actions": [
+      "read-only container list",
+      "read-only original container inspection",
+      "read-only df",
+      "read-only inspection identity recheck"
+    ],
+    "available_bytes": 0,
+    "capacity_guard_satisfied": false,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_inspection_config_and_start_unchanged": true,
+    "restarts": 0,
+    "stable_inspection_sha256": "3385998d819d01c22374605e0bb3b8c24fa004b18f19027e33c5f196d0c90c7c",
+    "status": "OBSERVED"
+  },
+  "remaining": "Original Queue progress/deadlines/exact acknowledged-message drain, cold/historical KV availability, current-source SDK/lifecycle/release acceptance, full OPT-01\u201308 and remaining CG/physical-reclamation/placement/recovery gates, and the unchanged original constrained SQL/KV/Queue performance matrix remain open.",
+  "acceptance": "No task status promotion; full goal ACTIVE."
+}

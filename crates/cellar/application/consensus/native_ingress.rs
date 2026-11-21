@@ -160,10 +160,7 @@ fn submit(
             CommandFailure::UnsupportedCapability
         );
         let call_scope = ingress_scope(context, call_scope);
-        let read = scope
-            .split_once(':')
-            .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
-            && crate::application::workflow::read_operation(&method).is_some();
+        let read = crate::application::cell_bindings::read_resource(&scope, &method);
         let queue_metrics = super::native_queue_metrics::is_method(&scope, &method);
         anyhow::ensure!(
             !resource || read || queue_metrics,
@@ -240,11 +237,12 @@ fn submit(
         }
         Ok(match native {
             Some(configuration) if read => {
-                owner.workflow_read(admitted, call_scope, deadline, configuration)
+                owner.resource_read(admitted, call_scope, deadline, Some(configuration))
             }
             Some(configuration) => {
                 owner.native_ingress(admitted, call_scope, deadline, configuration)
             }
+            None if read => owner.resource_read(admitted, call_scope, deadline, None),
             None => owner.sql_ingress(admitted, call_scope, deadline),
         })
     })();

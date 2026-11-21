@@ -22,6 +22,10 @@ use std::{
 
 type Result<T> = std::result::Result<T, CellGroupArchiveError>;
 
+#[cfg(test)]
+#[path = "partition_install_tests.rs"]
+mod install_tests;
+
 /// Dedicated child preparation stores. The store route must be an exact
 /// child of the selected transition, in the original plan order.
 pub struct CellGroupTransferTarget {

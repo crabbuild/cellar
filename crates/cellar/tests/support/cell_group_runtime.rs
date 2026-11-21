@@ -5,6 +5,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "cell_group_archive_intents.rs"]
+mod archive_intents;
+pub(super) use archive_intents::persist_archive_intent;
 #[path = "cell_group_startup_mutation.rs"]
 mod startup_mutation;
 pub(super) use startup_mutation::{
@@ -39,6 +42,10 @@ pub(super) use snapshot_owner::{
 #[path = "cell_group_checkpoint_pressure.rs"]
 mod checkpoint_pressure;
 pub(super) use checkpoint_pressure::transfer_pressure;
+
+#[path = "cell_group_ready_runtime.rs"]
+mod ready_runtime;
+pub(super) use ready_runtime::append_during_sync;
 
 #[path = "cell_group_checkpoint_receive.rs"]
 mod checkpoint_receive;
@@ -563,6 +570,27 @@ impl RuntimeCluster {
         store: Arc<dyn object_store::ObjectStore>,
         filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
     ) -> Result<(RangeDirectory, CellGroupBirth)> {
+        self.add_group_in_store_with_storage(
+            number,
+            store,
+            filesystem,
+            RaftImageStorage::Materialized,
+        )
+        .await
+    }
+
+    async fn add_group_in_store_with_storage(
+        &mut self,
+        number: u8,
+        store: Arc<dyn object_store::ObjectStore>,
+        filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
+        image_storage: RaftImageStorage,
+    ) -> Result<(RangeDirectory, CellGroupBirth)> {
+        let rooted = image_storage == RaftImageStorage::Extents;
+        anyhow::ensure!(
+            !rooted || self.cluster.voters.iter().all(|v| v.extents.is_some()),
+            "extent groups require the existing node inventory"
+        );
         let scope = GroupHistory {
             cluster: self.cluster.birth.route().history.cluster,
             namespace: NamespaceId::new([number; 16])?,
@@ -571,14 +599,14 @@ impl RuntimeCluster {
         };
         let domain = &self.cluster.domain;
         let catalog = Catalog::new(store, CatalogOptions::default())?;
-        let namespace = domain
-            .run(catalog.open_namespace(NamespaceConfig::new(
-                scope.cluster,
-                scope.namespace,
-                cellar_logic::NamespaceMode::Raft,
-                [6; 32],
-            )))
-            .await??;
+        let mut namespace = NamespaceConfig::new(
+            scope.cluster,
+            scope.namespace,
+            cellar_logic::NamespaceMode::Raft,
+            [6; 32],
+        );
+        namespace.image_storage = image_storage;
+        let namespace = domain.run(catalog.open_namespace(namespace)).await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
         let request = directory.prepare_group_birth(CellGroupBirthSpec {
             history: scope,
@@ -643,7 +671,18 @@ impl RuntimeCluster {
                 owner: None,
                 pages: Some(pages),
                 images,
-                extents: None,
+                // Extent groups share this node's existing physical inventory
+                // and its quota; another group cannot create another bank.
+                extents: if rooted {
+                    Some(
+                        self.cluster.voters[n]
+                            .extents
+                            .clone()
+                            .context("node extent inventory")?,
+                    )
+                } else {
+                    None
+                },
                 tree,
                 gate: self.cluster.voters[n].gate.clone(),
                 paused: false,
@@ -917,34 +956,41 @@ pub(super) use sql::{
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
-    archive_controller_tail_rollover, archived_groups_reclaim_independently,
+    archive_controller_tail_rollover, archived_groups_reclaim_independently, payload_read_failure,
+    PayloadFailure,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_controller_payload_outage, archive_controller_publish_store,
-    archive_controller_reconcile_store, archive_reservation_retries_from_durable_intent,
-    archive_retirement_joins_next_intent,
+    archive_controller_reconcile_store, archive_controller_reservation_recovery,
+    archive_reservation_retries_from_durable_intent, archive_retirement_joins_next_intent,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
-    enrollment_output_during_apply, follower_acquires_published_prefix, full_backend_outage,
-    output_during_apply, output_progress, s3_commands, s3_deadline, s3_enrollment,
-    s3_enrollment_deadline, s3_foreground_receipt_precedes_queued_background_archive,
+    enrollment_output_during_apply, follower_acquires_published_prefix,
+    follower_bootstraps_first_prefix, full_backend_outage, output_during_apply, output_progress,
+    peer_connection_idle, retirement_coalesces_next_archive_intent, s3_commands, s3_deadline,
+    s3_enrollment, s3_enrollment_deadline,
+    s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_missing_sibling, s3_namespace_minimum, s3_newer_receipt_bypasses_inflight_maintenance,
     s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
-    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
-    s3_response_precedes_hold_retirement,
+    s3_remote_deadlines, s3_remote_outputs, s3_remote_receipt_reconciliation,
+    s3_remote_slow_delivery, s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
 };
 pub(super) use sql::{
-    background_admission, command_admission_starts_before_poll, command_waits_for_apply,
+    background_admission, capacity_terminal_refusals, capacity_wait_shutdown,
+    command_admission_starts_before_poll, command_waits_for_apply, command_waits_for_capacity,
     owned_command_failure, owned_commands,
 };
 pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
-pub(crate) use sql::{FaultFileSystem, Faults};
+pub(crate) use sql::{
+    s3_background_capacity_cadence, s3_capacity_release, s3_payload_capacity_release,
+    FaultFileSystem, Faults,
+};
 
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     sql::cell_receipts(rooted).await
@@ -952,6 +998,14 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
 
 pub(super) async fn sql_pool_admission(rooted: bool) -> Result<()> {
     sql::pool_admission(rooted).await
+}
+
+pub(super) async fn admission_refusal_observations(rooted: bool) -> Result<()> {
+    sql::admission_refusal_observations(rooted).await
+}
+
+pub(super) async fn workspace_refusal_observations() -> Result<()> {
+    sql::workspace_refusal_observations().await
 }
 
 pub(super) async fn reconcile_sql_producers(rooted: bool) -> Result<()> {
@@ -962,12 +1016,27 @@ pub(super) async fn reconcile_sql_refusals(rooted: bool) -> Result<()> {
     sql::reconcile_refusals(rooted).await
 }
 
+pub(super) async fn reconcile_captured_receipt(
+    rooted: bool,
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    sql::reconcile_captured_receipt(rooted, store).await
+}
+
 pub(super) async fn initialize_cells(rooted: bool) -> Result<()> {
     sql::initialize_cells(rooted).await
 }
 
 pub(super) async fn owned_workspace_barriers() -> Result<()> {
     sql::owned_workspace_barriers().await
+}
+
+pub(super) async fn materialized_scratch_barriers() -> Result<()> {
+    sql::materialized_scratch_barriers().await
+}
+
+pub(super) async fn prepared_image_reuse(rooted: bool) -> Result<()> {
+    sql::prepared_image_reuse(rooted).await
 }
 
 pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
@@ -978,6 +1047,14 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     sql::submission_rejections(rooted).await
 }
 
+pub(super) async fn queued_submissions(rooted: bool, read_between: bool) -> Result<()> {
+    sql::queued_submissions(rooted, read_between).await
+}
+
+pub(super) async fn bounded_queued_submissions(rooted: bool) -> Result<()> {
+    sql::bounded_queued_submissions(rooted).await
+}
+
 pub(super) use sql::{
     change_reads, coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable,
     query_lifecycle, recent_source_reads,
@@ -985,6 +1062,7 @@ pub(super) use sql::{
 
 pub(super) use sql::apply_images;
 pub(super) use sql::committed_apply_reuses_verified_preview;
+pub(super) use sql::pipeline_unrelated_mutation;
 pub(super) use sql::{owned_image_recheck_guards, verified_preparation_handoff, PreparationCase};
 
 pub(super) use sql::{apply_cancellation, apply_failure};
@@ -998,14 +1076,18 @@ pub(super) use sql::registered_queries;
 
 pub(super) use sql::routed_queries;
 
+pub(super) use sql::pending_progress;
 pub(super) use sql::routed_commands;
+pub(super) use sql::rpc_checkpoint_pending_progress;
+pub(super) use sql::stale_pending_progress;
 
 pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
     Box::pin(sql::commands_over_tcp(rooted)).await
 }
 
 pub(super) use sql::{
-    enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
+    enrollment_authority_loss_keeps_controller_alive, enrollment_requires_registration,
+    owned_enrollment, owned_enrollment_failure,
 };
 
 pub(super) use sql::{
@@ -1016,7 +1098,10 @@ pub(super) use sql::{nonmember_controller_queries, nonmember_queries, nonmember_
 
 pub(super) use sql::cached_dispatch_execution;
 
-pub(super) use sql::{remote_command_lifecycle, remote_commands};
+pub(super) use sql::{
+    remote_command_lifecycle, remote_command_receipt_limits, remote_command_receipt_reconciliation,
+    remote_commands,
+};
 
 pub(super) use sql::{
     remote_enrollment, remote_enrollment_lifecycle, remote_enrollment_writer_contention,
@@ -1050,6 +1135,7 @@ pub(super) use sql::{
     membership_delivery_fence, membership_lifecycle, membership_physical_delivery_fence,
     membership_quorum_floor, membership_quorum_followers,
     membership_read_retries_without_unrelated_work, membership_sync,
+    outgoing_handoff_preserves_term, outgoing_voter_cannot_campaign,
 };
 
 pub(super) use sql::{seed_minority, seed_source};

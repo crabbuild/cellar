@@ -91,6 +91,14 @@ impl CellRpcTurn {
         self.transaction.take_checkpoint()
     }
 
+    /// Drive the owned waiter notified by a proven checkpoint before its
+    /// dependent handler. Otherwise the handler observes its reply bridge as
+    /// pending and can park even though the checkpoint has already completed.
+    /// The SQL owner rechecks admission and authority around this bounded poll.
+    pub(crate) fn poll_checkpoint_work(&self, cx: &mut Context<'_>) -> anyhow::Result<()> {
+        self.transaction.poll_work(cx).map(|_| ())
+    }
+
     pub(crate) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<anyhow::Result<Vec<u8>>> {
         if self.output.is_none() {
             match self
@@ -339,7 +347,7 @@ impl CellPrivateExecutor {
     pub(crate) fn stage_rpc_checkpoint(
         &mut self,
         turn: &mut CellRpcTurn,
-    ) -> Result<CellPrivatePreparation, ExecutionError> {
+    ) -> Result<(CellPrivatePreparation, CellCheckpointGrant), ExecutionError> {
         self.check_rpc()?;
         let step = turn
             .step
@@ -385,7 +393,8 @@ impl CellPrivateExecutor {
             .capture_stage_input(attempt, preparation)?
             .checkpoint(step);
         turn.step = step;
-        Ok(captured)
+        let grant = self.checkpoint_grant(&captured)?;
+        Ok((captured, grant))
     }
 
     pub(crate) fn rpc_checkpoint_version(
@@ -461,7 +470,7 @@ impl CellPrivateExecutor {
         committed.check().map_err(authority_failure)?;
         self.retire_reconciled()?;
         committed.check().map_err(authority_failure)?;
-        self.authority = committed;
+        self.authority = std::sync::Arc::new(committed);
         Ok(receipt)
     }
 

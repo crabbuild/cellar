@@ -14,7 +14,7 @@ pub(crate) use outbox::EventSourceConfiguration;
 mod outbox_inspection;
 pub(crate) mod transaction;
 pub use cellar_native::sql::Value as SqlValue;
-pub use cursor::{KvCursor, SqlCursor, SqlRow};
+pub use cursor::{KvCursor, SqlCursor, SqlCursorRefusal, SqlRow};
 pub use inbox::Inbox;
 pub use outbox_inspection::{
     OutboxBlocked, OutboxLane, OutboxObservation, OutboxOptions, OutboxPage, OutboxRevision,
@@ -441,6 +441,24 @@ impl Storage {
         } else {
             crate::storage::sql_run(self.scope()?, request).map_err(Into::into)
         }
+    }
+
+    /// One explicitly read-only prepared statement on the current connection.
+    /// Query views retain their pinned-image authority; no writer is acquired.
+    pub(crate) fn sql_read_request(
+        &self,
+        sql: String,
+        params: Vec<serde_json::Value>,
+        first: bool,
+    ) -> Result<cellar_native::sql::SqlReadResult> {
+        let cellar_native::sql::SqlResponse::ReadOnly(result) = crate::storage::sql_run(
+            self.data_scope()?,
+            &cellar_native::sql::SqlRequest::ReadOnly { sql, params, first },
+        )?
+        else {
+            anyhow::bail!("read-only SQL response kind");
+        };
+        Ok(result)
     }
 
     pub(crate) fn sql_console(

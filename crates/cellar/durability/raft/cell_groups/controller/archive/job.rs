@@ -2,6 +2,7 @@
 
 //! Each remote mutation follows its exact durable intent. Restart either finds
 //! that publication or fences its pending ticket before allocating again.
+use super::reuse::{Admission, Eligibility};
 use super::*;
 use journal::{Journal, Pending, Record};
 
@@ -9,7 +10,7 @@ use journal::{Journal, Pending, Record};
 pub(super) struct Context {
     pub journal: Arc<Journal>,
     pub registry: CellGroupArchiveRegistry,
-    pub uses: Arc<Mutex<Vec<crate::raft::cell_groups::archive::CoverageUse>>>,
+    pub uses: super::reuse_index::Index,
     pub authority: Arc<Authority>,
 }
 
@@ -81,7 +82,7 @@ pub(super) async fn open(
     Ok(Context {
         journal: Arc::new(journal),
         registry,
-        uses: Arc::new(Mutex::new(Vec::new())),
+        uses: super::reuse_index::Index::default(),
         authority: Arc::new(Authority {
             directory: registration.directory.clone(),
             birth: registration.birth.clone(),
@@ -125,6 +126,17 @@ pub(super) struct Driven {
     pub coverage: CellGroupArchiveCoverage,
     pub published: GroupManifest,
     pub maintenance_pending: bool,
+    pub eligibility: Option<Eligibility>,
+}
+
+/// Reuse only a physically live verification eligible for this admission.
+/// A cleanup pin alone cannot extend a publication cohort or upgrade Quorum.
+/// The weak index neither owns a workspace nor turns status into a proof.
+pub(super) fn live(
+    context: &Context,
+    admission: Admission,
+) -> Result<Option<CellGroupArchiveCoverage>> {
+    context.uses.live(admission)
 }
 
 pub(super) struct Demand {
@@ -140,22 +152,6 @@ pub(super) enum Outcome {
     /// Retirement finished and the previously verified head still covers local
     /// apply. No new physical proof is created by this maintenance result.
     Maintenance(GroupManifest),
-}
-
-/// Reuse only a still-live admitted verification. The weak index does not keep
-/// a workspace alive, and no archive-status sample can create this proof.
-pub(super) fn live(context: &Context) -> Result<Option<CellGroupArchiveCoverage>> {
-    let candidate = {
-        let mut uses = context
-            .uses
-            .lock()
-            .map_err(|_| Error::Invalid("archive use lock"))?;
-        uses.retain(|usage| usage.live());
-        uses.iter()
-            .max_by_key(|usage| usage.marker().position().index)
-            .cloned()
-    };
-    Ok(candidate.and_then(|usage| usage.retain_coverage()))
 }
 
 pub(super) async fn verify_retained(
@@ -180,6 +176,7 @@ pub(super) async fn verify_retained(
         coverage,
         published,
         maintenance_pending: record.retire.is_some() || !matches!(record.pending, Pending::None),
+        eligibility: None,
     })
 }
 
@@ -188,6 +185,7 @@ async fn select(
     execution: &ControllerExecution,
     record: &mut Record,
     coverage: CellGroupArchiveCoverage,
+    eligibility: Eligibility,
 ) -> Result<Driven> {
     let head = coverage.hold().clone();
     if record.retire.is_some() {
@@ -205,6 +203,7 @@ async fn select(
         published: coverage.marker().clone(),
         coverage,
         maintenance_pending: record.retire.is_some(),
+        eligibility: Some(eligibility),
     })
 }
 
@@ -240,14 +239,7 @@ async fn retire(
     record: &mut Record,
 ) -> Result<Retirement> {
     if let Some(previous) = &record.retire {
-        let retained = {
-            let mut uses = context
-                .uses
-                .lock()
-                .map_err(|_| Error::Invalid("archive use lock"))?;
-            uses.retain(|usage| usage.live());
-            uses.iter().any(|usage| usage.retains(previous))
-        };
+        let retained = context.uses.retains(previous)?;
         if retained {
             return Ok(Retirement::Retained);
         }
@@ -280,6 +272,7 @@ pub(super) async fn drive(
     execution: &ControllerExecution,
     demand: Demand,
     retained_head: Option<CellGroupArchiveCoverage>,
+    admitted_through: u64,
 ) -> Result<Outcome> {
     let node = runtime.log().limits().node;
     let group = registration.birth.route().history.group;
@@ -290,7 +283,7 @@ pub(super) async fn drive(
         .await
         .map_err(CellGroupArchiveBindingError::from)?;
     let mut record = load(context, execution).await?;
-    let retirement = retire(context, execution, &mut record).await?;
+    let mut retirement = retire(context, execution, &mut record).await?;
     let allocation_ready = retirement != Retirement::Retained;
     // Quiet maintenance can finish predecessor cleanup without discarding the
     // node's one physical proof. This is the exact journaled head, independently
@@ -312,6 +305,7 @@ pub(super) async fn drive(
                     published: coverage.marker().clone(),
                     coverage: coverage.clone(),
                     maintenance_pending: false,
+                    eligibility: None,
                 }));
             }
         }
@@ -335,9 +329,15 @@ pub(super) async fn drive(
             .await
         {
             Ok(coverage) => {
-                return select(context, execution, &mut record, coverage)
-                    .await
-                    .map(Outcome::Verified)
+                return select(
+                    context,
+                    execution,
+                    &mut record,
+                    coverage,
+                    Eligibility::existing(admitted_through),
+                )
+                .await
+                .map(Outcome::Verified)
             }
             Err(CellGroupArchiveError::Expired) => (),
             Err(error) => return Err(error.into()),
@@ -357,15 +357,22 @@ pub(super) async fn drive(
             .await
         {
             Ok(coverage) => {
-                return select(context, execution, &mut record, coverage)
-                    .await
-                    .map(Outcome::Verified)
+                return select(
+                    context,
+                    execution,
+                    &mut record,
+                    coverage,
+                    Eligibility::existing(admitted_through),
+                )
+                .await
+                .map(Outcome::Verified)
             }
             Err(CellGroupArchiveError::Expired) => (),
             Err(error) => return Err(error.into()),
         }
         record.pending = Pending::None;
         store(context, execution, &record).await?;
+        retirement = Retirement::Unchanged;
     }
     if matches!(record.pending, Pending::None) {
         let current = runtime
@@ -411,6 +418,7 @@ pub(super) async fn drive(
                     published: coverage.marker().clone(),
                     coverage,
                     maintenance_pending: !allocation_ready,
+                    eligibility: Some(Eligibility::existing(admitted_through)),
                 }));
             }
         }
@@ -426,6 +434,10 @@ pub(super) async fn drive(
         // and physical verification remain the archive authority. In particular,
         // an already journaled upload still reconciles after role loss.
         let publishing = registration.publisher == CellGroupArchivePublisher::LocalReplica
+            // Sealed sources still owe their final archive cut after serving
+            // leadership is withdrawn. Registry fencing and verification,
+            // rather than the scheduling role, authorize this publication.
+            || current.source_seal().is_some()
             || runtime
                 .observe(registration.birth.route().history)
                 .await
@@ -449,11 +461,19 @@ pub(super) async fn drive(
                     return Err(CellGroupArchiveError::Busy.into());
                 }
             }
-            Err(CellGroupArchiveError::Unconfirmed) if publishing => {
-                Pending::Reserve(context.registry.prepare_upload(execution).await?)
-            }
             Err(CellGroupArchiveError::Unconfirmed) => {
-                return Err(CellGroupArchiveError::Busy.into());
+                // A late-bound archive may have no published prefix while its
+                // only attached replica is a follower. Bootstrap through the
+                // ordinary journaled reservation and verified publication; the
+                // registry CAS, not this role sample, grants archive authority.
+                let intent = context.registry.prepare_upload(execution).await?;
+                if !publishing {
+                    // Another publisher may have advanced between the two
+                    // observations. A follower's bootstrap intent must still
+                    // reserve against no predecessor, including at its CAS.
+                    intent.require_initial_upload()?;
+                }
+                Pending::Reserve(intent)
             }
             Err(error) => return Err(error.into()),
         };
@@ -483,9 +503,15 @@ pub(super) async fn drive(
                 receiver(registration)?,
             )
             .await?;
-        return select(context, execution, &mut record, coverage)
-            .await
-            .map(Outcome::Verified);
+        return select(
+            context,
+            execution,
+            &mut record,
+            coverage,
+            Eligibility::existing(admitted_through),
+        )
+        .await
+        .map(Outcome::Verified);
     }
     if let Pending::Reserve(intent) = &record.pending {
         match context.registry.reserve(execution, intent).await {
@@ -553,7 +579,13 @@ pub(super) async fn drive(
     store(context, execution, &record).await?;
     let coverage = publication.commit(execution).await?;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "published");
-    select(context, execution, &mut record, coverage)
-        .await
-        .map(Outcome::Verified)
+    select(
+        context,
+        execution,
+        &mut record,
+        coverage,
+        Eligibility::publication(),
+    )
+    .await
+    .map(Outcome::Verified)
 }

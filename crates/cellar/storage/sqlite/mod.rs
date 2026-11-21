@@ -494,6 +494,9 @@ thread_local! {
     /// Host statements can use reserved tables. Other authorizer restrictions
     /// remain active, with a separate scope for framework transaction control.
     static USER_SQL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Read requests also run on ordinary writer connections. Keep the existing
+    // authorizer installed and scope the stronger policy to synchronous prepare.
+    static READ_ONLY_SQL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Only framework transaction statements may bypass transaction denial.
     /// Keep the authorizer installed: replacing it expires every prepared
     /// statement on the connection, including a warm application's queries.
@@ -515,6 +518,18 @@ fn as_storage_transaction<T>(callback: impl FnOnce() -> T) -> T {
 
 fn as_user_sql<T>(callback: impl FnOnce() -> T) -> T {
     with_sql_origin(true, callback)
+}
+
+fn as_read_only_sql<T>(callback: impl FnOnce() -> T) -> T {
+    struct Reset(bool);
+
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            READ_ONLY_SQL.with(|flag| flag.set(self.0));
+        }
+    }
+    let _reset = Reset(READ_ONLY_SQL.with(|flag| flag.replace(true)));
+    as_user_sql(callback)
 }
 
 /// Use only around fixed framework metadata queries, never handler callbacks
@@ -688,6 +703,12 @@ fn authorize_sql(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::
     // place that sees everything able to move a schema cookie. See
     // `SchemaCookie`.
     SQL_PREPARES.fetch_add(1, Ordering::Relaxed);
+
+    if READ_ONLY_SQL.with(std::cell::Cell::get)
+        && immutable::authorize_read_action(context) != Authorization::Allow
+    {
+        return Authorization::Deny;
+    }
 
     let prohibited = match context.action {
         AuthAction::Transaction { .. } | AuthAction::Savepoint { .. } => {
@@ -2126,7 +2147,7 @@ pub fn sql_cursor_start(
     binds: &[serde_json::Value],
 ) -> Result<SqlCursorStart, String> {
     let binds: Vec<rusqlite::types::Value> = binds.iter().map(json_to_sql).collect();
-    sql_cursor_start_values(scope, query, &binds)
+    sql_cursor_start_values(scope, query, &binds).map_err(|error| error.to_string())
 }
 
 /// Typed cursor entry point retaining BLOB values without a JSON round trip.
@@ -2134,12 +2155,12 @@ pub(crate) fn sql_cursor_start_values(
     scope: &str,
     query: &str,
     binds: &[rusqlite::types::Value],
-) -> Result<SqlCursorStart, String> {
-    check_sql_rename(query)?;
-    require_sql_healthy(scope)?;
+) -> anyhow::Result<SqlCursorStart> {
+    check_sql_rename(query).map_err(anyhow::Error::msg)?;
+    require_sql_healthy(scope).map_err(anyhow::Error::msg)?;
     let limits = crate::application::limits::current().sql;
     if query.len() > limits.max_cursor_bytes {
-        return Err("SQL cursor statement byte limit exceeded".into());
+        return Err(crate::application::storage::SqlCursorRefusal::StatementByteLimit.into());
     }
     if sql_cursors(|cursors| {
         cursors
@@ -2149,7 +2170,7 @@ pub(crate) fn sql_cursor_start_values(
             .count()
     }) >= limits.max_open_cursors
     {
-        return Err("SQL cursor count limit exceeded".into());
+        return Err(crate::application::storage::SqlCursorRefusal::CountLimit.into());
     }
     let (cached_statement, cached_query, cache_busy, reused_cached_query) =
         match take_cached_sql_statement(scope, query) {
@@ -2161,7 +2182,7 @@ pub(crate) fn sql_cursor_start_values(
                 query,
             } => (statement, Some(query), false, reused),
         };
-    let sql = CString::new(query).map_err(|error| error.to_string())?;
+    let sql = CString::new(query)?;
     let result = with(scope, |connection| -> anyhow::Result<_> {
         // `storage.sql.exec` reaches SQLite here, so this is where the `__sys_`
         // reservation has to hold -- the statement is prepared inside, and
@@ -2345,8 +2366,7 @@ pub(crate) fn sql_cursor_start_values(
             }
         })
     })
-    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
-    .map_err(|error| error.to_string())?;
+    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))?;
 
     let (database, statement, changes_before, columns, row, rows_written, cache_query) = result;
     if row.is_none() {
@@ -2654,10 +2674,9 @@ fn sql_result_limit_error() -> String {
 struct SqlStepped {
     rows: Vec<Vec<serde_json::Value>>,
     rows_read: u64,
-    /// The result refusal, when one fired. The statement still ran to
-    /// completion because its effects happen as its steps do. Stopping an
-    /// `INSERT ... RETURNING` at a bad result would silently lose the writes
-    /// that the remaining steps carry. Drain first, then refuse the result.
+    /// The result refusal, when one fired. Writable statements still drain:
+    /// stopping `INSERT ... RETURNING` could lose effects in later steps.
+    /// Explicitly read-only queries may stop once the refusal is known.
     over: Option<String>,
 }
 
@@ -2665,6 +2684,8 @@ struct SqlStepped {
 /// charging kept bytes against `budget`. The caller finalizes the statement
 /// on every path. `Some(keep)` explicitly truncates (`first()` keeps one);
 /// `None` materializes the full result and refuses overflow of the host budget.
+/// Only the separately authorized read path can stop after its first retained
+/// row or a result refusal; writable prepared statements still drain completely.
 unsafe fn sql_step_to_done(
     scope: &str,
     database: *mut rusqlite::ffi::sqlite3,
@@ -2683,6 +2704,11 @@ unsafe fn sql_step_to_done(
         over: None,
     };
     loop {
+        if READ_ONLY_SQL.with(std::cell::Cell::get)
+            && (stepped.over.is_some() || !reject_overflow && stepped.rows.len() >= keep)
+        {
+            return Ok(stepped);
+        }
         match rusqlite::ffi::sqlite3_step(statement) {
             rusqlite::ffi::SQLITE_ROW => {
                 stepped.rows_read += 1;
@@ -2952,6 +2978,10 @@ unsafe fn sql_run_prepared(
     }
     let readonly = rusqlite::ffi::sqlite3_stmt_readonly(statement) != 0;
     let columns = sql_cursor_columns(statement);
+    if READ_ONLY_SQL.with(std::cell::Cell::get) && (!readonly || columns.is_empty()) {
+        rusqlite::ffi::sqlite3_finalize(statement);
+        return Err(sql_error("read-only SQL requires a query"));
+    }
     let stepped = sql_step_to_done(
         scope,
         database,
@@ -3173,6 +3203,38 @@ fn sql_run_request(
     }
     let started = std::time::Instant::now();
     match request {
+        SqlRequest::ReadOnly { sql, params, first } => with(scope, |connection| {
+            as_read_only_sql(|| {
+                let mut budget = crate::application::limits::current()
+                    .sql
+                    .max_result_bytes
+                    .min(immutable::result_limit().unwrap_or(usize::MAX));
+                // SAFETY: this live connection outlives the helper, which
+                // finalizes its statement on every path. The read authorizer
+                // remains installed for preparation, tail checks and stepping.
+                let result = unsafe {
+                    sql_run_prepared(
+                        scope,
+                        connection,
+                        sql,
+                        params,
+                        first.then_some(1),
+                        &mut budget,
+                        started,
+                    )
+                }?;
+                Ok(SqlResponse::ReadOnly(cellar_native::sql::SqlReadResult {
+                    columns: result.columns,
+                    rows: result.rows,
+                    meta: cellar_native::sql::ReadMeta {
+                        duration: result.meta.duration,
+                        rows_read: result.meta.rows_read,
+                        size_after: result.meta.size_after,
+                    },
+                }))
+            })
+        })
+        .unwrap_or_else(|| Err(sql_error(format!("no db for {scope}")))),
         SqlRequest::Prepared { sql, params, first } => {
             let keep = first.then_some(1);
             with(scope, |connection| {
@@ -3832,6 +3894,15 @@ pub(crate) fn system_sql_schema(scope: &str, ddl: &str) -> anyhow::Result<()> {
             transaction.commit()?;
             Ok(())
         })
+    })
+}
+
+/// Fixed framework work metadata under the currently installed private command.
+pub(crate) fn raft_native_work<T>(
+    callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| callback(connection))
     })
 }
 
@@ -4820,15 +4891,6 @@ pub(crate) fn raft_alarm_installed() -> anyhow::Result<bool> {
         })
     })
     .ok_or_else(|| anyhow::anyhow!("no Raft alarm storage"))?
-}
-
-/// Fixed framework work metadata under the currently installed private command.
-pub(crate) fn raft_native_work<T>(
-    callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
-        as_framework_sql(|| callback(connection))
-    })
 }
 
 #[cfg(test)]

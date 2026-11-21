@@ -6,8 +6,8 @@ use crate::raft::{completion::RuntimeError, group_host::RouterRefreshRequest};
 use tokio::sync::mpsc;
 
 impl RaftCells {
-    /// Catch up a lagging inspection receiver within the incoming request's
-    /// original deadline. This grants no group or application authority.
+    /// Catch up installed inspection trust within the original request deadline.
+    /// This grants no group or application authority.
     pub(crate) async fn refresh_inspection_trust(
         &self,
         previous: crate::raft::fleet_catalog::FleetTrustSnapshot,
@@ -68,7 +68,7 @@ impl RaftCells {
             .map_err(|_| CommandFailure::Unavailable)
     }
 
-    pub(crate) async fn refresh_local_namespace_routes(
+    async fn refresh_local_namespace_routes(
         &self,
         history: GroupHistory,
         deadline: u64,
@@ -120,9 +120,8 @@ impl RaftCells {
                 .refresh_managed_router(history, deadline)
                 .await?;
             owner
-                .metadata_live(deadline)
-                .map_err(|_| RuntimeError::DeadlineExceeded)?;
-            Ok(())
+                .refresh_local_namespace_routes(history, deadline)
+                .await
         }
     }
 }

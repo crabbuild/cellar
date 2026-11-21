@@ -5,6 +5,8 @@
 use super::*;
 use crate::application::consensus::{CellRpcActivation, RaftClass};
 use crate::raft::cell_groups::CellActivationFence;
+use crate::raft::execution::{CommandRequest, StoredReceipt};
+use cellar_logic::consensus::CommandId;
 use std::collections::BTreeMap;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -16,9 +18,20 @@ pub(super) struct RpcActivation {
     pub activation: Option<CellRpcActivation>,
     pub permit: Option<Arc<OwnedSemaphorePermit>>,
     pub fence: CellActivationFence,
+    // One final identity, without result bytes, SQLite or immutable image custody.
+    last_request: Option<(CommandId, [u8; 32])>,
 }
 
 impl RpcActivation {
+    pub(super) fn committed(&mut self, receipt: &StoredReceipt) {
+        self.last_request = receipt.final_request_identity();
+    }
+
+    pub(super) fn conflicts_with(&self, request: &CommandRequest) -> bool {
+        self.last_request
+            .is_some_and(|(id, digest)| id == request.id && digest != request.request_digest)
+    }
+
     fn shared(&self) -> bool {
         self.activation
             .as_ref()
@@ -121,6 +134,7 @@ impl RpcCache {
             activation: None,
             permit: None,
             fence: authority.activation_fence(),
+            last_request: None,
         })
     }
 

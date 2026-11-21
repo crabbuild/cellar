@@ -93,12 +93,26 @@ impl CellGroupTicket {
     }
 }
 
+/// Exact bounded-worker admission, never a sync or output proof.
+#[derive(Clone)]
+pub(super) struct PersistAdmission {
+    queued: Arc<AtomicU64>,
+    sequence: u64,
+}
+
+impl PersistAdmission {
+    pub(super) fn queued(self) {
+        self.queued.store(self.sequence, Ordering::Release);
+    }
+}
+
 /// Physical work retains the owner lease even if its awaiting client is dropped.
 /// The engine request also retains that lease until sync/publication finishes.
 pub struct CellGroupPersist {
     log: ReplicaLog,
     pub(super) ticket: CellGroupTicket,
     pub(super) write: GroupWrite<GroupHistory>,
+    pub(super) admission: Option<PersistAdmission>,
 }
 
 pub struct CellGroupPersisted {
@@ -111,7 +125,15 @@ impl CellGroupPersist {
     /// cannot advance the owner; its pending work must settle or restart recover.
     pub async fn run(self) -> Result<CellGroupPersisted, RuntimeError> {
         let operation = OperationId::new(self.ticket.sequence);
-        let receipt = self.log.persist_cells(operation, vec![self.write]).await?;
+        let admission = self.admission.clone();
+        let receipt = self
+            .log
+            .persist_cells_with_admission(operation, vec![self.write], move || {
+                if let Some(admission) = admission {
+                    admission.queued();
+                }
+            })
+            .await?;
         Ok(CellGroupPersisted {
             ticket: self.ticket,
             sequence: receipt.sequence,
@@ -286,6 +308,7 @@ pub struct CellGroupOwner {
     options: RaftRuntimeOptions,
     phase: Option<Phase>,
     waiting: Option<CellGroupTicket>,
+    persistence_admitted: Arc<AtomicU64>,
     // A leader's retained SQL preparation can join commit metadata to its root
     // publication. Follower and administrative acknowledgements keep their
     // existing barriers; term/vote, entries and snapshots always sync first.
@@ -425,6 +448,7 @@ impl CellGroupOwner {
             phase: None,
             waiting: None,
             deferred_commit: None,
+            persistence_admitted: Arc::new(AtomicU64::new(0)),
             effects: VecDeque::new(),
             deliveries: Vec::new(),
             configuration_fence: None,
@@ -486,7 +510,26 @@ impl CellGroupOwner {
         }
     }
 
+    fn incoming_voter(&self) -> bool {
+        self.node
+            .raft
+            .prs()
+            .conf()
+            .voters()
+            .contains_incoming(self.node.raft.id)
+    }
+
     fn refresh_execution_fence(&mut self) {
+        // An established outgoing protocol leader can still finish Joint.
+        // An outgoing-only follower cannot start a new election.
+        if !self.incoming_voter()
+            && matches!(
+                self.node.raft.state,
+                StateRole::Candidate | StateRole::PreCandidate
+            )
+        {
+            self.node.raft.become_follower(self.node.raft.term, 0);
+        }
         if self.node.raft.leader_id != 0 || self.node.raft.state != StateRole::Follower {
             self.startup_candidate = false;
         }
@@ -520,13 +563,7 @@ impl CellGroupOwner {
             && self.current.marker().source_seal().is_none()
             && self.node.raft.state == StateRole::Leader
             && self.node.raft.lead_transferee.is_none()
-            && self
-                .node
-                .raft
-                .prs()
-                .conf()
-                .voters()
-                .contains(self.node.raft.id)
+            && self.incoming_voter()
         {
             self.node.raft.term
         } else {
@@ -542,22 +579,7 @@ impl CellGroupOwner {
         &self,
         cell: &CellHistory,
     ) -> Result<super::CellExecutionAuthority, RuntimeError> {
-        let status = self.status()?;
-        // Role refusal is distinct from a leader still awaiting durable apply.
-        // Remote callers must not retry a follower as generic unavailability.
-        if self.node.raft.state != StateRole::Leader {
-            return Err(RuntimeError::NotLeader);
-        }
-        if !status.ready || status.applied.index != status.committed {
-            return Err(RuntimeError::NotReady);
-        }
-        super::CellExecutionAuthority::new(
-            self.group.clone(),
-            &self.current,
-            cell,
-            status.term,
-            self.leader_term.clone(),
-        )
+        self.independent_cell_authority(cell)
     }
 
     /// Private preparation and an already committed S3 response can progress
@@ -984,6 +1006,14 @@ impl CellGroupOwner {
         })
     }
 
+    fn active_protocol_ready(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
+        !self.managed_recovery_fenced
+            && !self.park_fenced()
+            && self.pending_seal.is_none()
+            && self.current.marker().is_active()
+            && self.protocol_ready(cache)
+    }
+
     fn status_at(&self, cache: &crate::raft::cache::CachedGroup) -> CellGroupStatus {
         CellGroupStatus {
             term: Term::new(self.node.raft.term),
@@ -1004,7 +1034,10 @@ impl CellGroupOwner {
         }
     }
 
-    pub(super) fn observe(&self) -> Result<super::CellGroupObservation, RuntimeError> {
+    pub(super) fn observe(
+        &self,
+        queued_linearizable_reads: usize,
+    ) -> Result<super::CellGroupObservation, RuntimeError> {
         use crate::application::consensus::RaftReplicaRole;
         self.live()?;
         let cache = self.group.read()?;
@@ -1037,6 +1070,7 @@ impl CellGroupOwner {
                 index: LogIndex::new(checkpoint.index),
             },
             retained_entries: cache.entries.len(),
+            queued_linearizable_reads,
             cells: self.current.marker().root().cells(),
             archive_required: cache.archive_required,
         })
@@ -1163,6 +1197,8 @@ impl CellGroupOwner {
     }
 
     fn selected_leader(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
+        // Configuration control can finish Joint under its outgoing leader.
+        // Application readiness and captured authority require incoming membership.
         self.node.raft.state == StateRole::Leader
             && self.node.raft.lead_transferee.is_none()
             && self
@@ -1611,7 +1647,8 @@ impl CellGroupOwner {
 
     pub fn campaign(&mut self) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.pending_park.is_some()
+        if !self.incoming_voter()
+            || self.pending_park.is_some()
             || self.parked.is_some()
             || self.phase.is_some()
             || self.checkpoint.is_some()
@@ -1708,6 +1745,7 @@ impl CellGroupOwner {
     }
 
     pub fn tick(&mut self) -> Result<(), RuntimeError> {
+        use crate::raft::performance::Counter;
         self.live()?;
         if self.parked.is_some() {
             return Ok(());
@@ -1719,13 +1757,40 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         self.expire_park_preparation()?;
-        let admission = if self.node.raft.state == StateRole::Leader {
+        let incoming = self.incoming_voter();
+        let protocol_leader = self.node.raft.state == StateRole::Leader;
+        let admission = if protocol_leader || !incoming {
             Default::default()
         } else {
-            self.log_admission
-                .election(&self.group, &self.node, Default::default())?
+            match self
+                .log_admission
+                .election(&self.group, &self.node, Default::default())
+            {
+                Ok(admission) => admission,
+                Err(error) => {
+                    if matches!(error, RuntimeError::Overloaded) {
+                        self.log
+                            .performance()
+                            .increment(Counter::CellGroupTickAdmissionRefusals, 1);
+                    }
+                    return Err(error);
+                }
+            }
         };
-        self.node.tick();
+        let election_tick = !protocol_leader && incoming;
+        let ready = if protocol_leader || incoming {
+            self.node.tick()
+        } else {
+            // Outgoing voters must still expire their voting lease; skipping
+            // their clock entirely would prevent eligible incoming elections.
+            self.node.raft.tick_passive();
+            false
+        };
+        let performance = self.log.performance();
+        performance.increment(Counter::CellGroupTicksExecuted, 1);
+        if election_tick && ready {
+            performance.increment(Counter::CellGroupElectionTimeouts, 1);
+        }
         self.refresh_execution_fence();
         self.finish_log_admission(admission)?;
         Ok(())
@@ -1923,7 +1988,18 @@ impl CellGroupOwner {
             &[]
         };
         let mut admission = self.log_admission.prepare(&self.group, entries, None)?;
+        if message.get_msg_type() == MessageType::MsgTimeoutNow && !self.incoming_voter() {
+            // Preserve higher-term evidence from a stale handoff without
+            // starting an outgoing-only campaign or recording a self-vote.
+            if message.term > self.node.raft.term {
+                self.node.raft.become_follower(message.term, 0);
+            }
+            self.refresh_execution_fence();
+            self.finish_log_admission(admission)?;
+            return Ok(());
+        }
         if self.node.raft.state != StateRole::Leader
+            && self.incoming_voter()
             && matches!(
                 message.get_msg_type(),
                 MessageType::MsgRequestVoteResponse
@@ -1966,7 +2042,13 @@ impl CellGroupOwner {
         if self.node.raft.state != StateRole::Leader {
             return Err(RuntimeError::NotLeader);
         }
-        if !self.status()?.ready
+        let ready = {
+            let cache = self.group.read()?;
+            self.active_protocol_ready(&cache)
+        };
+        // An outgoing protocol leader can finish Joint without regaining
+        // application write, enrollment or leader-bound read authority.
+        if !ready
             || !self.apply.is_empty()
             || self.applying.is_some()
             || self.node.raft.pending_conf_index > self.node.raft.raft_log.applied
@@ -2071,6 +2153,61 @@ impl CellGroupOwner {
         }
         self.try_propose(data, None)?
             .ok_or(RuntimeError::Overloaded)
+    }
+
+    /// Conservative scheduling allowance, never proposal admission. A proposal
+    /// broadcasts at most one append/snapshot per current peer. Reserve their
+    /// maximum size, existing buffered work and committed-entry Ready overhead
+    /// before collecting another producer; otherwise flush the current Ready.
+    pub(super) fn can_batch_submission(&self, bytes: usize) -> bool {
+        if self.phase.is_some()
+            || self.checkpoint.is_some()
+            || self.waiting.is_some()
+            || !self.effects.is_empty()
+        {
+            return false;
+        }
+        let Ok(cache) = self.group.read() else {
+            return false;
+        };
+        let message_bound = self
+            .options
+            .max_message_bytes
+            .max(cache.snapshot.compute_size() as usize)
+            .saturating_add(4096);
+        drop(cache);
+        let peers = self.node.raft.prs().iter().count().saturating_sub(1);
+        let messages = &self.node.raft.msgs;
+        let message_bytes = messages.iter().fold(0usize, |size, message| {
+            size.saturating_add(message.compute_size() as usize + 128)
+        });
+        let message_bytes = message_bytes.saturating_add(peers.saturating_mul(message_bound));
+        let entries = self
+            .node
+            .raft
+            .raft_log
+            .unstable_entries()
+            .iter()
+            .fold(bytes.saturating_add(4096), |size, entry| {
+                size.saturating_add(entry.compute_size() as usize + 128)
+            });
+        let reads = self
+            .node
+            .raft
+            .read_states
+            .iter()
+            .fold(0usize, |size, read| {
+                size.saturating_add(read.request_ctx.len() + 128)
+            });
+        // The committed-entry soft limit also permits one oversize entry.
+        let ready = entries
+            .saturating_add(message_bytes)
+            .saturating_add(reads)
+            .saturating_add(self.options.max_message_bytes.saturating_mul(2))
+            .saturating_add(4096);
+        messages.len().saturating_add(peers) <= self.options.max_events
+            && message_bytes <= self.options.max_event_bytes
+            && ready <= self.options.max_ready_bytes
     }
 
     /// Seals a definitively refused preparation against every delayed clone.
@@ -2254,6 +2391,7 @@ impl CellGroupOwner {
     pub(super) fn read_forwarded_cell_index(
         &mut self,
         context: Vec<u8>,
+        first_submission: bool,
     ) -> Result<(), RuntimeError> {
         if super::runtime::reads::cell_origin(&context) != Some(self.membership_read_origin()) {
             return Err(RuntimeError::Invalid("cell read origin".into()));
@@ -2267,9 +2405,12 @@ impl CellGroupOwner {
             return Err(RuntimeError::Overloaded);
         }
         self.node.read_index(context);
-        self.log
-            .performance()
-            .increment(crate::raft::performance::Counter::CellReadBarriers, 1);
+        use crate::raft::performance::Counter;
+        let performance = self.log.performance();
+        performance.increment(Counter::CellReadBarriers, 1);
+        if first_submission {
+            performance.increment(Counter::CellReadCohortsStarted, 1);
+        }
         Ok(())
     }
 
@@ -2310,6 +2451,7 @@ impl CellGroupOwner {
         }
         if self.node.raft.leader_id != 0
             || self.node.raft.state != StateRole::Follower
+            || !self.incoming_voter()
             || !self.node.raft.promotable()
         {
             self.startup_candidate = false;
@@ -2699,8 +2841,10 @@ impl CellGroupOwner {
         Ok(())
     }
 
-    /// Return one bounded effect. No Ready-dependent message or applied event is
-    /// released until its exact physical persistence completion is consumed.
+    /// Return one bounded effect. Replication-only Ready append messages may
+    /// overlap local sync after bounded worker admission of that exact ticket.
+    /// Persisted responses, read states and applied publication still require
+    /// its exact physical completion; queue admission grants no output proof.
     pub fn poll(&mut self) -> Result<Option<CellGroupEffect>, RuntimeError> {
         self.poll_budget(true, true)
     }
@@ -2733,6 +2877,19 @@ impl CellGroupOwner {
 
     pub(super) fn waiting(&self) -> bool {
         self.waiting.is_some()
+    }
+
+    pub(super) fn replication_admitted(&self) -> bool {
+        matches!(&self.phase, Some(Phase::Ready(..)))
+            && self.waiting.as_ref().is_some_and(|ticket| {
+                self.persistence_admitted.load(Ordering::Acquire) == ticket.sequence
+            })
+    }
+
+    pub(super) fn replication_pending(&self) -> bool {
+        self.replication_admitted()
+            && (!self.effects.is_empty()
+                || matches!(&self.phase, Some(Phase::Ready(ready, _)) if !ready.messages().is_empty()))
     }
 
     pub(super) fn control_pending(&self) -> bool {
@@ -2857,11 +3014,34 @@ impl CellGroupOwner {
         let ticket = self.ticket(LogPosition::default(), [0; 32])?;
         write.log_reservations = self.log_admission.persistence(&write.entries)?;
         write.consensus_pin = Some(self.lease.clone());
+        let durable = self.group.initial_state()?.hard_state;
+        let election_stable = write.snapshot.is_none()
+            && write
+                .hard_state
+                .as_ref()
+                .is_none_or(|hard| hard.term == durable.term && hard.vote == durable.vote);
+        let admission = match &self.phase {
+            Some(Phase::Ready(ready, _))
+                if election_stable
+                    && !ready.messages().is_empty()
+                    && ready
+                        .messages()
+                        .iter()
+                        .all(|message| message.get_msg_type() == MessageType::MsgAppend) =>
+            {
+                Some(PersistAdmission {
+                    queued: self.persistence_admitted.clone(),
+                    sequence: ticket.sequence,
+                })
+            }
+            _ => None,
+        };
         self.waiting = Some(ticket.clone());
         Ok(Box::new(CellGroupPersist {
             log: self.log.clone(),
             ticket,
             write,
+            admission,
         }))
     }
 
@@ -3036,7 +3216,22 @@ impl CellGroupOwner {
         emit: bool,
     ) -> Result<Option<CellGroupEffect>, RuntimeError> {
         loop {
-            if self.waiting.is_some() {
+            if let Some(ticket) = &self.waiting {
+                if emit && self.persistence_admitted.load(Ordering::Acquire) == ticket.sequence {
+                    let messages = match &mut self.phase {
+                        Some(Phase::Ready(ready, _))
+                            if ready.messages().iter().all(|message| {
+                                message.get_msg_type() == MessageType::MsgAppend
+                            }) =>
+                        {
+                            ready.take_messages()
+                        }
+                        _ => Vec::new(),
+                    };
+                    if !messages.is_empty() {
+                        self.messages(messages)?;
+                    }
+                }
                 return Ok(if emit { self.effects.pop_front() } else { None });
             }
             match self.phase.take() {

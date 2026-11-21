@@ -105,6 +105,16 @@ impl Cell for SqlProbe {
                     },
                 )
             };
+            let read_only = |sql: &str, first: bool| {
+                cellar::storage::sql_run(
+                    scope,
+                    &SqlRequest::ReadOnly {
+                        sql: sql.into(),
+                        params: vec![],
+                        first,
+                    },
+                )
+            };
             if self.mode == 2 {
                 let SqlResponse::Prepared(result) = prepared("SELECT 1 UNION ALL SELECT 2", true)?
                 else {
@@ -112,6 +122,22 @@ impl Cell for SqlProbe {
                 };
                 assert_eq!(result.rows.len(), 1);
                 assert!(prepared("SELECT 1 UNION ALL SELECT 2", false).is_err());
+                let SqlResponse::ReadOnly(result) = read_only("SELECT 1 UNION ALL SELECT 2", true)?
+                else {
+                    unreachable!()
+                };
+                assert_eq!(result.rows.len(), 1);
+                assert!(read_only("SELECT 1 UNION ALL SELECT 2", false).is_err());
+                return Ok(response());
+            }
+            if self.mode == 3 {
+                let error = read_only("WITH v(n) AS (VALUES(1),(2)) SELECT CASE WHEN n=1 THEN printf('%.*c',128,'x') ELSE abs(-9223372036854775808) END FROM v", false)
+                    .err().context("read-only SQL ignored its result byte budget")?;
+                assert!(
+                    error.to_string().contains("query result exceeds 64 bytes"),
+                    "{error}"
+                );
+                assert!(read_only("SELECT 1", false).is_ok());
                 return Ok(response());
             }
             let columns = format!(
@@ -150,7 +176,7 @@ impl Cell for SqlProbe {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sql_limits_are_host_local_and_first_still_truncates() -> Result<()> {
-    for mode in 0..3 {
+    for mode in 0..4 {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let mut limits = if mode == 0 {
             CellLimits::default()
@@ -160,10 +186,15 @@ async fn sql_limits_are_host_local_and_first_still_truncates() -> Result<()> {
         if mode == 2 {
             limits.sql.max_rows = 1;
         }
+        if mode == 3 {
+            limits.sql.max_result_bytes = 64;
+        }
         domain.services().configure_cell_limits(limits)?;
         domain
             .run(async {
-                let directory = tempfile::tempdir()?;
+                let mut directory = tempfile::tempdir()?;
+                directory.disable_cleanup(true);
+                eprintln!("retained SQL limits disk: {}", directory.path().display());
                 let app = Registry::new(|_, _| Box::pin(async { Ok(response()) }))
                     .cell("Probe", move |_, _| Ok(Arc::new(SqlProbe { mode })))?;
                 let generation = Generation::build_native(

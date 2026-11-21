@@ -18,6 +18,10 @@ mod archive_verifier;
 pub mod archives;
 #[path = "cell_group_managed_fixture_cluster.rs"]
 mod cluster;
+#[path = "cell_group_managed_diagnostics.rs"]
+pub mod diagnostics;
+#[path = "cell_group_memory_retention.rs"]
+pub mod memory;
 pub use crate::catalog_fault as fault;
 #[path = "html.rs"]
 pub mod graph;
@@ -31,6 +35,8 @@ pub mod movement;
 mod node;
 #[path = "cell_group_managed_fixture_operator.rs"]
 pub mod operator;
+#[path = "cell_group_managed_fixture_peer_ports.rs"]
+mod peer_ports;
 #[path = "cell_group_managed_requests.rs"]
 pub mod requests;
 #[path = "cell_group_managed_fixture_seed_failure.rs"]

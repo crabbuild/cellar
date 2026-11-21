@@ -179,7 +179,7 @@ impl FleetTopologyVerification {
                         })
                         .high_water(
                             catalog
-                                .resource_floor(&self.snapshot, &node.resources.attestation)
+                                .admission_floor(&self.snapshot, &node.resources.attestation)
                                 .await?,
                         ))
                 })

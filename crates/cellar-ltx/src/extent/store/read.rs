@@ -15,7 +15,7 @@ impl RootView {
     pub(crate) fn invalidate_extent(&self, id: ExtentId) -> Result<(), StoreError> {
         let mut state = self.inner.state()?;
         let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
-        entry.verified = false;
+        entry.persistence = ObjectPersistence::Unverified;
         entry.read_proof = None;
         Ok(())
     }
@@ -49,7 +49,10 @@ impl RootView {
                 if entry.bytes != u64::from(id.length()) {
                     return Err(StoreError::Integrity);
                 }
-                (entry.verified, entry.read_proof.clone())
+                (
+                    entry.persistence == ObjectPersistence::Durable,
+                    entry.read_proof.clone(),
+                )
             };
             let mut file = self.inner.checked_file(
                 &self.inner.directory.join(object_name(id)),
@@ -72,7 +75,7 @@ impl RootView {
             if !reused {
                 let mut state = self.inner.state()?;
                 let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
-                entry.verified = true;
+                entry.persistence = ObjectPersistence::Durable;
                 // Only complete verification can restore admission. A read
                 // reusing block hashes must not override another verifier's
                 // failure while this descriptor was being opened.
@@ -82,7 +85,7 @@ impl RootView {
         })();
         if result.is_err() {
             if let Some(entry) = self.inner.state()?.objects.get_mut(&id) {
-                entry.verified = false;
+                entry.persistence = ObjectPersistence::Unverified;
                 entry.read_proof = None;
             }
         }

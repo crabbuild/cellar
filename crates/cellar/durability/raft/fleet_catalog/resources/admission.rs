@@ -339,7 +339,7 @@ impl FleetCatalog {
                 scope: current_scope,
                 sequence: snapshot.revision(),
                 observed_ms: now,
-                physical: physical.resources(),
+                physical: charged.admission_usage(),
             },
             reservations: charged.reservations,
             complete: true,

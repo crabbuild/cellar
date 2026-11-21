@@ -1,6 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Commands and enrollment share bounded RPC admission and explicit write grants.
+#[cfg(test)]
+#[path = "command_cell_transport_tests.rs"]
+mod tests;
+
 use super::*;
 use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{
@@ -146,6 +150,13 @@ impl CellRemoteReceiptResponse {
         self.stored.as_ref()
     }
 
+    /// Keep physical reply credits while transferring the exact stored result.
+    pub(in crate::raft) fn take_stored_receipt(
+        &mut self,
+    ) -> Option<crate::raft::execution::StoredReceipt> {
+        self.stored.take()
+    }
+
     pub fn observation(&self) -> &CellVersionObservation {
         &self.value.value.value.observation
     }
@@ -221,6 +232,25 @@ struct WriteResponse {
     peer: Permit,
 }
 
+struct QueuedCellWrite {
+    _cancel: Cancel,
+    result: oneshot::Receiver<Result<WriteResponse, TransportError>>,
+}
+
+// Only the owner before queue admission or the first exchange can mint this
+// local proof. Never apply this translation to an exchange's failure/reply.
+fn command_not_sent(command: bool, error: TransportError) -> TransportError {
+    match (command, error) {
+        (true, TransportError::StalePeer | TransportError::UnknownGroup) => {
+            TransportError::CommandNotSent(CommandFailure::Unavailable)
+        }
+        (true, TransportError::Overloaded) => {
+            TransportError::CommandNotSent(CommandFailure::Overloaded)
+        }
+        (_, error) => error,
+    }
+}
+
 pub(super) struct SendCellWrite {
     route: Arc<GroupRoute<GroupHistory>>,
     peer: RaftPeer<GroupHistory>,
@@ -228,6 +258,7 @@ pub(super) struct SendCellWrite {
     call: WriteCall,
     started_at: u64,
     leader_generation: Option<std::sync::Weak<()>>,
+    routing_lifetime: Arc<()>,
     keys: Option<VersionKeys>,
     deadline: u64,
     cancel: watch::Receiver<bool>,
@@ -341,6 +372,8 @@ impl RaftTransport {
         deadline: u64,
     ) -> Result<CellRemoteCommandResponse, TransportError> {
         let response = self
+            .handle
+            .0
             .write_cell(route, cell, member, call, Some(keys), deadline)
             .await?;
         let WriteValue::Command(value) = response.value else {
@@ -351,45 +384,6 @@ impl RaftTransport {
             _node: response.node,
             _peer: response.peer,
         })
-    }
-
-    pub(in crate::raft) async fn probe_cell_command_leader(
-        &self,
-        route: &cellar_logic::cell_group::GroupRoute,
-        cell: &CellHistory,
-        member: MemberId,
-        keys: VersionKeys,
-        deadline: u64,
-    ) -> Result<bool, TransportError> {
-        let timeout_ms = deadline
-            .checked_sub(
-                self.handle
-                    .0
-                    .domain
-                    .mono_ms()
-                    .map_err(|_| TransportError::Closed)?,
-            )
-            .filter(|ms| *ms > 0)
-            .ok_or(TransportError::Timeout)?;
-        let call = CellCommandProbe {
-            timeout_ms,
-            route_epoch: route.epoch.get(),
-            birth_digest: route.birth_digest,
-        };
-        let timer = self
-            .handle
-            .0
-            .domain
-            .sleep_until(deadline)
-            .map_err(|_| TransportError::Closed)?;
-        let response = crate::asyncrt::select! {
-            result = self.write_cell(route, cell, member, WriteCall::Probe(call), Some(keys), deadline) => result?,
-            _ = timer => return Err(TransportError::Timeout),
-        };
-        match response.value {
-            WriteValue::Probe(leader) => Ok(leader),
-            _ => Err(TransportError::Protocol),
-        }
     }
 
     pub(in crate::raft) async fn enroll_cell(
@@ -405,6 +399,8 @@ impl RaftTransport {
         TransportError,
     > {
         let response = self
+            .handle
+            .0
             .write_cell(
                 route,
                 cell,
@@ -442,6 +438,8 @@ impl RaftTransport {
         let request_digest =
             crate::application::consensus::command_request_digest(&call.request.input);
         let response = self
+            .handle
+            .0
             .write_cell(
                 route,
                 cell,
@@ -475,6 +473,46 @@ impl RaftTransport {
             _peer: response.peer,
         })
     }
+}
+
+impl CellCommandGateway {
+    /// The cluster and namespace bound to this host-owned registration.
+    pub fn namespace(&self) -> (ClusterId, NamespaceId) {
+        self.inner.gateway.dispatcher.namespace()
+    }
+}
+
+impl State {
+    pub(super) async fn probe_cell_command_leader(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        keys: VersionKeys,
+        deadline: u64,
+    ) -> Result<bool, TransportError> {
+        let timeout_ms = deadline
+            .checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
+            .filter(|ms| *ms > 0)
+            .ok_or(TransportError::Timeout)?;
+        let call = CellCommandProbe {
+            timeout_ms,
+            route_epoch: route.epoch.get(),
+            birth_digest: route.birth_digest,
+        };
+        let timer = self
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| TransportError::Closed)?;
+        let response = crate::asyncrt::select! {
+            result = self.write_cell(route, cell, member, WriteCall::Probe(call), Some(keys), deadline) => result?,
+            _ = timer => return Err(TransportError::Timeout),
+        };
+        match response.value {
+            WriteValue::Probe(leader) => Ok(leader),
+            _ => Err(TransportError::Protocol),
+        }
+    }
 
     async fn write_cell(
         &self,
@@ -485,10 +523,28 @@ impl RaftTransport {
         keys: Option<VersionKeys>,
         deadline: u64,
     ) -> Result<WriteResponse, TransportError> {
-        let state = &self.handle.0;
+        let command = matches!(&call, WriteCall::Command(_) | WriteCall::Event(_));
+        let QueuedCellWrite { _cancel, result } = self
+            .queue_cell_write(route, cell, member, call, keys, deadline)
+            .map_err(|error| command_not_sent(command, error))?;
+        // Queue acceptance is the end of this owner's non-submission proof.
+        // A lost waiter cannot establish whether the worker exchanged bytes.
+        result.await.map_err(|_| TransportError::Closed)?
+    }
+
+    fn queue_cell_write(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        call: WriteCall,
+        keys: Option<VersionKeys>,
+        deadline: u64,
+    ) -> Result<QueuedCellWrite, TransportError> {
+        let state = self;
         // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
-        let (view, peer, pool, leader_generation) = {
+        let (view, peer, pool, leader_generation, routing_lifetime) = {
             let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
             state.admit(&registry)?;
             let view = registry
@@ -515,7 +571,10 @@ impl RaftTransport {
                 .ok_or(TransportError::StalePeer)?
                 .clone();
             let leader_generation = registry.leaders.generation(&view);
-            (view, peer, pool, leader_generation)
+            let routing_lifetime = registry
+                .cell_query_lifetime(&view)
+                .ok_or(TransportError::StalePeer)?;
+            (view, peer, pool, leader_generation, routing_lifetime)
         };
         let started_at = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         if started_at >= deadline {
@@ -538,7 +597,7 @@ impl RaftTransport {
             .acquire(charge)
             .ok_or(TransportError::Overloaded)?;
         drop(call.encode(state.options.max_query_request_bytes)?);
-        if !state.current_cell_query_route(&view, &peer) {
+        if !state.current_cell_query_route(&view, &peer, &routing_lifetime) {
             return Err(TransportError::StalePeer);
         }
         let (reply, result) = oneshot::channel();
@@ -552,6 +611,7 @@ impl RaftTransport {
                 call,
                 started_at,
                 leader_generation,
+                routing_lifetime,
                 keys,
                 deadline,
                 cancel: cancelled,
@@ -563,18 +623,9 @@ impl RaftTransport {
                 mpsc::error::TrySendError::Full(_) => TransportError::Overloaded,
                 mpsc::error::TrySendError::Closed(_) => TransportError::Closed,
             })?;
-        result.await.map_err(|_| TransportError::Closed)?
+        Ok(QueuedCellWrite { _cancel, result })
     }
-}
 
-impl CellCommandGateway {
-    /// The cluster and namespace bound to this host-owned registration.
-    pub fn namespace(&self) -> (ClusterId, NamespaceId) {
-        self.inner.gateway.dispatcher.namespace()
-    }
-}
-
-impl State {
     pub(super) fn authorize_cell_command(
         &self,
         wire: &QueryRoute,
@@ -610,7 +661,7 @@ impl State {
                         && peer.label == wire.source_label()
                 })
             })
-            .ok_or(TransportError::Refused)?;
+            .ok_or(TransportError::CommandOriginRefused)?;
         let pool = registry
             .pools
             .get(&source.node)
@@ -626,6 +677,8 @@ impl State {
         mut request: SendCellWrite,
         connection: &mut Option<QueryConnection>,
     ) -> bool {
+        let command = matches!(&request.call, WriteCall::Command(_) | WriteCall::Event(_));
+        let mut exchange_started = false;
         let result = self
             .query_until(
                 pool,
@@ -633,7 +686,11 @@ impl State {
                 request.cancel.clone(),
                 None,
                 async {
-                    if !self.current_cell_query_route(&request.route, &request.peer) {
+                    if !self.current_cell_query_route(
+                        &request.route,
+                        &request.peer,
+                        &request.routing_lifetime,
+                    ) {
                         return Err(TransportError::StalePeer);
                     }
                     let remaining = request
@@ -675,10 +732,17 @@ impl State {
                         }
                         _ => (),
                     }
+                    // From this point even a connect/partial-write failure is
+                    // conservatively unknown; no local rejection is minted.
+                    exchange_started = true;
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
-                    if !self.current_cell_query_route(&request.route, &request.peer) {
+                    if !self.current_cell_query_route(
+                        &request.route,
+                        &request.peer,
+                        &request.routing_lifetime,
+                    ) {
                         return Err(TransportError::StalePeer);
                     }
                     match &request.call {
@@ -853,6 +917,11 @@ impl State {
         // A fully authenticated application refusal consumed a complete reply;
         // retain the peer connection just as the legacy query lane does.
         let failed = matches!(&result, Err(error) if !matches!(error, TransportError::Command(_) | TransportError::CommandRejected(_)));
+        let result = if exchange_started {
+            result
+        } else {
+            result.map_err(|error| command_not_sent(command, error))
+        };
         let _ = request.reply.send(result.map(|value| WriteResponse {
             value,
             served_by: request.peer.replica.member,

@@ -70,6 +70,7 @@ async fn archived_query_releases_sql_slot_but_retains_its_output_budget() -> any
         },
         log.claim_sql_pool()?,
         1,
+        log.performance(),
     );
     let bytes = admission.reserve_read(group, 4096)?;
     let physical = bytes.clone();

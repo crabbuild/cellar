@@ -1,0 +1,710 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-17T01:24:51.461351+00:00",
+  "component": "Managed seal authorization phase observations",
+  "component_status": "PARTIAL",
+  "full_objective_complete": false,
+  "complete_release_qualified": false,
+  "full_native_disaster_status": "FAILED",
+  "base_revision": "de7cc1441493b515b762744896e063dd66f09eec",
+  "integrated_main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "source_digest": "d6b96bb2dd4b57ce006dfd6217ea5baeb26d568ed004630f3fd3e381150116c5",
+  "production_inputs": {
+    "crates/cellar/durability/raft/fleet_catalog/managed_transition_capacity.rs": "2f1902a748accf5516f99a5ff5193a90b0452a5b51081040458402ffa1c0cb0e",
+    "crates/cellar/fleet/management/raft/transition.rs": "340db5b15651011fc11fd7bcc1eb5dc7775f8cbe7b24c7db5c518ec99fe9f053",
+    "crates/cellar-logic/lib.rs": "84cc323e53a317c576bdba133a119bacfea1e91e776b66dcde0a1c6ba09a6dcc"
+  },
+  "behavior": [
+    "Record fixed phase, typed error class and optional monotonic elapsed time on a failed or dropped seal-authorization future. Never serialize raw errors, identities, object keys, endpoints or payloads. A dropped future keeps its unknown mutation outcome.",
+    "Capture only the named event through each actual HTTP request. Retain at most 16 allowlisted rows and snapshot after the owned operator server joins. Retaining observations cannot replace the primary mutation error.",
+    "Probe post-failure physical inventories sequentially with their original one-second bounds. Keep canonical Fleet/directory state and all admission, accounting and durability checks unchanged.",
+    "The focused workflow uploads only the two exact structured metadata filenames. Databases, synthetic object snapshots/manifests, audits, keys, configurations, environment and raw logs stay private."
+  ],
+  "controls": [
+    "The capture privacy test discards unrecognized values and debug/message fields, bounds rows to 16 and serializes exactly four fields.",
+    "Actual operator CLI/HTTP controls on three and six managed voters return the original NotFound/Unknown result, capture the expected fixed phase, join the server and leave canonical Fleet/directory cuts unchanged.",
+    "Successful all-disk-loss cases still intentionally erase their own fresh source roots; there is no pre-erasure backup. Stable retained directories and copies are separate from those intentional erasures."
+  ],
+  "native_runs": {
+    "native-01": {
+      "status": "FAILED",
+      "base_revision": "de7cc1441493b515b762744896e063dd66f09eec",
+      "source_digest": "b9fd02a790f12d509028f2ae1c8812c116964b4d53c1e3f8049b9beb9b5c55ff",
+      "source_inputs": 3462,
+      "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+      "profile_overrides": {
+        "RUSTUP_TOOLCHAIN": "1.98.1",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+        "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+        "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+        "CARGO_INCREMENTAL": "0"
+      },
+      "awake_joined": true,
+      "elapsed_seconds": 219.0750971249945,
+      "stages": [
+        {
+          "name": "format",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 107.91182354200282,
+          "log_sha256": "95d31212d338a0059baac26c6ccbc45fae15ab1672472053f248d1f60701bed2",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "compile",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 110.46826195798349,
+          "log_sha256": "98f732a125dd022a57b2e5f5bbaa0dc7b30d6b069f26ce2cff96feab220e4ef5",
+          "footers": [],
+          "failed_cases": []
+        }
+      ],
+      "executable": null
+    },
+    "native-02": {
+      "status": "PASSED",
+      "base_revision": "de7cc1441493b515b762744896e063dd66f09eec",
+      "source_digest": "c3ca152cc2f9cb1b60d73859854361fbea59f2b2b35dc7af8ed3fb3fb1f6fa34",
+      "source_inputs": 3462,
+      "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+      "profile_overrides": {
+        "RUSTUP_TOOLCHAIN": "1.98.1",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+        "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+        "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+        "CARGO_INCREMENTAL": "0"
+      },
+      "source_inputs_unchanged": true,
+      "awake_joined": true,
+      "elapsed_seconds": 1647.8416962919873,
+      "stages": [
+        {
+          "name": "format-changed",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.03905954197398387,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "compile",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 511.4516340830014,
+          "log_sha256": "73632fa0bee3ae3c0f70428beff9fba1a2339c71bc2e26ed28d39e2eb27d1b08",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "capture-privacy",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.009916874987538904,
+          "log_sha256": "285ff7ec2604d8b6f5b651b35c66c4f4da2b35746d3bdac425b19dd405b7a54a",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "three-node-control",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 1.3520924590120558,
+          "log_sha256": "a3d983691b7e2b35af537a80e42f291d462b66f3923731ea98e64551972a64ea",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "six-node-control",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 2.1537643749907147,
+          "log_sha256": "6aa9651a0871bc95bc3492dc0df685129b29cfadeddff8e484dfb394780ae115",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "full-native-disaster",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 1005.706248500006,
+          "log_sha256": "de75de51afdb47f551b74819187b518911684d19326050c5ffb0a592ce2dbaa3",
+          "footers": [
+            [
+              "ok",
+              "11",
+              "0",
+              "8"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "clippy",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 17.880964292009594,
+          "log_sha256": "f5dc3dc8423ebb0665a038738cf5bebc3800b616a1c165e9fdebee4393e5935f",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "format-check",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 104.22334004199365,
+          "log_sha256": "5139c1bd8628ee394754b36313532484081a4d78df806ad89d99b5a459a50b47",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "layout",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.1347692499984987,
+          "log_sha256": "df8205b6af87a3941f50ca762b02c3ed536805a5acc30deec8fbda623d141555",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "dependencies",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.2853430420218501,
+          "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+          "footers": [],
+          "failed_cases": []
+        }
+      ],
+      "executable": {
+        "sha256": "44303c276b74371fdfe7faedd80209c2c73a1b4e7d601f0d1aaf8e9c86f15f02",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "native-03": {
+      "status": "FAILED",
+      "base_revision": "de7cc1441493b515b762744896e063dd66f09eec",
+      "source_digest": "526ae55a53d064e8f15fbd185f0e2992de316a150fa7bc727a2f88dcdf6b614c",
+      "source_inputs": 3462,
+      "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+      "profile_overrides": {
+        "RUSTUP_TOOLCHAIN": "1.98.1",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+        "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+        "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+        "CARGO_INCREMENTAL": "0"
+      },
+      "awake_joined": true,
+      "elapsed_seconds": 843.9487182500015,
+      "stages": [
+        {
+          "name": "format-changed",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 103.95085358398501,
+          "log_sha256": "95d31212d338a0059baac26c6ccbc45fae15ab1672472053f248d1f60701bed2",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "compile",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 65.80697595799575,
+          "log_sha256": "eb2a6f6f2cada48b5305fd773295c7f3290482378ccaad63f27fb9ef60dad581",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "capture-privacy",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.012584125011926517,
+          "log_sha256": "285ff7ec2604d8b6f5b651b35c66c4f4da2b35746d3bdac425b19dd405b7a54a",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "three-node-control",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 1.680135957984021,
+          "log_sha256": "efb6a7806301e5a3d47e6837be720a871737fae896faf5d949a0bc204d0b198a",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "six-node-control",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 2.4288273339916486,
+          "log_sha256": "87bc69074aeec29b7597412485b5733d1ddc7fdcfbb5d5a50468e99945398b54",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "full-native-disaster",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 666.3308854999777,
+          "log_sha256": "93c406b42c59e23af441e01cfbc699d32ebba9da1664b8dc32f53b22e880e472",
+          "footers": [
+            [
+              "FAILED",
+              "10",
+              "1",
+              "8"
+            ]
+          ],
+          "failed_cases": [
+            "bootstrap::transition::merge::managed_split_then_merge_replays_late_writes"
+          ]
+        }
+      ],
+      "executable": {
+        "sha256": "4ee7ed1af8a55e3f868265c88b67971f9c5f3e7a5447634e064330469882d3f9",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "native-04": {
+      "status": "PASSED",
+      "base_revision": "de7cc1441493b515b762744896e063dd66f09eec",
+      "source_digest": "d6b96bb2dd4b57ce006dfd6217ea5baeb26d568ed004630f3fd3e381150116c5",
+      "source_inputs": 3462,
+      "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+      "profile_overrides": {
+        "RUSTUP_TOOLCHAIN": "1.98.1",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+        "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+        "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+        "CARGO_INCREMENTAL": "0"
+      },
+      "source_inputs_unchanged": true,
+      "awake_joined": true,
+      "elapsed_seconds": 340.8719912499946,
+      "stages": [
+        {
+          "name": "format-changed",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 120.47246720900876,
+          "log_sha256": "95d31212d338a0059baac26c6ccbc45fae15ab1672472053f248d1f60701bed2",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "compile",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 78.29503341700183,
+          "log_sha256": "54617c60598d0270c3f811a10967d0da6bbb168ad78498d21f6aebd9cf43d7e1",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "capture-privacy",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.01301970801432617,
+          "log_sha256": "285ff7ec2604d8b6f5b651b35c66c4f4da2b35746d3bdac425b19dd405b7a54a",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "three-node-control",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 1.3543419170018751,
+          "log_sha256": "baa69d0d4fd73247ec4ee457eb9de2df2a2d726c066a3e2e0293500e4b45f870",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "six-node-control",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 2.0062242499843705,
+          "log_sha256": "506390d9731c8207b77f04c2f55ff3143e515a46891bd26172c6ef363b505e0f",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "failed_cases": []
+        },
+        {
+          "name": "clippy",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 24.4405005829758,
+          "log_sha256": "96f494a6d6597879c16ce4c78bb720cbbc6908b24d8a28c16d2f4a37e06c741c",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "daemon-clippy",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 2.73414570899331,
+          "log_sha256": "afbb51f7cb49ce8071ce6af2d7cd58d6a5e782222e6525b4ea6938f5d3da939e",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "format-check",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 106.53369608399225,
+          "log_sha256": "5139c1bd8628ee394754b36313532484081a4d78df806ad89d99b5a459a50b47",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "layout",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.16190745797939599,
+          "log_sha256": "df8205b6af87a3941f50ca762b02c3ed536805a5acc30deec8fbda623d141555",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "dependencies",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.46244400000432506,
+          "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+          "footers": [],
+          "failed_cases": []
+        }
+      ],
+      "executable": {
+        "sha256": "cf356c5b5e909305cefca59abd5533786b74223255c82854c80ce6b851677bf5",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "history_notes": [
+    "Native-01 fails to compile because the new guard initially named ExecutionDomain instead of DomainToken; no runtime case ran.",
+    "Native-02 passes all 11 runnable cases with eight explicit real-RustFS ignores. The separate shared native-daemon Clippy check then rejects unused new capture accessors. No warning suppression is added.",
+    "Native-03 routes capture through the joined close lifecycle; its exact controls pass, but the full target reports ten passes, one failure and eight RustFS ignores. The split-then-merge replay fails at transition capture-source with unavailable/unknown; six post-failure physical inventory probes succeed. These observations do not establish cause.",
+    "Native-04 only moves fallible fixture plan creation inside the already joined cleanup scope. It repeats the actual privacy/CLI controls and runs strict Clippy for both affected fixture families, format/layout and dependency checks. It does not rerun or qualify the full target. Production inputs are identical across native-02, native-03 and native-04."
+  ],
+  "shared_daemon_initial_clippy": {
+    "status": "FAILED",
+    "exit_code": 101,
+    "elapsed_seconds": 128.6644077920064,
+    "log_sha256": "562ce0df9a20a1465a00f3c02a72b5e5ff5fe917bbf5dfc2fd7471d46c8ee29c"
+  },
+  "workflow_checks": {
+    "stages": [
+      {
+        "name": "workflow-actionlint",
+        "argv": [
+          "actionlint-1.7.12",
+          ".github/workflows/cell-group-disaster.yml"
+        ],
+        "exit_code": 0,
+        "status": "PASSED",
+        "elapsed_seconds": 0.19692704200861044,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "test_count": null
+      },
+      {
+        "name": "design-plan",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "docs/design/multi-raft/cell-groups",
+          "-p",
+          "test_plan.py"
+        ],
+        "exit_code": 0,
+        "status": "PASSED",
+        "elapsed_seconds": 2.4507136669999454,
+        "log_sha256": "42861f9386e6e5d93b6588d6fe1912906d7ed2103d093ec8bfce553a6b642dc8",
+        "test_count": "44"
+      }
+    ],
+    "status": "PASSED"
+  },
+  "local_failed_case": {
+    "name": "bootstrap::transition::merge::managed_split_then_merge_replays_late_writes",
+    "operation": "transition capture-source",
+    "code": "unavailable",
+    "outcome": "unknown",
+    "post_failure_physical_probes_succeeded": 6,
+    "cause_established": false
+  },
+  "published_parent_ci": {
+    "source": "de7cc1441493b515b762744896e063dd66f09eec",
+    "focused_disaster": {
+      "run_id": 43983592067,
+      "job_id": 133705986451,
+      "artifact_id": 14287271593,
+      "passed": 7,
+      "failed": 2,
+      "ignored": 8,
+      "failed_cases": [
+        "disaster_outbox_ambiguity_refuses",
+        "transition_disaster_selects_complete_closure"
+      ]
+    },
+    "full_native_jobs": [
+      {
+        "job_id": 133705934167,
+        "last_footer": [
+          "FAILED",
+          "6",
+          "3",
+          "8"
+        ],
+        "failed_cases": [
+          "disaster_outbox_ambiguity_refuses",
+          "disaster_retry_and_old_token_refusal",
+          "transition_disaster_selects_complete_closure"
+        ],
+        "log_sha256": "6e0c24d02eee966c780455558eb639fc825c109549a1e3390958913ec4e8b820"
+      },
+      {
+        "job_id": 133705934417,
+        "last_footer": [
+          "FAILED",
+          "6",
+          "3",
+          "8"
+        ],
+        "failed_cases": [
+          "bootstrap::transition::merge::managed_recovery_barrier_fences_transfer_and_reopens",
+          "disaster_retry_and_old_token_refusal",
+          "transition_disaster_selects_complete_closure"
+        ],
+        "log_sha256": "2fa9c7ed6c981d7457e5b7bd1609d3d10feb842daefb13a4df28ba29577ed533"
+      }
+    ],
+    "javascript": {
+      "run_id": 43983592081,
+      "passed_jobs": [
+        133705960738,
+        133705960947,
+        133705961042
+      ]
+    },
+    "release_builds": {
+      "run_id": 43983584017,
+      "passed_jobs": [
+        133705934073,
+        133705934232,
+        133705934371
+      ]
+    },
+    "typed_rpc": {
+      "run_id": 43983592040,
+      "passed_jobs": [
+        133705961257,
+        133705961663
+      ],
+      "failed_jobs": [
+        133705961654,
+        133705961674
+      ],
+      "failure_observations": [
+        {
+          "file": "typed-rpc-3.14/python-cancellation.log",
+          "error_class": "PythonShutdownIncomplete",
+          "tasks": 1,
+          "objects": 0,
+          "threads": 0,
+          "runtime_failed": false,
+          "host_failed": true,
+          "incomplete_native_outcomes": 0,
+          "native_invocations": 0,
+          "queued_bridge_bytes": 0,
+          "bridge_reservations": 0,
+          "pending_operations": 0,
+          "pending_retirements": 0
+        },
+        {
+          "file": "typed-rpc-3.14t-full/all.log",
+          "error_class": "PythonShutdownIncomplete",
+          "tasks": 0,
+          "objects": 0,
+          "threads": 0,
+          "runtime_failed": false,
+          "host_failed": true,
+          "incomplete_native_outcomes": 0,
+          "native_invocations": 0,
+          "queued_bridge_bytes": 0,
+          "bridge_reservations": 0,
+          "pending_operations": 0,
+          "pending_retirements": 0
+        }
+      ]
+    },
+    "limits": "These are de7cc144 results, before the new phase capture. Later JavaScript, Python ABI and release jobs retain their own terminal state; this record does not infer complete matrix success."
+  },
+  "backend": {
+    "container_id": "791d111034e61f70f2e99422be75d79f22af31d659fcd346af48c045ebdc22d5",
+    "image": "sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+    "nano_cpus": 1000000000,
+    "memory": 2147483648,
+    "memory_swap": 2147483648,
+    "started_at": "2026-11-16T01:39:54.038532847Z",
+    "restarts": 0,
+    "running": true,
+    "mounts": [
+      {
+        "type": "volume",
+        "destination": "/data",
+        "name": "cellar-multi-raft-73ef8142bc6ce6de-objects",
+        "source": "/var/lib/docker/volumes/cellar-multi-raft-73ef8142bc6ce6de-objects/_data"
+      }
+    ],
+    "capacity": {
+      "size_bytes": 168502136832,
+      "used_bytes": 160529432576,
+      "available_bytes": 10448896,
+      "required_reserve_bytes": 6442450944,
+      "admissible": false
+    },
+    "engine_id": "3d9ae341-3376-4798-b369-450ff43cfbb7",
+    "mutations": []
+  },
+  "retained": [
+    {
+      "run": "native-01",
+      "directories": 0,
+      "regular_files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "native-02",
+      "directories": 235,
+      "regular_files": 1546,
+      "bytes": 14169122,
+      "manifest_sha256": "4743af932a4e82c602567bb0c2baee3ba16e4b99b20aef51578e7e545fa4eb2d",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "native-03",
+      "directories": 223,
+      "regular_files": 2355,
+      "bytes": 21252151,
+      "manifest_sha256": "1e911d873a1da7b9e62e77d674941c5eafb8b745326b23a8e9234b8e52669230",
+      "original_and_copy_verified_twice": true
+    },
+    {
+      "run": "native-04",
+      "directories": 11,
+      "regular_files": 369,
+      "bytes": 2587196,
+      "manifest_sha256": "f79c9c2a84af8db8d3ec3589c8946a74729d6f86158102758c288af14383e92b",
+      "original_and_copy_verified_twice": true
+    }
+  ],
+  "limits": [
+    "This adds evidence, not a causal repair of the Linux seal refusal or the local/Linux source-capture refusal. Original failed attempts remain failures.",
+    "The constrained three-node SQL/KV/Queue four-mode campaign is not rerun: the same RustFS volume remains below its original 6GiB reserve. No VM/container/disk resources, data placement, reserve, deadline, bank, retry identity or required proof is relaxed.",
+    "No measured throughput or p50/p95/p99 gain. The full native/SDK/feature/daemon, reclamation/movement, authority/read-partition, wake/recovery, crash/load and independent-domain gates remain open. No complete OPT-01 through OPT-08 or remaining CG package is accepted."
+  ],
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "credential_matches": 0
+  }
+}

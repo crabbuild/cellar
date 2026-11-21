@@ -4,6 +4,9 @@
 #[path = "cell_group_archive_fairness.rs"]
 mod fairness;
 pub(crate) use fairness::archived_groups_reclaim_independently;
+#[path = "cell_group_archive_payload_retry.rs"]
+mod claim_payload_retry;
+pub(crate) use claim_payload_retry::{payload_read_failure, PayloadFailure};
 #[path = "cell_group_archive_retry.rs"]
 mod payload_retry;
 pub(crate) use payload_retry::archive_controller_payload_outage;
@@ -19,6 +22,8 @@ use cellar_logic::consensus::OperationId;
 use futures_util::TryStreamExt;
 use object_store::ObjectStore;
 use std::sync::atomic::Ordering;
+
+use super::super::persist_archive_intent;
 
 pub(super) use super::super::super::archive_store;
 
@@ -259,6 +264,27 @@ pub(super) async fn verified_current(
     rooted: bool,
     name: &str,
 ) -> Result<CellGroupArchiveCoverage> {
+    verified_journal(fixture, config, rooted, name, true).await
+}
+
+/// S3 output may precede predecessor retirement. Verify its retained exact cut
+/// and real bytes independently without requiring unrelated cleanup to finish.
+pub(super) async fn verified_selected(
+    fixture: &RuntimeCluster,
+    config: &CellGroupArchiveRegistration,
+    rooted: bool,
+    name: &str,
+) -> Result<CellGroupArchiveCoverage> {
+    verified_journal(fixture, config, rooted, name, false).await
+}
+
+async fn verified_journal(
+    fixture: &RuntimeCluster,
+    config: &CellGroupArchiveRegistration,
+    rooted: bool,
+    name: &str,
+    settled: bool,
+) -> Result<CellGroupArchiveCoverage> {
     let route = config.birth.route();
     let registry = config
         .directory
@@ -272,8 +298,9 @@ pub(super) async fn verified_current(
     let history = route.history;
     let mut selected = None;
     // Publication makes a complete cut available before predecessor cleanup.
-    // This audit requires quiescent ownership, so wait under the existing
-    // lifecycle bound rather than treating the published status as that proof.
+    // The lifecycle audit additionally requires quiescent ownership. Both
+    // audits retain the original read-only verification and lifecycle bound;
+    // neither treats the controller's published status as a retained proof.
     controller::wait_for(async || {
         let directory = directory.clone();
         selected = fixture
@@ -292,11 +319,13 @@ pub(super) async fn verified_current(
                         continue;
                     };
                     if hold.marker().route().history == history {
-                        if !record["retire"].is_null() || record["pending"] != "None" {
-                            return Ok(None);
+                        if settled {
+                            if !record["retire"].is_null() || record["pending"] != "None" {
+                                return Ok(None);
+                            }
+                            assert!(record["retire"].is_null());
+                            assert_eq!(record["pending"], "None");
                         }
-                        assert!(record["retire"].is_null());
-                        assert_eq!(record["pending"], "None");
                         return Ok(Some(hold));
                     }
                 }
@@ -306,8 +335,12 @@ pub(super) async fn verified_current(
         Ok(selected.is_some())
     })
     .await
-    .context("archive ownership did not finish predecessor cleanup")?;
-    let hold = selected.context("selected settled journal hold")?;
+    .context(if settled {
+        "archive ownership did not finish predecessor cleanup"
+    } else {
+        "selected archive journal hold unavailable"
+    })?;
+    let hold = selected.context("selected journal hold")?;
     let destination = verifier(fixture, route, rooted, name).await?;
     let mut verified = None;
     // Maintenance may still own the sole replay slot after clearing debt.
@@ -350,6 +383,14 @@ async fn audit(
     last: u8,
 ) -> Result<()> {
     let coverage = verified_current(fixture, config, rooted, "controller-archive-audit").await?;
+    audit_coverage(fixture, &coverage, last).await
+}
+
+async fn audit_coverage(
+    fixture: &RuntimeCluster,
+    coverage: &CellGroupArchiveCoverage,
+    last: u8,
+) -> Result<()> {
     let root = coverage.recovery().manifest();
     assert_eq!(root.pinned_images(), usize::from(last) + 2);
     let names = ["registered-a".to_owned(), "registered-b".to_owned()]
@@ -398,6 +439,173 @@ pub(crate) async fn archive_controller_publish(rooted: bool) -> Result<()> {
     let (mut fixture, route) = setup(rooted).await?;
     publish(&mut fixture, &route, rooted).await?;
     fixture.close().await
+}
+
+/// A cold archive owner reconstructs its exact ticket after a real immutable
+/// create lost its response. The node engines remain live; this is not a full
+/// node/process restart qualification.
+pub(crate) async fn archive_controller_reservation_recovery(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let (mut fixture, route) = setup_store(rooted, store).await?;
+    let (config, remote) = registration(&fixture, &route, rooted).await?;
+    let registry_path = remote
+        .list(None)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .find(|object| object.location.as_ref().ends_with("/ownership/registry"))
+        .context("archive registry")?
+        .location;
+    let gate = remote.hold_put(registry_path.clone());
+    remote
+        .lose_immutable_put_and_reads
+        .store(true, Ordering::Release);
+    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    drop(controllers[0].archive(config.clone())?);
+    tokio::time::timeout(Duration::from_secs(10), gate.entered.notified()).await?;
+    let directory = fixture
+        .cluster
+        ._root
+        .path()
+        .join("node-1/log/cell-group-archive-journals");
+    let history = route.history;
+    let (state_path, original) = fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<_> {
+            for entry in std::fs::read_dir(directory)? {
+                let path = entry?.path().join("state");
+                let value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+                let creation: CellGroupArchiveCreation =
+                    serde_json::from_value(value["identity"]["creation"].clone())?;
+                if creation.route().history == history {
+                    let intent: CellGroupArchiveIntent =
+                        serde_json::from_value(value["record"]["pending"]["Reserve"].clone())?;
+                    return Ok((path, intent));
+                }
+            }
+            anyhow::bail!("durable reservation intent missing")
+        })?
+        .await??;
+    remote.clear_put();
+    gate.release.notify_one();
+    controller::wait_for(async || Ok(remote.outage.load(Ordering::Acquire))).await?;
+    for controller in &controllers {
+        controller.close().await?;
+    }
+    drop(controllers);
+    let persisted = fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<serde_json::Value> {
+            Ok(serde_json::from_slice(&std::fs::read(state_path)?)?)
+        })?
+        .await??;
+    let retained: Option<CellGroupArchiveIntent> = persisted["record"]["pending"]
+        .get("Reserve")
+        .map(|value| serde_json::from_value(value.clone()))
+        .transpose()?;
+    let registry_state: serde_json::Value =
+        serde_json::from_slice(&remote.inner.get(&registry_path).await?.bytes().await?)?;
+    let accepted: CellGroupArchiveUploadTicket =
+        serde_json::from_value(registry_state["pending"][0]["ticket"].clone())?;
+    let partial = remote
+        .inner
+        .list(None)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .filter(|object| object.location.as_ref().contains("/generations/"))
+        .map(|object| object.location)
+        .collect::<Vec<_>>();
+    assert!(
+        !partial.is_empty(),
+        "the immutable create must have committed"
+    );
+    remote.outage.store(false, Ordering::Release);
+    let recovery = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let registry = config
+        .directory
+        .open_group_archive(&recovery, &config.io, &config.birth)
+        .await?;
+    let unrelated = registry.prepare_upload(&recovery).await?;
+    let unrelated = persist_archive_intent(&fixture.cluster, &unrelated).await?;
+    let other_ticket = registry.reserve(&recovery, &unrelated).await?;
+    assert!(other_ticket.generation() > accepted.generation());
+    let puts = remote.puts.load(Ordering::Acquire);
+    let replay = registry
+        .reserve(&recovery, retained.as_ref().unwrap_or(&original))
+        .await?;
+    assert_eq!(replay, accepted);
+    assert_eq!(
+        remote.puts.load(Ordering::Acquire),
+        puts,
+        "ticket replay allocated again"
+    );
+    registry
+        .collect(&recovery, &config.owners, &config.tails, Default::default())
+        .await?;
+    for path in partial {
+        remote.get(&path).await?.bytes().await?;
+    }
+    let upload = registry
+        .open_upload(&recovery, &config.owners, &replay, &config.tails)
+        .await?;
+    let applier = fixture.appliers[&(0, route.history)].1.clone();
+    let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
+    let checkpoints = config.checkpoints.clone();
+    let source = fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<_> {
+            let selected = applier.recover_selected()?;
+            Ok(checkpoints.capture(&group, &selected)?)
+        })?
+        .await??;
+    let uploaded = upload.upload_cut(&recovery, &config.tails, source).await?;
+    let destination = verifier(&fixture, &route, rooted, "reservation-recovery").await?;
+    let publication = upload
+        .prepare_publication(
+            &recovery,
+            &config.tails,
+            &uploaded,
+            config.checkpoints.receive_archive(
+                destination,
+                config.scratch.clone(),
+                config.scratch_directory.clone(),
+            )?,
+        )
+        .await?;
+    let intent = persist_archive_intent(&fixture.cluster, publication.intent()).await?;
+    assert_eq!(&intent, publication.intent());
+    let coverage = publication.commit(&recovery).await?;
+    audit_coverage(&fixture, &coverage, 0).await?;
+    let hold = coverage.hold().clone();
+    drop(coverage);
+    drop(uploaded);
+    drop(upload);
+    registry.release(&recovery, &hold).await?;
+    registry.abort(&recovery, &other_ticket).await?;
+    let puts = remote.puts.load(Ordering::Acquire);
+    assert!(registry.reserve(&recovery, &original).await.is_err());
+    assert_eq!(
+        remote.puts.load(Ordering::Acquire),
+        puts,
+        "a consumed ticket reappeared"
+    );
+    assert_eq!(config.owners.usage().operations, 0);
+    assert_eq!(config.checkpoints.usage().sources, 0);
+    recovery.shutdown().await;
+    drop(config);
+    fixture.close().await?;
+    assert_eq!(
+        retained.as_ref(),
+        Some(&original),
+        "the durable reservation must cover upload work without an intermediate ticket checkpoint"
+    );
+    Ok(())
 }
 
 pub(crate) async fn archive_controller_tail_rollover(rooted: bool) -> Result<()> {

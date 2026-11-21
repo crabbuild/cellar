@@ -39,6 +39,132 @@ fn options(root: &std::path::Path) -> ReplicaLogOptions {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn metadata_sync_reuses_entries_without_mutating_retained_views() -> anyhow::Result<()> {
+    use crate::raft::storage_fault as fault;
+    let mut root = tempfile::tempdir()?;
+    root.disable_cleanup(true);
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let gate = fault::Gate::new(None);
+    let mut opts = options(root.path());
+    let initial = bootstrap(5);
+    let log = domain
+        .run(ReplicaLog::open(
+            opts.clone(),
+            Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
+        ))
+        .await??;
+    let group = log.create_cell_group(initial.clone()).await?;
+    let entries: Vec<_> = (2..=65)
+        .map(|index| Entry {
+            index,
+            term: 2,
+            data: vec![index as u8; 256].into(),
+            ..Default::default()
+        })
+        .collect();
+    let mut write = GroupWrite::new(&group);
+    write.entries = entries.clone();
+    let mut hard = group.initial_state()?.hard_state;
+    hard.term = 2;
+    hard.vote = 1;
+    hard.commit = 2;
+    write.hard_state = Some(hard.clone());
+    log.persist_cells(OperationId::new(1), vec![write]).await?;
+    let before = group.read()?.clone();
+    let done = Arc::new(AtomicBool::new(false));
+    let finished = done.clone();
+    let release = gate.arm(fault::HOLD_SYNC);
+    let mut write = GroupWrite::new(&group);
+    hard.commit = 3;
+    write.hard_state = Some(hard.clone());
+    let owned = log.clone();
+    let pending = domain.spawn(async move {
+        let result = owned.persist_cells(OperationId::new(2), vec![write]).await;
+        finished.store(true, Ordering::Release);
+        result
+    })?;
+    let entered = domain
+        .run(crate::asyncrt::timeout(
+            Duration::from_secs(5),
+            gate.entered.notified(),
+        ))
+        .await?;
+    let held_commit = group.initial_state()?.hard_state.commit;
+    let held_done = done.load(Ordering::Acquire);
+    drop(release);
+    pending.await??;
+    entered?;
+    assert_eq!(held_commit, 2, "unsynced metadata became visible");
+    assert!(!held_done, "metadata waiter completed before physical sync");
+    let published = group.read()?.clone();
+    assert_eq!(published.hard_state, hard);
+    assert_eq!(before.hard_state.commit, 2);
+    assert_eq!(published.entries, before.entries);
+    let reused = std::ptr::eq(
+        before.entries.get(&2).unwrap(),
+        published.entries.get(&2).unwrap(),
+    );
+
+    let mut invalid = GroupWrite::new(&group);
+    invalid.entries.push(Entry {
+        index: 2,
+        term: 3,
+        data: vec![255; 256].into(),
+        ..Default::default()
+    });
+    assert!(matches!(
+        log.persist_cells(OperationId::new(3), vec![invalid]).await,
+        Err(LogError::Invalid(_))
+    ));
+    assert_eq!(group.read()?.entries, published.entries);
+    let mut replacement = GroupWrite::new(&group);
+    replacement.entries = (4..=6)
+        .map(|index| Entry {
+            index,
+            term: 3,
+            data: vec![99; 256].into(),
+            ..Default::default()
+        })
+        .collect();
+    hard.term = 3;
+    replacement.hard_state = Some(hard.clone());
+    log.persist_cells(OperationId::new(4), vec![replacement])
+        .await?;
+    let replaced = group.read()?.clone();
+    assert_eq!(replaced.entries.len(), 5);
+    assert_eq!(replaced.entries.get(&2), entries.first());
+    assert_eq!(replaced.entries.get(&3), entries.get(1));
+    assert_eq!(replaced.entries.get(&4).unwrap().term, 3);
+    assert_eq!(before.entries.len(), 64);
+    assert_eq!(published.entries.len(), 64);
+    assert_eq!(before.entries.get(&4), entries.get(2));
+    assert_eq!(published.entries.get(&65), entries.last());
+    assert!(!std::ptr::eq(
+        published.entries.get(&4).unwrap(),
+        replaced.entries.get(&4).unwrap(),
+    ));
+    log.close().await?;
+    opts.mode = LogOpenMode::Resume;
+    opts.process = ProcessGeneration::new([7; 16])?;
+    let reopened = domain
+        .run(ReplicaLog::open(
+            opts,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let recovered = reopened.cell_group(&initial.route.history)?;
+    assert_eq!(recovered.read()?.entries, replaced.entries);
+    assert_eq!(recovered.initial_state()?.hard_state, hard);
+    reopened.close().await?;
+    domain.shutdown().await;
+    eprintln!(
+        "CELLAR_ENTRY_REUSE {{\"retainedEntries\":64,\"entryBytes\":256,\"metadataReused\":{reused},\"heldSyncInvisible\":true,\"committedRewriteRefused\":true,\"retainedViewsUnchanged\":true,\"reopenExact\":true,\"joined\":true}}"
+    );
+    assert!(reused, "metadata-only sync cloned the retained entry map");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cell_group_genesis_restores_physical_handles_and_exact_birth() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());

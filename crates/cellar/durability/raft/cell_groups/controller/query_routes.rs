@@ -182,15 +182,19 @@ impl Destination<'_> {
         route: &cellar_logic::cell_group::GroupRoute,
         maximum: usize,
         deadline: u64,
+        prefer_leader: bool,
     ) -> Result<Vec<MemberId>, Error> {
-        match self.transport.cell_query_router_members(route, maximum) {
+        match self
+            .transport
+            .cell_query_candidates(route, maximum, None, None, prefer_leader)
+        {
             Err(TransportError::UnknownGroup) => {
                 self.transport
                     .refresh_managed_router(route.history, deadline)
                     .await
                     .map_err(Error::Runtime)?;
                 self.transport
-                    .cell_query_router_members(route, maximum)
+                    .cell_query_candidates(route, maximum, None, None, prefer_leader)
                     .map_err(Error::Transport)
             }
             result => result.map_err(Error::Transport),
@@ -210,6 +214,7 @@ impl Destination<'_> {
         let ordinal = usize::from(attempt.ordinal());
         let members = self
             .members(
+                invocation,
                 &route,
                 invocation.maximum_attempts(),
                 invocation.deadline_ms(),
@@ -307,6 +312,7 @@ impl Destination<'_> {
 
     async fn members(
         &self,
+        invocation: &CellQueryInvocation,
         route: &cellar_logic::cell_group::GroupRoute,
         maximum: usize,
         deadline: u64,
@@ -326,21 +332,51 @@ impl Destination<'_> {
             Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
         };
         if let Some(local) = local {
-            let mut members = vec![local];
-            match self.transport.cell_query_members(route, maximum) {
-                Ok(peers) => {
-                    for peer in peers {
-                        if !members.contains(&peer) {
-                            members.push(peer);
-                        }
-                    }
-                }
-                Err(TransportError::UnknownGroup) => (),
-                Err(error) => return Err(Error::Transport(error)),
-            }
-            Ok(members)
+            self.local_members(invocation, route, local, false).await
         } else {
-            self.router_members(route, maximum, deadline).await
+            self.router_members(route, maximum, deadline, invocation.prefers_leader())
+                .await
+        }
+    }
+
+    async fn local_members(
+        &self,
+        invocation: &CellQueryInvocation,
+        route: &cellar_logic::cell_group::GroupRoute,
+        local: MemberId,
+        tried_locality: bool,
+    ) -> Result<Vec<MemberId>, Error> {
+        // Ordinary caught-up local reads need neither a leader observation nor
+        // consensus work. Status is advisory and does not wake parked groups.
+        let leader = if invocation.prefers_leader() || tried_locality {
+            let timer = self
+                .shared
+                .domain
+                .sleep_until(invocation.deadline_ms())
+                .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+            let status = crate::asyncrt::select! {
+                status = self.runtime.status(route.history) => status,
+                _ = timer => return Err(Error::Runtime(RuntimeError::DeadlineExceeded)),
+            };
+            match status {
+                Ok(status) => status.leader.and_then(|member| MemberId::new(member).ok()),
+                Err(RuntimeError::NotFound | RuntimeError::NotReady) => None,
+                Err(error) => return Err(Error::Runtime(error)),
+            }
+        } else {
+            None
+        };
+        match self.transport.cell_query_candidates(
+            route,
+            invocation.maximum_attempts(),
+            Some(local),
+            leader,
+            invocation.prefers_leader(),
+        ) {
+            // A local proof remains available while no physical send view is
+            // installed. Missing routing metadata never grants remote access.
+            Err(TransportError::UnknownGroup) => Ok(vec![local]),
+            result => result.map_err(Error::Transport),
         }
     }
 
@@ -405,6 +441,7 @@ impl Destination<'_> {
             let result = async {
                 let members = self
                     .members(
+                        invocation,
                         &route,
                         invocation.maximum_attempts(),
                         invocation.deadline_ms(),
@@ -532,6 +569,15 @@ impl Destination<'_> {
                 }
                 Err(error) => return Err(Error::Transport(error)),
             }
+        }
+        if !is_local {
+            self.transport
+                .refresh_cell_query_endpoint(route, member, router, attempt.deadline_ms())
+                .await
+                .map_err(|error| match error {
+                    TransportError::Runtime(error) => Error::Runtime(error),
+                    error => Error::Transport(error),
+                })?;
         }
         Ok(is_local)
     }

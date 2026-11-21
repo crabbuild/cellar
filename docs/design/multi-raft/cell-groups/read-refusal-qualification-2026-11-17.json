@@ -1,0 +1,1399 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-17T12:33:40.743676+00:00",
+  "status": "SCOPED_REPAIR_WITH_OPEN_RUNTIME_FAILURES",
+  "base_revision": "bf1bbc68ef779908bf86c173cf891a4e523c15e0",
+  "main_revision": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "source_digest": "d7846d50286538f4dc817b6b09badabee7fb151d074952f09adb00569a77f5de",
+  "scope": "Authenticated plain-read permission refusals and bounded physical-process resource ownership. Broader routing fails; no complete OPT or CG qualification.",
+  "mechanism": "A validated plain-read header that lacks namespace access receives a request-tag/route/sequence/TLS-exporter-bound signed refusal after bounded body authentication. Metadata-only ingress uses its existing process epoch and the peer incoming query bank shared with any later regular pool. It receives no namespace permission or query sender worker.",
+  "preserved_contracts": [
+    "Original node/peer byte and item limits, I/O deadlines, process and rooted trust fences remain. Unknown/superseded physical sources retain closure/refusal.",
+    "Only plain Query may emit or interpret this read refusal. Commands, event queries and all other purposes reject the marker as Protocol; uncertain writes retain their existing identity, receipt reconciliation and acknowledgement proofs.",
+    "Response MAC and exact request binding precede body authentication and refusal interpretation. Cellar format markers remain 1; matching peers must be rebuilt.",
+    "An incomplete denied request retains the original node and peer charge until physical I/O exits. Explicit TLS shutdown passes selected actual transport checks; isolated close timing varies, so no complete physical-process cancellation/fairness oracle follows."
+  ],
+  "original_owning_fixture": {
+    "file": "crates/cellar/tests/native_cell_groups_hibernate.rs",
+    "before_sha256": "b01984cc71ad5fda77256426a6ba6530f076836b5c5a5291f749c3d22448c85e",
+    "after_sha256": "b01984cc71ad5fda77256426a6ba6530f076836b5c5a5291f749c3d22448c85e",
+    "same_bytes": true
+  },
+  "original_reproduction": {
+    "status": "REPRODUCED",
+    "source_digest": "c15e0b217143967324426a99a3778ce642b422d1ba517eaa9a73b3e76f231511",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "directories": 4,
+      "files": 67,
+      "bytes": 888232,
+      "manifest_sha256": "05486093cf405f05db5fec717ed2f9fcfdae0567c354065a3c274d7e8431f69b"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "format-retention",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.03526141701149754,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 23.93832004198339,
+        "log_sha256": "965606a3b498e806b81972be21afd80b2c94ab67fbec28a94e12f2819b389424",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "park-case",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 5.506303417001618,
+        "log_sha256": "33f122c1867ca23bd0217a26aa3c73ee8daf2d79979ef9444375284341868a06",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "partial_park_and_stale_certificate"
+        ]
+      }
+    ],
+    "executables": {
+      "executable": {
+        "sha256": "a8b7a09a357a99b9c870426813218bc9e7d7187b17d319261d5405e3c64e4be9",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "incomplete_regular_pool_candidate": {
+    "status": "FAILED",
+    "source_digest": "c45391125912bfa2db4910fa19d3a0704b5e12ed3235b973603ef2eeba644800",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "retained": {
+      "directories": 4,
+      "files": 67,
+      "bytes": 851697,
+      "manifest_sha256": "718d0ab08b1c8b91ca6f96a58777b55f5391c659652a64df73c8b9b21ad7fa51"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "format-changed",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.07234616600908339,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "compile-park",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 485.07284358300967,
+        "log_sha256": "624134cdb0685b413af9b4db66d4fca474c456e66560992e37c4c1e5fc84d062",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "park-case",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 8.179712833021767,
+        "log_sha256": "c6a5a611dda6d9b4029d8059e9e01ca85ee79a39af96fa0fe4894e4c6789a47f",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "partial_park_and_stale_certificate"
+        ]
+      }
+    ],
+    "executables": {
+      "compile-park_executable": {
+        "sha256": "0c94764d6fa979bb200515ae68f7d79de870c3442b46657ab96e05decd3474a7",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "seed_pool_only_reproduction": {
+    "status": "REPRODUCED",
+    "source_digest": "b3695e01f87554e6cd298fc45ab95b8c2178cffdbde33b78a572a72e5e104e38",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "directories": 1,
+      "files": 5,
+      "bytes": 7142,
+      "manifest_sha256": "594ce548f217d01fa6b4e6920494dc27f333d33d278b62d493b953b2056e6c1b"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "format-changed",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.10734320801566355,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "compile-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 810.0557386669971,
+        "log_sha256": "f31badde329cc53b3e327ab5b6de5e203a131d2ae4625a07d629e3d0be4c52dd",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "seed-read-refusal",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.612709458975587,
+        "log_sha256": "42d5f43186c0aa006b56ee1ace1d165e7757435359769f9d86597662264b639c",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "raft::transport::tests::queries::query_grants_are_scoped_revocable_and_never_voting_authority"
+        ]
+      }
+    ],
+    "executables": {
+      "executable": {
+        "sha256": "5114fc32ac96a02348d7123e06d12a3d2b67398647d27bea08e499ae41b5262e",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "failed_tls_control": {
+    "status": "FAILED",
+    "source_digest": "d81c2da363b569388bec7b0874ea4ecc424a4c31ee4f2d3364d0d8059c440dd5",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "retained": {
+      "directories": 1,
+      "files": 5,
+      "bytes": 7114,
+      "manifest_sha256": "90401330572c5799810f18bf3a0b0895fe20c050c1e08efcac73b729ac9bdc6a"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "format-changed",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.0847779169853311,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "compile-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 828.1309429579997,
+        "log_sha256": "3709b7883ff88e18515412288252f3d98919d54083848970565b5ff1b98b7f71",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-tls",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 3.0973194999969564,
+        "log_sha256": "77c52ade58afbc0ade94d2a25e87871ff044e2cb97e441e17c74e1cc39278a09",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "raft::transport::tests::queries::query_grants_are_scoped_revocable_and_never_voting_authority"
+        ]
+      }
+    ],
+    "executables": {
+      "compile-library_executable": {
+        "sha256": "b5641fc93d3add6660a071f8d370fabad670dbaf1776a4836e5d9a08af9e4148",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "partial_receive_diagnostic": {
+    "status": "DIAGNOSED",
+    "source_digest": "d1264206eff7833f13328686b8d808db060a142667d5c70c765766013f672563",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "directories": 1,
+      "files": 5,
+      "bytes": 7666,
+      "manifest_sha256": "36848c710b9ffa225c06410056d6c7806258bd5251876451a5a209d7b47dbc25"
+    },
+    "awake_joined": true,
+    "diagnostic": [
+      "Error: read refusal truncated=true, phase=8, node=Some((2375784, 1, 1)), peer=(2375784, 1): deadline elapsed"
+    ],
+    "stages": [
+      {
+        "name": "format-changed",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.07993745800922625,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "compile-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 450.539486499998,
+        "log_sha256": "54a8d1a4802075a6a4dfed5db8340017d03b26bb1d9e3f08c5eabd122bda7b7d",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "seed-read-refusal",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 3.181457374972524,
+        "log_sha256": "61318149b5ee9bb9fa0ebc01204a6e33271167d4ce15a3590ca1c518b3169963",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "raft::transport::tests::queries::query_grants_are_scoped_revocable_and_never_voting_authority"
+        ]
+      }
+    ],
+    "executables": {
+      "executable": {
+        "sha256": "8c33db32c0a401fa4a457b3ca4ba1aa047b0fecf44031a2c41ba925ae411d986",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "native_focused_probe": {
+    "status": "PASSED",
+    "source_digest": "d81c2da363b569388bec7b0874ea4ecc424a4c31ee4f2d3364d0d8059c440dd5",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "directories": 8,
+      "files": 140,
+      "bytes": 2177823,
+      "manifest_sha256": "7b22020ee0afa8b76a4ffec7a43f0491f5ed456a3be5e2fc6feff63809cfb937"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "compile-park",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 164.10674749998725,
+        "log_sha256": "f812453dc3fd5c3831225de40b2fba4f3f23385eb406bb2c9eb22d0b0f8aa36f",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "park-case",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 19.553992458997527,
+        "log_sha256": "0e8ca7e4e6fc7e20e90d03c715fbe72ba786b5684a9453076382633dcf1acc15",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "read-refusal-codec",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.05000233300961554,
+        "log_sha256": "7f93dbfaf0069647b2dadc096f69f002f9283d4b95fcf81e609ded4bffbea0df",
+        "footers": [
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "compile-park_executable": {
+        "sha256": "d3df45ba7dffc9c03ea62fa8ef9dad696527ad2933fe2ecf5eb4e26931e76dbe",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "candidate": {
+    "status": "FAILED",
+    "source_digest": "d7846d50286538f4dc817b6b09badabee7fb151d074952f09adb00569a77f5de",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "retained": {
+      "directories": 186,
+      "files": 2934,
+      "bytes": 32573275,
+      "manifest_sha256": "b5bba54029be9c8eadfc4d8d6f7e9d836117ba37597de6a28f74aef97683a411"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "format-changed",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.08325854199938476,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "compile-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 466.58863745900453,
+        "log_sha256": "b6554df48b2ec21299c58c9688a25229b9ad5f296b1beb84ff3d73f1076ae28a",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "query-origin-tls",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.25088666600640863,
+        "log_sha256": "18fa392f61498e50d96950d30ab7f4023d62ac350bbdf90da86fb83bedbb5bb8",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "read-refusal-codec",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.026634833018761128,
+        "log_sha256": "7f93dbfaf0069647b2dadc096f69f002f9283d4b95fcf81e609ded4bffbea0df",
+        "footers": [
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "socket-regressions",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7196282499935478,
+        "log_sha256": "efb88bc2575bfb4ccfd1b1932f1bfd73f3ce325d0dd6bfca78d4e30701d3ade4",
+        "footers": [
+          [
+            "ok",
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "compile-park",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.6497012090112548,
+        "log_sha256": "03160b096b838d076128487f6b1689a306451940efeeeed0b123e032156baca1",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "park-case",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 19.52192445800756,
+        "log_sha256": "7927fb993f1070a004d504dbb322ef520da30a6f88c18cf570b7cdd9916e8f6a",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "full-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 170.02890612502233,
+        "log_sha256": "5a04706e6a7a8c66ea103305afb06f6344f9203b72ed48ea2920be3624a1aa6c",
+        "footers": [
+          [
+            "ok",
+            "1245",
+            "0",
+            "2"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "hibernate-controls",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 125.53131662498345,
+        "log_sha256": "281068ea8c0810543a5c51a4ab32d26b6166328402945d7b70c9a50cdecba429",
+        "footers": [
+          [
+            "ok",
+            "5",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "compile-routing",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 32.03392345798784,
+        "log_sha256": "4e09ddd73fc14bfa28debcb02237ae532a78caa7ff12731fb3b92c18f19111a1",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "routing-controls",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 1417.0377300419786,
+        "log_sha256": "4f6b05fa5d9b57d1965f0fd08458c675b70672b7dd1857ac864526f5f9ce374c",
+        "footers": [
+          [
+            "FAILED",
+            "22",
+            "1",
+            "13"
+          ]
+        ],
+        "failed_cases": [
+          "removed_member_advice_cannot_grant_authority"
+        ]
+      }
+    ],
+    "executables": {
+      "compile-library_executable": {
+        "sha256": "dcc02d7bb6d69efd7ce487a9154c136373db116d4def9afdb634de4617c40322",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "compile-park_executable": {
+        "sha256": "d3df45ba7dffc9c03ea62fa8ef9dad696527ad2933fe2ecf5eb4e26931e76dbe",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "compile-routing_executable": {
+        "sha256": "c55505262a583c03aa42a271644e1016c4770d178a56433c2585d6a6caacd380",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "primitive_controls": {
+    "status": "FAILED",
+    "source_digest": "d7846d50286538f4dc817b6b09badabee7fb151d074952f09adb00569a77f5de",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "retained": {
+      "directories": 3,
+      "files": 123,
+      "bytes": 2475169,
+      "manifest_sha256": "1134d9f785ef07452b0f9f0a5c9665b902240dc5b387b3e2d3ea1946253ee0bb"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "compile-primitives",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 53.20480779200443,
+        "log_sha256": "7a6485ee99d1303213fe1ffe77021b93663b0808bf3bcd07457c3006e5216d1c",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 156.5569569169893,
+        "log_sha256": "360663a0213f1d788629c2cde551ba17b539d18a3f79b142f471e23fcf44f498",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "axum_sql_bindings_and_operators_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 153.78818820801098,
+        "log_sha256": "6067d782bb003778ca00e6dc77a7547f2489d89ebe69213b6f8ecbf4437d865e",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 381.6134141670191,
+        "log_sha256": "e8089499180f4197f3fd397bcd87d0d4f679190e594718ff2f88a305e1ab75bc",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "axum_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 479.8924767499848,
+        "log_sha256": "6f40d74e97dc75d2541460f5707c4f77d42095daa8e9ed3d07d3e6989c8d130d",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "ordinary_queue_callbacks_use_shared_quorum",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 214.5052303749835,
+        "log_sha256": "38715e7bfe8e099aff83466cdfb8fe0f0f359ca6559c95dbdf875984e0bcf6d8",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 47.48466154199559,
+        "log_sha256": "5a22798d6f7e580169eaf3a36186c406e9a3ccb3feabcc0e18a806a3561ae9e8",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry"
+        ]
+      }
+    ],
+    "executables": {
+      "compile-primitives_executable": {
+        "sha256": "026b5179a70948cadf1cf9508585001347e56d7e4c5931b945be064edbaae15d",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "remaining_primitive_controls": {
+    "status": "FAILED",
+    "source_digest": "d7846d50286538f4dc817b6b09badabee7fb151d074952f09adb00569a77f5de",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "retained": {
+      "directories": 3,
+      "files": 253,
+      "bytes": 5139185,
+      "manifest_sha256": "efb0e6453d3144ed611904c6c6fa0c3f729ea7bdd5bf43201c726a3fe855451b"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 63.124831833003554,
+        "log_sha256": "2233488d3b82e9c0e03e0d78f5e166c1f1dd95b96b67e83fe0d9d35c4113f494",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "queue_four_in_flight_preserves_acknowledged_messages"
+        ]
+      }
+    ],
+    "executables": {
+      "executable": {
+        "sha256": "026b5179a70948cadf1cf9508585001347e56d7e4c5931b945be064edbaae15d",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "sql_recovery_control": {
+    "status": "PASSED",
+    "source_digest": "d7846d50286538f4dc817b6b09badabee7fb151d074952f09adb00569a77f5de",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "directories": 0,
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 351.54511258300045,
+        "log_sha256": "e963e2ebcb8f51cc7b8e9ebc52a12828ac7f313e3d537ef07748e9c4d8a513f4",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "executable": {
+        "sha256": "026b5179a70948cadf1cf9508585001347e56d7e4c5931b945be064edbaae15d",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "primitive_summary": {
+    "selected": 8,
+    "passed": 6,
+    "failed": 2,
+    "unrun": 0,
+    "failures": [
+      "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+      "queue_four_in_flight_preserves_acknowledged_messages"
+    ]
+  },
+  "strict_checks": {
+    "status": "PASSED",
+    "source_digest": "d7846d50286538f4dc817b6b09badabee7fb151d074952f09adb00569a77f5de",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "directories": 0,
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "awake_joined": true,
+    "stages": [
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 635.9867290420225,
+        "log_sha256": "dc4bf971cfdb415852d46bcadff4bdac47086f0f112fae719b6dde9a2cd40db1",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "recovery-consumer-clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 3.1002629999711644,
+        "log_sha256": "a0dfdc9e3be86a2608a823069c5071c402f6bca5641a0390e4c1262d510d7b1e",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 110.27701262501068,
+        "log_sha256": "ac80249a0f4afc4131f92108f41caea79298b1a4d917581323d52d10274e1349",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.15185404100338928,
+        "log_sha256": "f9a5e1cd78e9cfe8a4b204b8cb6c8ce445647e5e8a23c57cd85db5e7b1739f52",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.45461895799962804,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "documentation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8726887919765431,
+        "log_sha256": "9a4d113541fba3c3e6840663d7ed9a5bb14b653ab633e274a027e2377e34b3eb",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 3.26572016600403,
+        "log_sha256": "318c556996ccd09b7ad4920e6be9d10b3c0559e5fff804554e4f50eb9a5b13e8",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.029913917009253055,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": [],
+        "failed_cases": []
+      }
+    ],
+    "executables": {}
+  },
+  "isolated_removed_member_comparison": {
+    "status": "OBSERVED",
+    "source_digest": "d7846d50286538f4dc817b6b09badabee7fb151d074952f09adb00569a77f5de",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "source_inputs_unchanged": true,
+    "retained": {
+      "directories": 12,
+      "files": 48,
+      "bytes": 273984,
+      "manifest_sha256": "948683cbd6b852cbedd76f2799d08ebbbc1b5edb23187104cf0823d08d95b2b5"
+    },
+    "awake_joined": true,
+    "same_owning_fixture_bytes": true,
+    "artifacts": {
+      "published": {
+        "source_digest": "439494eea7c4ec3aa26b2e77e126a3db5b45d171a28a01437cd4e38f6dd3cd2b",
+        "sha256": "c4c3529a6223ccd327cc4c05183e15b6a11b4bdb9eb415c553c6d0324b584bba",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "candidate": {
+        "source_digest": "d7846d50286538f4dc817b6b09badabee7fb151d074952f09adb00569a77f5de",
+        "sha256": "c55505262a583c03aa42a271644e1016c4770d178a56433c2585d6a6caacd380",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "stages": [
+      {
+        "name": "published",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 63.2191391249944,
+        "log_sha256": "901aa978edf6d44036f0a0dc04940ef3734f5fa7001210df23bccd05c59e59cf",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "failure_classes": {
+          "Refused": 2
+        }
+      },
+      {
+        "name": "candidate",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 62.598004541010596,
+        "log_sha256": "4572b9875575855a2d3f3406a316d7093f769fc3a10a482b9601e9bb196a7e36",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "failure_classes": {
+          "Refused": 2
+        }
+      }
+    ],
+    "executables": {}
+  },
+  "partial_tls_diagnostics": {
+    "partial-tls-close-probe-01": {
+      "status": "OBSERVED_VARIABLE_EOF_TIMING",
+      "source_sha256": "bd5be9d74c7f15e281aea96cd0d56185d6a544f3e953c407e8954218a6839c1b",
+      "executable_sha256": "77365e328c35836069ed81aa04aecbb005cc955236bf1254e7ab8224a82e45c8",
+      "original_timeout_seconds": 3,
+      "saved_observations": [
+        {
+          "log": "run.log",
+          "results": [
+            "mode=0 result=Ok(Err(ConnectionReset))",
+            "mode=1 result=Ok(Err(ConnectionReset))",
+            "mode=2 result=Ok(Err(ConnectionReset))"
+          ],
+          "log_sha256": "84fe6c1a4398b0009862e95fae213f1e874e7b9ee6656617860ca199c06f0cc4"
+        },
+        {
+          "log": "repeat-1.log",
+          "results": [
+            "mode=0 timeout",
+            "mode=1 result=Ok(Err(ConnectionReset))",
+            "mode=2 result=Ok(Err(UnexpectedEof))"
+          ],
+          "log_sha256": "2113b45a571acac76be60b6f56adf730a87a3703f2b1c60063e82291353f6bef"
+        },
+        {
+          "log": "repeat-2.log",
+          "results": [
+            "mode=0 timeout",
+            "mode=1 result=Ok(Err(ConnectionReset))",
+            "mode=2 timeout"
+          ],
+          "log_sha256": "a28d3557240a27a889266ff50edfd18c982a98c1487c4ea646e512a4c3bfeb52"
+        }
+      ],
+      "first_tool_observation": {
+        "results": [
+          "mode=0 timeout",
+          "mode=1 result=Ok(Err(ConnectionReset))",
+          "mode=2 result=Ok(Err(UnexpectedEof))"
+        ],
+        "provenance": "Captured in tool response; stdout was not saved during the first invocation."
+      },
+      "interpretation": "Drop-only and orderly TLS shutdown may leave the peer read pending beyond three seconds. Neither establishes prompt physical exit in this fixture. Credits correctly remain held until actual I/O completion; use an explicit abortive reset to test cancellation deterministically."
+    },
+    "partial-tls-reset-probe-01": {
+      "status": "FAILED_TO_ESTABLISH_PROMPT_EXIT",
+      "source_sha256": "50852eaf4e862fdcb99f274042c39fa465056dda4e0cf7cdea0b446724bfaaf6",
+      "executable_sha256": "ed6a5ab0847957a938dcf49570fad998d3e69a6ec99daa632a4b63f434e264dd",
+      "original_timeout_seconds": 3,
+      "results": [
+        "mode=3 timeout"
+      ],
+      "log_sha256": "c4754376c14abca4f581dfb0e4b12b7b55c0d2a124b3b4b9e915e7f39bcf5766",
+      "interpretation": "An abortive client close also left this peer read pending. This diagnostic supplies no prompt-cancellation or Cellar qualification pass."
+    },
+    "partial-tls-wakeup-probe-01": {
+      "status": "OBSERVED",
+      "source_sha256": "7690f16001fada45d90fbf6b914eff5042063a9413515a0a91c9660ed903f8b0",
+      "executable_sha256": "6a8dcdb7e6430467dde9929468efe21c104f94aad803daa8b824087bbfb43789",
+      "original_timeout_seconds": 3,
+      "periodic_poll_ms": 10,
+      "repeats": [
+        {
+          "repeat": 1,
+          "elapsed_seconds": 0.009639333002269268,
+          "exit_code": 0,
+          "results": [
+            "mode=0 result=Ok(Err(ConnectionReset))",
+            "mode=1 result=Ok(Err(ConnectionReset))",
+            "mode=2 result=Ok(Err(UnexpectedEof))"
+          ],
+          "log_sha256": "092cedd533378ccc840bda3c442a0c8c38cd5d3f9c0f8efe874df1f33eb26ef5"
+        },
+        {
+          "repeat": 2,
+          "elapsed_seconds": 3.010382832988398,
+          "exit_code": 0,
+          "results": [
+            "mode=0 timeout",
+            "mode=1 result=Ok(Err(ConnectionReset))",
+            "mode=2 result=Ok(Err(UnexpectedEof))"
+          ],
+          "log_sha256": "2113b45a571acac76be60b6f56adf730a87a3703f2b1c60063e82291353f6bef"
+        },
+        {
+          "repeat": 3,
+          "elapsed_seconds": 9.017207791999681,
+          "exit_code": 0,
+          "results": [
+            "mode=0 timeout",
+            "mode=1 timeout",
+            "mode=2 timeout"
+          ],
+          "log_sha256": "e99e14f2f0ac5907651e41df914567f79b08a865e76650dfbd1097041eea2e02"
+        },
+        {
+          "repeat": 4,
+          "elapsed_seconds": 0.009336874994914979,
+          "exit_code": 0,
+          "results": [
+            "mode=0 result=Ok(Err(ConnectionReset))",
+            "mode=1 result=Ok(Err(ConnectionReset))",
+            "mode=2 result=Ok(Err(ConnectionReset))"
+          ],
+          "log_sha256": "84fe6c1a4398b0009862e95fae213f1e874e7b9ee6656617860ca199c06f0cc4"
+        },
+        {
+          "repeat": 5,
+          "elapsed_seconds": 0.008922832988901064,
+          "exit_code": 0,
+          "results": [
+            "mode=0 result=Ok(Err(ConnectionReset))",
+            "mode=1 result=Ok(Err(ConnectionReset))",
+            "mode=2 result=Ok(Err(ConnectionReset))"
+          ],
+          "log_sha256": "84fe6c1a4398b0009862e95fae213f1e874e7b9ee6656617860ca199c06f0cc4"
+        }
+      ]
+    }
+  },
+  "open_routing_failure": {
+    "test": "removed_member_advice_cannot_grant_authority",
+    "caller": "Sdk",
+    "image": "materialized",
+    "command_sequence": 1,
+    "required_durability": "S3",
+    "error": "ambiguous Transport(StalePeer)",
+    "phase": "Original-ID receipt replay after real member replacement and before bad advice injection.",
+    "observations": "The failure snapshot records two successful local S3 command calls and current leader 5. These aggregate counters do not resolve the failed call receipt or identify the precise stale-route guard. Published/candidate isolated repeats both pass and establish no causal repair.",
+    "retention": "Original command identity, failed disks, raw logs and exact private manifests remain retained; no retry with fresh IDs or larger budgets."
+  },
+  "open_queue_failures": [
+    {
+      "test": "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+      "phase": "warm fast Queue before the proof-sharing oracle",
+      "error": "HTTP 503, ambiguous Raft runtime DeadlineExceeded",
+      "retention": "Original request outcome and all three failed disks retained."
+    },
+    {
+      "test": "queue_four_in_flight_preserves_acknowledged_messages",
+      "phase": "public Queue producer",
+      "command_sequence": 6,
+      "first_target_attempt_remaining_ms": 2034,
+      "error": "HTTP 503, ambiguous Runtime(DeadlineExceeded)",
+      "retention": "Original producer identity and all three failed disks retained; acknowledged-message retention is not qualified by this failed invocation."
+    }
+  ],
+  "constrained_campaign": {
+    "context": "colima-cellar-multi-raft-6aff",
+    "container_id": "791d111034e61f70f2e99422be75d79f22af31d659fcd346af48c045ebdc22d5",
+    "image": "sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+    "nanocpus": 1000000000,
+    "memory": 2147483648,
+    "memory_swap": 2147483648,
+    "restarts": 0,
+    "started_at": "2026-11-16T01:39:54.038532847Z",
+    "engine_id": "3d9ae341-3376-4798-b369-450ff43cfbb7",
+    "available_bytes": 0,
+    "reserve_bytes": 6442450944,
+    "actions": [
+      "read-only container inspection",
+      "read-only engine identity",
+      "read-only df /data"
+    ],
+    "observed_at_utc": "2026-11-17T12:08:10.685051+00:00",
+    "same_original_backend_and_limits": true,
+    "admissible": false
+  },
+  "retention": {
+    "status": "PASSED",
+    "rows": [
+      {
+        "run": "park-permission-reproduce-01",
+        "status": "REPRODUCED",
+        "files": 67,
+        "bytes": 888232,
+        "manifest_sha256": "05486093cf405f05db5fec717ed2f9fcfdae0567c354065a3c274d7e8431f69b",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "park-read-refusal-after-01",
+        "status": "FAILED",
+        "files": 67,
+        "bytes": 851697,
+        "manifest_sha256": "718d0ab08b1c8b91ca6f96a58777b55f5391c659652a64df73c8b9b21ad7fa51",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "seed-read-refusal-before-01",
+        "status": "REPRODUCED",
+        "files": 5,
+        "bytes": 7142,
+        "manifest_sha256": "594ce548f217d01fa6b4e6920494dc27f333d33d278b62d493b953b2056e6c1b",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "seed-read-refusal-after-01",
+        "status": "FAILED",
+        "files": 5,
+        "bytes": 7114,
+        "manifest_sha256": "90401330572c5799810f18bf3a0b0895fe20c050c1e08efcac73b729ac9bdc6a",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "native-read-refusal-probe-01",
+        "status": "PASSED",
+        "files": 140,
+        "bytes": 2177823,
+        "manifest_sha256": "7b22020ee0afa8b76a4ffec7a43f0491f5ed456a3be5e2fc6feff63809cfb937",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "seed-read-refusal-phase-01",
+        "status": "DIAGNOSED",
+        "files": 5,
+        "bytes": 7666,
+        "manifest_sha256": "36848c710b9ffa225c06410056d6c7806258bd5251876451a5a209d7b47dbc25",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "seed-read-refusal-after-02",
+        "status": "FAILED",
+        "files": 2934,
+        "bytes": 32573275,
+        "manifest_sha256": "b5bba54029be9c8eadfc4d8d6f7e9d836117ba37597de6a28f74aef97683a411",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "seed-read-refusal-primitives-01",
+        "status": "FAILED",
+        "files": 123,
+        "bytes": 2475169,
+        "manifest_sha256": "1134d9f785ef07452b0f9f0a5c9665b902240dc5b387b3e2d3ea1946253ee0bb",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "removed-advice-comparison-01",
+        "status": "OBSERVED",
+        "files": 48,
+        "bytes": 273984,
+        "manifest_sha256": "948683cbd6b852cbedd76f2799d08ebbbc1b5edb23187104cf0823d08d95b2b5",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "seed-read-refusal-remaining-primitives-01",
+        "status": "FAILED",
+        "files": 253,
+        "bytes": 5139185,
+        "manifest_sha256": "efb0e6453d3144ed611904c6c6fa0c3f729ea7bdd5bf43201c726a3fe855451b",
+        "original_and_copy_verified_twice": true
+      },
+      {
+        "run": "seed-read-refusal-sql-recovery-01",
+        "status": "PASSED",
+        "files": 0,
+        "bytes": 0,
+        "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+        "original_and_copy_verified_twice": true
+      }
+    ],
+    "pending": []
+  },
+  "unrun_current_source": [
+    "Native disaster target after the routing failure stopped the original driver.",
+    "Hosted candidate native/SDK/feature qualification.",
+    "Original constrained four-mode SQL/KV/Queue throughput and percentile matrix."
+  ],
+  "limits": [
+    "The isolated native and primitive checks use host-native RF3 disks/TLS and fixture stores. They do not qualify the requested three 1 vCPU/2GiB Colima nodes with shared RustFS.",
+    "The original RustFS remains held by its unchanged 6GiB reserve; no VM/disk/resource changes, failed-data deletion or reserve relaxation is performed.",
+    "The full routing failure remains open. No complete physical-process cancellation, archive-outage/bulk-transfer/sustained fairness, physical reclamation/once-only accounting, repeated reserve-aware movement, authority partition, crash/wake/recovery or combined CG/OPT gate is accepted."
+  ],
+  "measured_constrained_throughput_latency_gain": null,
+  "accepted_complete_opt_packages": [],
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "credential_matches": 0,
+    "excluded": "Credentials, configurations, environment responses, raw logs, signed URLs and fixture data."
+  }
+}

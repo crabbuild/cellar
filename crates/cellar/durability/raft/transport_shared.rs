@@ -4,9 +4,41 @@
 use super::*;
 use crate::raft::cache::GroupLog;
 use crate::raft::cell_groups::CellGroupRuntime;
+use crate::raft::group_host::{RouterRefreshClient, RouterRefreshKey};
+use cellar_logic::consensus::{MemberId, NodeIdentity};
 
 type PhysicalRoute = GroupRoute<GroupHistory>;
 type PhysicalPeer = RaftPeer<GroupHistory>;
+
+fn endpoint_request(
+    registry: &Registry,
+    view: &PhysicalRoute,
+    node: NodeId,
+) -> Result<(RouterRefreshClient, RouterRefreshKey), RuntimeError> {
+    let peer = view
+        .peers
+        .iter()
+        .find(|peer| peer.replica.node == node)
+        .ok_or(RuntimeError::NotFound)?;
+    let observation = registry
+        .node_views
+        .get(&node)
+        .map(|view| (view.storage_instance(), view.revision()));
+    let key = RouterRefreshKey::endpoint(
+        view.scope.cluster,
+        NodeIdentity {
+            node,
+            disk: peer.replica.disk,
+            process: peer.replica.process,
+        },
+        observation,
+    );
+    let client = registry
+        .router_refresh
+        .clone()
+        .ok_or(RuntimeError::NotFound)?;
+    Ok((client, key))
+}
 
 pub(super) enum SendRoute {
     Legacy {
@@ -96,6 +128,18 @@ impl RaftTransport {
         history: GroupHistory,
         deadline: u64,
     ) -> Result<(), RuntimeError> {
+        use crate::raft::group_host::RouterRefreshOutcome;
+        match self.refresh_cell_router(history, deadline).await? {
+            RouterRefreshOutcome::Current => Ok(()),
+            RouterRefreshOutcome::StalePlacement => Err(RuntimeError::NotReady),
+        }
+    }
+
+    pub(crate) async fn refresh_cell_router(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<crate::raft::group_host::RouterRefreshOutcome, RuntimeError> {
         let (client, key) = {
             let state = &self.handle.0;
             let registry = state.registry.lock().map_err(|_| RuntimeError::Closed)?;
@@ -114,6 +158,78 @@ impl RaftTransport {
             1,
         );
         client.request(key, deadline).await
+    }
+
+    pub(crate) async fn refresh_cell_endpoint(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        node: NodeId,
+        deadline: u64,
+    ) -> Result<(), RuntimeError> {
+        let request = {
+            let state = &self.handle.0;
+            let registry = state.registry.lock().map_err(|_| RuntimeError::Closed)?;
+            state.admit(&registry).map_err(|_| RuntimeError::Closed)?;
+            let view = registry
+                .cell_query_groups
+                .get(&route.history)
+                .ok_or(RuntimeError::NotFound)?;
+            if view.schema_digest != route.schema_digest {
+                return Err(RuntimeError::NotReady);
+            }
+            endpoint_request(&registry, view, node)?
+        };
+        self.request_cell_endpoint(request, deadline).await
+    }
+
+    /// Repair only the selected member's authenticated boot mismatch. The
+    /// controller supplies its active-local versus ingress-only routing source;
+    /// a retained physical source must not shadow the ingress discovery view.
+    pub(crate) async fn refresh_cell_query_endpoint(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        member: MemberId,
+        router: bool,
+        deadline: u64,
+    ) -> Result<(), TransportError> {
+        let request = {
+            let state = &self.handle.0;
+            let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+            state.admit(&registry)?;
+            let view = if router {
+                registry.cell_query_groups.get(&route.history)
+            } else {
+                registry.physical_groups.get(&route.history)
+            }
+            .ok_or(TransportError::UnknownGroup)?;
+            if view.schema_digest != route.schema_digest {
+                return Err(TransportError::Identity);
+            }
+            let Some(node) = State::changed_cell_endpoint(&registry, view, member) else {
+                return Ok(());
+            };
+            endpoint_request(&registry, view, node).map_err(TransportError::Runtime)?
+        };
+        self.request_cell_endpoint(request, deadline)
+            .await
+            .map_err(TransportError::Runtime)
+    }
+
+    async fn request_cell_endpoint(
+        &self,
+        (client, key): (RouterRefreshClient, RouterRefreshKey),
+        deadline: u64,
+    ) -> Result<(), RuntimeError> {
+        self.handle
+            .0
+            .performance
+            .increment(crate::raft::performance::Counter::CellEndpointRefreshes, 1);
+        match client.request(key, deadline).await? {
+            crate::raft::group_host::RouterRefreshOutcome::Current => Ok(()),
+            crate::raft::group_host::RouterRefreshOutcome::StalePlacement => {
+                Err(RuntimeError::NotReady)
+            }
+        }
     }
 
     /// Remove dispatch only after the exact retired source/member loses its consensus claim.
@@ -292,6 +408,7 @@ impl RaftTransport {
         // advisory route. Revoke its queued route identities under the same
         // registry lock; discovery itself never creates a physical owner.
         registry.cell_query_groups.remove(&route.scope);
+        registry.cell_query_lifetimes.remove(&route.scope);
         registry.physical_owners.insert(route.scope, owner.clone());
         registry.physical_groups.insert(route.scope, route.clone());
         registry.prune_pools();

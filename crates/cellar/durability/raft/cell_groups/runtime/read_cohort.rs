@@ -15,7 +15,6 @@ pub(super) struct Identity {
 struct Cohort {
     identity: Identity,
     members: usize,
-    initiated: bool,
     term: Option<Term>,
     barrier: Option<LogIndex>,
     retry_at: u64,
@@ -51,7 +50,7 @@ impl Cohorts {
         }
         if let Some(context) = self.open.get(&identity.history) {
             let cohort = self.entries.get_mut(context).expect("open read cohort");
-            if !cohort.initiated && cohort.identity == identity {
+            if cohort.identity == identity {
                 cohort.members += 1;
                 self.members += 1;
                 return Ok((context.clone(), true));
@@ -66,7 +65,6 @@ impl Cohorts {
             Cohort {
                 identity,
                 members: 1,
-                initiated: false,
                 term: None,
                 barrier: None,
                 retry_at: now.saturating_add(super::reads::FORWARDED_RETRY_MS),
@@ -83,32 +81,30 @@ impl Cohorts {
         select: impl FnOnce(Identity, &mut Option<Term>, &mut Option<LogIndex>, bool) -> T,
     ) -> (T, bool) {
         let cohort = self.entries.get_mut(context).expect("pending read cohort");
-        // Seal before entering the owner, even if readiness postpones the
-        // physical request. A later arrival can never join an initiated barrier.
-        let sealed = !cohort.initiated;
-        cohort.initiated = true;
-        if self
-            .open
-            .get(&cohort.identity.history)
-            .is_some_and(|open| open.as_slice() == context)
-        {
-            self.open.remove(&cohort.identity.history);
-        }
         let before = (cohort.term, cohort.barrier);
-        let retry = cohort.barrier.is_none() && now >= cohort.retry_at;
-        if retry {
-            cohort.retry_at = now.saturating_add(super::reads::FORWARDED_RETRY_MS);
-        }
+        let due = cohort.barrier.is_none() && now >= cohort.retry_at;
+        let retry = due && cohort.term.is_some();
         let result = select(
             cohort.identity,
             &mut cohort.term,
             &mut cohort.barrier,
             retry,
         );
-        (
-            result,
-            sealed || retry || before != (cohort.term, cohort.barrier),
-        )
+        // The actor enters the owner synchronously. It cannot accept another
+        // waiter between the first submission and sealing this cohort.
+        let initiated = before.0.is_none() && cohort.term.is_some();
+        if initiated
+            && self
+                .open
+                .get(&cohort.identity.history)
+                .is_some_and(|open| open.as_slice() == context)
+        {
+            self.open.remove(&cohort.identity.history);
+        }
+        if due || initiated {
+            cohort.retry_at = now.saturating_add(super::reads::FORWARDED_RETRY_MS);
+        }
+        (result, retry || before != (cohort.term, cohort.barrier))
     }
 
     pub fn observe(

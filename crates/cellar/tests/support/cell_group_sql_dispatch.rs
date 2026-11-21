@@ -303,6 +303,54 @@ pub(crate) async fn routed(rooted: bool) -> Result<()> {
     drop(expired);
     assert_eq!(calls.load(Ordering::SeqCst), before);
 
+    // Exercise cancellation before publishing a replacement. Once this
+    // dispatcher observes a changed range, its old hint must be invalidated.
+    let mut held_request = request(&class, CellQueryConsistency::Stale)?;
+    held_request.input = vec![0; 256 * 1024];
+    held_request.input[..4].copy_from_slice(b"hold");
+    let mut held = dispatcher.query(
+        a.clone(),
+        held_request,
+        limits(),
+        Some(first.cached_route()),
+    )?;
+    held.begin().await?;
+    assert_eq!(
+        held.attempt().context("held physical route")?.route(),
+        &route,
+        "cancellation fixture must select its installed physical owner",
+    );
+    let retained = dispatcher.usage();
+    assert!(retained.0 >= 512 * 1024);
+    assert_eq!(retained.1, 1);
+    let runtime = fixture.runtimes[0].clone();
+    let sql = pool.clone();
+    let options = fixture.cell_options(&a).await?;
+    let waiter = fixture
+        .cluster
+        .domain
+        .spawn(async move { held.execute(&runtime, &sql, options).await })?;
+    tokio::time::timeout(Duration::from_secs(5), started)
+        .await
+        .context("held query entered its installed physical owner")??;
+    waiter.abort();
+    assert!(waiter.await.is_err());
+    // A dropped routing waiter cannot refund the invocation while its entered
+    // SQL callback still owns captured input and physical read authority.
+    assert_eq!(dispatcher.usage(), retained);
+    assert_eq!(pool.usage()?.retained_operations, 1);
+    assert!(pool.usage()?.retained_bytes >= 256 * 1024);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), pool.close())
+            .await
+            .is_err()
+    );
+    release.send(())?;
+    tokio::time::timeout(Duration::from_secs(5), pool.close()).await??;
+    assert_eq!(pool.usage()?.retained_bytes, 0);
+    assert_eq!(dispatcher.usage(), (0, 0));
+    assert_eq!(calls.load(Ordering::SeqCst), before + 1);
+
     // Confirm a replacement against the real directory, but do not invent its
     // physical owner or claim this metadata-only fixture performs a live move.
     let directory = fixture.cluster.directory.clone();
@@ -362,47 +410,23 @@ pub(crate) async fn routed(rooted: bool) -> Result<()> {
         Err(CellDispatchError::Runtime(RuntimeError::NotFound))
     ));
     drop(relocated);
-    assert_eq!(calls.load(Ordering::SeqCst), before);
-
-    // A known route needs no new catalog lookup; actual destination authority is
-    // still mandatory. Here the old physical owner has not been transitioned.
-    let mut held_request = request(&class, CellQueryConsistency::Stale)?;
-    held_request.input = vec![0; 256 * 1024];
-    held_request.input[..4].copy_from_slice(b"hold");
-    let mut held = dispatcher.query(
+    let mut invalidated = dispatcher.query(
         a.clone(),
-        held_request,
+        request(&class, CellQueryConsistency::Stale)?,
         limits(),
         Some(first.cached_route()),
     )?;
-    held.begin().await?;
-    let retained = dispatcher.usage();
-    assert!(retained.0 >= 512 * 1024);
-    assert_eq!(retained.1, 1);
-    let runtime = fixture.runtimes[0].clone();
-    let sql = pool.clone();
-    let options = fixture.cell_options(&a).await?;
-    let waiter = fixture
-        .cluster
-        .domain
-        .spawn(async move { held.execute(&runtime, &sql, options).await })?;
-    tokio::time::timeout(Duration::from_secs(5), started).await??;
-    waiter.abort();
-    assert!(waiter.await.is_err());
-    // A dropped routing waiter cannot refund the invocation while its entered
-    // SQL callback still owns captured input and physical read authority.
-    assert_eq!(dispatcher.usage(), retained);
-    assert_eq!(pool.usage()?.retained_operations, 1);
-    assert!(pool.usage()?.retained_bytes >= 256 * 1024);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(30), pool.close())
-            .await
-            .is_err()
+    invalidated.begin().await?;
+    assert_eq!(
+        invalidated
+            .attempt()
+            .context("invalidated cached hint")?
+            .route(),
+        replacement.route(),
     );
-    release.send(())?;
-    tokio::time::timeout(Duration::from_secs(5), pool.close()).await??;
-    assert_eq!(pool.usage()?.retained_bytes, 0);
-    assert_eq!(dispatcher.usage(), (0, 0));
+    drop(invalidated);
+    assert_eq!(calls.load(Ordering::SeqCst), before + 1);
+
     drop(pool);
     drop(dispatcher);
     fixture.close().await

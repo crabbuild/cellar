@@ -1,0 +1,434 @@
+{
+  "format": 1,
+  "scope": "Static reason-specific provisioning refusals; all admission predicates and evaluation order remain. Native owning controls only; no production recovery fix, complete optimization/release qualification or throughput/latency gain.",
+  "implementation": "95e95a35ef22b2f326b83f0c75d51884a1f61a93",
+  "included_main": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+  "compiler_input_digest": "e92708cebc8ecc202211301c1ea1bf0cb98f9ffe33f6fd4d21acc5525de2bfa3",
+  "native_source_binding": {
+    "driver_start_head": "607ca35b6c5233afd60c37d26dce2dee06358350",
+    "start_patch_matches_committed_implementation": true,
+    "inputs_unchanged": true
+  },
+  "profile": {
+    "rust": "1.98.1",
+    "locked": true,
+    "build_jobs": 1,
+    "incremental": false,
+    "opt_level": "1",
+    "debuginfo": 0,
+    "debug_assertions": true,
+    "overflow_checks": true,
+    "test": true
+  },
+  "native": {
+    "status": "PASSED",
+    "executable_sha256": "ac3a1a40456e85d96e5d2aec3e409d2682f1d21c5533d06b69a6f91169092788",
+    "cases_passed": 5,
+    "cases_failed": 0,
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 532.4093145420193,
+        "footers": [],
+        "log_sha256": "bc6cc38c37d2c2dc4fcaf419b13102328481ec27a04e73cf0e8f56128edec941"
+      },
+      {
+        "name": "native_cell_groups_execution--provisioning_coalesces_and_serves",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.8368945000111125,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3d2af7dbb8ecbda9d09192d91aa7f612b7c695fe33428958c5604634df87f66c"
+      },
+      {
+        "name": "native_cell_groups_execution--provisioning_retries_retained_owner",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.0342967500328086,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "08677c2e1c67f571cf4afe4c12c527dc17414fdaba6d92a6e810f8f6365b4259"
+      },
+      {
+        "name": "native_cell_groups_execution--provisioning_joins_cancelled_close",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.1153135410277173,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "1c5d616bc56f163d050e79b5770a0d21437266b833ed4057940a806ca49c20d9"
+      },
+      {
+        "name": "native_cell_groups_execution--provisioning_recovers_selected_roots",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.3261685830075294,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "749a871a2d7393f06979548764275e487accc237be5c1d6fa1364b24b680b97c"
+      },
+      {
+        "name": "native_cell_groups_execution--provisioning_refusals_preserve_healthy_group",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 5.007181124994531,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "09607edd4698028687496162ba566ec13e9d5863a6266051ef28d6b3ab9b2ce6"
+      }
+    ],
+    "retention": {
+      "original_verified": true,
+      "closed_copy_verified": true,
+      "files": 544,
+      "bytes": 2675017,
+      "manifest_sha256": "2ebc4e0f4cea08920d607c89e7d5a1582aaa372ea4997a36b8f62217ae5c3e44"
+    },
+    "environment": "Three independent native engines, real local filesystems and synthetic in-memory objects. Original owning fixtures exercise materialized and rooted images; this is not the constrained Colima/RustFS performance matrix."
+  },
+  "strict_checks": {
+    "status": "PASSED",
+    "scope": "All-feature library Clippy (not all targets), native-only cellar/Python facade compilation, format, layout, native dependency boundary, docs, 44 plan tests, runner tests and whitespace. Previous full-library/full-target results retain their original compiler-input boundary.",
+    "source_inputs_unchanged": true,
+    "stages": [
+      {
+        "name": "clippy",
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar",
+          "--all-features",
+          "--lib",
+          "--",
+          "-D",
+          "warnings",
+          "--force-warn",
+          "dead_code"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 123.6514155420009,
+        "log_sha256": "63c639c7d93dd760aefd6566c4b10eadfe94d8d3095be6c4e3a3e13fbf4485fc"
+      },
+      {
+        "name": "native-only",
+        "argv": [
+          "env",
+          "PYO3_PYTHON=/nonexistent/cellar-native-only",
+          "cargo",
+          "check",
+          "-p",
+          "cellar",
+          "-p",
+          "cellar-python",
+          "--no-default-features",
+          "--lib",
+          "--locked"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 114.46680170897162,
+        "log_sha256": "bbd33b4bc5ef0c98e8724e84f8355e7ed7ae89d0e78987adaa550c021995c901"
+      },
+      {
+        "name": "format-check",
+        "argv": [
+          "cargo",
+          "format",
+          "--check"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 114.81621108396212,
+        "log_sha256": "096fdd7c3bf7d7a739d83146fcec031d829a8c797dbda94458c31414a018ef3b"
+      },
+      {
+        "name": "layout",
+        "argv": [
+          "cargo",
+          "check-layout"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.2395456669619307,
+        "log_sha256": "049cfdbd29dbf0a7ca10b555c33ac28fa1459809eb8c49f7847232460eb127c6"
+      },
+      {
+        "name": "dependencies",
+        "argv": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.45547899999655783,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      },
+      {
+        "name": "docs",
+        "argv": [
+          "python3",
+          "tools/docs/check.py"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9388819999876432,
+        "log_sha256": "9e5c1ed9c944b84102e701c684f62a90be3b3ccbf23f3868ff5132a14ec2edae"
+      },
+      {
+        "name": "plan-tests",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "docs/design/multi-raft/cell-groups",
+          "-p",
+          "test_*.py"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.6911844999995083,
+        "log_sha256": "c1bd340463c1fa40321dac146efca697805c9b3ffecd36e2176a8309dac34a7d"
+      },
+      {
+        "name": "runner-tests",
+        "argv": [
+          "python3",
+          "tools/multi-raft/test_cell_groups.py"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.22563674999400973,
+        "log_sha256": "f38d9c4dd766182efdaa4cf8a2568810c020ed8702ccf18d6102e263fbb2f2b6"
+      },
+      {
+        "name": "whitespace",
+        "argv": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.03143533400725573,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "temporary_phase_probes": {
+    "scope": "Temporary phase diagnostics; all instrumented sources restored byte-exactly to published source before provisioning diagnostic patch. No causal runtime fix or performance gain qualified.",
+    "probes": {
+      "sql-enrollment-1e919-trace-01": {
+        "source_digest": "3b8ffa6cde0694bd044785a47fd4df9eaf71d3d411e2974b0f4c48e3356cea8c",
+        "status": "PASSED",
+        "stages": [
+          {
+            "name": "compile-cellar",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 517.4341174999718,
+            "footers": [],
+            "log_sha256": "4e76f92cee9cdf44215bc6698f6c22dbfd954f82e995d76a7cd38261ffacadf9"
+          },
+          {
+            "name": "native_cell_groups_primitives--ordinary_sql_bindings_use_managed_shared_groups",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 145.21725216699997,
+            "footers": [
+              [
+                "ok",
+                "1",
+                "0",
+                "0"
+              ]
+            ],
+            "log_sha256": "2eaeedfa54453c85d1a97027eb0dd0fd136e09ade50cfc6d98acc56b1c3e31ee"
+          }
+        ],
+        "retained": {
+          "files": 0,
+          "bytes": 0,
+          "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+        },
+        "source_inputs_unchanged": true,
+        "awake_joined": true
+      },
+      "sql-enrollment-1e919-trace-02": {
+        "source_digest": "3b8ffa6cde0694bd044785a47fd4df9eaf71d3d411e2974b0f4c48e3356cea8c",
+        "status": "PASSED",
+        "stages": [
+          {
+            "name": "compile-cellar",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 0.8345946670160629,
+            "footers": [],
+            "log_sha256": "8a21d1e95781925a3df4072d872e26aeee8915347cabbde6850b7c5959dc5faa"
+          },
+          {
+            "name": "native_cell_groups_primitives--ordinary_sql_bindings_use_managed_shared_groups",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 137.81550216599135,
+            "footers": [
+              [
+                "ok",
+                "1",
+                "0",
+                "0"
+              ]
+            ],
+            "log_sha256": "6417866a54e419d465893f5dc7ef5dd97bcd6670ca3506dfebfd3eac2adede16"
+          }
+        ],
+        "retained": {
+          "files": 0,
+          "bytes": 0,
+          "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+        },
+        "source_inputs_unchanged": true,
+        "awake_joined": true
+      },
+      "seed-cleanup-1e919-trace-01": {
+        "source_digest": "98380aa34ff16001613eb5ef45e61145909f0a878f243f8da32fa2c2b6f9ee77",
+        "status": "FAILED",
+        "stages": [
+          {
+            "name": "compile-cellar",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 242.1686243750155,
+            "footers": [],
+            "log_sha256": "2548fe4c673a8461eb0ff63a2de893e2aa3ad264a113941fea910f9c80d00125"
+          },
+          {
+            "name": "native_cell_groups_managed--bootstrap_lifecycle_s3_managed_s3_seed_refusal_preserves_admission_and_retries_after_failover",
+            "status": "FAILED",
+            "exit_code": 101,
+            "elapsed_seconds": 46.56112295796629,
+            "footers": [
+              [
+                "FAILED",
+                "0",
+                "1",
+                "0"
+              ]
+            ],
+            "log_sha256": "2be4570038da11583050abae32438331a348ebaa01502a59d275f3ba777aa4a6"
+          }
+        ],
+        "retained": {
+          "files": 119,
+          "bytes": 1096418,
+          "manifest_sha256": "552da4048a6558f2c5cf946c62d6b29a5ee6bb040fb0d0ccdca64a2490cbccfb"
+        },
+        "source_inputs_unchanged": true,
+        "awake_joined": true
+      },
+      "seed-cleanup-1e919-trace-02": {
+        "source_digest": "98380aa34ff16001613eb5ef45e61145909f0a878f243f8da32fa2c2b6f9ee77",
+        "status": "PASSED",
+        "stages": [
+          {
+            "name": "compile-cellar",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 1.9962914590141736,
+            "footers": [],
+            "log_sha256": "379c69366bac4d46077904df75d592380140b56ad813a17cb94110edd07b6d48"
+          },
+          {
+            "name": "native_cell_groups_managed--bootstrap_lifecycle_s3_managed_s3_seed_refusal_preserves_admission_and_retries_after_failover",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 40.685319042007904,
+            "footers": [
+              [
+                "ok",
+                "1",
+                "0",
+                "0"
+              ]
+            ],
+            "log_sha256": "ddaa2a3f6fa2405941c7b7911b6057a05e9114dada2ea3466eff44c67a77c7b6"
+          }
+        ],
+        "retained": {
+          "files": 0,
+          "bytes": 0,
+          "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+        },
+        "source_inputs_unchanged": true,
+        "awake_joined": true
+      }
+    },
+    "restored_source_digest": "1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a14085",
+    "hosted_reproduction": {
+      "commit": "607ca35b6c5233afd60c37d26dce2dee06358350",
+      "workflow_run": 44430142415,
+      "job": 135245125671,
+      "footer": {
+        "passed": 12,
+        "failed": 1,
+        "ignored": 8
+      },
+      "failure": "PublishedChildren, materialized: retained voter provisioning configuration Invalid; failing guard unknown."
+    }
+  },
+  "latest_original_capacity": {
+    "observed_at_utc": "2026-11-19T01:33:45.303616+00:00",
+    "available_bytes": 0,
+    "reserve_bytes": 6442450944,
+    "admissible": false,
+    "capacity_guard_satisfied": false,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_inspection_config_and_start_unchanged": true,
+    "restarts": 0
+  },
+  "open_gates": [
+    "Original SQL/RPC/Queue deadline and C2/C4 progress",
+    "Hosted retained-voter provisioning and archive-seed cleanup ownership",
+    "OPT-01 through OPT-08 complete acceptance",
+    "Remaining cell-group, SDK, release, backend-fault and crash qualification",
+    "Original three-node 1-vCPU/2-GiB RF3/three-group shared-RustFS SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket C1/4/16 matrix"
+  ]
+}

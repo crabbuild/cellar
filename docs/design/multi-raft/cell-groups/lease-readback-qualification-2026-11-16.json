@@ -1,0 +1,1500 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-16T23:54:07.498754+00:00",
+  "component": "Node lease readback continuity and retained ordinary candidates",
+  "component_status": "PASSED",
+  "full_objective_complete": false,
+  "complete_release_qualified": false,
+  "base_revision": "46bc043a1408c7cdf1c083dc9b86a6462cd11d36",
+  "integrated_main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "source_digest": "31cc0e004e70f9e0ed62165c5644bd3e5ec8da447b8e50d660d455d846b0de14",
+  "source_inputs": 3461,
+  "production_input": {
+    "path": "crates/cellar-logic/lib.rs",
+    "before_sha256": "2ff956d6767557ff72306d8ac0a73fa78c72f6fcf4809ac04f09d69148e5b19f",
+    "after_sha256": "84cc323e53a317c576bdba133a119bacfea1e91e776b66dcde0a1c6ba09a6dcc"
+  },
+  "mechanism": [
+    "Retain fixed-size expiry bounds and the earliest monotonic sample for each unresolved ordinary None/Open log stamp under the held ETag. A read of the old root does not cancel a native write or erase that history.",
+    "Require the same node, lineage, address, protocol and process generation before adopting a historical ordinary candidate. Reject unknown stamps/expiry bounds and retain the exact current-body comparison. Recovery and sealing states do not enter ordinary candidate history.",
+    "Require prior authority to remain live at both latest observed wall and monotonic bounds before positive readback adoption or applied completion. Stale event timestamps cannot undo a later observed expiry.",
+    "Bound adoption by the original earliest sample, the expiry delta and the observed remaining published time. Clear unresolved history when its ETag is displaced; never extend authority from a callback completion instant."
+  ],
+  "contracts_preserved": [
+    "No lease, callback, handler or operation deadline increase; native fixture keeps its original one-second lease and three-second actor operation setting.",
+    "No larger work bank, additional production worker, retry identity substitution, new wire format, marker increment, relaxed durability proof or VM/container resource change.",
+    "A genuine expiry remains a fence. The older native COMMIT tail that finished after its replica fence is not repaired by recognizing another owner record."
+  ],
+  "owning_boundary": {
+    "pure_core": "Eleven public cellar-logic integration tests. Eight fail and three controls pass before the change; all eleven pass afterward, within the full 107-test integration suite. Cases include changed ordinary stamps, multiple possible winners, unknown stamps/expiry bounds, ETag displacement, stale samples, matching bodies after clock steps, both prior deadlines and foreign/recovery records.",
+    "native": "The real public Node, Fleet log publisher and conditional SQLite object store. Hold one original physical CAS, report a connection reset, read the original root, then let that CAS win before executing the next real CAS with the published Open stamp. Require that next CAS to reject. No business mutation is reissued.",
+    "native_before_observation": {
+      "attempts": 2,
+      "first_committed": true,
+      "first_without_log": true,
+      "gated_scans": 3,
+      "next_with_log": true,
+      "owner_closed": true,
+      "rejected": true,
+      "stamps": [
+        [
+          0,
+          0,
+          true,
+          1000
+        ],
+        [
+          1,
+          1,
+          true,
+          1000
+        ]
+      ],
+      "unarmed_applied": 1
+    },
+    "native_after_repetitions": 2,
+    "native_after_oracles": [
+      "The original physical CAS commits, the newer stamped CAS is rejected, and the owner retains authority.",
+      "One original HTTP mutation returns value 1; a later GET still returns 1 after crossing a full original TTL.",
+      "The original process generation, Open log, nonempty ensemble and may-have-fleet-ack marker remain in the actual stored record.",
+      "The original physical task, both nodes and the explicit observer domain are joined; the caller-owned executor remains usable."
+    ],
+    "frozen_fixtures": {
+      "crates/cellar-logic/tests/node_lease_readback.rs": "7ad231d1f47b719ad716d0ec677faed7014f6f809ec5efbfe25cb3e2635b7b04",
+      "crates/cellar/tests/native_node.rs": "14ea182543837ab07847b38d23d4935dd69cd8b6074aaf7134c5fa0c718d83ad",
+      "crates/cellar/tests/support/lease_renewal_stamp.rs": "f2ad03478350ffe849ad621ceaf4099e0ac19b283f9011750aad121577acbb64"
+    },
+    "same_fixture_bytes_before_after": true,
+    "scope": "Focused response-loss reconciliation, not a reproduction of Linux storage timing or the entire RPC matrix. The explicit connection error makes loss independent of timeout delivery."
+  },
+  "before": {
+    "status": "REPRODUCED",
+    "source_digest": "78bbfc4db8a0d61b0e32f5233f53b3cca0b56f3166b6c3f259d0ea2fec7ea177",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "executable": {
+      "sha256": "56dab8445f139102bcae1c6b1f503dd3636e02c47192c800e1fd8b4f20160f8f",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "stages": [
+      {
+        "name": "core-controls",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.5985002079978585,
+        "log_sha256": "3e35f3a871e0c0aa6a9060c3516c34267193844a4fa60f297f302c5e519d4760",
+        "footers": [
+          [
+            "FAILED",
+            "3",
+            "8",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "a_stale_read_sample_cannot_reverse_observed_expiry",
+          "applied_result_cannot_cross_a_wall_deadline_already_observed_elsewhere",
+          "late_candidate_cannot_cross_the_prior_published_wall_deadline",
+          "late_candidate_cannot_revive_expired_monotonic_authority",
+          "matching_current_body_cannot_replace_an_older_candidates_sample",
+          "multiple_ambiguous_attempts_keep_both_ordinary_stamps_and_the_earliest_bound",
+          "original_ambiguous_candidate_survives_a_changed_retry_stamp",
+          "rejected_attempt_does_not_authorize_an_unwritten_stamp_or_expiry"
+        ]
+      },
+      {
+        "name": "compile-native",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 161.46917337499326,
+        "log_sha256": "86b619034a121799919509c2b816740a74728e5344705f80792ca935a4186bca",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "native-original-cas",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.5118086670117918,
+        "log_sha256": "eacf99242cccb5bf97d75ef679fe446ce14b63ff9e5fb867f523eaf834ba7fa0",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "lease_renewal_stamp::original_late_cas_survives_real_log_publication"
+        ]
+      }
+    ],
+    "frozen_executable_sha256": "56dab8445f139102bcae1c6b1f503dd3636e02c47192c800e1fd8b4f20160f8f",
+    "awake_joined": true,
+    "candidate_restored": true
+  },
+  "after": {
+    "status": "FAILED",
+    "source_digest": "31cc0e004e70f9e0ed62165c5644bd3e5ec8da447b8e50d660d455d846b0de14",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "executable": {
+      "sha256": "ce4108ed7d0bf906b1f32ff92ecf59b831cd6cb045306c9a54837fbc48fdcb5b",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "stages": [
+      {
+        "name": "all-logic",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 4.255581125005847,
+        "log_sha256": "e3b70b408a36b2e8a7f55a897a4b2b429cdf1f4942621c934bdc24d1973a82b6",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "11",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "11",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "18",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "15",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "27",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "18",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "4",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "0",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "observations": []
+      },
+      {
+        "name": "compile-native",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 149.62592529100948,
+        "log_sha256": "1e7e423f2eeb679aa9d69926ae8f74a672612a16afa9ee188a35a6d31fa5b576",
+        "footers": [],
+        "failed_cases": [],
+        "observations": []
+      },
+      {
+        "name": "native-original-cas-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 4.7769975409901235,
+        "log_sha256": "508d1c903fb31db93c39ae4c1dc07ae24a204ae843ab6e2e50291217630558be",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "observations": [
+          {
+            "attempts": 7,
+            "first_committed": true,
+            "first_without_log": true,
+            "gated_scans": 15,
+            "next_with_log": true,
+            "owner_closed": false,
+            "rejected": true,
+            "stamps": [
+              [
+                0,
+                0,
+                true,
+                1000
+              ],
+              [
+                1,
+                1,
+                true,
+                1000
+              ],
+              [
+                2,
+                1,
+                true,
+                1000
+              ],
+              [
+                3,
+                1,
+                true,
+                1000
+              ],
+              [
+                4,
+                1,
+                true,
+                1000
+              ],
+              [
+                5,
+                1,
+                true,
+                1000
+              ],
+              [
+                6,
+                1,
+                true,
+                1000
+              ]
+            ],
+            "unarmed_applied": 1
+          }
+        ]
+      },
+      {
+        "name": "native-original-cas-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 4.750051707989769,
+        "log_sha256": "c59d373675e862116c8d76c83516482a28523ac9e9e8e66d437244f1da913d20",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "observations": [
+          {
+            "attempts": 7,
+            "first_committed": true,
+            "first_without_log": true,
+            "gated_scans": 15,
+            "next_with_log": true,
+            "owner_closed": false,
+            "rejected": true,
+            "stamps": [
+              [
+                0,
+                0,
+                true,
+                1000
+              ],
+              [
+                1,
+                1,
+                true,
+                1000
+              ],
+              [
+                2,
+                1,
+                true,
+                1000
+              ],
+              [
+                3,
+                1,
+                true,
+                1000
+              ],
+              [
+                4,
+                1,
+                true,
+                1000
+              ],
+              [
+                5,
+                1,
+                true,
+                1000
+              ],
+              [
+                6,
+                1,
+                true,
+                1000
+              ]
+            ],
+            "unarmed_applied": 1
+          }
+        ]
+      },
+      {
+        "name": "full-core-library",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 591.490763083013,
+        "log_sha256": "59f45e5b7287b98f8980a23294f2ad5b00efd3d3afc04e779202d73f996f384b",
+        "footers": [
+          [
+            "FAILED",
+            "1220",
+            "13",
+            "2"
+          ]
+        ],
+        "failed_cases": [
+          "container::network::tests::empty_inventory_cannot_discharge_an_unresolved_create",
+          "docker::tests::attach_preserves_bounded_daemon_refusal",
+          "docker::tests::attach_upgrades_exact_id_and_preserves_buffered_bytes_and_half_close",
+          "docker::tests::connection_shutdown_cannot_turn_a_partial_reply_into_success",
+          "docker::tests::upgrade_refuses_oversized_daemon_error_without_draining_it",
+          "raft::fleet_catalog::docker_isolation::tests::docker_isolation_binding_refuses_restart_or_uncontained_workers",
+          "raft::fleet_catalog::docker_isolation::tests::docker_isolation_bounds_inspection_and_never_exposes_environment",
+          "raft::fleet_catalog::docker_isolation::tests::docker_isolation_recreates_adapter_after_lost_update_and_kill_replies",
+          "raft::fleet_catalog::docker_isolation::tests::docker_isolation_refuses_changed_identity_policy_and_missing_container",
+          "raft::fleet_catalog::docker_isolation::tests::docker_isolation_requires_immutable_boot_claim_and_operation",
+          "raft::fleet_catalog::docker_isolation::tests::docker_isolation_timeout_drops_connection_and_preserves_intent",
+          "raft::fleet_catalog::docker_isolation::tests::resources_tests::docker_isolation_resources_charge_cache_and_refuse_missing_stats",
+          "raft::fleet_catalog::docker_isolation::tests::resources_tests::docker_isolation_resources_refuse_changed_limits_and_mid_sample_restart"
+        ],
+        "observations": []
+      }
+    ],
+    "source_inputs_unchanged": true,
+    "awake_joined": true
+  },
+  "earlier_fixture_history": [
+    {
+      "name": "lease-stamp-before-01",
+      "status": "FAILED",
+      "source_digest": "753fb3168165541ddb791ced5c3c1f3e0891431100c8ddd031904d4ae4f4e49b",
+      "stages": [
+        {
+          "name": "core-controls",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 5.393391374993371,
+          "log_sha256": "6e2f598b846e64e677f06e19a45378331c69c3ecad7ed543bf8c9e10a634f809",
+          "footers": [
+            [
+              "FAILED",
+              "3",
+              "8",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "a_stale_read_sample_cannot_reverse_observed_expiry",
+            "applied_result_cannot_cross_a_wall_deadline_already_observed_elsewhere",
+            "late_candidate_cannot_cross_the_prior_published_wall_deadline",
+            "late_candidate_cannot_revive_expired_monotonic_authority",
+            "matching_current_body_cannot_replace_an_older_candidates_sample",
+            "multiple_ambiguous_attempts_keep_both_ordinary_stamps_and_the_earliest_bound",
+            "original_ambiguous_candidate_survives_a_changed_retry_stamp",
+            "rejected_attempt_does_not_authorize_an_unwritten_stamp_or_expiry"
+          ]
+        },
+        {
+          "name": "compile-native",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 26.184717416996136,
+          "log_sha256": "7bd1d86a33def6ef0f08ca0ba7479e52b9c1a60e1e027f72cbe51bcf330402e9",
+          "footers": [],
+          "failed_cases": []
+        }
+      ],
+      "interpretation": null,
+      "retained": {
+        "directories": 0,
+        "files": 0,
+        "bytes": 0,
+        "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+      }
+    },
+    {
+      "name": "lease-stamp-before-02",
+      "status": "FIXTURE_SEQUENCE_FAILED",
+      "source_digest": "c7d822532bffef2c3efd18ed6cbbc942ace901c491aea32a62cc49e037bfa1d6",
+      "stages": [
+        {
+          "name": "core-controls",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 1.2949191670049913,
+          "log_sha256": "70e708b3a01bd7872e72eb6d056f192ff655b25a97876936e3716cf8669821a3",
+          "footers": [
+            [
+              "FAILED",
+              "3",
+              "8",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "a_stale_read_sample_cannot_reverse_observed_expiry",
+            "applied_result_cannot_cross_a_wall_deadline_already_observed_elsewhere",
+            "late_candidate_cannot_cross_the_prior_published_wall_deadline",
+            "late_candidate_cannot_revive_expired_monotonic_authority",
+            "matching_current_body_cannot_replace_an_older_candidates_sample",
+            "multiple_ambiguous_attempts_keep_both_ordinary_stamps_and_the_earliest_bound",
+            "original_ambiguous_candidate_survives_a_changed_retry_stamp",
+            "rejected_attempt_does_not_authorize_an_unwritten_stamp_or_expiry"
+          ]
+        },
+        {
+          "name": "compile-native",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 207.45177579199662,
+          "log_sha256": "d4894f4f009e2b8089c4f5cc198198f7fb7a3cd3688e02d743c529fa3903023d",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "native-original-cas",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 3.852130874991417,
+          "log_sha256": "a2d1215af732ac9be5e3f5f4d8b8726e160424a35dbd8b5b63a5d55cca6d5953",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "lease_renewal_stamp::original_late_cas_survives_real_log_publication"
+          ]
+        }
+      ],
+      "interpretation": "The original late CAS ran, but the retry had not selected Open. This is not a reproduction of the changed-stamp product failure.",
+      "retained": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1627216,
+        "manifest_sha256": "4a60bcb124697be236385744c8d415968ce6dd82773483fe462a79b2401775ff"
+      }
+    },
+    {
+      "name": "lease-stamp-before-03",
+      "status": "FIXTURE_SEQUENCE_FAILED",
+      "source_digest": "a8ce30528e6d5abddb3b366d459efffcc12c9bf1e4e49c816c97bf385d3bdfb9",
+      "stages": [
+        {
+          "name": "core-controls",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.7283226669824217,
+          "log_sha256": "b4d8eacf9a6452f6af65c646b91159e2b0fc57c6c8400e89c06b33002777e8ef",
+          "footers": [
+            [
+              "FAILED",
+              "3",
+              "8",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "a_stale_read_sample_cannot_reverse_observed_expiry",
+            "applied_result_cannot_cross_a_wall_deadline_already_observed_elsewhere",
+            "late_candidate_cannot_cross_the_prior_published_wall_deadline",
+            "late_candidate_cannot_revive_expired_monotonic_authority",
+            "matching_current_body_cannot_replace_an_older_candidates_sample",
+            "multiple_ambiguous_attempts_keep_both_ordinary_stamps_and_the_earliest_bound",
+            "original_ambiguous_candidate_survives_a_changed_retry_stamp",
+            "rejected_attempt_does_not_authorize_an_unwritten_stamp_or_expiry"
+          ]
+        },
+        {
+          "name": "compile-native",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 176.4815889580059,
+          "log_sha256": "4a0eb141ae2b8abf9fd0616735bccefc328bcac59bbca932fc9b38e1753d59cf",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "native-original-cas",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 3.871061167010339,
+          "log_sha256": "6e806207d8f42650901a4c458f6b851960a6ca4f07ac153d1a086fe1a561d626",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "lease_renewal_stamp::original_late_cas_survives_real_log_publication"
+          ]
+        }
+      ],
+      "interpretation": "The next CAS still carried no log; no changed-stamp product reproduction is established.",
+      "retained": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1503616,
+        "manifest_sha256": "d0ec069df05fc11aa7ff65806050f46fef6372a077f2b547851ffcddc57cfe0f"
+      }
+    },
+    {
+      "name": "lease-stamp-before-04",
+      "status": "FIXTURE_SEQUENCE_FAILED",
+      "source_digest": "3a9178e0626ed3dac8cb907e5f38883329753d499ab82a9e11ca426e52f1c5d4",
+      "stages": [
+        {
+          "name": "core-controls",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.628169124975102,
+          "log_sha256": "46bd4313f5743f1ad65af40846d606db9d5c46cf773ff396fa0a215a74d9ce4b",
+          "footers": [
+            [
+              "FAILED",
+              "3",
+              "8",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "a_stale_read_sample_cannot_reverse_observed_expiry",
+            "applied_result_cannot_cross_a_wall_deadline_already_observed_elsewhere",
+            "late_candidate_cannot_cross_the_prior_published_wall_deadline",
+            "late_candidate_cannot_revive_expired_monotonic_authority",
+            "matching_current_body_cannot_replace_an_older_candidates_sample",
+            "multiple_ambiguous_attempts_keep_both_ordinary_stamps_and_the_earliest_bound",
+            "original_ambiguous_candidate_survives_a_changed_retry_stamp",
+            "rejected_attempt_does_not_authorize_an_unwritten_stamp_or_expiry"
+          ]
+        },
+        {
+          "name": "compile-native",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 151.86270337499445,
+          "log_sha256": "3cced14267899a6bea7a2d2dfaa8357077ae7f8eaf9218d312f511c381ca5623",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "native-original-cas",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 3.7363052500004414,
+          "log_sha256": "f359b3274302d4844919451c28deaf6b5e07086aa53e9cf5cbab44fabb9276aa",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "lease_renewal_stamp::original_late_cas_survives_real_log_publication"
+          ]
+        }
+      ],
+      "interpretation": "Retry selected no log; this is not a changed-stamp product reproduction.",
+      "retained": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1590136,
+        "manifest_sha256": "0a406ae54209174432c43ffe84522c61122683ffb985d4f118c5ba20dc6a8055"
+      }
+    },
+    {
+      "name": "lease-stamp-before-05",
+      "status": "FIXTURE_SEQUENCE_FAILED",
+      "source_digest": "3f0f7fc9db56a2f5b2180c318e72740d9dfcff45aed87748fb2ad0465785fa06",
+      "stages": [
+        {
+          "name": "core-controls",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.5966274169913959,
+          "log_sha256": "3edb35b4f79c87f51296160b3a11bd198f2a6764ff28daed18cda7257013e9b3",
+          "footers": [
+            [
+              "FAILED",
+              "3",
+              "8",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "a_stale_read_sample_cannot_reverse_observed_expiry",
+            "applied_result_cannot_cross_a_wall_deadline_already_observed_elsewhere",
+            "late_candidate_cannot_cross_the_prior_published_wall_deadline",
+            "late_candidate_cannot_revive_expired_monotonic_authority",
+            "matching_current_body_cannot_replace_an_older_candidates_sample",
+            "multiple_ambiguous_attempts_keep_both_ordinary_stamps_and_the_earliest_bound",
+            "original_ambiguous_candidate_survives_a_changed_retry_stamp",
+            "rejected_attempt_does_not_authorize_an_unwritten_stamp_or_expiry"
+          ]
+        },
+        {
+          "name": "compile-native",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 147.14572966698324,
+          "log_sha256": "05b956e48eced78a661c81dd25c90651c64e7c975d804a87e595abf5c81543e1",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "native-original-cas",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 3.7310453750251327,
+          "log_sha256": "f14d6fc6ae308b61b1a2ada1c4bae362b274a09a9137fadf6280c29d937344ad",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "lease_renewal_stamp::original_late_cas_survives_real_log_publication"
+          ]
+        }
+      ],
+      "interpretation": "One armed CAS was observed; the requested changed-stamp retry sequence did not run.",
+      "retained": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1565416,
+        "manifest_sha256": "f680f23dc48c71990f8eca99ab0bc7becee58bcae98e2352544f6cbbd61be7bf"
+      }
+    },
+    {
+      "name": "lease-stamp-before-06",
+      "status": "FIXTURE_SEQUENCE_FAILED",
+      "source_digest": "df35e800f5a95f11dcd75e999e1a58d4d2e9b6a657a6b90d41024679a4235ee8",
+      "stages": [
+        {
+          "name": "core-controls",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.09650437498930842,
+          "log_sha256": "b7008184f6bca33d854c19053ecb531386ba14efe875f84386a856b987aa767d",
+          "footers": [
+            [
+              "FAILED",
+              "3",
+              "8",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "a_stale_read_sample_cannot_reverse_observed_expiry",
+            "applied_result_cannot_cross_a_wall_deadline_already_observed_elsewhere",
+            "late_candidate_cannot_cross_the_prior_published_wall_deadline",
+            "late_candidate_cannot_revive_expired_monotonic_authority",
+            "matching_current_body_cannot_replace_an_older_candidates_sample",
+            "multiple_ambiguous_attempts_keep_both_ordinary_stamps_and_the_earliest_bound",
+            "original_ambiguous_candidate_survives_a_changed_retry_stamp",
+            "rejected_attempt_does_not_authorize_an_unwritten_stamp_or_expiry"
+          ]
+        },
+        {
+          "name": "compile-native",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 22.5509665000136,
+          "log_sha256": "fac24bfc5d20f3e09dd76cdab4042cefeec399cd436622b86e0f822718b940c1",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "native-original-cas",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 3.7416221250023227,
+          "log_sha256": "b7498de2affd1c524390df9cbfb54e2ad45d1147fdaf2dca0f210d5d73220096",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "lease_renewal_stamp::original_late_cas_survives_real_log_publication"
+          ]
+        }
+      ],
+      "interpretation": "Only one armed CAS occurred. The response-loss/rejected-retry sequence did not run.",
+      "retained": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1565416,
+        "manifest_sha256": "928a2ec4b90e946a1ffe3d1c5ea5aab434f7dac1b97e6fdeb0ff7b43d2c15161"
+      }
+    },
+    {
+      "name": "lease-stamp-before-07",
+      "status": "REPRODUCED",
+      "source_digest": "3d9e9fa5b3dc3a0d7e2e75bbbb1d0bae0988a97bc5c075c491e9b8d143c000f4",
+      "stages": [
+        {
+          "name": "core-controls",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.10905516700586304,
+          "log_sha256": "0149cb4439f241820e8f305fe2fe56d9efe2c090d04411093ea64b58ff2a7b08",
+          "footers": [
+            [
+              "FAILED",
+              "3",
+              "8",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "a_stale_read_sample_cannot_reverse_observed_expiry",
+            "applied_result_cannot_cross_a_wall_deadline_already_observed_elsewhere",
+            "late_candidate_cannot_cross_the_prior_published_wall_deadline",
+            "late_candidate_cannot_revive_expired_monotonic_authority",
+            "matching_current_body_cannot_replace_an_older_candidates_sample",
+            "multiple_ambiguous_attempts_keep_both_ordinary_stamps_and_the_earliest_bound",
+            "original_ambiguous_candidate_survives_a_changed_retry_stamp",
+            "rejected_attempt_does_not_authorize_an_unwritten_stamp_or_expiry"
+          ]
+        },
+        {
+          "name": "compile-native",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 22.31583520802087,
+          "log_sha256": "573a52fbf5f9254b5e38c9968c04197c701e1ad86079f39a585ea5b53beb2c43",
+          "footers": [],
+          "failed_cases": []
+        },
+        {
+          "name": "native-original-cas",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 0.5070419589756057,
+          "log_sha256": "18d30c4df0d41c07f5f87feeae76c368eaf99933ee5ad42498d4c033d2cfcf84",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ],
+          "failed_cases": [
+            "lease_renewal_stamp::original_late_cas_survives_real_log_publication"
+          ]
+        }
+      ],
+      "interpretation": null,
+      "retained": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 415936,
+        "manifest_sha256": "f43d3ebfefdcded6bc2cc08c4fbfc78fbf43eed2cad1fc1a3848bdc97e587a32"
+      }
+    }
+  ],
+  "first_after_fixture_failure": {
+    "status": "FAILED",
+    "source_digest": "ecf7f6bbb4208f2a41433b8e0a1c33d6552166c77db2c57698851af06eb4483a",
+    "stages": [
+      {
+        "name": "all-logic",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 4.204206875001546,
+        "log_sha256": "9f0e97c486a0105cf8accc2e1c745d60219c995c7956584ceadcc8d734132274",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "11",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "11",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "18",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "15",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "27",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "18",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "4",
+            "0",
+            "0"
+          ],
+          [
+            "ok",
+            "0",
+            "0",
+            "0"
+          ]
+        ],
+        "failed_cases": [],
+        "observations": []
+      },
+      {
+        "name": "compile-native",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 418.26368912498583,
+        "log_sha256": "1b51558ec904638fb5e958bc31fde36dacd8c1cbfb7682961d36df2511fb4246",
+        "footers": [],
+        "failed_cases": [],
+        "observations": []
+      },
+      {
+        "name": "native-original-cas-1",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 4.777015583007596,
+        "log_sha256": "4d9fa193bc557b6a41120cf2c30bfbcefeccf9a0832278f348431d7484304ffd",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "failed_cases": [
+          "lease_renewal_stamp::original_late_cas_survives_real_log_publication"
+        ],
+        "observations": [
+          {
+            "attempts": 6,
+            "first_committed": true,
+            "first_without_log": true,
+            "gated_scans": 11,
+            "next_with_log": true,
+            "owner_closed": false,
+            "rejected": true,
+            "stamps": [
+              [
+                0,
+                0,
+                true,
+                1000
+              ],
+              [
+                1,
+                1,
+                true,
+                1000
+              ],
+              [
+                2,
+                1,
+                true,
+                1000
+              ],
+              [
+                3,
+                1,
+                true,
+                1000
+              ],
+              [
+                4,
+                1,
+                true,
+                1000
+              ],
+              [
+                5,
+                1,
+                true,
+                1000
+              ]
+            ],
+            "unarmed_applied": 1
+          }
+        ]
+      }
+    ],
+    "observation": {
+      "store_inspection_key_in_error": true,
+      "closed_execution_domain_in_error": true,
+      "interpretation": "The first after run kept the owner live and completed the original HTTP mutation/readback, then standalone observer store inspection failed outside an explicit execution domain. The fixture now owns and joins that domain. This failed invocation remains retained."
+    },
+    "retained": {
+      "directories": 1,
+      "files": 7,
+      "bytes": 2127065,
+      "manifest_sha256": "07fd77d7189e4fa45625bae39bbe6407fb481bc1cc415b6bb595a3155736ef23"
+    },
+    "interpretation": "The original CAS sequence and live owner passed; the later standalone observer read used a closed ambient execution domain. Final before/after fixtures both explicitly own and join an observer domain. The failed invocation is preserved."
+  },
+  "broader_library_and_clippy": {
+    "status": "PASSED",
+    "source_digest": "31cc0e004e70f9e0ed62165c5644bd3e5ec8da447b8e50d660d455d846b0de14",
+    "same_source_as_native_after": true,
+    "library_executable_sha256_before": "ef52159472f08bad4fcc6d14a61709a9c3cbc00c367a7baa604b3939846b8e11",
+    "temporary_path_only_change": true,
+    "original_serial_footer": [
+      "FAILED",
+      "1220",
+      "13",
+      "2"
+    ],
+    "original_sun_len_errors": 13,
+    "stages": [
+      {
+        "name": "full-core-library-short-path",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--lib",
+          "--",
+          "--test-threads=1"
+        ],
+        "status": "PASSED",
+        "pid": 959,
+        "exit_code": 0,
+        "elapsed_seconds": 150.12951312499354,
+        "log_sha256": "4850a7bcd4b80e145edf7e17c02ce097a193771e097a5a1a5ec8288dd45e7014",
+        "footers": [
+          [
+            "ok",
+            "1233",
+            "0",
+            "2"
+          ]
+        ],
+        "failed_cases": []
+      },
+      {
+        "name": "clippy-logic",
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar-logic",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "status": "PASSED",
+        "pid": 1031,
+        "exit_code": 0,
+        "elapsed_seconds": 2.592728374991566,
+        "log_sha256": "57a01a122cce1634f30abecdf753783c4862e9ba0082eaf8f0b8ab505b850b78",
+        "footers": [],
+        "failed_cases": []
+      },
+      {
+        "name": "clippy-native",
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar",
+          "--lib",
+          "--test",
+          "native_node",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "status": "PASSED",
+        "pid": 1079,
+        "exit_code": 0,
+        "elapsed_seconds": 110.08046783399186,
+        "log_sha256": "beda4a413e4978b44d08ec4384b09794736846478241bdeeb902758507d1989b",
+        "footers": [],
+        "failed_cases": []
+      }
+    ],
+    "identical_library_executable": true,
+    "source_inputs_unchanged": true,
+    "retained_short_root": {
+      "files": 1,
+      "bytes": 0,
+      "manifest_sha256": "7abfad8e28b8ee0d9d2cede45658cbf20db8bd2b91cb88debcdcf2f9fe975854"
+    },
+    "awake_joined": true,
+    "elapsed_seconds": 263.96564650000073,
+    "short_fixture_root_length": 50,
+    "workspace_volume_unchanged": true,
+    "interpretation": "The original serial sweep failed thirteen mocked Unix-socket binds because its long harness TMPDIR exceeded macOS SUN_LEN. The same frozen library executable and serial test command pass after changing only to a shorter unique temporary prefix on the same workspace volume. The original sweep and native fixture paths remain retained; no deadline, assertion, runtime resource or backend capacity policy changes."
+  },
+  "rust_static_checks": {
+    "status": "PASSED",
+    "source_digest": "31cc0e004e70f9e0ed62165c5644bd3e5ec8da447b8e50d660d455d846b0de14",
+    "stages": [
+      {
+        "name": "format-check",
+        "argv": [
+          "cargo",
+          "format",
+          "--check"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 208.33229016599944,
+        "log_sha256": "7bff4368299d95f48edd5691598ca9e3ed402b878377c1e71a1b1b4e8f45a7b9"
+      },
+      {
+        "name": "layout",
+        "argv": [
+          "cargo",
+          "check-layout"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 341.9865673330205,
+        "log_sha256": "8187ae899e3354d4007aa50218c88a262065512c8c3f921aa7fe7dda70f14696"
+      },
+      {
+        "name": "dependencies",
+        "argv": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.5427907080156729,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      }
+    ],
+    "source_inputs_unchanged": true,
+    "awake_joined": true
+  },
+  "retained": {
+    "status": "RETAINED",
+    "items": {
+      "lease-stamp-before-01": {
+        "directories": 0,
+        "files": 0,
+        "bytes": 0,
+        "initial_manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+        "current_manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-stamp-before-02": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1627216,
+        "initial_manifest_sha256": "4a60bcb124697be236385744c8d415968ce6dd82773483fe462a79b2401775ff",
+        "current_manifest_sha256": "4a60bcb124697be236385744c8d415968ce6dd82773483fe462a79b2401775ff",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-stamp-before-03": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1503616,
+        "initial_manifest_sha256": "d0ec069df05fc11aa7ff65806050f46fef6372a077f2b547851ffcddc57cfe0f",
+        "current_manifest_sha256": "78ea974d3f4310df393c9da014f218af8c314563cb0b063fa772c770fb5abad1",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": [
+          {
+            "path": "cellar-lease-stamp-n91Lt0/fleet.sqlite-shm",
+            "before": {
+              "bytes": 32768,
+              "sha256": "16662100a3d42f8ee01023ce08b9d1afdc89d5f4e5289657a8d27be821dab1bd"
+            },
+            "after": {
+              "bytes": 32768,
+              "sha256": "4675a793ce2a4c00ad84aeccd8bcf7a133d024e7c8cbac146880fb67078f409e"
+            }
+          }
+        ]
+      },
+      "lease-stamp-before-04": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1590136,
+        "initial_manifest_sha256": "0a406ae54209174432c43ffe84522c61122683ffb985d4f118c5ba20dc6a8055",
+        "current_manifest_sha256": "0a406ae54209174432c43ffe84522c61122683ffb985d4f118c5ba20dc6a8055",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-stamp-before-05": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1565416,
+        "initial_manifest_sha256": "f680f23dc48c71990f8eca99ab0bc7becee58bcae98e2352544f6cbbd61be7bf",
+        "current_manifest_sha256": "f680f23dc48c71990f8eca99ab0bc7becee58bcae98e2352544f6cbbd61be7bf",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-stamp-before-06": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 1565416,
+        "initial_manifest_sha256": "928a2ec4b90e946a1ffe3d1c5ea5aab434f7dac1b97e6fdeb0ff7b43d2c15161",
+        "current_manifest_sha256": "928a2ec4b90e946a1ffe3d1c5ea5aab434f7dac1b97e6fdeb0ff7b43d2c15161",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-stamp-before-07": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 415936,
+        "initial_manifest_sha256": "f43d3ebfefdcded6bc2cc08c4fbfc78fbf43eed2cad1fc1a3848bdc97e587a32",
+        "current_manifest_sha256": "f43d3ebfefdcded6bc2cc08c4fbfc78fbf43eed2cad1fc1a3848bdc97e587a32",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-stamp-before-08": {
+        "directories": 1,
+        "files": 5,
+        "bytes": 415936,
+        "initial_manifest_sha256": "2837cd4318617663fe6112b3c58bb6e899d351b3354b8bd2184f980d44c537ff",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-readback-after-01": {
+        "directories": 1,
+        "files": 7,
+        "bytes": 2127065,
+        "initial_manifest_sha256": "07fd77d7189e4fa45625bae39bbe6407fb481bc1cc415b6bb595a3155736ef23",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-readback-after-02": {
+        "directories": 2,
+        "files": 15,
+        "bytes": 4328290,
+        "initial_manifest_sha256": "9054f9e4bb9a490062f667e5a2f7cba9f8b5fbb76afa766ad9405f996be133c0",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      },
+      "lease-readback-after-03-short-root": {
+        "directories": 0,
+        "files": 1,
+        "bytes": 0,
+        "initial_manifest_sha256": "7abfad8e28b8ee0d9d2cede45658cbf20db8bd2b91cb88debcdcf2f9fe975854",
+        "copy_verified_twice": true,
+        "changes_since_initial_manifest": []
+      }
+    },
+    "retention_audit": "The first copy attempt stopped on one changed fleet.sqlite-shm in before-03. A later read-only SQLite metadata inspection changed its transient shared-memory index. Original database and WAL hashes are unchanged. The original manifest and current index bytes remain; no source bytes were restored or deleted.",
+    "directories": 10,
+    "regular_files": 58,
+    "bytes": 15139027
+  },
+  "parent_ci": {
+    "head": "46bc043a1408c7cdf1c083dc9b86a6462cd11d36",
+    "runs": [
+      {
+        "run_id": 43961628603,
+        "jobs": [
+          {
+            "id": 133630430791,
+            "name": "Typed RPC full (3.14t)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          },
+          {
+            "id": 133630431097,
+            "name": "Typed RPC full (3.14)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          },
+          {
+            "id": 133630431333,
+            "name": "Typed RPC (3.14t)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          },
+          {
+            "id": 133630431580,
+            "name": "Typed RPC (3.14)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          }
+        ]
+      },
+      {
+        "run_id": 43961628558,
+        "jobs": [
+          {
+            "id": 133630447349,
+            "name": "Python ABI and SDK (3.14t)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          },
+          {
+            "id": 133630447841,
+            "name": "Filesystem release application (aarch64-apple-darwin)",
+            "status": "in_progress",
+            "conclusion": null,
+            "failed_steps": []
+          },
+          {
+            "id": 133630447850,
+            "name": "Filesystem release application (x86_64-unknown-linux-gnu)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          },
+          {
+            "id": 133630447870,
+            "name": "Python ABI and SDK (3.14)",
+            "status": "in_progress",
+            "conclusion": null,
+            "failed_steps": []
+          },
+          {
+            "id": 133630447959,
+            "name": "Native framework tests (3.14t)",
+            "status": "completed",
+            "conclusion": "failure",
+            "failed_steps": [
+              "Native framework tests"
+            ]
+          },
+          {
+            "id": 133630448080,
+            "name": "Native framework tests (3.14)",
+            "status": "completed",
+            "conclusion": "failure",
+            "failed_steps": [
+              "Native framework tests"
+            ]
+          },
+          {
+            "id": 133630448478,
+            "name": "Filesystem release application (aarch64-unknown-linux-gnu)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          },
+          {
+            "id": 133630450059,
+            "name": "Optimized Python load (${{ matrix.python }})",
+            "status": "completed",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 133630450115,
+            "name": "Native event replay (${{ inputs.mode }}, diagnostic only)",
+            "status": "completed",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 133630450687,
+            "name": "python_fleet",
+            "status": "completed",
+            "conclusion": "skipped"
+          }
+        ]
+      },
+      {
+        "run_id": 43961628431,
+        "jobs": [
+          {
+            "id": 133630242866,
+            "name": "JavaScript qualification (adapters)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          },
+          {
+            "id": 133630243310,
+            "name": "JavaScript qualification (packages)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          },
+          {
+            "id": 133630243514,
+            "name": "JavaScript qualification (examples)",
+            "status": "completed",
+            "conclusion": "success",
+            "failed_steps": []
+          }
+        ]
+      }
+    ]
+  },
+  "focused_linux_disaster": {
+    "head": "46bc043a1408c7cdf1c083dc9b86a6462cd11d36",
+    "run_id": 43961628618,
+    "job_id": 133630242929,
+    "artifact_id": 14277248282,
+    "archive_sha256": "0a8dd775da3374bdf40b3c3d16cb3237f62d9e0530d250c07dbe0d6800908865",
+    "status": "FAILED",
+    "footer": {
+      "passed": 6,
+      "failed": 3,
+      "ignored": 8
+    },
+    "failed_cases": [
+      "disaster_outbox_ambiguity_refuses",
+      "disaster_retry_and_old_token_refusal",
+      "transition_disaster_selects_complete_closure"
+    ],
+    "observation": "The three failed six-node cases report post-failure physical inventory Overloaded on five peers. The three-node diagnostic control reports successful probes. These nontransactional samples do not establish cause or grant authority."
+  },
+  "backend": {
+    "observed_at": "2026-11-16T22:57:52.790779+00:00",
+    "context": "colima-cellar-multi-raft-6aff",
+    "mutations": [],
+    "engine_id": "3d9ae341-3376-4798-b369-450ff43cfbb7",
+    "rustfs_id": "791d111034e61f70f2e99422be75d79f22af31d659fcd346af48c045ebdc22d5",
+    "image": "sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+    "nano_cpus": 1000000000,
+    "memory_bytes": 2147483648,
+    "memory_swap_bytes": 2147483648,
+    "restart_count": 0,
+    "started_at": "2026-11-16T01:39:54.038532847Z",
+    "running": true,
+    "data_mount_source": "/var/lib/docker/volumes/cellar-multi-raft-73ef8142bc6ce6de-objects/_data",
+    "df_exit_code": 0,
+    "filesystem": "/dev/vdb1",
+    "total_bytes": 168502136832,
+    "used_bytes": 160539901952,
+    "available_bytes": 0,
+    "reserve_bytes": 6442450944,
+    "reserve_met": false,
+    "current_source_constrained_campaign_run": false
+  },
+  "limits": [
+    "No measured current-source SQL/KV/Queue throughput or p50/p95/p99 improvement. Earlier avoided-work counts and passing windows retain their separate sources and scope.",
+    "The original RustFS has zero available bytes against its unchanged 6GiB reserve; the original three 1vCPU/2GiB-node four-mode performance matrix is not rerun. No resource expansion, deletion, restart, migration or reserve relaxation.",
+    "The published parent passes all four Typed RPC and all three JavaScript jobs, while both full native jobs and the focused disaster target fail. Those parent results do not qualify this changed core or prove the older RPC COMMIT-tail cause repaired.",
+    "Full native/SDK/Axum/daemon/feature, physical reclamation, repeated movement, read/authority partitions, crash/recovery/wake and independent-domain qualification remain open. No OPT-01 through OPT-08 or remaining CG gate is accepted complete."
+  ],
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "credential_matches": 0,
+    "excluded": "Raw native/store/job logs, databases, objects, credentials, runtime configurations, key material and environment responses."
+  }
+}

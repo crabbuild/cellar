@@ -10,6 +10,8 @@ mod provision;
 mod queue;
 #[cfg(test)]
 mod retry_tests;
+mod reuse;
+mod reuse_index;
 pub(in crate::raft::cell_groups::controller) mod seed;
 pub(super) mod source_read;
 pub(crate) use provision::Provisioning;
@@ -18,12 +20,18 @@ pub(in crate::raft::cell_groups::controller) mod settlement;
 
 use super::calls::Delivery;
 use super::*;
+use crate::raft::cell_groups::archive::capacity::{
+    Capture as CapacityCapture, Wait as CapacityWait,
+};
 use crate::raft::cell_groups::archive_compaction::ArchiveActivation;
-use crate::raft::cell_groups::{archive::ControllerExecution, *};
+use crate::raft::cell_groups::{
+    archive::{ControllerExecution, CoverageIdentity},
+    *,
+};
 use cellar_logic::{cell_group::GroupHistory, consensus::LogIndex};
-use futures_util::future::BoxFuture;
+use futures_util::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
 use queue::{Eligibility, PublicationQueue};
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
@@ -89,6 +97,8 @@ type Result<T> = std::result::Result<T, Error>;
 pub enum CellGroupArchivePublisher {
     /// Managed groups configure archiving on every leader-eligible voter.
     /// Followers independently acquire and verify published prefixes.
+    /// Any configured replica may bootstrap an absent published prefix or
+    /// publish a sealed source's final cut through the ordinary fenced registry.
     GroupLeader {
         /// Minimum shared-timer interval for blocked/background archive work.
         /// A newly waiting S3 request may initiate one immediate attempt.
@@ -270,12 +280,15 @@ struct Entry {
     fatal: bool,
     stopping: bool,
     retry_at: u64,
+    capacity_wait: Option<CapacityWait>,
     // Armed only by a new foreground batch, consumed by publication launch.
     // Returned proof work must not renew an immediate retry.
     foreground_wake: bool,
     waiters: Vec<settlement::Request>,
     proof_queued: bool,
-    proof_retry: Option<(LogIndex, u64)>,
+    proof_retry_at: u64,
+    // Weak identity is only a progress notification, never a retained proof.
+    proof_progress: Option<CoverageIdentity>,
 }
 
 pub(super) struct PublicationCompleted {
@@ -286,12 +299,13 @@ pub(super) struct PublicationCompleted {
     observation: std::result::Result<LogIndex, RuntimeError>,
     waiters: Vec<settlement::Request>,
     coverage: Option<CellGroupArchiveCoverage>,
+    capacity_wait: Option<CapacityWait>,
 }
 
 pub(super) struct ProofCompleted {
     group: GroupHistory,
     waiters: Vec<settlement::Request>,
-    retry_cut: Option<LogIndex>,
+    progress: Option<CoverageIdentity>,
 }
 
 pub(super) enum Completed {
@@ -301,6 +315,9 @@ pub(super) enum Completed {
 
 #[derive(Default)]
 pub(super) struct Manager {
+    // Private request order seals a verification's cohort independently of
+    // caller deadlines and without granting authority from a published marker.
+    admissions: reuse::Admissions,
     entries: BTreeMap<GroupHistory, Entry>,
     queue: PublicationQueue,
     job: Option<BoxFuture<'static, PublicationCompleted>>,
@@ -308,6 +325,7 @@ pub(super) struct Manager {
     proof_job: Option<BoxFuture<'static, ProofCompleted>>,
     proof_group: Option<GroupHistory>,
     proof_queue: VecDeque<GroupHistory>,
+    capacity_waits: BTreeSet<GroupHistory>,
     // One node-wide completed verification lets covered observations share the
     // actual admitted proof across idle gaps and predecessor cleanup. It stays
     // charged to its original physical bank. A publication launch takes it and
@@ -362,10 +380,12 @@ impl Manager {
                 fatal: false,
                 stopping: false,
                 retry_at: 0,
+                capacity_wait: None,
                 foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
-                proof_retry: None,
+                proof_retry_at: 0,
+                proof_progress: None,
             },
         );
         self.queue.enqueue(group);
@@ -415,10 +435,12 @@ impl Manager {
                 fatal: false,
                 stopping: false,
                 retry_at: 0,
+                capacity_wait: None,
                 foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
-                proof_retry: None,
+                proof_retry_at: 0,
+                proof_progress: None,
             },
         );
         self.queue.enqueue(group);
@@ -442,7 +464,7 @@ impl Manager {
         }
     }
 
-    pub fn settle(&mut self, request: settlement::Request) {
+    pub fn settle(&mut self, mut request: settlement::Request) {
         let group = request.route.history;
         let Some(entry) = self.entries.get_mut(&group) else {
             request.fail(Arc::new(Error::Runtime(RuntimeError::NotReady)));
@@ -454,10 +476,16 @@ impl Manager {
             )));
             return;
         }
+        let Some(admission) = self.admissions.admit() else {
+            request.fail(Arc::new(Error::Runtime(RuntimeError::Overloaded)));
+            return;
+        };
+        request.admit(admission);
         // One newly waiting foreground proof bypasses background coalescing.
         // Further waiters share that attempt and its bounded retry schedule.
         if entry.waiters.is_empty() {
             entry.retry_at = 0;
+            entry.proof_retry_at = 0;
             entry.foreground_wake = true;
         }
         entry.waiters.push(request);
@@ -469,6 +497,53 @@ impl Manager {
         if !entry.queued {
             entry.queued = true;
             self.queue.enqueue(group);
+        }
+    }
+
+    /// Only actual failed foreground admissions wait here. Background work,
+    /// store locks, remote conflicts and cleanup retain their timer cadence.
+    pub fn capacity_released(&self) -> Option<BoxFuture<'static, GroupHistory>> {
+        if self.capacity_waits.is_empty() {
+            return None;
+        }
+        let waits: FuturesUnordered<BoxFuture<'static, GroupHistory>> = self
+            .capacity_waits
+            .iter()
+            .filter_map(|group| {
+                let entry = self.entries.get(group)?;
+                let wait = entry.capacity_wait.clone()?;
+                let group = *group;
+                Some(Box::pin(async move {
+                    wait.released().await;
+                    group
+                }) as BoxFuture<'static, GroupHistory>)
+            })
+            .collect();
+        Some(Box::pin(async move {
+            let mut waits = waits;
+            match waits.next().await {
+                Some(group) => group,
+                None => std::future::pending().await,
+            }
+        }))
+    }
+
+    pub fn wake_capacity(&mut self, group: GroupHistory, now: u64) {
+        self.capacity_waits.remove(&group);
+        let Some(entry) = self.entries.get_mut(&group) else {
+            return;
+        };
+        let released = entry.capacity_wait.take().is_some();
+        settlement::prune(&mut entry.waiters, now);
+        if released && !entry.waiters.is_empty() && !entry.fatal && !entry.stopping {
+            // Advisory progress only. Launch still acquires real credit and
+            // checks current authority, closure, receipt and original deadline.
+            entry.retry_at = 0;
+            entry.dirty = true;
+            if !entry.queued {
+                entry.queued = true;
+                self.queue.enqueue(group);
+            }
         }
     }
 
@@ -500,7 +575,19 @@ impl Manager {
             if entry.waiters.is_empty() || entry.fatal || entry.stopping {
                 continue;
             }
-            let coverage = entry.context.as_ref().map(job::live).transpose();
+            if now < entry.proof_retry_at {
+                entry.proof_queued = true;
+                self.proof_queue.push_back(group);
+                continue;
+            }
+            let coverage = entry
+                .context
+                .as_ref()
+                .map(|context| {
+                    settlement::oldest_admission(&entry.waiters)
+                        .and_then(|admission| job::live(context, admission))
+                })
+                .transpose();
             let coverage = match coverage {
                 Ok(Some(Some(coverage))) => coverage,
                 Ok(_) => {
@@ -516,19 +603,28 @@ impl Manager {
                     continue;
                 }
             };
-            let index = coverage.marker().position().index;
-            if entry
-                .proof_retry
-                .is_some_and(|(cut, retry_at)| cut == index && now < retry_at)
-            {
-                entry.proof_queued = true;
-                self.proof_queue.push_back(group);
-                continue;
-            }
             let mut selected = Vec::new();
             let mut waiting = Vec::new();
             for request in entry.waiters.drain(..) {
-                if selected.len() < 32 && request.may_reuse(index) {
+                let allowed = request.admission().and_then(|admission| {
+                    entry
+                        .context
+                        .as_ref()
+                        .expect("live archive context")
+                        .uses
+                        .allows(&coverage, admission)
+                });
+                let allowed = match allowed {
+                    Ok(allowed) => allowed,
+                    Err(error) => {
+                        request.fail(Arc::new(error));
+                        continue;
+                    }
+                };
+                if selected.len() < 32
+                    && allowed
+                    && request.may_reuse(coverage.marker().position().index)
+                {
                     selected.push(request);
                 } else {
                     waiting.push(request);
@@ -550,6 +646,7 @@ impl Manager {
             // predecessor cleanup on the publication lane. Retain its joined
             // ownership before the controller can observe group retirement.
             let work = execution.retain();
+            let progress = entry.proof_progress.clone();
             self.proof_group = Some(group);
             self.proof_job = Some(Box::pin(async move {
                 let _work = work;
@@ -562,6 +659,7 @@ impl Manager {
                         &registration,
                         &retained.coverage,
                         &execution,
+                        None,
                     )
                     .await;
                     Ok::<_, Error>(())
@@ -577,16 +675,10 @@ impl Manager {
                         }
                     }
                 }
-                // Uncovered outputs remember this cut and cannot select it
-                // again. Only a retry of the same physical proof needs backoff.
-                let retry_cut = waiters
-                    .iter()
-                    .any(|request| request.may_reuse(index))
-                    .then_some(index);
                 ProofCompleted {
                     group,
                     waiters,
-                    retry_cut,
+                    progress,
                 }
             }));
             break;
@@ -612,9 +704,7 @@ impl Manager {
             }
             return;
         }
-        entry.proof_retry = completed
-            .retry_cut
-            .map(|cut| (cut, now.saturating_add(shared.limits.retry_interval_ms)));
+        let uncovered = !completed.waiters.is_empty();
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
         if !entry.waiters.is_empty() {
@@ -628,8 +718,22 @@ impl Manager {
                 self.proof_queue.push_back(completed.group);
             }
         }
-        // The shared timer bounds busy retries for this exact group/cut. A
-        // newer verified cut, or another group, must not inherit that delay.
+        // Busy reads may retry the same cut, but never spin independently of
+        // the existing shared controller timer. Uncovered outputs remember the
+        // cut they inspected and require a newer one for another proof batch.
+        // A late batch must not restore backoff after a new physical
+        // verification completed. Repeated handoffs of the same snapshot do
+        // not renew this notification, and another group's delay is unrelated.
+        let progressed = match (&entry.proof_progress, &completed.progress) {
+            (Some(current), Some(previous)) => !current.same_snapshot(previous),
+            (Some(_), None) => true,
+            _ => false,
+        };
+        entry.proof_retry_at = if uncovered && !progressed {
+            now.saturating_add(shared.limits.retry_interval_ms)
+        } else {
+            now
+        };
     }
 
     pub fn launch(&mut self, runtime: &CellGroupRuntime, shared: &Shared, now: u64) {
@@ -681,7 +785,9 @@ impl Manager {
                 status.published.clone()
             })
             .filter(|_| entry.context.is_some());
-        let registration = entry.registration.clone();
+        entry.capacity_wait = None;
+        self.capacity_waits.remove(&group);
+        let mut registration = entry.registration.clone();
         let activation = entry.activation.clone();
         let mut context = entry.context.clone();
         let execution = entry.execution.clone();
@@ -689,7 +795,15 @@ impl Manager {
         // Bound receipt SQL work per fair group turn, independently of the
         // node's potentially larger total command admission.
         let count = entry.waiters.len().min(32);
-        let mut waiters = entry.waiters.drain(..count).collect();
+        let mut waiters: Vec<settlement::Request> = entry.waiters.drain(..count).collect();
+        let capacity = if waiters.is_empty() {
+            CapacityCapture::default()
+        } else {
+            CapacityCapture::new()
+        };
+        registration.tails.capture_capacity(capacity.clone());
+        registration.checkpoints.capture_capacity(capacity.clone());
+        let admitted_through = self.admissions.current();
         let handoff = self
             .handoff
             .take()
@@ -714,12 +828,23 @@ impl Manager {
                             .await?,
                         );
                     }
+                    // A reused registry already owns its bound payload pool.
+                    // Refresh only this job's clone, including the default
+                    // no-capture state for background publication.
+                    context
+                        .as_mut()
+                        .expect("opened archive context")
+                        .registry
+                        .capture_payload_capacity(capacity.clone());
                     // `prove` indexed this live verification before completion.
                     // Reject known-old prefixes before remote birth/journal
                     // validation. Eligibility cannot settle a response; retained
                     // cuts still need that validation and the exact receipt.
                     let retained = if !waiters.is_empty() {
-                        job::live(context.as_ref().expect("opened archive context"))?.filter(
+                        job::live(
+                            context.as_ref().expect("opened archive context"),
+                            settlement::oldest_admission(&waiters)?,
+                        )?.filter(
                             |coverage| {
                                 waiters.iter().any(|request| {
                                     request.may_reuse(coverage.marker().position().index)
@@ -745,6 +870,7 @@ impl Manager {
                             &registration,
                             &retained.coverage,
                             &execution,
+                            None,
                         )
                         .await;
                         if waiters.is_empty() {
@@ -767,6 +893,7 @@ impl Manager {
                             observed_head,
                         },
                         handoff,
+                        admitted_through,
                     )
                     .await?;
                     let driven = match driven {
@@ -786,6 +913,7 @@ impl Manager {
                         &registration,
                         &coverage,
                         &execution,
+                        driven.eligibility,
                     )
                     .await;
                     tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
@@ -812,6 +940,7 @@ impl Manager {
                 observation,
                 waiters,
                 coverage: completed_coverage,
+                capacity_wait: capacity.take(),
             }
         }));
     }
@@ -835,11 +964,14 @@ impl Manager {
         self.job = None;
         self.active_group = None;
         self.handoff = None;
+        self.capacity_waits.remove(&completed.group);
+        let admitted_through = self.admissions.current();
         let entry = self
             .entries
             .get_mut(&completed.group)
             .expect("completed archive owner");
         entry.context = completed.context;
+        entry.capacity_wait = None;
         let retry_interval = entry
             .registration
             .publisher
@@ -847,16 +979,40 @@ impl Manager {
         settlement::prune(&mut entry.waiters, now);
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
+        let result = completed.result.and_then(|marker| {
+            if let Some(coverage) = &completed.coverage {
+                entry
+                    .context
+                    .as_ref()
+                    .ok_or(Error::Invalid("missing archive completion context"))?
+                    .uses
+                    .seal(coverage, admitted_through)?;
+            }
+            Ok(marker)
+        });
         let mut statuses = shared
             .archives
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let status = statuses.get_mut(&completed.group).expect("archive status");
-        match completed.result {
+        match result {
             Ok(marker) => {
                 let covered = marker.position().index;
                 status.published = Some(marker);
                 status.error = None;
+                if let Some(coverage) = &completed.coverage {
+                    let progress = coverage.identity();
+                    if !entry
+                        .proof_progress
+                        .as_ref()
+                        .is_some_and(|previous| previous.same_snapshot(&progress))
+                    {
+                        // Wake only this owner. Actual proof selection still
+                        // checks admission, authority and each exact receipt.
+                        entry.proof_retry_at = now;
+                        entry.proof_progress = Some(progress);
+                    }
+                }
                 if completed.maintenance_pending {
                     // Cached output does not complete durable publication or
                     // retirement work. Keep its bounded retry cadence even
@@ -882,6 +1038,12 @@ impl Manager {
             }
             Err(error) => {
                 entry.fatal = !retryable(&error);
+                if !entry.fatal && !entry.waiters.is_empty() {
+                    entry.capacity_wait = completed.capacity_wait;
+                    if entry.capacity_wait.is_some() {
+                        self.capacity_waits.insert(completed.group);
+                    }
+                }
                 status.stopped = entry.fatal;
                 entry.dirty = true;
                 entry.retry_at = now.saturating_add(retry_interval);
@@ -959,8 +1121,10 @@ impl Manager {
         {
             self.handoff = None;
         }
+        self.capacity_waits.remove(&group);
         if let Some(entry) = self.entries.get_mut(&group) {
             entry.stopping = true;
+            entry.capacity_wait = None;
         }
         if self.active_group == Some(group)
             || self.proof_group == Some(group)
@@ -994,6 +1158,7 @@ impl Manager {
     }
 
     pub async fn finish(&mut self, shared: &Shared) {
+        self.capacity_waits.clear();
         self.handoff = None;
         let publication = self.job.take();
         let proof = self.proof_job.take();
@@ -1074,6 +1239,10 @@ fn confirm_coverage(
 }
 
 fn archive_retryable(error: &CellGroupArchiveError) -> bool {
+    // Payload admission and I/O can fail during byte verification or exact pin/adoption
+    // reconciliation. Retry through the existing journaled archive intent;
+    // coverage still requires independently verified bytes. Missing/corrupt
+    // payloads and failed journal barriers remain terminal.
     matches!(
         error,
         CellGroupArchiveError::Busy

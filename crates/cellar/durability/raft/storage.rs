@@ -33,6 +33,14 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
 
+#[path = "storage_segment_purge.rs"]
+mod segment_purge;
+pub use segment_purge::RaftSegmentPurgeReceipt;
+
+#[path = "storage_segments.rs"]
+mod segments;
+pub use segments::{RaftSegmentFile, RaftSegmentId, RaftSegmentInventory, RaftSegmentQueue};
+
 #[cfg(test)]
 #[path = "storage_cell_genesis_tests.rs"]
 mod cell_genesis_tests;
@@ -193,6 +201,7 @@ struct LogHandle {
     pending: Arc<AtomicUsize>,
     lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     options: ReplicaLogOptions,
+    settle_periodic_purges: bool,
     closing: Arc<AtomicBool>,
     runtime_claimed: AtomicBool,
     sql_claimed: AtomicBool,
@@ -329,7 +338,15 @@ enum Work {
     ),
     MemberStatus(GroupHistory, Reply<Option<MemberReclaimAck>>),
     FinishMember(Box<MemberReclaimAck>, Reply<MemberReclaimAck>),
+    SegmentInventory(Reply<RaftSegmentInventory>),
+    SegmentPurge(u64, Reply<RaftSegmentPurgeReceipt>),
+    SegmentPurgeSchedule(Reply<SegmentPurgeSchedule>),
     Purge(Reply<()>),
+}
+
+pub(crate) struct SegmentPurgeSchedule {
+    pub latest: u64,
+    pub due: bool,
 }
 
 /// Opaque engine-bound acknowledgement. Only this engine worker creates it.
@@ -516,7 +533,7 @@ impl ReplicaLog {
         options: ReplicaLogOptions,
         filesystem: Arc<dyn FileSystem>,
     ) -> Result<Self, LogError> {
-        Self::open_observed(options, filesystem, None).await
+        Self::open_observed(options, filesystem, None, false).await
     }
 
     pub(crate) fn snapshot_scratch(&self) -> cellar_ltx::stream_snapshot::ScratchPool {
@@ -527,6 +544,7 @@ impl ReplicaLog {
         options: ReplicaLogOptions,
         filesystem: Arc<dyn FileSystem>,
         performance: Option<Arc<Performance>>,
+        settle_periodic_purges: bool,
     ) -> Result<Self, LogError> {
         options.validate()?;
         let snapshot_scratch =
@@ -569,6 +587,7 @@ impl ReplicaLog {
                 pending: Arc::new(AtomicUsize::new(0)),
                 lifecycle_cache: lifecycle_cache.clone(),
                 options: options.clone(),
+                settle_periodic_purges,
                 closing: closing.clone(),
                 runtime_claimed: AtomicBool::new(false),
                 sql_claimed: AtomicBool::new(false),
@@ -629,7 +648,13 @@ impl ReplicaLog {
                 if ready.send(instance).is_err() {
                     return;
                 }
-                let result = worker.run(receiver, &worker_domain, &abort, &closing);
+                let result = worker.run(
+                    receiver,
+                    &worker_domain,
+                    &abort,
+                    &closing,
+                    settle_periodic_purges,
+                );
                 closed.store(true, Ordering::Release);
                 // Engine drop joins its metrics thread; directory locks are owned
                 // by this same worker and cannot outlive its completion.
@@ -932,9 +957,25 @@ impl ReplicaLog {
         operation: OperationId,
         writes: Vec<GroupWrite<GroupHistory>>,
     ) -> Result<SyncReceipt<GroupHistory>, LogError> {
-        let bytes = self.write_bytes(operation, &writes)?;
-        self.request(bytes, |reply| Work::PersistCells(operation, writes, reply))
+        self.persist_cells_with_admission(operation, writes, || {})
             .await
+    }
+
+    /// Notify only after the bounded worker owns the complete request. This
+    /// grants no durability proof; the exact SyncReceipt still follows sync.
+    pub(crate) async fn persist_cells_with_admission(
+        &self,
+        operation: OperationId,
+        writes: Vec<GroupWrite<GroupHistory>>,
+        admitted: impl FnOnce() + Send,
+    ) -> Result<SyncReceipt<GroupHistory>, LogError> {
+        let bytes = self.write_bytes(operation, &writes)?;
+        self.request_with_admission(
+            bytes,
+            |reply| Work::PersistCells(operation, writes, reply),
+            admitted,
+        )
+        .await
     }
 
     /// Enable a local irreversible retention requirement before archive I/O.
@@ -1045,6 +1086,31 @@ impl ReplicaLog {
             .await
     }
 
+    /// Sample the engine's segment files in the storage worker, ordered with
+    /// writes and purge. The caller owns the returned inventory.
+    pub async fn segment_inventory(&self) -> Result<RaftSegmentInventory, LogError> {
+        self.request(segments::INVENTORY_BYTES, Work::SegmentInventory)
+            .await
+    }
+
+    /// Purge with a recoverable file receipt. Numbers start at one and advance
+    /// by one per engine. Reusing the current number resumes the pending purge
+    /// or returns its exact completed receipt.
+    pub async fn purge_segments(&self, number: u64) -> Result<RaftSegmentPurgeReceipt, LogError> {
+        self.request(segment_purge::PURGE_BYTES, |reply| {
+            Work::SegmentPurge(number, reply)
+        })
+        .await
+    }
+
+    pub(crate) fn settles_periodic_purges(&self) -> bool {
+        self.inner.settle_periodic_purges && self.inner.options.purge_interval_ms.is_some()
+    }
+
+    pub(crate) async fn segment_purge_schedule(&self) -> Result<SegmentPurgeSchedule, LogError> {
+        self.request(1024, Work::SegmentPurgeSchedule).await
+    }
+
     pub async fn purge(&self) -> Result<(), LogError> {
         self.request(1024, Work::Purge).await
     }
@@ -1075,6 +1141,15 @@ impl ReplicaLog {
         bytes: usize,
         build: impl FnOnce(Reply<T>) -> Work,
     ) -> Result<T, LogError> {
+        self.request_with_admission(bytes, build, || {}).await
+    }
+
+    async fn request_with_admission<T>(
+        &self,
+        bytes: usize,
+        build: impl FnOnce(Reply<T>) -> Work,
+        admitted: impl FnOnce() + Send,
+    ) -> Result<T, LogError> {
         self.admit()?;
         let permit = Permit::acquire(
             self.inner.pending.clone(),
@@ -1093,6 +1168,7 @@ impl ReplicaLog {
                 mpsc::TrySendError::Full(_) => LogError::Overloaded,
                 mpsc::TrySendError::Disconnected(_) => LogError::Closed,
             })?;
+        admitted();
         let result = wait.await.map_err(|_| LogError::Closed)?;
         if self.inner.domain.mono_ms().is_err() {
             return Err(LogError::Closed);
@@ -1128,6 +1204,7 @@ struct Worker {
     lifecycle: LifecycleRecord,
     lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     purge_pending: bool,
+    segment_purge_number: u64,
 }
 
 struct StorageFiles {
@@ -1288,6 +1365,7 @@ impl Worker {
             lifecycle_cache: caches.lifecycle,
             // A previous process may have synced compaction without purging.
             purge_pending: true,
+            segment_purge_number: 0,
         };
         worker.recover()?;
         Ok(worker)
@@ -1297,6 +1375,10 @@ impl Worker {
         self.cache_bytes = usize::try_from(self.source_budget()?)
             .map_err(|_| LogError::Overloaded)?
             .checked_mul(super::cell_groups::source_reclaim::CACHE_BYTES)
+            .ok_or(LogError::Overloaded)?;
+        self.cache_bytes = self
+            .cache_bytes
+            .checked_add(self.recover_segment_purge_cache()?)
             .ok_or(LogError::Overloaded)?;
         if self.cache_bytes > self.options.max_cache_bytes {
             return Err(LogError::Overloaded);
@@ -1387,7 +1469,7 @@ impl Worker {
                     .get_entry::<EntryCodec>(mapping.key, index)
                     .map_err(engine_error)?
                     .ok_or_else(|| LogError::Corrupt("missing retained entry".into()))?;
-                cache.entries.insert(index, entry);
+                Arc::make_mut(&mut cache.entries).insert(index, entry);
                 if cache.bytes() > self.options.max_cache_bytes {
                     return Err(LogError::Overloaded);
                 }
@@ -2384,7 +2466,7 @@ impl Worker {
         cache.group_manifest.take();
         cache.checkpoint_manifest.take();
         cache.recovery_genesis.take();
-        cache.entries.clear();
+        cache.entries = Arc::default();
         cache.snapshot = ::raft::prelude::Snapshot::default();
         cache.conf_state = ConfState::default();
         cache.membership = super::member_state::GroupMembership::initial(&cache.conf_state);
@@ -2561,6 +2643,7 @@ impl Worker {
         domain: &crate::asyncrt::DomainToken,
         abort: &AtomicBool,
         closing: &AtomicBool,
+        settle_periodic_purges: bool,
     ) -> Result<(), LogError> {
         let mut purge_at = domain
             .mono_ms()
@@ -2573,11 +2656,18 @@ impl Worker {
             {
                 return Err(LogError::Closed);
             }
-            if !closing.load(Ordering::Acquire) && self.purge_pending {
+            if !settle_periodic_purges && !closing.load(Ordering::Acquire) && self.purge_pending {
                 if let Some(interval) = self.options.purge_interval_ms {
                     let now = domain.mono_ms().map_err(|_| LogError::Closed)?;
                     if now >= purge_at {
-                        self.purge()?;
+                        // A no-op engine purge would still add our durable
+                        // fence. Match managed scheduling's engine predicate;
+                        // every later write rearms this metadata-only check.
+                        if self.engine.needs_purge() {
+                            self.purge()?;
+                        } else {
+                            self.purge_pending = false;
+                        }
                         purge_at = domain
                             .mono_ms()
                             .map_err(|_| LogError::Closed)?
@@ -2641,6 +2731,9 @@ impl Worker {
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);
                     }
+                    // Drop the consumed copy before waking the caller. Any
+                    // remaining prepared roots keep their admission and pins.
+                    drop(seed);
                     let _ = reply.send(result);
                     fatal
                 }
@@ -2736,6 +2829,40 @@ impl Worker {
                     }
                     let _ = reply.send(result);
                     fatal
+                }
+                Work::SegmentInventory(reply) => {
+                    let _ = reply.send(self.segment_inventory());
+                    None
+                }
+                Work::SegmentPurge(number, reply) => {
+                    let sequence = self.root.sequence;
+                    let result = self.purge_segments(number);
+                    if self.root.sequence != sequence {
+                        purge_at = domain
+                            .mono_ms()
+                            .map_err(|_| LogError::Closed)?
+                            .saturating_add(self.options.purge_interval_ms.unwrap_or(0));
+                    }
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::SegmentPurgeSchedule(reply) => {
+                    let now = domain.mono_ms().map_err(|_| LogError::Closed)?;
+                    let _ = reply.send(Ok(SegmentPurgeSchedule {
+                        latest: self.segment_purge_number,
+                        due: now >= purge_at && self.purge_pending && self.engine.needs_purge(),
+                    }));
+                    None
+                }
+                Work::Purge(reply) if settle_periodic_purges => {
+                    let _ = reply.send(Err(LogError::Invalid(
+                        "managed Raft purge requires settlement".into(),
+                    )));
+                    None
                 }
                 Work::Purge(reply) => {
                     let result = self.purge();

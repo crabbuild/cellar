@@ -221,6 +221,7 @@
       "id": "event-stream",
       "family": "event-stream",
       "symbols": [
+        "cellar::sdk::Registry::raft_event_stream",
         "cellar::sdk::event_stream::Stream",
         "cellar::sdk::event_stream::Stream::configure",
         "cellar::sdk::event_stream::Stream::read",
@@ -238,6 +239,10 @@
         "crates/cellar/application/event_stream/client.rs",
         "crates/cellar/application/event_stream/subscription.rs",
         "crates/cellar/application/event_stream/schema.sql",
+        "crates/cellar/application/mod.rs",
+        "crates/cellar/application/consensus/native_services.rs",
+        "crates/cellar/application/consensus/native_rpc.rs",
+        "crates/cellar/application/event_stream/raft.rs",
         "crates/cellar/application/event_stream/activation.rs",
         "crates/cellar/application/consensus/native_event_rpc.rs",
         "crates/cellar/application/consensus/native_ingress.rs",
@@ -257,8 +262,8 @@
         "native",
         "axum"
       ],
-      "permission": "Separate publish, read, consume and admin grants",
-      "proof": "Target append or checkpoint receipt",
+      "permission": "Trusted compiled resource ownership, separate publish/read/consume/admin grants and authenticated namespace origins",
+      "proof": "Target namespace Quorum/S3 append or checkpoint receipt, independent of source outbox proof",
       "ordering": "Ordered lanes, stable deliveries and generation-specific settlement",
       "recovery": "Recover records, checkpoints and original subscription receipts",
       "case": "primitives_event_stream_outbox_inbox_replay",
@@ -325,7 +330,7 @@
         "crates/cellar/application/workflow/stream.rs",
         "crates/cellar/application/consensus/native_workflow.rs",
         "crates/cellar/application/workflow/turn.rs",
-        "crates/cellar/application/consensus/group_client/workflow_read.rs"
+        "crates/cellar/application/consensus/group_client/resource_read.rs"
       ],
       "schemas": [
         "Definitions, journals, outputs and compensation"

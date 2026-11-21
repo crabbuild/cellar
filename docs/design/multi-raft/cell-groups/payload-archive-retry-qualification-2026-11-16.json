@@ -1,0 +1,1220 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-16T12:41:03.367740+00:00",
+  "component_status": "PASSED",
+  "complete_release_qualified": false,
+  "base_revision": "9b8c2ba070a24c77bebc6c264e08c9f6f270e356",
+  "source_digest": "b32cb4bc11572ccdc8bc47798f5dee3b6253a87f45fd7fef48e5488cfff1da4e",
+  "source_inputs": 3456,
+  "mechanism": "The existing archive owner treats only Payload(Storage(Generic)) as retryable through its original bounded fair lane. A subsequent attempt loads the same durable archive intent and reconstructs its existing ticket/publication. Full byte verification and exact payload pin/adoption reconciliation still precede coverage. No application callback is replayed by this archive owner.",
+  "production_delta": "Seven lines in the private archive retry classifier: one explicit typed Generic payload-store I/O arm and its invariant comment. Missing/corrupt/retired payload, journal and worker failures retain their existing handling. Other payload error variants are unchanged.",
+  "contracts_preserved": [
+    "Original journal format-1 encoding, atomic file/directory barriers and readback; pending Reserve/Publish identities and uncertain registry mutations remain exact.",
+    "Actual immutable length/digest/bounds/EOF checks and confirmed payload dependency ownership remain mandatory; neither a marker nor cached metadata grants new coverage.",
+    "Pin/adoption uses the same allocation/root/command-guard identity and reconciles exact ownership after an uncertain CAS. Payload readers construct cleanup owners before entered CAS and retain original admission through joined cleanup.",
+    "Original request deadlines, callbacks, route/birth/epoch/activation fences, S3 receipts, hold bounds, pool/worker/byte ceilings and node/backend resources remain unchanged."
+  ],
+  "owning_oracle": {
+    "helper": "crates/cellar/tests/support/cell_group_archive_payload_retry.rs",
+    "before_sha256": "e7fe9c1ac0123980ed8c96864faf7b45f47a3f1bd08d2fcdee760148193d1857",
+    "after_sha256": "e7fe9c1ac0123980ed8c96864faf7b45f47a3f1bd08d2fcdee760148193d1857",
+    "same_bytes": true,
+    "before_archive_entrypoints_preserved_as_exact_prefix": true,
+    "appended_rustfs_entrypoints_sha256": "9bdbc8660f139c73de2bfec4060fb5b914f2a34f66332bc77d11c4de27cea7d7",
+    "boundary": "Real RF3 runtimes/controllers, real SQLite payload reference and filesystem, conditional object store. Deny only actual external-byte GETs. Observe the typed Generic error and zero coverage. Require a second actual denied read under the identical serialized journaled Reserve intent. Restore the same bytes, then require exact-cut independent coverage and payload readback. Owners join before the terminal-classification oracle. Separate fresh missing/corrupt-byte controls remain terminal without coverage.",
+    "scope": "Four focused temporary-I/O iterations (twice per image form), plus missing/corrupt cases each spanning both image forms. Full target counts below already include these default cases; repetitions are not extra distinct tests. All new fixture disks are retained. Five-second observation/I/O waits and existing lifecycle/audit bounds remain; this is not an end-to-end performance workload."
+  },
+  "before": {
+    "status": "REPRODUCED",
+    "source_digest": "427c1ec9ec28bca70e3adc81a9af05de62365bc60deadd7f5b694911204d21d0",
+    "production_inputs_unchanged": true,
+    "changed_inputs_from_published_source": [
+      "crates/cellar/tests/native_cell_groups_archive_controller.rs",
+      "crates/cellar/tests/support/cell_group_archive_payload_retry.rs",
+      "crates/cellar/tests/support/cell_group_archive_store.rs",
+      "crates/cellar/tests/support/cell_group_controller_archive.rs",
+      "crates/cellar/tests/support/cell_group_runtime.rs",
+      "crates/cellar/tests/support/cell_group_sql.rs"
+    ],
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "executable": {
+      "sha256": "e5c6e384769caed9a3fbf087abd71265f4cfbfe429c01dfec3341300d42acde1",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "stages": [
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 31.63136820800719,
+        "log_sha256": "00f6011be608266d818be43e22aa05df38bb40751cfd2b828d21cd68654b25fd",
+        "footers": []
+      },
+      {
+        "name": "materialized-1",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.38521024999499787,
+        "log_sha256": "5fa0f0efbe2c99d032ff5229de41cddbb8f4d37a52f55b98ebdb34e7c77d8c9c",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "extents-1",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.3801116670074407,
+        "log_sha256": "98e5c1a58c60764f65ed650680ea13f7dbd659c1dd17c9f4a41cadf627ffe424",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "materialized-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.35370987499482,
+        "log_sha256": "33e64db93850caad8db86955720d5585e98b0799e37099c179c5d15e816d1006",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "extents-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.3924380829994334,
+        "log_sha256": "0685d515ae69ff0936f43f4290703a8d061d6bb4b8de9f6bb672362f173edbba",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "archive_missing_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7281269590021111,
+        "log_sha256": "02cfe15e459770c34c2583b0bb57aeb13a2ebb2f2145be4d7e39245c5a916beb",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "archive_corrupt_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7171266249933979,
+        "log_sha256": "b94c6b5a4a93145d2da597b3c2155570685cb9d4eefb1011d3ba3952ccd271ab",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      }
+    ],
+    "retained": {
+      "directories": 8,
+      "regular_files": 436
+    },
+    "awake_joined": true,
+    "source_inputs_unchanged": true
+  },
+  "initial_fixture_failure": {
+    "status": "FAILED",
+    "source_digest": "ecc8e32581823dcdd968dd7d778b12cba5079b689e771b9b29fb77c4fd51d993",
+    "stages": [
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 35.47526345800725,
+        "log_sha256": "61057dfe171d4ab113bc1028564ff0aebab728304df4fe7441e762e312e663fe",
+        "footers": []
+      },
+      {
+        "name": "materialized-1",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.3224203340068925,
+        "log_sha256": "c9683c6710304595151179fc4ed8a31b39e38e496b377086f5abf94d86ff4385",
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ]
+      }
+    ],
+    "retained": {
+      "directories": 1,
+      "regular_files": 42
+    },
+    "awake_joined": true,
+    "interpretation": "The registration refused a mismatched payload namespace capability before the intended error oracle. The fixture was corrected to use the actual archive registration backend, preserving capability checks. A denied-read counter also strengthens the two-attempt oracle. This is not the valid product red control."
+  },
+  "native": {
+    "status": "PASSED",
+    "source_digest": "b32cb4bc11572ccdc8bc47798f5dee3b6253a87f45fd7fef48e5488cfff1da4e",
+    "changed_inputs_from_before": [
+      "crates/cellar/durability/raft/cell_groups/controller/archive/mod.rs",
+      "crates/cellar/tests/native_cell_groups_archive_controller.rs"
+    ],
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "executables": {
+      "native_cell_groups_archive_controller": {
+        "sha256": "a787bf3781f3dc6d94b6fec57dff671bdb27d2efdd4ffcfd90f190cbfd21f205",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "cef4e6f6559910ce0c097eb84e0f376b52239082f3cb881f68f7363b123ac2a6",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_archive": {
+        "sha256": "3db5eb3cb5276d4f9a8aba8f9284ac9c61107a707d857b70da073f1791201277",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "raft_cell_group_payloads": {
+        "sha256": "8fab34fb4047e860b39ea6a69a186276015f7981b88b4db3788f532cc3dbffe7",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_sql": {
+        "sha256": "892c38a84f924775199565bcc1b9b1ee50056199d72374676d7e722629e07618",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_execution": {
+        "sha256": "6837ebb2e539601211a01751df7398173d9b2d36d1744059c1500ab0408ee122",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar": {
+        "sha256": "a5dbc1ba712d277442b9677f59790b2d0a9ba4e6ce6d4b6a19ae791f7b4ac346",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "initial_focused_executable_matches_final": true,
+    "stages": [
+      {
+        "name": "compile-controller",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 420.89618450000125,
+        "log_sha256": "f7213520a0ef4ddf6fcc6080b6beef1aa92326266af8c1453fda50511bbcbedb",
+        "footers": []
+      },
+      {
+        "name": "materialized-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4543558340083109,
+        "log_sha256": "153ed0a6529e38e4b2cc744786515716081b8cf258b9863f0d43dd5a0a92846f",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "extents-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.45470516599016264,
+        "log_sha256": "120b7804f37d4bd317fbf4f4e79412c636edab8025c33900680a6935ed4154fa",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "materialized-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4244501250068424,
+        "log_sha256": "5ea49dff1ecbfc63751cc0ecae572682046895d5c779e559e0987987196820c8",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "extents-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.46656391699798405,
+        "log_sha256": "233754e9f4752575494ddb1955bb9aae857bbee066c2a4dc87005d3d19a43862",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "archive_missing_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7529810829873895,
+        "log_sha256": "0f6e0a1b7bf684d23df7c0b2804488e0a7091d5e115f4e8aa2dae481b68ebf76",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "archive_corrupt_payload_remains_terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8075090829952387,
+        "log_sha256": "586b1936484a8b947075c136369163509a7f5a77d0a6f0678b17fc8fd31f0848",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "compile-integration",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 117.63415366600384,
+        "log_sha256": "fcfcad4177db21901e494bbab943541494137bdd7a860c560642a09a7c74d0f4",
+        "footers": []
+      },
+      {
+        "name": "full-native_cell_groups_archive_controller",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 160.54624187499576,
+        "log_sha256": "8cda487ff098033504341f8984f01ea794cd35387060c07682b83f692a1500af",
+        "footers": [
+          [
+            "ok",
+            "41",
+            "0",
+            "36"
+          ]
+        ]
+      },
+      {
+        "name": "full-native_cell_groups_archive",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 65.31305699999211,
+        "log_sha256": "b7efa8e0ffd4e8ea0cd24ba57d656ba30a56a024416e8df488e78ba21ff5339d",
+        "footers": [
+          [
+            "ok",
+            "40",
+            "0",
+            "10"
+          ]
+        ]
+      },
+      {
+        "name": "full-native_cell_groups_execution",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 216.7496922499995,
+        "log_sha256": "d1641c70ebd1b29e8e1d9c4f19e9202b2c51b7968093cbe98b312649be67220a",
+        "footers": [
+          [
+            "ok",
+            "208",
+            "0",
+            "2"
+          ]
+        ]
+      },
+      {
+        "name": "full-native_sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.07140783299109899,
+        "log_sha256": "525ebd0272a17bbeb2259bcb3dd000ef8834dff1435e5a950519390589cfb0e3",
+        "footers": [
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "full-raft_cell_group_payloads",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.0582770420005545,
+        "log_sha256": "cdb109802d90b40facbbaf9b80347cb844775c763aa6b72fb92f8bcfdad9a0b8",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "1"
+          ]
+        ]
+      },
+      {
+        "name": "ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 69.29617670900188,
+        "log_sha256": "1f5b0092eb397ad64b8a6f72f0ba03d0753e5a95fba44998c5ee50676355f5dd",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "axum_sql_bindings_and_operators_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 69.43342679199122,
+        "log_sha256": "f3e516083ed77fd3fbe65c3fba95036f32a18abd621f692389449c6301a6747c",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 105.12545641699398,
+        "log_sha256": "f64a0e6b941facdae8f850e833f74f58b9b036076235faf36e36e59a2cf34806",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "axum_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 106.46944895900378,
+        "log_sha256": "62751fef457158794732dfa5da01b3ce28cce2a2e18e57e2ed0d9c88d7c5ef00",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "ordinary_queue_callbacks_use_shared_quorum",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 153.44524841599923,
+        "log_sha256": "85021a1a66c4e5945361354dae4d529839dd7415f3925c082de26db713fba2f1",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 49.41413904199726,
+        "log_sha256": "65a9f5fdd9ebe5254543dc12138cd67466f9a81bac6df15b8e6f744813cbf75a",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 71.16400333298952,
+        "log_sha256": "a1da06a083d5d838f00dd2a093fc999c98eec8b1a82500a8d5e1d5857c27f910",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "interrupted_sql_bindings_recover_without_replaying_business_calls",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 147.90237941598753,
+        "log_sha256": "d5d797b55beba3b56cb832fef02822e3daf9311d2d5d03618c33622b73fb1dca",
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "compile-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 410.48021866699855,
+        "log_sha256": "14d2c662c7f8052dc7c690254dfb5929eae93f050b3cd183305ccf7eef706ce2",
+        "footers": []
+      },
+      {
+        "name": "full-core-library",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 95.86383562500123,
+        "log_sha256": "0a3df5c1cd77ca03a0e3c08ada57453a7c18cfc6f8acdcf0b39ad4772d3cdfa0",
+        "footers": [
+          [
+            "ok",
+            "1232",
+            "0",
+            "2"
+          ]
+        ]
+      },
+      {
+        "name": "strict-clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 610.3961849579937,
+        "log_sha256": "9cf719f25d541f05ee5080dbf21383c5d65d9c3cd81d07b1ca24a75e382428ec",
+        "footers": []
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 108.3945456250076,
+        "log_sha256": "9833826b89d1d07ac2e9f1e58f497bd844e4f24c85077369bbdf3e7f4145ae91",
+        "footers": []
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.14483579200168606,
+        "log_sha256": "01a630e67452ad35898cc79ea495e87662dea35fe963c96243d6d18d493fe029",
+        "footers": []
+      },
+      {
+        "name": "documentation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8569965420028893,
+        "log_sha256": "f2ea9a21d6d64b75bef1d9efa6c94a7f883ad7cdc4fbe860ad199424deca1bf4",
+        "footers": []
+      },
+      {
+        "name": "native-dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.4606315419950988,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+        "footers": []
+      },
+      {
+        "name": "design-plan",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.4239061669941293,
+        "log_sha256": "965bb2a2987c57d8db90502d022cdc3dd21813234a4fd655c0afb0133f8fa53f",
+        "footers": []
+      }
+    ],
+    "retained": {
+      "directories": 19,
+      "regular_files": 945,
+      "scope": "Record remaining joined native fixture disks and their exact bytes. Existing default helpers may clean successful temporary roots; no complete-disk retention is claimed for them. In-memory object stores are process-local. Original failed container/volume/image and shared RustFS data are separately retained."
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true
+  },
+  "rustfs": {
+    "status": "PASSED",
+    "source_digest": "b32cb4bc11572ccdc8bc47798f5dee3b6253a87f45fd7fef48e5488cfff1da4e",
+    "selected_invocations": 22,
+    "executables": {
+      "native_cell_groups_archive_controller": {
+        "sha256": "a787bf3781f3dc6d94b6fec57dff671bdb27d2efdd4ffcfd90f190cbfd21f205",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "cef4e6f6559910ce0c097eb84e0f376b52239082f3cb881f68f7363b123ac2a6",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_archive": {
+        "sha256": "3db5eb3cb5276d4f9a8aba8f9284ac9c61107a707d857b70da073f1791201277",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "raft_cell_group_payloads": {
+        "sha256": "8fab34fb4047e860b39ea6a69a186276015f7981b88b4db3788f532cc3dbffe7",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "cli": {
+      "sha256": "a81bec5fe59e15abc2ab64984f606d0acb7afca953c71d18d6dc283029498a62",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    },
+    "stages": [
+      {
+        "name": "materialized-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8781551669962937,
+        "log_sha256": "999789543c5d48ef048b6dcd3513fd510502e4ea76f3a985b6f5a07db6488399",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "extents-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8357989159994759,
+        "log_sha256": "6a6606799d2a7c3c8f3656316f9dab82c1ca5b598bcd933a370d65b556ddcf63",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "materialized-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8667837079992751,
+        "log_sha256": "612a9faa4bec2c8fd98b850bfaacac4bc4ef26a7b407e81dc65f42c17d56055c",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "extents-2",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9179012919921661,
+        "log_sha256": "d49d4c7e4eb0b41d5f219546e3c814aaa2bc1c17e09e486cab89a14024086025",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "missing-terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.5559305000060704,
+        "log_sha256": "c7ce90c0e2909989a9770054bb312788923b4923038da19dbc30396abb0e93ba",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "corrupt-terminal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.489833790998091,
+        "log_sha256": "6c7d3672296804af67ca245802d190909a115c7a353b5cc7bd39472e19e57619",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "retirement-materialized",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9438340420019813,
+        "log_sha256": "d248f6669622e18e2573f0bd6d90951f0b491ed79cbbcc6a59f5c92cc8ea4736",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "retirement-extents",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.907145709003089,
+        "log_sha256": "74cd81ae35f3965d266cd8f3b16e3f7f36ea7c7a4fdb7e820d1bbc340008eb26",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "deferred-retirement",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.8061229580052895,
+        "log_sha256": "a0bb93a95db27523b50a0efff73bf2ea10146084e1d5ed04749383183a63ee32",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "peer-replay",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.7623597080091713,
+        "log_sha256": "5b3d0092aee7f3439e10573999f103dcb8611f18cba4b3826db1907dd2e3ac69",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 4.5061045000038575,
+        "log_sha256": "1c5ce7bbe2b6e1c4fb806963a10a4bc1155b2996352e6881f45312025dd4cdc4",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "short-recovery",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 5.4836794169968925,
+        "log_sha256": "5c1151402a8f08a86056bf7364787e6266f31e70d1ab054819899b3b9b0463d0",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "native-sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 70.49980358399625,
+        "log_sha256": "a3417ffe5a3071b6c91f0eee958139c472f79b54986fb84df32b68960616b196",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "axum-sql",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 75.93850812499295,
+        "log_sha256": "4854985e897b615adcc8f90017d6cbb962650540fbd590b4ac74aba1c88f7b9e",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "native-kv",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 106.98174083299818,
+        "log_sha256": "65fa19279080f910ad8e0a063c962e0cfc009e48f957a7189c0e15b70118d2f6",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "axum-kv",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 108.54043133399682,
+        "log_sha256": "9d00ccd55d01f28176231daf86df8f4f6eb0b404cfef4a352fd8679328cfdc61",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "axum-kv-repeat",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 107.01376754199737,
+        "log_sha256": "1b2e69a70f2aa263651b9373e8f8ff9ee7706bb7c9490b9872c320d53929a35e",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "native-queue",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 141.75894491700456,
+        "log_sha256": "6ab91be9a211ded5c4e6e1d98d7f5d55ea1193cc3542b3c6e711c3504937504e",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "axum-queue",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 141.32264283399854,
+        "log_sha256": "06d7a8d67f6614cade40d4463f0ef7bcfaa21cd9dbbb8b4fc11d8b7059f2dcb5",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "queue-proof",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 52.41837745900557,
+        "log_sha256": "64ffe4ed7c650044486ac44f859dd69890c97ea26894bb1ef123e1eff37c65f3",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "immutable-payloads",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.6784325829939917,
+        "log_sha256": "035c15169cab3fda367913ffb5c73e3c36662b93e44748abdec2e4da4d72b618",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "payload-root-gc",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.435039499992854,
+        "log_sha256": "d2a392451eadd6f7574d84a3cf1d5deaf4794de9aad2d5d57b22bc345de1e77a",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "retained_directories": 10,
+    "retained_regular_files": 594,
+    "original_backend_unchanged": true,
+    "ready_http_status": 200,
+    "backend_limits": {
+      "cpus": 1000000000,
+      "memory": 2147483648,
+      "swap": 2147483648
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "scope": "Original shared RustFS with host-native RF3 voters. Eight new owning image iterations include four temporary-I/O repeats and four terminal missing/corrupt controls. Also retain retirement/proof/dependency/recovery, native/Axum SQL/KV/Queue, Queue proof-before-consumer, immutable payload uncertain-CAS/reader/collection and retained external-root controls. The previously failing Axum KV fixture runs twice in independent prefixes; each retains its original image loops and identities. No constrained-container or independent failure-domain qualification is inferred."
+  },
+  "diagnosis_preceding_fix": {
+    "source_digest": "abc7597687e149ed8d5690d70998b41191234b496b5a3afe3c9555209d081ee6",
+    "before_source_digest": "ac4a18e9ef14ed2c2ac65d2c69afc893e03672cffd239fa0e8a9377ef2137230",
+    "candidate_source_digest": "2ac6b77678ee94be0fddd392375bf2913c3d7af7b9b6839914fa247ad8a71d52",
+    "control_steps": [
+      {
+        "name": "before-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 106.62112895800965,
+        "log_sha256": "61b8cbf7bd16a96fc2cafe295c63486c90bd1056c4c1a760f5f59b51362e3640",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "retained_directories": 0,
+        "retained_regular_files": 0
+      },
+      {
+        "name": "after-1",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 103.6237513750093,
+        "log_sha256": "d99ff53a61336c6926e25724f997a9de1189b14dc3e5b939a469061e69d5f826",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ],
+        "retained_directories": 0,
+        "retained_regular_files": 0
+      },
+      {
+        "name": "after-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 105.82796195799892,
+        "log_sha256": "0969b429195902c6f9e6a5b713b4ecb235f953fb0390937a2049d6f9d826a4a7",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "retained_directories": 3,
+        "retained_regular_files": 979
+      },
+      {
+        "name": "before-2",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 109.14841795898974,
+        "log_sha256": "66118eda58e0f778675d4e588cdf398baf2d58daf4cef6dae1369321e9286f6e",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "retained_directories": 3,
+        "retained_regular_files": 975
+      }
+    ],
+    "observations": [
+      {
+        "denials": {
+          "after": 136,
+          "before": 136
+        }
+      },
+      {
+        "case": "kv-source-archive-outage",
+        "nodes": [
+          {
+            "node_ordinal": 0,
+            "committed_index": 82,
+            "published_index": 75,
+            "archive_owner": {
+              "attempts": 5,
+              "error": "Archive(Payload(Storage(Generic { store: \"catalog-test\", source: Custom { kind: Other, error: \"lost store response\" } })))",
+              "stopped": true
+            },
+            "denied_archive_writes": 136,
+            "queued_or_running_sql": 0,
+            "retained_read_pins": 0,
+            "retained_commands": 0
+          },
+          {
+            "node_ordinal": 1,
+            "committed_index": 82,
+            "published_index": 75,
+            "archive_owner": {
+              "attempts": 66,
+              "error": "Archive(Busy)",
+              "stopped": false
+            },
+            "denied_archive_writes": 0,
+            "queued_or_running_sql": 0,
+            "retained_read_pins": 0,
+            "retained_commands": 0
+          },
+          {
+            "node_ordinal": 2,
+            "committed_index": 82,
+            "published_index": 75,
+            "archive_owner": {
+              "attempts": 65,
+              "error": "Archive(Busy)",
+              "stopped": false
+            },
+            "denied_archive_writes": 0,
+            "queued_or_running_sql": 0,
+            "retained_read_pins": 0,
+            "retained_commands": 0
+          }
+        ]
+      },
+      {
+        "case": "kv-target-archive-outage",
+        "nodes": [
+          {
+            "node_ordinal": 0,
+            "committed_index": 145,
+            "published_index": 133,
+            "archive_owner": {
+              "attempts": 83,
+              "error": "Archive(Busy)",
+              "stopped": false
+            },
+            "denied_archive_writes": 136,
+            "queued_or_running_sql": 0,
+            "retained_read_pins": 0,
+            "retained_commands": 0
+          },
+          {
+            "node_ordinal": 1,
+            "committed_index": 145,
+            "published_index": 133,
+            "archive_owner": {
+              "attempts": 3,
+              "error": "Archive(Payload(Storage(Generic { store: \"catalog-test\", source: Custom { kind: Other, error: \"lost store response\" } })))",
+              "stopped": true
+            },
+            "denied_archive_writes": 0,
+            "queued_or_running_sql": 0,
+            "retained_read_pins": 0,
+            "retained_commands": 0
+          },
+          {
+            "node_ordinal": 2,
+            "committed_index": 145,
+            "published_index": 133,
+            "archive_owner": {
+              "attempts": 69,
+              "error": "Archive(Busy)",
+              "stopped": false
+            },
+            "denied_archive_writes": 0,
+            "queued_or_running_sql": 0,
+            "retained_read_pins": 0,
+            "retained_commands": 0
+          }
+        ]
+      }
+    ],
+    "interpretation": "Frozen before/current binaries each pass once and fail once at the identical materialized KV archive-outage-reaching oracle. The later snapshot observes stopped Generic-payload-error owners and Busy peers with denial count136 unchanged. Historical failed owners remain failed; this repair has independent source-specific evidence."
+  },
+  "disk_reserve_observation": {
+    "observed_at": "2026-11-16T11:52:44.974605+00:00",
+    "available_bytes": 823226368,
+    "unchanged_reserve_bytes": 6442450944,
+    "reserve_met": false,
+    "guest_and_context_engine_match": true,
+    "action": "Read-only original Engine identity and guest filesystem check. No disk/resource change, restart or deletion."
+  },
+  "limits": [
+    "No current matching Linux image or complete three 1-vCPU/2-GiB-node SQL/KV/Queue/four-mode matrix; the older complete matrix has four passing and eight failing cases. The original disk expansion proposal remains unanswered; no resize, restart, prune or reserve relaxation is performed.",
+    "No isolated throughput/latency gain, full feature/SDK/Axum/daemon release profile or complete OPT/CG gate is accepted. The original-budget rooted-128 enrollment failure and hosted native disaster/container-capacity gaps remain open unless separately reverified.",
+    "This is the observed Generic payload-store I/O boundary. Other typed payload errors retain existing policy; broader outage, deadline/backpressure, crash/recovery and physical accounting/fairness/movement qualification remain required."
+  ],
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "credential_matches": 0,
+    "excluded": "Credentials, private runtime configurations and keys, environment responses, raw node/store/job logs and native fixture data."
+  }
+}

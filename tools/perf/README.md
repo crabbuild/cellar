@@ -2,6 +2,9 @@
 
 # Embedded fleet validation
 
+For comparable public SQL, KV and Queue measurements over shared Raft groups
+and an owned RustFS backend, use the [local primitive benchmark](primitives.md).
+
 For MR-14 reference transitions, durable operation ledgers, explicit open-loop
 arrival accounting and executable freshness checks, use the
 [performance runner](raft-performance.md). It retains incomplete qualification

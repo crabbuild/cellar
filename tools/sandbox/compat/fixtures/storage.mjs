@@ -525,7 +525,10 @@ class Probe extends DurableObject {
       case "buffers": {
         const first = sql.exec("SELECT zeroblob(600000) AS data");
         const error = await refuses(
-          () => sql.exec("SELECT zeroblob(600000) AS data"),
+          () =>
+            sql.exec(
+              "INSERT INTO counts VALUES(3,777); SELECT zeroblob(600000) AS data",
+            ),
           "Ambiguous",
         );
         check(
@@ -533,6 +536,11 @@ class Probe extends DurableObject {
           "post-execution quota invented rollback",
         );
         first.return();
+        check(
+          sql.exec("SELECT value FROM counts WHERE id=3").one().value === 777,
+          "post-execution quota lost the committed prefix",
+        );
+        sql.exec("DELETE FROM counts WHERE id=3").toArray();
         const second = sql.exec("SELECT zeroblob(600000) AS data");
         check(
           second.one().data.byteLength === 600000,
@@ -545,8 +553,22 @@ class Probe extends DurableObject {
           for (const _row of sql.exec("SELECT 1")) break;
         }
         const opened = [];
+        let capacity;
         try {
-          for (let i = 0; i < 128; i++) opened.push(sql.exec("SELECT 1"));
+          for (let i = 0; i < 128; i++) {
+            try {
+              opened.push(sql.exec("SELECT 1"));
+            } catch (error) {
+              check(
+                error.code === "ValidationError" &&
+                  error.outcome === "not_committed",
+                "native cursor admission provenance",
+              );
+              break;
+            }
+          }
+          capacity = opened.length;
+          check(capacity > 0, "no cursor admitted");
           const error = await refuses(
             () => sql.exec("INSERT INTO counts VALUES(2,999)"),
             "ValidationError",
@@ -562,7 +584,7 @@ class Probe extends DurableObject {
           sql.exec("SELECT count(*) AS n FROM counts WHERE id=2").one().n === 0,
           "refused statement had effects",
         );
-        return { ok: true };
+        return { ok: true, capacity };
       }
       case "refuse": {
         await storage.put("original", 1);

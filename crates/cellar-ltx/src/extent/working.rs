@@ -7,7 +7,7 @@
 use super::{
     image::{CacheLimits, ExtentImage, ExtentSource},
     store::SealedImageRoot,
-    tree::{ExtentManifest, EXTENT_BYTES},
+    tree::{ExtentManifest, Geometry, ImageBinding, EXTENT_BYTES},
 };
 use crate::{
     paged_vfs,
@@ -64,6 +64,7 @@ pub struct ExtentWorkspace {
 
 enum Base {
     Local(Arc<SealedImageRoot>),
+    Empty(ExtentManifest),
     Source {
         manifest: ExtentManifest,
         source: Arc<dyn ExtentSource>,
@@ -74,7 +75,7 @@ impl Base {
     fn manifest(&self) -> &ExtentManifest {
         match self {
             Self::Local(image) => image.manifest(),
-            Self::Source { manifest, .. } => manifest,
+            Self::Empty(manifest) | Self::Source { manifest, .. } => manifest,
         }
     }
 }
@@ -82,6 +83,17 @@ impl Base {
 impl ExtentWorkspace {
     pub fn new(base: Arc<SealedImageRoot>, options: WorkspaceOptions) -> crate::Result<Self> {
         Self::open(Base::Local(base), options)
+    }
+
+    /// Open a disposable initializer without allocating a durable empty root.
+    /// The binding must describe transaction zero. This metadata grants no
+    /// image seal, publication or recovery authority; the caller still retains
+    /// its private-file admission through every open SQLite/VFS handle.
+    pub fn empty(binding: ImageBinding, options: WorkspaceOptions) -> crate::Result<Self> {
+        let geometry = Geometry::new(0, 0).map_err(|error| crate::Error::Other(Box::new(error)))?;
+        let manifest = ExtentManifest::new(binding, geometry, &[])
+            .map_err(|error| crate::Error::Other(Box::new(error)))?;
+        Self::open(Base::Empty(manifest), options)
     }
 
     /// Open a disposable writer without first materializing its immutable base.
@@ -139,6 +151,9 @@ impl ExtentWorkspace {
                     options.cache,
                 )
                 .map_err(|error| crate::Error::Other(Box::new(error)))?,
+                Base::Empty(_) => {
+                    return Err(crate::Error::Other("nonempty initializer base".into()));
+                }
             };
             Some(image)
         };

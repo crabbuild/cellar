@@ -114,7 +114,7 @@ impl FleetCatalog {
                         }
                         let capacity = capacity.attestation().clone();
                         let floor = self
-                            .resource_floor(&snapshot, &room::resource_attestation(&capacity))
+                            .admission_floor(&snapshot, &room::resource_attestation(&capacity))
                             .await?;
                         let slots = floor
                             .engine_slots
@@ -252,7 +252,7 @@ impl FleetCatalog {
                         return Err(FleetCatalogError::InventoryIncomplete);
                     }
                     let floor = self
-                        .resource_floor(&snapshot, &room::resource_attestation(&node.capacity))
+                        .admission_floor(&snapshot, &room::resource_attestation(&node.capacity))
                         .await?;
                     let mut low = 0;
                     let mut high = node.capacity.engine_slots;

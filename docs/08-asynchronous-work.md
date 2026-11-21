@@ -68,6 +68,15 @@ Define inspection and replay procedures, and account for retention in both
 queues. Destination acceptance starts a new age and attempt count; preserve
 application IDs when reconciling earlier delivery history.
 
+In shared groups, a dead-letter or redrive attempt records a retry boundary and
+durable wake before dispatching to its destination. The boundary uses the
+invocation's remaining deadline; cancellation or a lost reply leaves the same
+transfer eligible for retry. Claiming a transfer preserves its identity and
+consumer-attempt count. Newly marked work carries its ready time so continual
+arrivals cannot displace an older expired retry. Source rows are removed only
+after destination acceptance reaches the required durability; destination
+transfer receipts deduplicate retries within their retention period.
+
 ## Define replay-safe workflows
 
 Register workflow handlers through `Registry::workflow`. Workflow instances

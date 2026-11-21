@@ -34,6 +34,25 @@ pub(in crate::application) fn kv_service() -> Result<RaftClass, RegistrationErro
         Sha256::digest(b"cellar-kv-ingress-sequence-1").into(),
         |query, input| query.sql_ingress_sequence(input),
     )?;
+    class = class.query(
+        crate::application::kv::read::OPERATION,
+        Sha256::digest(b"cellar-kv-inline-pinned-read-1").into(),
+        |query, input| {
+            let request = super::native_rpc::decode_request(input)?;
+            super::native_rpc::validate_identity(
+                "cellar-kv-service",
+                crate::deploy::KV_CLASS,
+                query.identity().cell.as_str(),
+                request.name.as_deref(),
+            )?;
+            crate::application::kv::read::query(
+                &query.storage(),
+                query.identity(),
+                request.args,
+                query.result_limit(),
+            )
+        },
+    )?;
     class = class.with_cell_factory(Arc::new(|context, _| {
         crate::application::kv::create_cell(&context)
     }))?;
@@ -55,6 +74,7 @@ pub(in crate::application) fn sql_service() -> Result<RaftClass, RegistrationErr
     )?;
     for method in [
         "__sqlQuery",
+        crate::application::sql::READ_METHOD,
         "__sqlBatch",
         "__sqlExec",
         "__sqlMigrations",
@@ -66,6 +86,21 @@ pub(in crate::application) fn sql_service() -> Result<RaftClass, RegistrationErr
         digest.update(method);
         class = class.cell_rpc(method, digest.finalize().into())?;
     }
+    class = class.query(
+        crate::application::sql::READ_OPERATION,
+        Sha256::digest(b"cellar-raft-sql-pinned-read-1").into(),
+        |query, input| {
+            let request = super::native_rpc::decode_request(input)?;
+            super::native_rpc::validate_identity(
+                "cellar-sql-service",
+                crate::deploy::SQL_CLASS,
+                query.identity().cell.as_str(),
+                request.name.as_deref(),
+            )?;
+            let value = crate::application::sql::read_query(query.storage(), request.args)?;
+            super::native_rpc::encode_response(&value)
+        },
+    )?;
     class = class.query(
         super::sql_ingress_identity::OPERATION,
         Sha256::digest(b"cellar-sql-ingress-sequence-1").into(),
@@ -118,6 +153,22 @@ pub(in crate::application) fn queue_service(
         super::sql_ingress_identity::OPERATION,
         Sha256::digest(b"cellar-queue-ingress-sequence-1").into(),
         |query, input| query.sql_ingress_sequence(input),
+    )?;
+    class = class.query(
+        crate::application::queue::read::OPERATION,
+        Sha256::digest(b"cellar-queue-operator-pinned-read-1").into(),
+        |query, input| {
+            let request = super::native_rpc::decode_request(input)?;
+            super::native_rpc::validate_identity(
+                "cellar-queue-service",
+                crate::deploy::QUEUE_CLASS,
+                query.identity().cell.as_str(),
+                request.name.as_deref(),
+            )?;
+            let value = crate::application::queue::read::operator(query.storage(), request.args)?
+                .unwrap_or_else(|| crate::engine_api::RpcData::Json("null".into()));
+            super::native_rpc::encode_response(&value)
+        },
     )?;
     class = class.with_cell_factory(Arc::new(move |context, _| {
         crate::application::queue::create_raft_cell(&context, handler.clone())

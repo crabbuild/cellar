@@ -32,6 +32,7 @@ pub const HOLD_DEPENDENCY_PREFIX: u8 = 15;
 pub const HOLD_DEPENDENCY_SYNC: u8 = 16;
 pub const HOLD_FAIL_PRIVATE_CLEANUP: u8 = 17;
 pub const HOLD_SELECTED_DIRECTORY_SYNC: u8 = 18;
+pub const FAIL_DIRECTORY_SYNC_AFTER_DELETE: u8 = 19;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -40,6 +41,8 @@ pub struct Gate {
     release: Condvar,
     signal: Option<std::path::PathBuf>,
     pub sync_path: Mutex<Option<std::path::PathBuf>>,
+    /// Restrict one-shot Raft log sync faults to one physical node directory.
+    pub log_sync_prefix: Mutex<Option<std::path::PathBuf>>,
     pub image_read_paths: Mutex<Vec<std::path::PathBuf>>,
     pub dependency_cut: Mutex<Option<(std::path::PathBuf, u64)>>,
     /// Optional sync selection, installed before arming and cleared on release.
@@ -55,6 +58,7 @@ impl Gate {
             release: Condvar::new(),
             signal,
             sync_path: Mutex::new(None),
+            log_sync_prefix: Mutex::new(None),
             image_read_paths: Mutex::new(vec![]),
             dependency_cut: Mutex::new(None),
             sync_when: Mutex::new(None),
@@ -88,6 +92,7 @@ impl Drop for Release {
     fn drop(&mut self) {
         self.0.mode.store(OFF, Ordering::Release);
         self.0.sync_when.lock().unwrap().take();
+        self.0.log_sync_prefix.lock().unwrap().take();
         *self.0.released.lock().unwrap() = true;
         self.0.release.notify_all();
     }
@@ -250,7 +255,14 @@ impl HostFileIo for FaultFile {
             return Ok(());
         }
         let sync_when = self.gate.sync_when.lock().unwrap().clone();
-        if self.log && sync_when.is_none_or(|when| when()) {
+        let selected_log = self
+            .gate
+            .log_sync_prefix
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|prefix| self.path.starts_with(prefix));
+        if self.log && selected_log && sync_when.is_none_or(|when| when()) {
             let mode = self.gate.mode.load(Ordering::Acquire);
             let mode = if matches!(
                 mode,
@@ -440,13 +452,21 @@ impl FileSystem for FaultFileSystem {
             .parent()
             .and_then(Path::file_name)
             .is_some_and(|name| name == "log")
-            && self
+        {
+            if self
                 .gate
                 .mode
                 .compare_exchange(CRASH_AFTER_DELETE, OFF, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
-        {
-            self.gate.pause()?;
+            {
+                self.gate.pause()?;
+            }
+            let _ = self.gate.mode.compare_exchange(
+                FAIL_DIRECTORY_SYNC_AFTER_DELETE,
+                FAIL_DIRECTORY_SYNC,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
         }
         Ok(())
     }

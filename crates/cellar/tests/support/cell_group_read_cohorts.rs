@@ -53,7 +53,7 @@ async fn run_scenario(rooted: bool, invalidation: Option<bool>) -> Result<()> {
     else {
         anyhow::bail!("cohort gate preparation")
     };
-    let barriers = count(&fixture, "cell_linearizable_read_barriers")?;
+    let barriers = count(&fixture, "cell_linearizable_read_cohorts_started")?;
     let joins = count(&fixture, "cell_linearizable_read_cohort_joins")?;
     pool.mark_submitted(b.clone(), prepared.proposal()).await?;
     let gate = fixture.cluster.voters[0].gate.clone();
@@ -74,19 +74,28 @@ async fn run_scenario(rooted: bool, invalidation: Option<bool>) -> Result<()> {
         until,
     ));
     assert!(first.as_mut().now_or_never().is_none());
+    let term = runtime.status(route.history).await?.term;
+    let mut heartbeat = Message {
+        from: 2,
+        to: 1,
+        term: term.get(),
+        ..Default::default()
+    };
+    heartbeat.set_msg_type(MessageType::MsgHeartbeatResponse);
+    runtime.admit_step(route.history, heartbeat).await?;
     assert!(second.as_mut().now_or_never().is_none());
-    // Status is served while persistence is held, on the same FIFO mailbox.
-    // Its reply proves both preceding reads reached the owner's deferred queue.
+    // Status is served while persistence is held on the same FIFO mailbox.
+    // Its reply orders after both reads and the intervening peer frame.
     runtime.status(route.history).await?;
     assert_eq!(
-        count(&fixture, "cell_linearizable_read_barriers")?,
+        count(&fixture, "cell_linearizable_read_cohorts_started")?,
         barriers
     );
     assert_eq!(runtime.usage().read_pins.items, 2);
     drop(release);
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let current = count(&fixture, "cell_linearizable_read_barriers")?;
+            let current = count(&fixture, "cell_linearizable_read_cohorts_started")?;
             assert!(current <= barriers + 1);
             if current == barriers + 1 {
                 return Ok::<_, anyhow::Error>(());
@@ -197,14 +206,14 @@ async fn run_scenario(rooted: bool, invalidation: Option<bool>) -> Result<()> {
     assert!(late.as_mut().now_or_never().is_none());
     runtime.status(route.history).await?;
     tokio::time::timeout(Duration::from_secs(5), async {
-        while count(&fixture, "cell_linearizable_read_barriers")? < barriers + 2 {
+        while count(&fixture, "cell_linearizable_read_cohorts_started")? < barriers + 2 {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
         Ok::<_, anyhow::Error>(())
     })
     .await??;
     assert_eq!(
-        count(&fixture, "cell_linearizable_read_barriers")?,
+        count(&fixture, "cell_linearizable_read_cohorts_started")?,
         barriers + 2
     );
     assert_eq!(

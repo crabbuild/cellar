@@ -17,6 +17,10 @@ use cellar_logic::cell_group::{CellVersion, MutationSequence};
 mod preparation;
 pub(crate) use preparation::{CellPrivatePreparation, CellPrivatePrepared, CellStageCapture};
 
+#[path = "cell_checkpoint.rs"]
+mod checkpoint;
+pub(crate) use checkpoint::{CellCheckpointGrant, CellCheckpointPrepared};
+
 #[path = "cell_rpc.rs"]
 mod rpc;
 pub(crate) use rpc::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
@@ -56,6 +60,13 @@ pub enum CellReconciliation {
     Refused(CommandFailure),
 }
 
+/// A pending observation retains the exact live producer and grants no output
+/// or non-commit authority. Only the checked immutable view may be reused.
+pub(crate) enum CellReconciliationObservation {
+    Pending,
+    Resolved(CellReconciliation),
+}
+
 struct PendingCell {
     prepared: CellPreparedCommand,
     request: CommandRequest,
@@ -80,13 +91,18 @@ enum StageAdmission {
 
 pub struct CellPrivateExecutor {
     options: Options,
-    authority: CellExecutionAuthority,
+    authority: std::sync::Arc<CellExecutionAuthority>,
     working: Option<WorkingImage>,
     pending: Option<PendingCell>,
-    preparing: Option<std::sync::Arc<()>>,
+    preparing: Option<PreparationOwner>,
     poisoned: bool,
     receipt_cursor: Option<ClientId>,
     _lock: PrivateLock,
+}
+
+enum PreparationOwner {
+    Local(std::sync::Arc<()>),
+    Checkpoint(std::sync::Arc<()>),
 }
 
 impl CellPrivateExecutor {
@@ -108,7 +124,15 @@ impl CellPrivateExecutor {
         options: RootPrivateOptions,
         authority: CellExecutionAuthority,
     ) -> Result<Self, ExecutionError> {
-        Self::open_image(options.into(), authority)
+        Self::open_rooted_with_apply_limits(options, authority, None)
+    }
+
+    pub(crate) fn open_rooted_with_apply_limits(
+        options: RootPrivateOptions,
+        authority: CellExecutionAuthority,
+        limits: Option<cellar_ltx::apply::ApplyLimits>,
+    ) -> Result<Self, ExecutionError> {
+        Self::open_image(Options::rooted(options, limits), authority)
     }
 
     fn open_image(
@@ -141,7 +165,7 @@ impl CellPrivateExecutor {
                 name.push(format!(".cursor-{slot}"));
                 options.directory = directory.with_file_name(name);
             }
-            options.prepare_directory()?;
+            options.prepare_cell_scratch()?;
             match filesystem.lock_file(&options.directory.join("working.lock")) {
                 Ok(lock) => {
                     acquired = Some(lock);
@@ -172,7 +196,7 @@ impl CellPrivateExecutor {
         }
         Ok(Self {
             options,
-            authority,
+            authority: std::sync::Arc::new(authority),
             working: Some(working),
             pending: None,
             preparing: None,
@@ -433,6 +457,17 @@ impl CellPrivateExecutor {
         proposal: ProposalId,
         authority: CellReconciliationAuthority,
     ) -> Result<CellReconciliation, ExecutionError> {
+        match self.observe_reconciliation(proposal, authority)? {
+            CellReconciliationObservation::Pending => Err(ExecutionError::Uncertain),
+            CellReconciliationObservation::Resolved(resolution) => Ok(resolution),
+        }
+    }
+
+    pub(crate) fn observe_reconciliation(
+        &mut self,
+        proposal: ProposalId,
+        authority: CellReconciliationAuthority,
+    ) -> Result<CellReconciliationObservation, ExecutionError> {
         let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
         if pending.prepared.proposal() != proposal
             || !self.authority.accepts_reconciliation(&authority)
@@ -504,12 +539,40 @@ impl CellPrivateExecutor {
             }
             lookup(connection)
         } else {
-            let database = self
-                .options
-                .images
-                .read_cell(&self.options, authority.image())
-                .map_err(storage)?;
-            lookup(database.connection())
+            let inspect = |connection: &rusqlite::Connection| {
+                if let Some(step) = pending.rpc_step {
+                    receipts::lookup_rpc_identity(
+                        connection,
+                        &pending.request,
+                        &self.options.limits,
+                    )
+                    .map(|receipt| {
+                        receipt
+                            .filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
+                    })
+                } else {
+                    receipts::lookup_identity(connection, &pending.request, &self.options.limits)
+                }
+            };
+            // The producer is frozen while pending. Reuse its captured data
+            // only when this independently checked applied view selects the
+            // exact result. Later images and unavailable or busy connections
+            // still use immutable inspection. Neither path supplies S3 proof.
+            let captured = self
+                .working
+                .as_ref()
+                .filter(|_| authority.cell().version == pending.result)
+                .and_then(|working| working.captured_connection(pending.result.image));
+            if let Some(connection) = captured {
+                inspect(connection)
+            } else {
+                let database = self
+                    .options
+                    .images
+                    .read_cell(&self.options, authority.image())
+                    .map_err(storage)?;
+                inspect(database.connection())
+            }
         };
         let resolution = match receipt {
             Ok(Some(receipt)) => CellReconciliation::Committed(Box::new(CellCommittedReceipt {
@@ -531,20 +594,24 @@ impl CellPrivateExecutor {
             {
                 CellReconciliation::Refused(CommandFailure::Unavailable)
             }
-            Err(error) => {
-                if matches!(&error, ExecutionError::Uncertain) {
-                    observe_uncertain("unfinished-receipt");
-                }
-                return Err(error);
+            // This exact immutable image contains an intermediate receipt,
+            // which cannot supply the final RPC response. A checked same-term
+            // view stays pending until its term or cell version changes.
+            Err(ExecutionError::Uncertain)
+                if authority.term() == self.authority.term() && pending.rpc_prior_steps != 0 =>
+            {
+                check()?;
+                return Ok(CellReconciliationObservation::Pending);
             }
+            Err(error) => return Err(error),
             Ok(None) => {
-                observe_uncertain("receipt-absent-same-term");
-                return Err(ExecutionError::Uncertain);
+                check()?;
+                return Ok(CellReconciliationObservation::Pending);
             }
         };
         check()?;
         self.retire_reconciled()?;
-        Ok(resolution)
+        Ok(CellReconciliationObservation::Resolved(resolution))
     }
 
     /// The caller has established the matching applied receipt or newer-term

@@ -1,0 +1,644 @@
+{
+  "format": 1,
+  "scope": "Queue signed info/peek avoid Raft mutations when local history and initialized Queue schema are available. Fresh linearizable authority, target minimum S3 archive coverage, operator authentication, resource scope, limits, cancellation, original deadlines and retained response admission remain required. Pause/resume/purge/redrive keep ordinary mutation execution. No end-to-end throughput or latency speedup claim.",
+  "qualified_tree": {
+    "head_at_build_start": "7562115bb703020dff007bd4880ffe6692d51bc7",
+    "included_main": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+    "compiler_input_digest": "7595d14b9c18bb6efd222f0dd19e192a0424958870d966fd40be58079fe081a4",
+    "changed_compiler_inputs": {
+      "crates/cellar/application/consensus/class.rs": "cac4c47ac6022c4bb8d1827d60ce31de85e9dde2f8634a0a8a3401ec4ef24039",
+      "crates/cellar/application/consensus/group_client/mod.rs": "6ca01f6bf83fa20beb1088f7f06ab9e0dafe5e23ce34a9599607e890cee70833",
+      "crates/cellar/application/consensus/group_client/queue_read.rs": "8c44cdee6d4d65d3ee46c96e9f2657bcd2e4760798775ef5bc060e3553257d98",
+      "crates/cellar/application/consensus/native_services.rs": "b8f57f9b5b4757b0771120ec82db1748d7019f109aa4b11799b4e9df456f8c20",
+      "crates/cellar/application/queue/broker.rs": "c3446d3f8b6490a178b9cbdf84002e7d119ad870251e676052572c56bd995dc5",
+      "crates/cellar/application/queue/mod.rs": "dc9b440351a9048458308771c803a233d1b68302ce278ab60af2acd0cf324371",
+      "crates/cellar/application/queue/read.rs": "e852d347d8c096f0172dc3c1fa9b83bfbd50b905c1de323966134abe1a0b81e3",
+      "crates/cellar/application/queue/sql.rs": "551234db4c5509ec64608ecf58a22728e3b2ba6f054f37e74a365489cc39afbd",
+      "crates/cellar/durability/raft/cell_groups/dispatch/mod.rs": "d22996e9a418941483302ad1d6b3b7e1be0629839202a7566149b27b89c5987d",
+      "crates/cellar/durability/raft/cell_groups/host/bindings.rs": "58760ce7149bad2112da2f179893078fc2307a2104a38c4ca1b252f9452b0953",
+      "crates/cellar/node/queue_operator.rs": "6d25cd117a3d3ecb69839c0b8e386964e09948b4899960d44d9425e58523c135",
+      "crates/cellar/tests/native_cell_groups_primitives.rs": "b6cc8ed827c50cee352d138949acc6aeef5f8909c99e2792e7e8ba828a0d5b25",
+      "crates/cellar/tests/support/cell_group_queue.rs": "a81ff94df318e4217578549d9a8d0bf2a9c37d6b90f9a76700009c03795e8c48",
+      "crates/cellar/tests/support/cell_group_queue_operator_read.rs": "e8d89d6d6b9565f6d32ace893937acacb5463288f1383b24a5b1b99046956340",
+      "crates/cellar/tests/support/cell_group_queue_qualification.rs": "31e077ab4cffcdfbc49f733fb78af6aa091685c64a77fcfd246efcaf89ba08da"
+    },
+    "binding": "The final publication verifies this compiler-input digest against the committed checkout. The publication commit is bound externally to avoid a self-referential artifact."
+  },
+  "native_environment": "Host-native real RF3, local filesystems, both materialized and rooted image modes, and synthetic object-store fault adapters. These suites do not establish the original Colima/RustFS performance profile or independent physical failure domains.",
+  "profile": {
+    "rust": "1.98.1",
+    "locked": true,
+    "build_jobs": 1,
+    "incremental": false,
+    "test_harness_threads": 1,
+    "opt_level": "1",
+    "debuginfo": 0,
+    "debug_assertions": true,
+    "overflow_checks": true,
+    "test": true
+  },
+  "mechanism": {
+    "before": "On an initialized storage-only Queue, signed info and peek pass stable-leadership guards but advance the real RF3 committed index from 4 to 6. The unchanged regression fails at its intended work oracle.",
+    "after": "The byte-identical regression passes with index 4 to 4 in both image modes. Pause and resume remain mutations; subsequent info observes pause without appending another mutation.",
+    "read_execution": "The existing operator route authorizes the target before selecting its exact registered query contract. The ordinary pinned resource reader supplies fresh quorum authority. The broker and query share the same metrics/peek SQL and response shaping through read-only framework storage.",
+    "archive_floor": "The dispatcher applies the existing S3 query settlement and current-proof check to the exact Queue observation contract when the trusted namespace minimum is S3. Stale consistency refuses before decoding. A read or archive failure never selects a mutation retry or Fleet execution.",
+    "initialization": "No local history uses the existing authorized command before attempting any mutation. A selected image with missing Queue tables/statistics emits an internal null sentinel and re-enters that same command with the original admission, arguments and deadline. Other responses/errors refuse rather than authorizing fallback.",
+    "boundaries": "Both image modes require signed read success without appends, unsigned/tampered/name-scope refusals, invalid peek-limit refusals, exact stale-consistency refusal, a committed S3 pause behind real denied archive writes, continued Quorum read service, S3 info/peek refusals until archive coverage returns, observation of paused state afterward, and read refusal after losing two Raft hosts."
+  },
+  "causal_source_binding": {
+    "red_source_digest": "7a97ec38034999000da838ab56a080624bc36f59b529acc39562f59d122a4a22",
+    "green_source_digest": "975ec9b72d61c2b6cffcdf291878b089917fcc0569c7c2839dfedead73404faf",
+    "final_source_digest": "7595d14b9c18bb6efd222f0dd19e192a0424958870d966fd40be58079fe081a4",
+    "changed_compiler_inputs": [
+      "crates/cellar/application/consensus/class.rs",
+      "crates/cellar/application/consensus/group_client/mod.rs",
+      "crates/cellar/application/consensus/group_client/queue_read.rs",
+      "crates/cellar/application/consensus/native_services.rs",
+      "crates/cellar/application/queue/broker.rs",
+      "crates/cellar/application/queue/mod.rs",
+      "crates/cellar/application/queue/read.rs",
+      "crates/cellar/application/queue/sql.rs",
+      "crates/cellar/durability/raft/cell_groups/dispatch/mod.rs",
+      "crates/cellar/durability/raft/cell_groups/host/bindings.rs",
+      "crates/cellar/node/queue_operator.rs"
+    ],
+    "original_three_regression_files_byte_identical_red_to_green": true,
+    "identical_build_profile": true,
+    "final_primary_oracle_body_byte_identical": true,
+    "primary_oracle_body_sha256": "d013c309a9af54ab5c0afe2b0f1f394d930f7d3b7b06e9662fcdeaef5663259c",
+    "additional_final_inputs": [
+      "crates/cellar/durability/raft/cell_groups/dispatch/mod.rs",
+      "crates/cellar/tests/native_cell_groups_primitives.rs",
+      "crates/cellar/tests/support/cell_group_queue.rs",
+      "crates/cellar/tests/support/cell_group_queue_operator_read.rs",
+      "crates/cellar/tests/support/cell_group_queue_qualification.rs"
+    ],
+    "baseline_scope": "Published 7562115 production plus the new real RF3 regression, with no production optimization. The same regression reaches its intended 4-to-6 committed-index oracle before the fix. These are work counts, not a latency/throughput benchmark.",
+    "excluded_attempts": {
+      "green-01": "Interrupted before the formatter completed. No qualification result.",
+      "green-02": "A compiler from the interrupted attempt overlapped this build. Its pass is excluded. Green-03 rebuilt identical source after all prior owned compilers exited.",
+      "final-01": "The new quorum-loss test captured its index before peer shutdown, which may legitimately commit a leader-transition entry. Review moved the snapshot after both hosts close and before the read. The compile finished normally; the input-drift guard refused all test execution. No compiler interruption. Original workloads and primary regression remained unchanged."
+    }
+  },
+  "original_regression": {
+    "status": "FAILED",
+    "source_digest": "7a97ec38034999000da838ab56a080624bc36f59b529acc39562f59d122a4a22",
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "retained": {
+      "files": 146,
+      "bytes": 3172900,
+      "manifest_sha256": "115c27f054e8f4267d6f22d8470f506279e40202eaba43b7c27fd0f40e58f8fe"
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 278.072989584005,
+        "footers": [],
+        "log_sha256": "60a04a47e903ab652995e673ac8570b250b4561d6bb6d584e0ea1371b8ff377e"
+      },
+      {
+        "name": "native_cell_groups_primitives--queue_operator_reads_do_not_append_mutations",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 22.691429917002097,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "523475e276cd8e9aeb056f907674b4b1e75c49fae6ea4e960c7ca1d5227b29cb",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_primitives": {
+        "sha256": "0935155dd737a3f9c34cc67811faddc80230ce06ff5c48f75a18620e5a22f970",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retention_verification": {
+      "original_verified": true,
+      "closed_copy_verified": true,
+      "files": 146,
+      "bytes": 3172900,
+      "manifest_sha256": "115c27f054e8f4267d6f22d8470f506279e40202eaba43b7c27fd0f40e58f8fe"
+    }
+  },
+  "fixed_regression": {
+    "status": "PASSED",
+    "source_digest": "975ec9b72d61c2b6cffcdf291878b089917fcc0569c7c2839dfedead73404faf",
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "retained": {
+      "files": 0,
+      "bytes": 0,
+      "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 373.3609358340036,
+        "footers": [],
+        "log_sha256": "033369b22ccceb9b7a5b5aa9d906c39c6ba2c70ee4fc7e83110bb1dabe60db10"
+      },
+      {
+        "name": "native_cell_groups_primitives--queue_operator_reads_do_not_append_mutations",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 49.630459834006615,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "dcab8d759488dec36a0e3dfed23417361df870e4cf0032c21366ab09db53f01f",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_primitives": {
+        "sha256": "9b00d39b83a2bbafad8ba35870e3a90f1105f26971f3dd6acdae80e2b8daee78",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    }
+  },
+  "fixed_work_observations": {
+    "source_digest": "975ec9b72d61c2b6cffcdf291878b089917fcc0569c7c2839dfedead73404faf",
+    "original_regression_hashes_unchanged": true,
+    "observations": [
+      {
+        "rooted": false,
+        "before": 4,
+        "after": 4
+      },
+      {
+        "rooted": true,
+        "before": 4,
+        "after": 4
+      }
+    ],
+    "scope": "Two signed reads avoid two mutations in each image mode; pause/resume and subsequent observation remain correct. Work counts only, no throughput/latency comparison."
+  },
+  "final_qualification": {
+    "status": "FAILED",
+    "source_digest": "7595d14b9c18bb6efd222f0dd19e192a0424958870d966fd40be58079fe081a4",
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "retained": {
+      "files": 2372,
+      "bytes": 52032022,
+      "manifest_sha256": "dc005fcfd1e4b4e1d1070d9fd98d794197fd254454ddd839da447aaa195cca56"
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 53.36037737497827,
+        "footers": [],
+        "log_sha256": "03458efeb1d0b91410feb8389f4e62a09b64b76f2cd3a093e5ada9fcbaad8c8a"
+      },
+      {
+        "name": "native_cell_groups_primitives--queue_operator_reads_do_not_append_mutations",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 38.81710475002183,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c577b28f3fba03a6e4fc611d4790b87e5a1de34a2ccea7b4cab6e19a64c6a826",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--queue_operator_reads_preserve_auth_archive_and_fresh_quorum",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 59.574330000032205,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "540a7fa25605e1bd2cbbb7b2247218067d4b299cb66f9cb9cdcaf1d22e761fd5",
+        "failed_cases": []
+      },
+      {
+        "name": "cellar--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 301.08935583301354,
+        "footers": [
+          [
+            "ok",
+            "1261",
+            "0",
+            "2"
+          ]
+        ],
+        "log_sha256": "c7a686279058ffb3675d57046dde6b2ee1218314ec201d53c16abbc55346307f",
+        "failed_cases": []
+      },
+      {
+        "name": "native_queue--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.4240776670048945,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "ae187230b17b7baa9d247eca39225acaaa93ace7eea5853243ad6665d4586a22",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_queue_callbacks_use_shared_quorum",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 160.41947237495333,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "c8674a801abc296260d256d81e345eeecdbe3a8ea5580a37030fa60fb2dd34c4",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--queue_batch_claim_and_lease_share_one_proof_before_consumer_entry",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 82.99583533301484,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "1fb5fc94ff286879836dd0e3cb12e3768cd1c6f08ba20e63ade1bb8b339c6759",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--queue_load_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 120.52661495801294,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "8aef6fbc9eddcec0077b0aa917288762c9a45803be485cd2f1de05d88f8025e3",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 77.30120029201498,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "3ada7e5b4b2270a43b879cba93fb90e785b230acae719d2d47195a8b8a5ff925",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 39.67773395800032,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "dd45886a26ee4b81df47047c2937820d1dca7bf9aa8d76516bf8e5fff7f903af",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 40.675437375030015,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "ac4a0ef2118880d9c11776859ab6d22d392d2b7ef4ae8650bbad5f1f7d1d8cba",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 194.49944808299188,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "a33892d16906ff27c99bd1be9de899b3fe21317d2bc1c905b5043f148fc1b860",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 332.33673720801016,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "c3963d824ec31e4a20a92815850282c5be94d23ec048b8ec8ea01cc7564dbec2",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_cell_rpcs_interleave_between_proven_roots",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 140.92407029197784,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "e6bcd98fe723df37cfd175ff84b67e28f709b590e14ec5ce3aa353d0f8aa5d78",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_primitives": {
+        "sha256": "ef05bfcbd86f363ca38ccb8ca31c5b681e6154940c8fbdb845bc9e4af4a2866b",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar": {
+        "sha256": "cfc44dbd3267195ae12d2d8410b2378df0c777382b66f01c8a6507667875e323",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_queue": {
+        "sha256": "4e100d2f715a2033d278d05c72696c75f8e11f5d507564734114a568ea79e2a0",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "retention_verification": {
+      "files": 2372,
+      "bytes": 52032022,
+      "manifest_sha256": "dc005fcfd1e4b4e1d1070d9fd98d794197fd254454ddd839da447aaa195cca56",
+      "original_matches": true,
+      "closed_copy_matches": true,
+      "scope": "Available terminal fixture files retained in their original locations and independently byte-verified against a closed copy. This does not assert qualification of unrun phases or physical failure-domain isolation."
+    }
+  },
+  "strict_checks": {
+    "status": "PASSED",
+    "source_digest": "7595d14b9c18bb6efd222f0dd19e192a0424958870d966fd40be58079fe081a4",
+    "source_inputs_unchanged": true,
+    "stages": [
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 847.2452385830111,
+        "log_sha256": "309a3e8239c3f039a46ef5f9f62d9ac6854880ebac3b53f4005b787550cdb94c"
+      },
+      {
+        "name": "native-only",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 165.5386905419873,
+        "log_sha256": "b58c47c5f3a8bc4981d6346bfcf359f538dea6c1eebf8943af96b7dde540dfb3"
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 119.81693595903926,
+        "log_sha256": "b8e0ad89dd0cf74b33c418914bf90c6b5697470b7877e20464febd959ecd2fff"
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.33405870804563165,
+        "log_sha256": "93975e76123372ac8569ac801738f382e64c5539bbce73bb74f05d94f59ce755"
+      },
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.510882040951401,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.9440696249948815,
+        "log_sha256": "5baf006095626044ea3620e84718ed8b80937c37dc228bea97ec1057b15f27cd"
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.599492458975874,
+        "log_sha256": "af0f8b677e888c595d50de2280c55f7e3d89465686729dbef59796a65f6b1b30"
+      },
+      {
+        "name": "runner-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.23985800001537427,
+        "log_sha256": "855e954cb0287a0fea735b29e3b1cf59fe5b50b0716616fd6c901ab752b74c6e"
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.033021458017174155,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "current_failed_native_stages": [
+    "native_cell_groups_primitives--ordinary_queue_callbacks_use_shared_quorum",
+    "native_cell_groups_primitives--queue_load_preserves_acknowledged_messages",
+    "native_cell_groups_primitives--materialized_queue_four_in_flight_preserves_acknowledged_messages",
+    "native_cell_groups_primitives--rooted_queue_four_in_flight_preserves_acknowledged_messages",
+    "native_cell_groups_primitives--queue_four_in_flight_preserves_acknowledged_messages"
+  ],
+  "current_native_failure_detail": [
+    {
+      "case": "ordinary_queue_callbacks_use_shared_quorum",
+      "failure": "ambiguous command deadline",
+      "first_target_remaining_ms": []
+    },
+    {
+      "case": "queue_load_preserves_acknowledged_messages",
+      "failure": "ambiguous command deadline",
+      "first_target_remaining_ms": [
+        2462
+      ]
+    },
+    {
+      "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+      "failure": "ambiguous command deadline",
+      "first_target_remaining_ms": [
+        1864
+      ]
+    },
+    {
+      "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+      "failure": "ambiguous command deadline",
+      "first_target_remaining_ms": [
+        2098
+      ]
+    },
+    {
+      "case": "queue_four_in_flight_preserves_acknowledged_messages",
+      "failure": "ambiguous command deadline",
+      "first_target_remaining_ms": [
+        844
+      ]
+    }
+  ],
+  "diagnostic_limit": "Pre-change instrumented Queue cohorts all failed their original load/drain oracles. They observed file and directory sync work in each manifest apply, with mostly zero/one entry of apply lag; useful large apply cohorts were not established. Their overlapping phase timings are not qualified throughput or a causal speedup comparison. All temporary phase, filesystem and lag probes were removed before the red/green change.",
+  "previous_owning_gates": "The prior 7562115 full managed/disaster qualification retains three failures: extents S3 seed failover settlement, extents fresh outbox-lane settlement, and materialized pending recovery forming a fresh quorum. These targets are not rerun by this Queue selection and remain open. The previous complete-closure case passed its four parent/child and image combinations; that is not full release acceptance.",
+  "previous_hosted_gates": "At published predecessor 7562115, SDK run 44460117572 is in progress at the latest preceding-head inspection and disaster diagnostics run 44460117457 was cancelled. Typed RPC run 44460117475 failed its Python 3.14 owned lifecycle job 135344568634 with Python shutdown incomplete, host_failed=true; the 3.14t owned lifecycle and both full generated RPC jobs passed. These do not qualify the current unpublished source.",
+  "preceding_hosted_workflows": [
+    {
+      "id": 44460117475,
+      "name": "Typed RPC lifecycle",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 44460117457,
+      "name": "Cell-group disaster diagnostics",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 44460117465,
+      "name": "Container outbound network",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 44460117491,
+      "name": "JavaScript and Node SDK",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 44460117405,
+      "name": "Python application examples",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 44460117572,
+      "name": "Cellar SDK",
+      "status": "in_progress",
+      "conclusion": null
+    }
+  ],
+  "latest_original_capacity": {
+    "observed_at_utc": "2026-11-19T06:25:10.843969+00:00",
+    "available_bytes": 15716352,
+    "reserve_bytes": 6442450944,
+    "admissible": false,
+    "capacity_guard_satisfied": false,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_inspection_config_and_start_unchanged": true,
+    "restarts": 0
+  },
+  "open_gates": [
+    "Any failed native stages listed above remain failed; passing work and negative-path controls do not erase them.",
+    "Close remaining owning recovery failures and obtain current-source full hosted SDK/release acceptance.",
+    "Complete OPT-01 through OPT-08: remaining routing/read refusal and partition coverage, measured batching/fairness, physical shared-file release and once-only credit, repeated reserve-aware movement, interrupted wake/transition/recovery, and combined primitive/SDK/Axum/daemon/feature/backend-fault/crash qualification.",
+    "Original SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket C1/4/16 comparison on three 1-vCPU/2-GiB Colima nodes, RF3/three groups/shared original RustFS, 256-byte values, Queue batch eight and reversed repetitions. The unchanged reserve guard does not admit a run."
+  ]
+}

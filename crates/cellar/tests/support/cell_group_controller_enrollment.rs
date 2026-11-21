@@ -3,6 +3,7 @@
 //! Registered creation on the shared controller, SQL pool and physical TLS peers.
 use super::apply_faults::physical;
 use super::*;
+use anyhow::ensure;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,
@@ -61,10 +62,19 @@ fn dispatcher(fixture: &RuntimeCluster, class: Arc<RaftClass>) -> Result<CellGro
 }
 
 // phase 0 holds initialization; phase 1 holds committed manifest publication.
-// mode 0 disconnects; 1 expires the response; 2 cancels physical shutdown.
+// mode 0 disconnects; 1 expires the response; 2 cancels physical shutdown;
+// 3 also checks SQL resolution waits for potentially decisive applied evidence.
 pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
     for rooted in [false, true] {
-        let root = tempfile::tempdir()?;
+        let mut root = tempfile::tempdir()?;
+        if mode == 3 {
+            root.disable_cleanup(true);
+            eprintln!(
+                "retained enrollment resolution fixture {}",
+                root.path().display()
+            );
+        }
+        let mut publication_result = Ok(());
         let faults = physical::Faults::new(root.path().join("node-1/pages"), None);
         let filesystem = Arc::new(physical::FaultFileSystem {
             faults: faults.clone(),
@@ -167,6 +177,7 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
         } else {
             Duration::from_secs(15)
         };
+        let performance_before = fixture.cluster.voters[0].log.performance_snapshot();
         let call = controllers[0].enroll(
             enroll(&dispatcher, &cell, 170, timeout).await?,
             fixture.cell_options(&cell).await?,
@@ -244,6 +255,30 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
                 )
             })
             .await?;
+            if mode == 3 {
+                let after = fixture.cluster.voters[0].log.performance_snapshot();
+                assert!(performance_before.available && after.available);
+                assert!(!performance_before.saturated && !after.saturated);
+                let publication = |snapshot: &RaftPerformanceSnapshot| {
+                    let operation = snapshot
+                        .operations
+                        .iter()
+                        .find(|operation| operation.name == "sql_publish")
+                        .expect("SQL publication counter");
+                    (operation.succeeded, operation.failed)
+                };
+                let before = publication(&performance_before);
+                let after = publication(&after);
+                publication_result = (|| -> Result<()> {
+                    ensure!(
+                        after.1 == before.1,
+                        "enrollment resolution occupied SQL before applied evidence could resolve it: {} failed calls",
+                        after.1 - before.1,
+                    );
+                    ensure!(after.0 - before.0 == 1, "one exact committed resolution");
+                    Ok(())
+                })();
+            }
             let state = fixture.runtimes[0]
                 .enrollment_state(route.history, cell.clone())
                 .await?;
@@ -347,6 +382,7 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
         drop(controllers);
         drop(pool);
         fixture.close().await?;
+        publication_result?;
     }
     Ok(())
 }
@@ -445,6 +481,116 @@ pub(crate) async fn owned_enrollment_failure(lost_reply: bool) -> Result<()> {
         drop(controllers);
         drop(pool);
         fixture.close().await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn enrollment_authority_loss_keeps_controller_alive() -> Result<()> {
+    for rooted in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let entered = Arc::new(Mutex::new(Some(entered)));
+        let (release, held) = std::sync::mpsc::sync_channel(1);
+        let held = Arc::new(Mutex::new(held));
+        let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.initializer(
+            [90; 32],
+            move |_, tx| {
+                if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                    entered
+                        .lock()
+                        .unwrap()
+                        .take()
+                        .context("one initializer")?
+                        .send(())
+                        .map_err(|_| anyhow::anyhow!("initializer observer closed"))?;
+                    held.lock().unwrap().recv_timeout(Duration::from_secs(15))?;
+                }
+                tx.execute_batch("CREATE TABLE value(n); INSERT INTO value VALUES(7);")?;
+                Ok(())
+            },
+        )?);
+        let (mut fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+        let dispatcher = dispatcher(&fixture, class)?;
+        let cell = history(&route, "authority-loss-enrollment")?;
+        let pool = fixture.appliers[&(0, route.history)].0.clone();
+        let mut release = Some(release);
+        let result =
+            async {
+                let term = fixture.runtimes[0].status(route.history).await?.term;
+                let call = controllers[0].enroll(
+                    enroll(&dispatcher, &cell, 176, Duration::from_secs(15)).await?,
+                    fixture.cell_options(&cell).await?,
+                )?;
+                tokio::time::timeout(Duration::from_secs(5), started).await??;
+                ensure!(calls.load(Ordering::SeqCst) == 1);
+                fixture.runtimes[0]
+                    .transfer_leader(route.history, 2)
+                    .await?;
+                wait_for(async || {
+                    for runtime in &fixture.runtimes {
+                        let status = runtime.status(route.history).await?;
+                        if status.term <= term || status.leader != Some(2) {
+                            return Ok(false);
+                        }
+                    }
+                    Ok(true)
+                })
+                .await?;
+                release.take().context("initializer release")?.send(())?;
+                let error = call
+                    .response()
+                    .await
+                    .err()
+                    .context("stale authority refusal")?;
+                wait_for(async || {
+                    Ok(controllers[0].usage().retained_commands == 0
+                        && pool.usage()?.active_cells == 0)
+                })
+                .await?;
+                ensure!(
+                    !controllers[0].usage().closing,
+                    "losing initializer authority stopped the shared controller: {error:?}"
+                );
+                ensure!(pool.usage()?.running_workers == pool.usage()?.worker_capacity);
+                ensure!(fixture.runtimes[1]
+                    .enrollment_state(route.history, cell.clone())
+                    .await?
+                    .record()
+                    .is_none());
+                // The newer applied term excludes the old private attempt. Resume
+                // the exact creation identity; never invent a second logical name.
+                let enrolled = controllers[1]
+                    .enroll(
+                        enroll(&dispatcher, &cell, 176, Duration::from_secs(15)).await?,
+                        fixture.cell_options_at(&cell, 1).await?,
+                    )?
+                    .response()
+                    .await?;
+                ensure!(enrolled.record().creation() == ProposalId::new([176; 16])?);
+                ensure!(enrolled.record().cell() == &cell);
+                ensure!(calls.load(Ordering::SeqCst) == 2);
+                fixture.runtimes[0].status(route.history).await?;
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+        if let Some(release) = release {
+            let _ = release.send(());
+        }
+        let mut cleanup = Vec::new();
+        for (node, controller) in controllers.iter().enumerate() {
+            if let Err(error) = controller.close().await {
+                cleanup.push(format!("controller {node}: {error}"));
+            }
+        }
+        drop(controllers);
+        drop(pool);
+        if let Err(error) = fixture.close().await {
+            cleanup.push(format!("fixture: {error:#}"));
+        }
+        result.with_context(|| format!("rooted={rooted}; cleanup={cleanup:?}"))?;
+        ensure!(cleanup.is_empty(), "joined cleanup failed: {cleanup:?}");
     }
     Ok(())
 }

@@ -20,6 +20,8 @@ mod checkpoint_upload_window_fixture;
 mod checkpoint_window_fixture;
 #[path = "support/cell_group_disaster_fence.rs"]
 mod disaster_fixture;
+#[path = "support/cell_group_archive_empty_tail.rs"]
+mod empty_tail_fixture;
 #[path = "support/raft_storage_fault.rs"]
 #[allow(dead_code)]
 mod fault;
@@ -28,6 +30,8 @@ mod fault;
 mod images;
 #[path = "support/cell_group_archive_isolation.rs"]
 mod isolation_fixture;
+#[path = "support/cell_group_archive_owners.rs"]
+mod owner_fixture;
 #[path = "support/cell_group_archive_payloads.rs"]
 mod payload_fixture;
 #[path = "support/cell_group_archive_publication.rs"]
@@ -38,127 +42,41 @@ mod rustfs;
 mod tail_fixture;
 #[path = "support/cell_group_archive_tail_window.rs"]
 mod tail_window_fixture;
+#[path = "support/cell_group_archive_window.rs"]
+mod window_fixture;
 
 #[path = "support/cell_group_runtime.rs"]
 #[allow(dead_code, unused_imports)]
 mod runtime_fixture;
 
+use runtime_fixture::persist_archive_intent;
+
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
+async fn checkpoint_upload_overlaps_bounded_ordered_object_reads() -> Result<()> {
     for rooted in [false, true] {
-        publication_fixture::registry_reads_overlap_and_preserve_validation(
-            rooted,
-            Arc::new(object_store::memory::InMemory::new()),
-        )
-        .await?;
+        window_fixture::qualify(rooted, true).await?;
     }
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-#[ignore = "requires isolated local RustFS"]
-async fn rustfs_archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
+async fn checkpoint_download_overlaps_bounded_ordered_object_reads() -> Result<()> {
     for rooted in [false, true] {
-        publication_fixture::registry_reads_overlap_and_preserve_validation(
-            rooted,
-            rustfs::store("registry-read-window", rooted)?,
-        )
-        .await?;
+        window_fixture::qualify(rooted, false).await?;
     }
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn archive_checkpoint_creates_overlap_with_bounded_ordered_confirmation() -> Result<()> {
-    for rooted in [false, true] {
-        checkpoint_upload_window_fixture::qualify(
-            rooted,
-            Arc::new(object_store::memory::InMemory::new()),
-        )
-        .await?;
-    }
-    Ok(())
+async fn archive_empty_tail_reuses_fresh_materialized_checkpoint() -> Result<()> {
+    empty_tail_fixture::qualify(false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-#[ignore = "requires isolated local RustFS"]
-async fn rustfs_archive_checkpoint_creates_overlap_with_bounded_ordered_confirmation() -> Result<()>
-{
-    for rooted in [false, true] {
-        checkpoint_upload_window_fixture::qualify(
-            rooted,
-            rustfs::store("checkpoint-create-window", rooted)?,
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn archive_checkpoint_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
-    for rooted in [false, true] {
-        checkpoint_window_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new()))
-            .await?;
-    }
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-#[ignore = "requires isolated local RustFS"]
-async fn rustfs_archive_checkpoint_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
-    for rooted in [false, true] {
-        checkpoint_window_fixture::qualify(
-            rooted,
-            rustfs::store("checkpoint-read-window", rooted)?,
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
-    for rooted in [false, true] {
-        tail_window_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new()))
-            .await?;
-    }
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-#[ignore = "requires isolated local RustFS"]
-async fn rustfs_archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
-    for rooted in [false, true] {
-        tail_window_fixture::qualify(rooted, rustfs::store("tail-read-window", rooted)?).await?;
-    }
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
-    for rooted in [false, true] {
-        publication_fixture::create_then_confirm(
-            rooted,
-            Arc::new(object_store::memory::InMemory::new()),
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-#[ignore = "requires isolated local RustFS"]
-async fn rustfs_fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
-    for rooted in [false, true] {
-        publication_fixture::create_then_confirm(
-            rooted,
-            rustfs::store("immutable-create-confirm", rooted)?,
-        )
-        .await?;
-    }
-    Ok(())
+async fn archive_empty_tail_reuses_fresh_extent_checkpoint() -> Result<()> {
+    empty_tail_fixture::qualify(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -203,6 +121,44 @@ async fn rustfs_filesystem_survives_fenced_all_voter_disk_loss() -> Result<()> {
             rooted,
             rustfs::store("filesystem-disk-loss", rooted)?,
         ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_cancelled_waiter_keeps_physical_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        owner_fixture::cancelled_checkpoint_read(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_slow_upload_reaches_owned_physical_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        owner_fixture::cancelled_checkpoint_read_with_start_delay(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+            Duration::from_millis(100),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_cancelled_waiter_keeps_physical_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        owner_fixture::cancelled_checkpoint_read(
+            rooted,
+            rustfs::store("archive-physical-owner", rooted)?,
+        )
         .await?;
     }
     Ok(())
@@ -678,32 +634,6 @@ async fn new_archive(
     start_upload(cluster, &archive, &label).await
 }
 
-async fn persist_archive_intent<T: serde::Serialize + serde::de::DeserializeOwned>(
-    cluster: &Cluster,
-    intent: &T,
-) -> Result<T> {
-    let bytes = serde_json::to_vec(intent)?;
-    let name = hex::encode(Sha256::digest(&bytes));
-    let directory = cluster._root.path().join("archive-intents");
-    let loaded = cluster
-        .domain
-        .blocking(move || -> Result<Vec<u8>> {
-            use std::io::Write;
-            std::fs::create_dir_all(&directory)?;
-            let path = directory.join(name);
-            let mut file = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&path)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            std::fs::File::open(&directory)?.sync_all()?;
-            Ok(std::fs::read(path)?)
-        })?
-        .await??;
-    Ok(serde_json::from_slice(&loaded)?)
-}
-
 async fn start_upload(
     cluster: &Cluster,
     archive: &CellGroupArchive,
@@ -967,6 +897,23 @@ async fn checkpoint_roundtrip_and_reuse(real_rustfs: bool) -> Result<()> {
         assert_eq!(archive.usage().operations, 0);
         assert_eq!(sources.usage().sources, 0);
         assert_eq!(receive_pool.usage().sources, 1);
+        let page_directory = cluster._root.path().join("archive-data/pages");
+        let packs = cluster
+            .domain
+            .blocking(move || -> Result<usize> {
+                let mut packs = 0;
+                for entry in std::fs::read_dir(page_directory)? {
+                    if entry?.path().extension().is_some_and(|ext| ext == "pack") {
+                        packs += 1;
+                    }
+                }
+                Ok(packs)
+            })?
+            .await??;
+        assert_eq!(
+            packs, 1,
+            "a small received checkpoint should share one durable manifest pack"
+        );
         for (cell, wanted) in expected {
             let (_, pin) = verified
                 .checkpoint()
@@ -1158,6 +1105,63 @@ async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
         assert_eq!(pool.usage().sources, 0);
         store.clear();
         gate.release.notify_one();
+        // One receiver batch cannot fit this page inventory. Refuse before
+        // touching a pack, while retaining a usable destination and refunding
+        // the receiver's existing admission after the failed physical job joins.
+        let limited_directory = cluster._root.path().join("limited-receive-pages");
+        let route = cluster.birth.route().clone();
+        let images = applier.apply_images.clone();
+        let page_directory = limited_directory.clone();
+        let limited_store = cluster
+            .domain
+            .blocking(move || -> Result<CellGroupArchiveStore> {
+                Ok(CellGroupArchiveStore::new(
+                    route,
+                    ManifestPageStore::open(
+                        &page_directory,
+                        Arc::new(DirectFileSystem),
+                        2,
+                        16 * 1024 * 1024,
+                        16,
+                    )?,
+                    images,
+                    ManifestLimits::default(),
+                    GroupEntryLimits::default(),
+                    100,
+                )?)
+            })?
+            .await??;
+        let limited = ArchiveDestination {
+            store: limited_store,
+            images: applier.images.clone(),
+            apply_images: applier.apply_images.clone(),
+        };
+        assert!(matches!(
+            archive
+                .verify_checkpoint(
+                    &cluster.domain,
+                    &reference,
+                    receiver(&pool, &limited, &cluster)?,
+                )
+                .await,
+            Err(CellGroupArchiveError::Checkpoint(
+                CellGroupCheckpointError::Manifest(ManifestError::Limit)
+            ))
+        ));
+        assert_eq!(pool.usage().sources, 0);
+        let retry = receiver(&pool, &limited, &cluster)?;
+        drop(retry);
+        assert_eq!(pool.usage().sources, 0);
+        assert_eq!(pool.usage().retained_bytes, 0);
+        cluster
+            .domain
+            .blocking(move || -> Result<()> {
+                for entry in std::fs::read_dir(limited_directory)? {
+                    assert_eq!(entry?.file_name(), "LOCK", "quota refusal wrote a pack");
+                }
+                Ok(())
+            })?
+            .await??;
         cluster.close().await?;
     }
     Ok(())
@@ -1457,6 +1461,122 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
         assert_eq!(group.checkpoint_manifest()?, None);
         drop(verified);
         cluster.close().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::registry_reads_overlap_and_preserve_validation(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::registry_reads_overlap_and_preserve_validation(
+            rooted,
+            rustfs::store("registry-read-window", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_checkpoint_creates_overlap_with_bounded_ordered_confirmation() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_upload_window_fixture::qualify(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_checkpoint_creates_overlap_with_bounded_ordered_confirmation() -> Result<()>
+{
+    for rooted in [false, true] {
+        checkpoint_upload_window_fixture::qualify(
+            rooted,
+            rustfs::store("checkpoint-create-window", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_checkpoint_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_checkpoint_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::qualify(
+            rooted,
+            rustfs::store("checkpoint-read-window", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        tail_window_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        tail_window_fixture::qualify(rooted, rustfs::store("tail-read-window", rooted)?).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::create_then_confirm(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::create_then_confirm(
+            rooted,
+            rustfs::store("immutable-create-confirm", rooted)?,
+        )
+        .await?;
     }
     Ok(())
 }

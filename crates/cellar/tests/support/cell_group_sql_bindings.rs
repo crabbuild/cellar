@@ -6,6 +6,8 @@ use super::*;
 
 #[path = "cell_group_sql_operator.rs"]
 mod operator;
+#[path = "cell_group_sql_read_only.rs"]
+mod read_only;
 #[path = "cell_group_sql_recovery.rs"]
 mod recovery;
 
@@ -65,6 +67,38 @@ impl Cell for Caller {
                     ensure!(session.get_bookmark().as_deref() == Some("cellar:primary"));
                     json!(result)
                 }
+                "ReadOnly" => {
+                    if context.identity().is_some() {
+                        context.storage()?.put_json("before-read-only-sql", &input)?;
+                    }
+                    json!(database.prepare_read_only("SELECT id,v FROM data ORDER BY id")
+                        .raw(&context, true).await?)
+                }
+                "ReadOnlyReject" => {
+                    ensure!(database.prepare_read_only("DELETE FROM data")
+                        .all(&context).await.is_err());
+                    json!(true)
+                }
+                "ReadOnlyFirst" => {
+                    let query = database.prepare_read_only("WITH v(n) AS (VALUES(1),(2)) SELECT CASE WHEN n=2 THEN abs(-9223372036854775808) ELSE n END AS n FROM v");
+                    ensure!(query.first(&context, Some("n")).await? == Some(json!(1)));
+                    ensure!(query.all(&context).await.is_err());
+                    json!(true)
+                }
+                "ReadOnlyCold" => {
+                    ensure!(context.sql("COLD")?.prepare_read_only("SELECT 1")
+                        .all(&context).await.is_err(), "read-only SQL enrolled a cold database");
+                    json!(true)
+                }
+                "ReadOnlyUndeclared" => {
+                    let error = context.rpc_cell(
+                        cellar::engine_api::sql_cell_scope("undeclared/read-only"),
+                        Some("undeclared/read-only".into()), "__sqlRead".into(),
+                        RpcData::Json("[[{\"sql\":\"SELECT 1\",\"params\":[]}]]".into()),
+                    ).await.err().context("undeclared read-only SQL was admitted")?;
+                    ensure!(format!("{error:#}").contains("UnsupportedCapability"));
+                    json!(true)
+                }
                 "FailedExec" => sql_failure(database.exec(&context, "INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM missing_table;").await, &["no such table: missing_table"] )?,
                 "FailedBatch" => sql_failure(database.batch(&context, &[
                     database.prepare("INSERT INTO data VALUES(99,'must-roll-back')"),
@@ -104,6 +138,9 @@ fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptio
         "Transient",
         "Reject",
         "Undeclared",
+        "ReadOnly",
+        "ReadOnlyReject",
+        "ReadOnlyUndeclared",
     ]
     .into_iter()
     .enumerate()
@@ -120,6 +157,9 @@ fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptio
     declared
         .sql_bindings
         .push(("RACE".into(), "shared/sql-enrollment-race".into()));
+    declared
+        .sql_bindings
+        .push(("COLD".into(), "shared/sql-read-only-cold".into()));
     application.validate_deployment(&configuration::deployment(declared.clone()))?;
     Ok((application, declared))
 }
@@ -303,7 +343,8 @@ async fn qualify_host(real_rustfs: bool, external: bool) -> Result<()> {
             } else {
                 Arc::new(catalog_fault::Store::default())
             };
-            Box::pin(run(rooted, store, backend.as_ref(), external)).await
+            let result = Box::pin(run(rooted, store.clone(), backend.as_ref(), external)).await;
+            managed_fixture::memory::preserve_result(&store.inner, "sql-bindings", result).await
         }
         .await;
         match result {
@@ -465,6 +506,7 @@ async fn run(
         }
         ensure!(applied_hints(&cluster)? > initial_hints,
             "SQL fixture did not exercise the applied history locator");
+        read_only::verify(&cluster, sql_group, source.history()).await?;
         ensure!(cluster.hosts[leader].resolve_cell_history(
             sql_group.cluster, sql_group.namespace,
             CellId::new(cellar::engine_api::sql_cell_scope("undeclared/database"))?,
@@ -481,6 +523,10 @@ async fn run(
         ensure!(public_sql(&cluster, 2, "IngressRead", json!(null)).await? == json!([[7],[8]]));
         ensure!(public_sql(&cluster, 1, "IngressWrite", json!(9)).await? == json!(true));
         ensure!(public_sql(&cluster, 0, "IngressRead", json!(null)).await? == json!([[7],[8],[9]]));
+        for node in 0..3 {
+            ensure!(public_sql(&cluster, node, "ReadOnly", json!(null)).await? == expected,
+                "read-only SQL after retained restart on node {node}");
+        }
         let replay = source.command(&source.contract("FailedBatch")?, b"null".to_vec(), batch_options).await?;
         ensure!(replay.result == duplicate.result);
         let result = source.command(&source.contract("Read")?, b"null".to_vec(), bindings::options(15, Durability::Quorum)?).await?;
@@ -500,6 +546,7 @@ async fn run(
         let refused = response.text().await?;
         ensure!(status == 503 && (refused.contains("DeadlineExceeded") || refused.contains("Unavailable")
             || refused.contains("NotReady") || refused.contains("Timeout")), "quorum SQL refusal: {status} {refused}");
+        read_only::quorum_refused(&cluster).await?;
         let source = cluster.hosts[0].cell(source.history().clone())?;
         let options = bindings::options(17, Durability::Quorum)?;
         let command = options.id;
@@ -518,10 +565,9 @@ async fn run(
         Some(http) => http.close().await,
         None => Ok(()),
     };
-    if work.is_err() || joined.is_err() || http_joined.is_err() {
-        for root in std::mem::take(&mut cluster.roots) {
-            eprintln!("retained SQL binding disk: {}", root.keep().display());
-        }
+    // Successful fault controls can also own ambiguous histories.
+    for root in std::mem::take(&mut cluster.roots) {
+        eprintln!("retained SQL binding disk: {}", root.keep().display());
     }
     domain.shutdown().await;
     work?;

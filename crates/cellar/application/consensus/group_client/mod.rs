@@ -138,12 +138,13 @@ mod repair;
 mod resource_genesis;
 mod resource_read;
 mod scoped_dispatch;
+mod segment_reclamation;
 mod services;
 mod sql_ingress;
+mod sql_ingress_lanes;
 mod startup;
 mod stop;
 mod transition;
-mod workflow_read;
 pub use membership::CellGroupControlError;
 pub(crate) use services::{ControlServiceCompletion, ControlServiceKind, ControlServiceLease};
 pub use startup::CellGroupStartupError;
@@ -173,6 +174,7 @@ struct Core {
     node_profile: Option<crate::raft::inspection::RaftNodeProfile>,
     startup_bounds: crate::raft::host::RaftHostStartupBounds,
     stale_source_timeout_ms: u64,
+    sql_ingress_lanes: Arc<sql_ingress_lanes::Lanes>,
 }
 
 pub(crate) struct Handle {
@@ -279,6 +281,7 @@ impl RaftCells {
             node_profile: options.node_profile.clone(),
             startup_bounds,
             stale_source_timeout_ms: options.stale_source_timeout_ms,
+            sql_ingress_lanes: Arc::default(),
         });
         let service = Self {
             handle: Arc::new(Handle {

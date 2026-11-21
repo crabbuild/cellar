@@ -4,6 +4,7 @@
 use super::images::Preview;
 use crate::raft::cell_groups::CellImagePin;
 use cellar_logic::{cell_group::GroupHistory, consensus::Term};
+use cellar_ltx::{apply::ApplyLimits, ltx::DecodeLimits};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -40,6 +41,7 @@ impl Binding {
 pub(crate) struct CellPreparedImage {
     binding: Binding,
     image: CellImagePin,
+    limits: ApplyLimits,
 }
 
 impl CellPreparedImage {
@@ -49,14 +51,13 @@ impl CellPreparedImage {
         term: Term,
         bytes: &[u8],
         preview: &Preview,
+        limits: ApplyLimits,
     ) -> Arc<Self> {
-        let image = match preview {
-            Preview::Materialized(pin) => CellImagePin::Materialized(pin.clone()),
-            Preview::Rooted(pin) => CellImagePin::Extents(pin.clone()),
-        };
+        let image = preview.cell_pin();
         Arc::new(Self {
             binding: Binding::new(engine, group, term, bytes),
             image,
+            limits,
         })
     }
 
@@ -70,9 +71,26 @@ impl CellPreparedImage {
         self.binding.accepts(engine, group, term, bytes)
     }
 
-    pub(crate) fn image(&self) -> &CellImagePin {
-        &self.image
+    pub(crate) fn image(&self, limits: ApplyLimits) -> Option<&CellImagePin> {
+        (limit_key(self.limits) == limit_key(limits)).then_some(&self.image)
     }
+}
+
+fn limit_key(limits: ApplyLimits) -> (DecodeLimits, usize, usize, u64, usize) {
+    let ApplyLimits {
+        decode,
+        max_files,
+        max_total_encoded_bytes,
+        max_total_decoded_bytes,
+        max_total_pages,
+    } = limits;
+    (
+        decode,
+        max_files,
+        max_total_encoded_bytes,
+        max_total_decoded_bytes,
+        max_total_pages,
+    )
 }
 
 #[cfg(test)]
@@ -152,3 +170,7 @@ mod tests {
         assert!(std::mem::size_of::<CellPreparedImage>() + 2 * std::mem::size_of::<usize>() <= 512);
     }
 }
+
+#[cfg(test)]
+#[path = "prepared_image_tests.rs"]
+mod profile_tests;

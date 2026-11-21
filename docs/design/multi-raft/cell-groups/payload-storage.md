@@ -202,3 +202,19 @@ Format markers remain 1. The value-reference service changes its compiled KV
 schema identity, and the integrated callback kernel changes its private work
 contract. Internal development therefore requires fresh compatible namespaces
 and matching voters. Existing Fleet data is not reinterpreted as Raft data.
+
+
+## Consumed import completion
+
+Import completion follows durable engine installation and release of the
+engine's consumed transfer-seed copy. Set any fatal engine-closed state before
+dropping that copy, then send the completion reply. A synchronously awakened
+caller must not observe the consumed copy's recovery slot or retained-byte
+admission. Other prepared roots and physical pins retain their own ownership;
+completion does not grant catalog admission or serving authority.
+
+The real-engine regression holds sync to reject premature visibility and wake,
+observes admission at the reply-wake boundary, and checks exact inactive mapping,
+joined close and retained reopen. See [qualification](import-completion-qualification-2026-11-19.json)
+and [remaining priorities](remaining-work.md#import-completion-and-current-priorities)
+for the empty unmanaged test scope and open RF3/release/performance gates.

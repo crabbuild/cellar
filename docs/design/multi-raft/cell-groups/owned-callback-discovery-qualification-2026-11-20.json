@@ -1,0 +1,872 @@
+{
+  "purpose": "Skip redundant discovery SQL behind a physically owned native callback, retain independent work and every execution/durability proof. Full OPT/CG/SDK/release/performance acceptance remains open.",
+  "based_on_revision": "65fec6389bc1f85b840e9def34c21c471d651968",
+  "code_revision": "77efa0e2982440f4460db32308921eb1a0345548",
+  "included_main": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+  "compiler_inputs_sha256": "de694bac16735691391100bf6888797fa3adb1b1ed671cbc4f762fde78a38a4f",
+  "toolchain": "1.98.1",
+  "build_contract": {
+    "locked": true,
+    "all_features": true,
+    "internal_test_cfg_enabled": false,
+    "incremental": false,
+    "build_jobs": 1,
+    "test_threads": 1,
+    "test_opt_level": 1,
+    "debug_info": 0,
+    "debug_assertions": true,
+    "overflow_checks": true
+  },
+  "fixture_topology": "Host-native RF3/three-group fixtures, one SQL worker per host. No per-node Colima/cgroup limits; not the original constrained throughput/latency comparison.",
+  "implementation": [
+    "After schema validation, discovery advances its cursor and omits a fresh read-authority barrier and SQL scan when the exact full-history callback is already physically retained and only native callback work is possible.",
+    "Compiled alarm capability, admitted KV bindings, built-in KV service and any call/outbox/inbox work retain ordinary discovery. KV payload retirement is not represented by EffectSummary. The original post-SQL callback exclusion remains.",
+    "This scheduling omission never authorizes execution or output. Callback claim, generation/attempt fencing, fresh quorum authority, exact receipt, required archive coverage, physical ownership and shutdown remain unchanged. No worker, bank, timeout or resource increase.",
+    "Three fixed command prepare/submit/settle histograms expose owned phase lifetime and original errors/cancellations. Submit and settle loop bodies remain byte-identical. Preparation includes authority/writer/SQL waits; phase histograms overlap other operations and are not business request latency.",
+    "Test-only failure diagnostics retain every returned producer error and observed delivery/completion snapshot before close, without changing the inner send, original assertions or request bounds. Consumer-reported completions are not durable settlement proofs."
+  ],
+  "matched_regression": {
+    "status": "MATCHED_RED_GREEN",
+    "baseline_source": "e1c12e7bce91b173dfef4cb0923041bdeb0d6f747c81a2f839fb16ad49d1955b",
+    "candidate_source": "5176022975c6f52ba356f28618e378b60924e24f5b21a1d68ec8108034f56f9a",
+    "three_file_regression_byte_identical": {
+      "crates/cellar/tests/native_cell_groups_primitives.rs": "388b0e2a2ce7a42262562d8af416ccb3f7cbdf464f47dd83fc92f08e70b2065d",
+      "crates/cellar/tests/support/cell_group_queue.rs": "44c0449263e88bec73dd5c44e5bc45828474c3da6a8c6cf13626c363cd224fb5",
+      "crates/cellar/tests/support/cell_group_queue_qualification.rs": "fb170d1a0eb199d6a4522a3d811fb9e73ae52b6be948215b819fd0dbf91f17db"
+    },
+    "baseline_extra_sql_queries": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "candidate_extra_sql_queries": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "independent_invocations_per_source": 2,
+    "image_modes_per_invocation": 2,
+    "controls": [
+      "three completed discovery turns",
+      "same held message identity and callback occupancy",
+      "stable term and leader",
+      "candidate release then exact two-message drain"
+    ],
+    "scope": "RF3 native three-group mechanism control, unchanged workers/banks/deadlines. No constrained throughput, latency percentile, full Queue progress or Fleet/Bucket comparison claim.",
+    "comparison_sha256": "1faf92988720e02ee30c0609f4bc1b756af3924b141d5f90f4aa6781464dbe15",
+    "cases": [
+      {
+        "label": "owned-callback-scan-baseline-01",
+        "compiler_inputs_sha256": "e1c12e7bce91b173dfef4cb0923041bdeb0d6f747c81a2f839fb16ad49d1955b",
+        "status": "CLOSED_VERIFIED",
+        "record_sha256": "c6abdb0a8d4122a25d55041ce4fd35c986bf88f202ae56310d4595eba9bacde6",
+        "completion_record_sha256": "267eb556506dd39b380098fd403bc55af7ddc836554e6e624073a4d2cf9266a9",
+        "retained": {
+          "files": 776,
+          "bytes": 18644066,
+          "manifest_sha256": "5d8a70330d65a10999211c6b3dddae9a4fffb56b0f0e790a12923934271359fd",
+          "closed_copy_matches": true
+        },
+        "artifacts": {
+          "native_cell_groups_primitives": {
+            "sha256": "f18674a96f3bd09c562ddc9a5d2381adab9fe0b3598bc5ce201fc5f492e5f2ea",
+            "profile": {
+              "opt_level": "1",
+              "debuginfo": 0,
+              "debug_assertions": true,
+              "overflow_checks": true,
+              "test": true
+            }
+          }
+        },
+        "stages": [
+          {
+            "name": "compile-native",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 62.25742004200583,
+            "log_sha256": "28db17b2727af7c26519ec369779fc61cf3df4691abdcb2e4acc187b5303cfaf",
+            "footers": []
+          },
+          {
+            "name": "trial-01",
+            "status": "FAILED",
+            "exit_code": 101,
+            "elapsed_seconds": 37.936927541974,
+            "log_sha256": "eb282eb8eb9d883a4db6770a9d4f4763fddc2e9658c88b1037e6edd4c4ad3b21",
+            "footers": [
+              [
+                "FAILED",
+                "0",
+                "1",
+                "0"
+              ]
+            ]
+          },
+          {
+            "name": "trial-02",
+            "status": "FAILED",
+            "exit_code": 101,
+            "elapsed_seconds": 52.918586707965005,
+            "log_sha256": "e9b9e4083458526cb7de506c97c96025b7b96b25a7b6482376ce7337988a41f6",
+            "footers": [
+              [
+                "FAILED",
+                "0",
+                "1",
+                "0"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "label": "owned-callback-scan-candidate-02",
+        "compiler_inputs_sha256": "5176022975c6f52ba356f28618e378b60924e24f5b21a1d68ec8108034f56f9a",
+        "status": "MATCHED_GREEN_VERIFIED",
+        "record_sha256": "20b4310e8b8b63e53285c6866aff6ec830b6121f0bb3a8f4013e4b5d48fa5fae",
+        "completion_record_sha256": "3a56600b9e8bbe79e27bb31dcc222c46441be7ce866ca22c1b3886f964190b88",
+        "retained": {
+          "files": 0,
+          "bytes": 0,
+          "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+          "closed_copy_matches": true
+        },
+        "artifacts": {
+          "native_cell_groups_primitives": {
+            "sha256": "69a24b751b461d58ae2e7e173503a0cd98de791cad3aeca6e7fe8fce4953e56e",
+            "profile": {
+              "opt_level": "1",
+              "debuginfo": 0,
+              "debug_assertions": true,
+              "overflow_checks": true,
+              "test": true
+            }
+          }
+        },
+        "stages": [
+          {
+            "name": "compile-native",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 1043.5463117079926,
+            "log_sha256": "c74250cbd584a6dbb3040277ee60673c904401edf690f4c4b873bfbd21adf2f3",
+            "footers": []
+          },
+          {
+            "name": "trial-01",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 45.39739770797314,
+            "log_sha256": "d5b0f4cae1a4f86a7964f933b16d31722553a2b44cf25d8c1468de002d465e34",
+            "footers": [
+              [
+                "ok",
+                "1",
+                "0",
+                "0"
+              ]
+            ]
+          },
+          {
+            "name": "trial-02",
+            "status": "PASSED",
+            "exit_code": 0,
+            "elapsed_seconds": 44.602955333015416,
+            "log_sha256": "bf9ad17b4188a59415441b34ddaf06cf49ba0cdf4db6ac75ed3dc96da4476e77",
+            "footers": [
+              [
+                "ok",
+                "1",
+                "0",
+                "0"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "current_source_qualification": {
+    "native": {
+      "label": "owned-callback-scan-native-02",
+      "compiler_inputs_sha256": "def60475bebc002adf9a5990178cbd59f890679969ad2624e6ce4bba306c5d92",
+      "status": "CLOSED_VERIFIED_WITH_AVAILABILITY_FAILURES",
+      "record_sha256": "bbd8ef944833854d7ac938499802c859d8316a21c434274a41180e3183c46748",
+      "completion_record_sha256": "fb431874ef0513c4dd620c5811b297065b3fec8d2e59b60ab5e78bcd5b2ce3c7",
+      "retained": {
+        "files": 2135,
+        "bytes": 46838985,
+        "manifest_sha256": "48de1971b76ada93423d53c10fd935c75380f79c9ec3d92881192cc3b5461332",
+        "closed_copy_matches": true
+      },
+      "artifacts": {
+        "native_cell_groups_primitives": {
+          "sha256": "69a24b751b461d58ae2e7e173503a0cd98de791cad3aeca6e7fe8fce4953e56e",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        },
+        "library": {
+          "sha256": "39bcfdb39a4c7c8d27c71578e7450438e7c50892ff1c772833dbb4896e952d9c",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "stages": [
+        {
+          "name": "compile-library-native",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 1044.6208049579873,
+          "log_sha256": "5664f5419bbc7ee16fe6803fc42cc00068ff413466fc37c069dff6ae053baa28",
+          "footers": []
+        },
+        {
+          "name": "unit-independent-effects",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.024605417042039335,
+          "log_sha256": "88d4d0d3194bacf278c02fb4755b997b01a3a540c373c50b42370d83fd74421f",
+          "footers": [
+            [
+              "ok",
+              "3",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--rooted_queue_four_in_flight_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 41.33800416701706,
+          "log_sha256": "2e78fa74fdbba6ce2123346293e4cecf5be2dee69472acf9a79d5a3c1a31196d",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--materialized_queue_four_in_flight_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 62.36506833299063,
+          "log_sha256": "58bb704bee909950d6f46becb78c0468d1028184096da28dbd402d20af418b85",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--queue_load_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 85.16998741601128,
+          "log_sha256": "5242d13125284b1db21fdc68a25771478f54131c22c3383f6568e81fada3defd",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--queue_four_in_flight_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 26.81007495801896,
+          "log_sha256": "d80c25f54500e985a2caaeee1eb2de691c9c0fc7c5f9c323a2ac63fd88cd6fac",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--kv_inline_reads_do_not_append_mutations",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 30.857949915982317,
+          "log_sha256": "6b2c1a7338a05b9c051eee3396eeb1bfaad8f0ab9b5d1c15243789ba26cea1e0",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--kv_inline_reads_require_current_archive_and_quorum",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 51.05342404200928,
+          "log_sha256": "2d49f3f9c03696d5384d91ff4b800e505da2f52687ae9f93f4d95bbea819bdbb",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--ordinary_sql_bindings_use_managed_shared_groups",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 157.86085654201452,
+          "log_sha256": "78c62f90ba75ba3e32a75abf6dbded42bf23718ba090f8e3583b3a9b24a33a50",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--axum_sql_bindings_and_operators_use_managed_shared_groups",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 141.19632904202444,
+          "log_sha256": "4009e7b2a8f7fef5e9a627f6c239eb787d7b1bf0f2bc64a6293e251ad2d4c3b7",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--ordinary_kv_bindings_use_managed_shared_groups",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 295.10198974999366,
+          "log_sha256": "69f5b681c3a2d0f88fd5c94017b266e12fa76093b186721bc8ff85ce0a0adc41",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--axum_kv_bindings_use_managed_shared_groups",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 347.447188250022,
+          "log_sha256": "0597e9a28d1171f95271168ef45bc5c9ce3c435c19b77f51943c28a172b5d287",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--queue_operator_reads_preserve_auth_archive_and_fresh_quorum",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 51.929384667018894,
+          "log_sha256": "aa1bfd4f656b74b5b95b8388a5e836886db1788807aa9a7d6e96ddbdeb91e857",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--queue_operator_reads_do_not_append_mutations",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 31.311309167009313,
+          "log_sha256": "dd5b7b0226d9599141b1cb6ed7702a378b8fada3fb11e893a048595e2084f894",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--ordinary_queue_callbacks_use_shared_quorum",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 164.09609345899662,
+          "log_sha256": "83ccf60103f8ba9c9bc4b57cb0b69c42a0f923833a9d03e8406dbc8648e21b06",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--queue_long_callbacks_preserve_progress",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 174.60943483404117,
+          "log_sha256": "176e69cd80ef48959180799525f803cf2f2c8097118898cb83719a1d09021682",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--queue_cross_deployment_faults_preserve_quorum",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 153.67885433405172,
+          "log_sha256": "d9440a8b88ed33da799b1919c917d2726cc28fe25d7dd595b357176f95551ada",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "library-full",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 266.19385454198346,
+          "log_sha256": "4733eb1e9a04d82ce23cb69695111f82b39b93c55be2a40d39ccde3a52a833ec",
+          "footers": [
+            [
+              "ok",
+              "1266",
+              "0",
+              "2"
+            ]
+          ]
+        }
+      ]
+    },
+    "retention_supplement": {
+      "label": "owned-callback-scan-retention-01",
+      "compiler_inputs_sha256": "de694bac16735691391100bf6888797fa3adb1b1ed671cbc4f762fde78a38a4f",
+      "status": "CLOSED_VERIFIED_WITH_ORIGINAL_LOAD_FAILURES",
+      "record_sha256": "2405873383053a23ff32f7dc23e2f4aae78426149f199414bc5395e67fd0b678",
+      "completion_record_sha256": "faa66f16e9db16c61a3449b3aa49ec6a2ca5df4c1addc5e5a18e1c172f975fa4",
+      "retained": {
+        "files": 876,
+        "bytes": 22452951,
+        "manifest_sha256": "6812a1a740237fb52d6a3b2954f2f4c493366b58235e82c0b0032feac8884bda",
+        "closed_copy_matches": true
+      },
+      "artifacts": {
+        "library": {
+          "sha256": "39bcfdb39a4c7c8d27c71578e7450438e7c50892ff1c772833dbb4896e952d9c",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        },
+        "native_cell_groups_primitives": {
+          "sha256": "12c8c838416fe46669803f4d0f5979222259cca1a711d01f996faa9876425659",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      },
+      "stages": [
+        {
+          "name": "compile-library-native",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 76.1423554160283,
+          "log_sha256": "5ac5718f08bf7bafc94e66ddf5a3a5734936b6053c7a53619905379c1e0104b2",
+          "footers": []
+        },
+        {
+          "name": "native--owned_queue_callbacks_do_not_repeat_discovery_sql",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 57.57573575002607,
+          "log_sha256": "fd1723c872db4b4b778bcc8bd6ae4053392875e77186861f67df3585d2651c46",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--kv_inline_reads_require_current_archive_and_quorum",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 60.68042108300142,
+          "log_sha256": "74b61aa411087620bb23e6494eea31167b15cf8b16b2bd141724b5a90e67321c",
+          "footers": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--rooted_queue_four_in_flight_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 37.52364258398302,
+          "log_sha256": "235456d154404ee8786019e729f4cbb34d8774c5152b64ee6c20918c2f2e9a19",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "native--materialized_queue_four_in_flight_preserves_acknowledged_messages",
+          "status": "FAILED",
+          "exit_code": 101,
+          "elapsed_seconds": 34.809605750022456,
+          "log_sha256": "17587b876383d84b7849a34708b191c025dd5362a4e7e4ef0583dee20cf1a577",
+          "footers": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      ]
+    },
+    "library": {
+      "passed": 1266,
+      "ignored": 2,
+      "scope": "Existing ignores unchanged. Final source rebuild has byte-identical library artifact and profile; only native test diagnostics changed."
+    },
+    "owning_guards": {
+      "passed": 3,
+      "scope": "Independent effects, compiled alarm capability and admitted KV/payload-retirement capabilities keep discovery."
+    },
+    "native_selection_totals": {
+      "passed": 9,
+      "failed": 6,
+      "original_eleven_case_subset": {
+        "passed": 6,
+        "failed": 5
+      }
+    },
+    "passes": "Ordinary/Axum SQL and KV; Queue authorization/archive/fresh-quorum and no-append operator reads; 65-second callback with another Queue progressing; cross-deployment generation/obsolete-ack/purge/S3 dead-letter lost-response/retention controls.",
+    "failures": [
+      "Both independent C4 modes and C2 miss original producer/deadline/drain gates. Combined C4 fails during fast-Queue setup before measured load. Ordinary Queue also fails. These remain failed.",
+      "The KV archive-boundary case fails cold Read/Write availability before archive denial. The separate final-source supplement passes both image modes on independent fixtures. This establishes the isolated proof controls, not sustained availability or causal repair of the failed cohort.",
+      "Earlier streaming/large-value KV availability failures retain their source boundaries and remain unresolved."
+    ],
+    "final_source_replay": "Owned-callback regression passes both modes with zero extra discovery queries and exact two-message drain. KV S3 boundary passes both independent modes. Original rooted/materialized C4 cases both still fail.",
+    "returned_failure_evidence": {
+      "previous_cohort": "Original load aggregation exposed only its first returned error; complete per-producer returned identities are unavailable. Available original data, first errors and closed copies remain preserved.",
+      "new_independent_cohort": [
+        {
+          "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+          "failed_producers": 4,
+          "captured_failed_calls": 4,
+          "responses_containing_command_ids": 4,
+          "consumer_observation_captured": true,
+          "observed_deliveries": 64,
+          "consumer_reported_completions": 64,
+          "consumer_observations_are_not_durability_proof": true
+        },
+        {
+          "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+          "failed_producers": 4,
+          "captured_failed_calls": 4,
+          "responses_containing_command_ids": 4,
+          "consumer_observation_captured": true,
+          "observed_deliveries": 40,
+          "consumer_reported_completions": 40,
+          "consumer_observations_are_not_durability_proof": true
+        }
+      ],
+      "expected_s3_fault_responses_captured": 2,
+      "privacy": "All returned identities, offered values, raw errors, observations and node paths remain private. No old failed mutation was reissued or history reset."
+    }
+  },
+  "final_checks": {
+    "rust": [
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 841.1642755410285,
+        "log_sha256": "cb0678f43a000ee46cf5afd7b884c43bba226874c4921445b4f8d9ddc061615c"
+      },
+      {
+        "name": "native-only",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 300.4308048749808,
+        "log_sha256": "9f29aef4d6dc9f2e7927b69a8b5c3aed3652a620f034bada0d4dbffffbe78e48"
+      },
+      {
+        "name": "format-check",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 246.0635551669984,
+        "log_sha256": "875a0a308dbe416b2b89bcf33e9a8c593950b47488710b73dd6d184ee584542d"
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7871177499764599,
+        "log_sha256": "15ead30b5e6caaf44a1dd3e0549cfc4a1261ae14360873517417b91f4456dcf4"
+      }
+    ],
+    "python_repository": [
+      {
+        "name": "dependencies",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.6996105000143871,
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a",
+        "footers": []
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.0123720000265166,
+        "log_sha256": "2076e9dfa07d864b16809a6eea905bc8393f2a317570ef9a048cd31a441c3b82",
+        "footers": []
+      },
+      {
+        "name": "plan-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 7.737558207998518,
+        "log_sha256": "45d0f7aff5f0dfc9f54259385b3c907285bad2ced677881b38a13aa408c8892d",
+        "footers": [
+          "Ran 44 tests in 7.628s",
+          "OK"
+        ]
+      },
+      {
+        "name": "runner-tests",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.4329829170019366,
+        "log_sha256": "641d8fc77bdb188df6571f23edd1d9676e77d6d60c52aae0cb11112e51e758a4",
+        "footers": [
+          "Ran 28 tests in 1.284s",
+          "OK"
+        ]
+      },
+      {
+        "name": "performance-guards",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 18.53832470800262,
+        "log_sha256": "8b95530dd60a060291c5993f00f8382ea0aa70943d71803770bd3234a6453200",
+        "footers": [
+          "Ran 344 tests in 18.308s",
+          "OK (skipped=1)"
+        ]
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.032416041009128094,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "footers": []
+      }
+    ],
+    "clippy_scope": "All features/all targets for cellar and cellar-ltx, with existing explicit --force-warn dead_code override; not a zero-warning claim.",
+    "python_counts": {
+      "plan": 44,
+      "runner": 28,
+      "performance_guards": 344,
+      "existing_performance_skip": 1
+    }
+  },
+  "diagnostic_history": [
+    {
+      "label": "queue-progress-baseline-01",
+      "compiler_inputs_sha256": "cb932af1de5d86d5ea01dc7d06507ad47a3d7ce8c3aa5bd608b4bbdb56c9a57b",
+      "status": "CLOSED_VERIFIED_WITH_FAILURES",
+      "record_sha256": "cade564a1f20d445ddf35cb4c729d714f8f903f2e1eaf61f2b8f3fa5b547ada9",
+      "completion_record_sha256": "73592d1557a7029663adbb84b8e952fbc0ca3762ce09570dd90879aeb2db3102",
+      "retained": {
+        "files": 1801,
+        "bytes": 63304631,
+        "manifest_sha256": "bb881afecdcbf3a17c1bf7ad9126c0b4dd89d58c3e1299b897fd24b407b7ff2b",
+        "closed_copy_matches": true
+      },
+      "artifacts": {
+        "native_cell_groups_primitives": {
+          "sha256": "3fc0455b22a0c395e6945ea64d0ff0ef7449f4862e8767a5230d45f26b61592f",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      }
+    },
+    {
+      "label": "queue-progress-trace-01",
+      "compiler_inputs_sha256": "e7f58425c50ef0530a0190196a693bbc70a037883cb653efdf2f81566325ca13",
+      "status": "CLOSED_VERIFIED_WITH_FAILURES",
+      "record_sha256": "c7fa9f53478082e6578cec33a67b6ce9f3b81f53e16640757e9fa276b474bbc0",
+      "completion_record_sha256": "d5286592cc733ebd00a0dd73b50d343698f04a12bd480998563da28ae944833c",
+      "retained": {
+        "files": 1270,
+        "bytes": 41147455,
+        "manifest_sha256": "a2801597267654c830aedf59bcb77d4612a69abfe6af86226e79f27247d197e9",
+        "closed_copy_matches": true
+      },
+      "artifacts": {
+        "native_cell_groups_primitives": {
+          "sha256": "e9590cd7424a75833ca3572fa5cdc3eef097e6c4c311a354e5f690f2f92353d7",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      }
+    },
+    {
+      "label": "queue-progress-phases-01",
+      "compiler_inputs_sha256": "1624de90d274a06ef62d5fbbc7db2f8fad80269283c375296cff382f1a67b1de",
+      "status": "CLOSED_VERIFIED_WITH_QUEUE_FAILURES",
+      "record_sha256": "2e36cf77ad4bb5d0489988db882f2121083f22618fa1ab543d2f70bd74b00ced",
+      "completion_record_sha256": "28d9c7f3d37993f6d97d0d8402070d704b7bf871e616255599c0d4464ba5d818",
+      "retained": {
+        "files": 2293,
+        "bytes": 68614163,
+        "manifest_sha256": "a2f0e244ca2b58009d2b24af26b5262357ef46c83898ec06ae19d41802546f28",
+        "closed_copy_matches": true
+      },
+      "artifacts": {
+        "library": {
+          "sha256": "b4b062d78737d92082d11da40cf15d87a9e247f5118560d2bf81152f31a961cd",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        },
+        "native_cell_groups_primitives": {
+          "sha256": "9413812ab6f172859d408f87fb99a3498d27de7c99d122e148de1675e922386b",
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": true,
+            "overflow_checks": true,
+            "test": true
+          }
+        }
+      }
+    },
+    {
+      "label": "owned-callback-scan-candidate-01",
+      "status": "SUPERSEDED",
+      "scope": "Initial mechanism green lacked conservative KV capability exclusion; not eligible as final correctness qualification."
+    },
+    {
+      "label": "owned-callback-scan-native-01",
+      "status": "COMPILE_ONLY_FAILURE",
+      "scope": "New unit fixture used a non-Default options type. Corrected to the existing private configuration constructor; no runtime entered and no assertion weakened."
+    }
+  ],
+  "retention_contract": "Original failed media and closed copies are verified against frozen manifests, as are source, logs and executable hashes. Successful matched fixtures cleaned up and provide no terminal recovery-media evidence. Retained consumer observations are not durable acknowledgement counts.",
+  "original_store_capacity": {
+    "observed_at_utc": "2026-11-20T01:41:56.744532+00:00",
+    "reserve_bytes": 6442450944,
+    "admissible": false,
+    "actions": [
+      "read-only container list",
+      "read-only original container inspection",
+      "read-only df",
+      "read-only inspection identity recheck"
+    ],
+    "available_bytes": 0,
+    "capacity_guard_satisfied": false,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_inspection_config_and_start_unchanged": true,
+    "restarts": 0,
+    "stable_inspection_sha256": "3385998d819d01c22374605e0bb3b8c24fa004b18f19027e33c5f196d0c90c7c",
+    "status": "OBSERVED"
+  },
+  "remaining_priorities": [
+    "P0: Original-bound Queue producer/source-RPC/consumer progress and exact acknowledged-message drain; intermittent cold and historical large/streaming KV availability.",
+    "P0: Current-source SDK/routing/read-refusal/Python lifecycle/release acceptance and full primitive/backend qualification.",
+    "P1: Complete OPT-01\u201308 and remaining CG gates: measured fair persistence/ReadIndex/archive batching, physical shared-file release and once-only credit, reserve-aware placement, interrupted transitions and fenced recovery.",
+    "P2: Original three 1-vCPU/2-GiB Colima nodes, RF3/three groups/shared RustFS; SQL/KV/Queue x Quorum/Quorum+S3/Fleet/Bucket x C1/4/16, 256-byte values, Queue batch eight, reversed repetitions and original 60-second windows. Capacity guard currently refuses; no benchmark admitted or infrastructure/storage change."
+  ],
+  "acceptance": "No task status promotion. Full optimization, CG/SDK/release and original performance objective remains ACTIVE."
+}

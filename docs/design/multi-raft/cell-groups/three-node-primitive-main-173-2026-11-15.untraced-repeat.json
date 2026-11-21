@@ -1,0 +1,1712 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-15T21:32:16.106424+00:00",
+  "owner_status": "FAILED",
+  "main": "189edd9aa0006ae46305426413d80cd0283c09e7",
+  "timing_isolated": false,
+  "performance_gain_accepted": false,
+  "image_order_crossover": false,
+  "host_qualification_activity_observed": true,
+  "builds": {
+    "control": {
+      "source_revision": "8f6744064484d230d808b23ca3d2b8848d7ffa1e",
+      "source_digest": "948c229d3fcb962e59f1694807860c3094258131e882e567421ad67886b48e61",
+      "image": "sha256:0ccf1de97a1c175073f45bde21dbe14d5392e7452df507c97b486147ba0f5d6f",
+      "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+      "binary_digests": "cc5f49585ec36566d9e648c81b4a1d783e900d23c9f1ad7973768a6e7b85f8b5  /out/cellar-perf-baseline\n5f9a0728574c4dde94cc7494620b92bb805d38681375b45f7ccb153c6d8a914e  /out/cellar-perf-raft\nc73d4f9475f82877ec47d69b4afd55690967da61e8a57d2ed523472939935eb2  /out/primitive_load.py"
+    },
+    "candidate": {
+      "source_revision": "1d72a31d1ce30baece4b3d195751662462550376",
+      "source_digest": "a37458ee82fde5cbd4f448250e627f7204a826b84270fda9f7ad87064b29345a",
+      "image": "sha256:9b98065f3149ab3ae203c0f2272970c5921c8a86e5cd09ae75ab0369e0140bd3",
+      "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+      "binary_digests": "d0b44c84daad5c65d12f9ca5a1ab90d729651301b471ebb2aa509fdc431706ce  /out/cellar-perf-baseline\nde27ccc7d9f2762e477a611497476f9b211bf86484424104f8c734b90a6de879  /out/cellar-perf-raft\nc73d4f9475f82877ec47d69b4afd55690967da61e8a57d2ed523472939935eb2  /out/primitive_load.py"
+    }
+  },
+  "cases": [
+    {
+      "family": "sql",
+      "variant": "candidate",
+      "status": "PASSED",
+      "error": null,
+      "expected_windows": 18,
+      "verified_windows": 18,
+      "failed_windows": 0,
+      "unmeasured_windows": 0,
+      "timed_verified": 12,
+      "timed_failed": 0,
+      "timed_unmeasured": 0,
+      "request_errors": 0,
+      "healthy_stopped_participants_observed": true,
+      "terminal_states_complete": true,
+      "load_exit_code": 0,
+      "node_store_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "phase_delta": {
+        "available": true,
+        "command_phases": [
+          {
+            "name": "cell_command_local",
+            "started": 5428,
+            "succeeded": 5428,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 5428,
+            "sum_us": 1676021025,
+            "over_1s": 60,
+            "mean_ms": 308.77321757553426
+          },
+          {
+            "name": "cell_command_s3_coverage",
+            "started": 5428,
+            "succeeded": 5428,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 5428,
+            "sum_us": 1157275375,
+            "over_1s": 26,
+            "mean_ms": 213.20474852616064
+          },
+          {
+            "name": "cell_command_output_check",
+            "started": 5903,
+            "succeeded": 5428,
+            "failed": 475,
+            "abandoned": 0,
+            "count": 5903,
+            "sum_us": 10947044,
+            "over_1s": 0,
+            "mean_ms": 1.8544882263255973
+          },
+          {
+            "name": "cell_command_output_wait",
+            "started": 93,
+            "succeeded": 93,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 93,
+            "sum_us": 2671841,
+            "over_1s": 0,
+            "mean_ms": 28.729473118279568
+          },
+          {
+            "name": "cell_command_s3_freshness",
+            "started": 5428,
+            "succeeded": 5428,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 5428,
+            "sum_us": 10111568,
+            "over_1s": 0,
+            "mean_ms": 1.8628533529845246
+          }
+        ]
+      },
+      "resources": [
+        {
+          "role": "node1",
+          "available": true,
+          "observed_seconds": 455.5992094999965,
+          "average_cores": 0.23079320553562288,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 695119872,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node2",
+          "available": true,
+          "observed_seconds": 455.5992094999965,
+          "average_cores": 0.22251400548139183,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 707186688,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node3",
+          "available": true,
+          "observed_seconds": 455.5992094999965,
+          "average_cores": 0.2222085571902222,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 676691968,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "store",
+          "available": true,
+          "observed_seconds": 455.5992094999965,
+          "average_cores": 0.4726923412276062,
+          "throttled_period_fraction": 0.0004389815627743635,
+          "peak_sampled_memory_bytes": 1735372800,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "load",
+          "available": true,
+          "observed_seconds": 455.5992094999965,
+          "average_cores": 0.00667785399219404,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 14204928,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        }
+      ],
+      "failed_windows_evidence": []
+    },
+    {
+      "family": "sql",
+      "variant": "control",
+      "status": "FAILED",
+      "error": "load process failed",
+      "expected_windows": 18,
+      "verified_windows": 6,
+      "failed_windows": 1,
+      "unmeasured_windows": 11,
+      "timed_verified": 4,
+      "timed_failed": 0,
+      "timed_unmeasured": 8,
+      "request_errors": 2,
+      "healthy_stopped_participants_observed": true,
+      "terminal_states_complete": true,
+      "load_exit_code": 1,
+      "node_store_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "phase_delta": {
+        "available": true,
+        "command_phases": [
+          {
+            "name": "cell_command_local",
+            "started": 1395,
+            "succeeded": 1393,
+            "failed": 2,
+            "abandoned": 0,
+            "count": 1395,
+            "sum_us": 405821505,
+            "over_1s": 65,
+            "mean_ms": 290.9114731182796
+          },
+          {
+            "name": "cell_command_s3_coverage",
+            "started": 1395,
+            "succeeded": 1393,
+            "failed": 2,
+            "abandoned": 0,
+            "count": 1395,
+            "sum_us": 261720115,
+            "over_1s": 25,
+            "mean_ms": 187.61298566308244
+          },
+          {
+            "name": "cell_command_output_check",
+            "started": 1536,
+            "succeeded": 1393,
+            "failed": 143,
+            "abandoned": 0,
+            "count": 1536,
+            "sum_us": 2630768,
+            "over_1s": 0,
+            "mean_ms": 1.7127395833333332
+          },
+          {
+            "name": "cell_command_output_wait",
+            "started": 23,
+            "succeeded": 23,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 23,
+            "sum_us": 1969107,
+            "over_1s": 0,
+            "mean_ms": 85.61334782608697
+          },
+          {
+            "name": "cell_command_s3_freshness",
+            "started": 1393,
+            "succeeded": 1393,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 1393,
+            "sum_us": 1965715,
+            "over_1s": 0,
+            "mean_ms": 1.411137832017229
+          }
+        ]
+      },
+      "resources": [
+        {
+          "role": "node1",
+          "available": true,
+          "observed_seconds": 179.56953862500086,
+          "average_cores": 0.15168547075727537,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 202948608,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node2",
+          "available": true,
+          "observed_seconds": 179.56953862500086,
+          "average_cores": 0.14612904950877145,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 195375104,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node3",
+          "available": true,
+          "observed_seconds": 179.56953862500086,
+          "average_cores": 0.14879709668240992,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 199069696,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "store",
+          "available": true,
+          "observed_seconds": 179.56953862500086,
+          "average_cores": 0.35270890867668564,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 631844864,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "load",
+          "available": true,
+          "observed_seconds": 179.56953862500086,
+          "average_cores": 0.005505660968838474,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 15724544,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        }
+      ],
+      "failed_windows_evidence": [
+        {
+          "phase": "warmup",
+          "repeat": 0,
+          "concurrency": 16,
+          "attempts": 38,
+          "successful_requests": 36,
+          "errors": [
+            {
+              "worker": 4,
+              "sequence": 2,
+              "entity": 20,
+              "identity": "909ca80ae2b9.0.16.warmup.4.2",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:3dca56005f92557ac2fa380c79cb094d8529c9971e4d9912b510b809dcec4f16], ambiguous=true: Raft target attempt 1 started with 3639ms remaining: cell command [command-id-sha256:3dca56005f92557ac2fa380c79cb094d8529c9971e4d9912b510b809dcec4f16] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 12,
+              "sequence": 1,
+              "entity": 12,
+              "identity": "909ca80ae2b9.0.16.warmup.12.1",
+              "error": "HTTP 503: SQL_ERROR: cell binding call [command-id-sha256:873bd7e478cccb9394d0a26b43a8f0c2fb5385ec32121396f247b8a5bc71547a], ambiguous=true: Raft runtime: DeadlineExceeded",
+              "mutation_outcome": "unconfirmed"
+            }
+          ],
+          "verification_error": "request failures retained; this window is not qualified",
+          "acknowledged_messages": null,
+          "delivered_messages": null,
+          "duplicate_deliveries": null,
+          "readback_probe_complete": true,
+          "delivery_probe_complete": null,
+          "delivery_set_verified": null,
+          "queue_metrics_probe_complete": null,
+          "queue_settlement_verified": null
+        }
+      ]
+    },
+    {
+      "family": "kv",
+      "variant": "control",
+      "status": "FAILED",
+      "error": "load process failed",
+      "expected_windows": 18,
+      "verified_windows": 4,
+      "failed_windows": 1,
+      "unmeasured_windows": 13,
+      "timed_verified": 2,
+      "timed_failed": 1,
+      "timed_unmeasured": 9,
+      "request_errors": 3,
+      "healthy_stopped_participants_observed": true,
+      "terminal_states_complete": true,
+      "load_exit_code": 1,
+      "node_store_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "phase_delta": {
+        "available": true,
+        "command_phases": [
+          {
+            "name": "cell_command_local",
+            "started": 330,
+            "succeeded": 327,
+            "failed": 3,
+            "abandoned": 0,
+            "count": 330,
+            "sum_us": 192586915,
+            "over_1s": 50,
+            "mean_ms": 583.5967121212121
+          },
+          {
+            "name": "cell_command_s3_coverage",
+            "started": 330,
+            "succeeded": 327,
+            "failed": 3,
+            "abandoned": 0,
+            "count": 330,
+            "sum_us": 114463639,
+            "over_1s": 9,
+            "mean_ms": 346.85951212121216
+          },
+          {
+            "name": "cell_command_output_check",
+            "started": 330,
+            "succeeded": 327,
+            "failed": 3,
+            "abandoned": 0,
+            "count": 330,
+            "sum_us": 920081,
+            "over_1s": 0,
+            "mean_ms": 2.7881242424242423
+          },
+          {
+            "name": "cell_command_output_wait",
+            "started": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 1,
+            "sum_us": 11185,
+            "over_1s": 0,
+            "mean_ms": 11.185
+          },
+          {
+            "name": "cell_command_s3_freshness",
+            "started": 327,
+            "succeeded": 327,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 327,
+            "sum_us": 893610,
+            "over_1s": 0,
+            "mean_ms": 2.7327522935779816
+          }
+        ]
+      },
+      "resources": [
+        {
+          "role": "node1",
+          "available": true,
+          "observed_seconds": 145.94118537499162,
+          "average_cores": 0.07783557445290246,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 52436992,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node2",
+          "available": true,
+          "observed_seconds": 145.94118537499162,
+          "average_cores": 0.07668675549840924,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 52658176,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node3",
+          "available": true,
+          "observed_seconds": 145.94118537499162,
+          "average_cores": 0.07740950555507745,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 54276096,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "store",
+          "available": true,
+          "observed_seconds": 145.94118537499162,
+          "average_cores": 0.17946141065459675,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 261472256,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "load",
+          "available": true,
+          "observed_seconds": 145.94118537499162,
+          "average_cores": 0.004349231496024063,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 12824576,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        }
+      ],
+      "failed_windows_evidence": [
+        {
+          "phase": "write",
+          "repeat": 0,
+          "concurrency": 4,
+          "attempts": 72,
+          "successful_requests": 69,
+          "errors": [
+            {
+              "worker": 0,
+              "sequence": 12,
+              "entity": 20,
+              "identity": "b544d7ba183b.0.4.write.0.12",
+              "error": "HTTP 503: cell binding call [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1], ambiguous=true: Raft target attempt 1 started with 4997ms remaining: cell command [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 4997ms remaining: cell command [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 1,
+              "sequence": 12,
+              "entity": 21,
+              "identity": "b544d7ba183b.0.4.write.1.12",
+              "error": "HTTP 503: cell binding call [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 2,
+              "sequence": 12,
+              "entity": 22,
+              "identity": "b544d7ba183b.0.4.write.2.12",
+              "error": "HTTP 503: cell binding call [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "mutation_outcome": "unconfirmed"
+            }
+          ],
+          "verification_error": "write readback mismatch: {\"entity\": 20, \"expected_identity\": \"b544d7ba183b.0.4.write.0.6\", \"expected_sha256\": \"5c69f47219907dbe5c48efaff0db4c7007249e325b7233ccee9704c2d07e17eb\", \"key\": \"b544d7ba183b.0.4.write.0\", \"matching_unconfirmed_identities\": [\"b544d7ba183b.0.4.write.0.12\"], \"observed_sha256\": \"bbed9f9b222e8e92f1308159f47e1c710a5a0d876260d2575188ded0e393d38a\", \"observed_type\": \"str\"}",
+          "acknowledged_messages": null,
+          "delivered_messages": null,
+          "duplicate_deliveries": null,
+          "readback_probe_complete": false,
+          "delivery_probe_complete": null,
+          "delivery_set_verified": null,
+          "queue_metrics_probe_complete": null,
+          "queue_settlement_verified": null
+        }
+      ]
+    },
+    {
+      "family": "kv",
+      "variant": "candidate",
+      "status": "FAILED",
+      "error": "node/store exited or load failed during sampling",
+      "expected_windows": 18,
+      "verified_windows": 6,
+      "failed_windows": 1,
+      "unmeasured_windows": 11,
+      "timed_verified": 4,
+      "timed_failed": 0,
+      "timed_unmeasured": 8,
+      "request_errors": 7,
+      "healthy_stopped_participants_observed": true,
+      "terminal_states_complete": true,
+      "load_exit_code": 1,
+      "node_store_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "phase_delta": {
+        "available": false,
+        "reason": "complete start/end snapshots unavailable",
+        "incomplete_snapshot": {
+          "scope": "after failure, before shutdown",
+          "observed_nodes": [
+            1,
+            2,
+            3
+          ],
+          "unavailable_nodes": []
+        }
+      },
+      "resources": [
+        {
+          "role": "node1",
+          "available": true,
+          "observed_seconds": 181.17196887500177,
+          "average_cores": 0.12118318929981758,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 144154624,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node2",
+          "available": true,
+          "observed_seconds": 181.17196887500177,
+          "average_cores": 0.11586175902566094,
+          "throttled_period_fraction": 0.0005521811154058532,
+          "peak_sampled_memory_bytes": 146124800,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node3",
+          "available": true,
+          "observed_seconds": 181.17196887500177,
+          "average_cores": 0.11540455805514464,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 146542592,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "store",
+          "available": true,
+          "observed_seconds": 181.17196887500177,
+          "average_cores": 0.2705846235728806,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 452751360,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "load",
+          "available": true,
+          "observed_seconds": 181.17196887500177,
+          "average_cores": 0.005277897049624315,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 13754368,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        }
+      ],
+      "failed_windows_evidence": [
+        {
+          "phase": "warmup",
+          "repeat": 0,
+          "concurrency": 16,
+          "attempts": 44,
+          "successful_requests": 37,
+          "errors": [
+            {
+              "worker": 1,
+              "sequence": 3,
+              "entity": 9,
+              "identity": "affc9cf5a6ce.0.16.warmup.1.3",
+              "error": "HTTP 503: cell binding call [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564], ambiguous=true: Raft target attempt 1 started with 2396ms remaining: cell command [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2396ms remaining: cell command [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 2,
+              "sequence": 3,
+              "entity": 10,
+              "identity": "affc9cf5a6ce.0.16.warmup.2.3",
+              "error": "HTTP 503: cell binding call [command-id-sha256:96c385ad55a80c2ce16364a37869ba42738855bc287f8e26f04b1ce049456fd0], ambiguous=true: Raft target attempt 1 started with 3214ms remaining: cell command [command-id-sha256:96c385ad55a80c2ce16364a37869ba42738855bc287f8e26f04b1ce049456fd0] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 3214ms remaining: cell command [command-id-sha256:96c385ad55a80c2ce16364a37869ba42738855bc287f8e26f04b1ce049456fd0] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:96c385ad55a80c2ce16364a37869ba42738855bc287f8e26f04b1ce049456fd0] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 7,
+              "sequence": 2,
+              "entity": 23,
+              "identity": "affc9cf5a6ce.0.16.warmup.7.2",
+              "error": "HTTP 503: cell binding call [command-id-sha256:a5d59ae87419823715eb9901e9a39c2aa3c8657187930b14d75bc850014d7feb], ambiguous=true: Raft target attempt 1 started with 3130ms remaining: cell command [command-id-sha256:a5d59ae87419823715eb9901e9a39c2aa3c8657187930b14d75bc850014d7feb] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 3130ms remaining: cell command [command-id-sha256:a5d59ae87419823715eb9901e9a39c2aa3c8657187930b14d75bc850014d7feb] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:a5d59ae87419823715eb9901e9a39c2aa3c8657187930b14d75bc850014d7feb] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 8,
+              "sequence": 3,
+              "entity": 16,
+              "identity": "affc9cf5a6ce.0.16.warmup.8.3",
+              "error": "HTTP 503: cell binding call [command-id-sha256:c1469f6b10ca0fbdea43639022af72af2cac97cfab05151338f7bf224b05ae5f], ambiguous=true: Raft target attempt 1 started with 2903ms remaining: cell command [command-id-sha256:c1469f6b10ca0fbdea43639022af72af2cac97cfab05151338f7bf224b05ae5f] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2903ms remaining: cell command [command-id-sha256:c1469f6b10ca0fbdea43639022af72af2cac97cfab05151338f7bf224b05ae5f] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:c1469f6b10ca0fbdea43639022af72af2cac97cfab05151338f7bf224b05ae5f] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 10,
+              "sequence": 2,
+              "entity": 2,
+              "identity": "affc9cf5a6ce.0.16.warmup.10.2",
+              "error": "HTTP 503: cell binding call [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564], ambiguous=true: Raft target attempt 1 started with 2382ms remaining: cell command [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2382ms remaining: cell command [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:1fd7d8ae06aa65f0e7d4e13f5b258265bc3486027e8c3c566ee908f6562da564] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 11,
+              "sequence": 3,
+              "entity": 19,
+              "identity": "affc9cf5a6ce.0.16.warmup.11.3",
+              "error": "HTTP 503: cell binding call [command-id-sha256:c1469f6b10ca0fbdea43639022af72af2cac97cfab05151338f7bf224b05ae5f], ambiguous=true: Raft target attempt 1 started with 2940ms remaining: cell command [command-id-sha256:c1469f6b10ca0fbdea43639022af72af2cac97cfab05151338f7bf224b05ae5f] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2940ms remaining: cell command [command-id-sha256:c1469f6b10ca0fbdea43639022af72af2cac97cfab05151338f7bf224b05ae5f] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:c1469f6b10ca0fbdea43639022af72af2cac97cfab05151338f7bf224b05ae5f] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 14,
+              "sequence": 2,
+              "entity": 6,
+              "identity": "affc9cf5a6ce.0.16.warmup.14.2",
+              "error": "HTTP 503: cell binding call [command-id-sha256:96c385ad55a80c2ce16364a37869ba42738855bc287f8e26f04b1ce049456fd0], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "mutation_outcome": "unconfirmed"
+            }
+          ],
+          "verification_error": "request failures retained; this window is not qualified",
+          "acknowledged_messages": null,
+          "delivered_messages": null,
+          "duplicate_deliveries": null,
+          "readback_probe_complete": true,
+          "delivery_probe_complete": null,
+          "delivery_set_verified": null,
+          "queue_metrics_probe_complete": null,
+          "queue_settlement_verified": null
+        }
+      ]
+    },
+    {
+      "family": "queue",
+      "variant": "candidate",
+      "status": "FAILED",
+      "error": "load process failed",
+      "expected_windows": 12,
+      "verified_windows": 3,
+      "failed_windows": 1,
+      "unmeasured_windows": 8,
+      "timed_verified": 1,
+      "timed_failed": 1,
+      "timed_unmeasured": 4,
+      "request_errors": 3,
+      "healthy_stopped_participants_observed": true,
+      "terminal_states_complete": true,
+      "load_exit_code": 1,
+      "node_store_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "phase_delta": {
+        "available": true,
+        "command_phases": [
+          {
+            "name": "cell_command_local",
+            "started": 556,
+            "succeeded": 548,
+            "failed": 8,
+            "abandoned": 0,
+            "count": 556,
+            "sum_us": 358330263,
+            "over_1s": 97,
+            "mean_ms": 644.4788902877698
+          },
+          {
+            "name": "cell_command_s3_coverage",
+            "started": 738,
+            "succeeded": 731,
+            "failed": 7,
+            "abandoned": 0,
+            "count": 738,
+            "sum_us": 235517150,
+            "over_1s": 38,
+            "mean_ms": 319.12892953929537
+          },
+          {
+            "name": "cell_command_output_check",
+            "started": 639,
+            "succeeded": 548,
+            "failed": 91,
+            "abandoned": 0,
+            "count": 639,
+            "sum_us": 1246843,
+            "over_1s": 0,
+            "mean_ms": 1.9512410015649453
+          },
+          {
+            "name": "cell_command_output_wait",
+            "started": 11,
+            "succeeded": 10,
+            "failed": 1,
+            "abandoned": 0,
+            "count": 11,
+            "sum_us": 1091117,
+            "over_1s": 0,
+            "mean_ms": 99.19245454545454
+          },
+          {
+            "name": "cell_command_s3_freshness",
+            "started": 730,
+            "succeeded": 730,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 730,
+            "sum_us": 3950113,
+            "over_1s": 0,
+            "mean_ms": 5.411113698630137
+          }
+        ]
+      },
+      "resources": [
+        {
+          "role": "node1",
+          "available": true,
+          "observed_seconds": 107.1547976249858,
+          "average_cores": 0.20620742598320901,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 156131328,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node2",
+          "available": true,
+          "observed_seconds": 107.1547976249858,
+          "average_cores": 0.1983751588463029,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 158277632,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node3",
+          "available": true,
+          "observed_seconds": 107.1547976249858,
+          "average_cores": 0.20959014899733452,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 162275328,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "store",
+          "available": true,
+          "observed_seconds": 107.1547976249858,
+          "average_cores": 0.33944960754159065,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 428257280,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "load",
+          "available": true,
+          "observed_seconds": 107.1547976249858,
+          "average_cores": 0.004219699071080765,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 15679488,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        }
+      ],
+      "failed_windows_evidence": [
+        {
+          "phase": "enqueue",
+          "repeat": 0,
+          "concurrency": 4,
+          "attempts": 68,
+          "successful_requests": 65,
+          "errors": [
+            {
+              "worker": 0,
+              "sequence": 7,
+              "entity": 0,
+              "identity": "5d5c08dab3a7.0.4.enqueue.0.7",
+              "error": "HTTP 503: cell binding call [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 1,
+              "sequence": 7,
+              "entity": 1,
+              "identity": "5d5c08dab3a7.0.4.enqueue.1.7",
+              "error": "HTTP 503: cell binding call [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1], ambiguous=true: Raft target attempt 1 started with 2907ms remaining: cell command [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): Raft target attempt 1 started with 2907ms remaining: cell command [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded): cell command [command-id-sha256:9323fc1db637d564c2905bc3d03be6bd78c4c5271e851803a086062d6d4277a1] (ambiguous=true): cell dispatch: Runtime(DeadlineExceeded)",
+              "mutation_outcome": "unconfirmed"
+            },
+            {
+              "worker": 2,
+              "sequence": 7,
+              "entity": 2,
+              "identity": "5d5c08dab3a7.0.4.enqueue.2.7",
+              "error": "HTTP 503: cell binding call [command-id-sha256:df839020885c54b5e9b09bfbaa7dbf05e12b20fad89b2698676379ae08037885], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "mutation_outcome": "unconfirmed"
+            }
+          ],
+          "verification_error": "Queue delivery set/body differs from acknowledged messages",
+          "acknowledged_messages": 520,
+          "delivered_messages": 544,
+          "duplicate_deliveries": 0,
+          "readback_probe_complete": null,
+          "delivery_probe_complete": true,
+          "delivery_set_verified": false,
+          "queue_metrics_probe_complete": true,
+          "queue_settlement_verified": false,
+          "delivery_reconciliation": {
+            "acknowledged_ids_not_observed": 0,
+            "extra_ids": 24,
+            "extra_ids_and_bodies_matching_uncertain_inputs": 24,
+            "unknown_or_body_mismatched_extra_ids": 0,
+            "acknowledged_body_mismatches": 0,
+            "cross_observer_body_conflicts": 0,
+            "uncertain_message_ids_not_observed": 0,
+            "receipt_or_S3_proof_established": false,
+            "observation_complete": true
+          }
+        }
+      ]
+    },
+    {
+      "family": "queue",
+      "variant": "control",
+      "status": "FAILED",
+      "error": "load process failed",
+      "expected_windows": 12,
+      "verified_windows": 4,
+      "failed_windows": 1,
+      "unmeasured_windows": 7,
+      "timed_verified": 2,
+      "timed_failed": 0,
+      "timed_unmeasured": 4,
+      "request_errors": 1,
+      "healthy_stopped_participants_observed": true,
+      "terminal_states_complete": true,
+      "load_exit_code": 1,
+      "node_store_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "phase_delta": {
+        "available": true,
+        "command_phases": [
+          {
+            "name": "cell_command_local",
+            "started": 1052,
+            "succeeded": 1052,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 1052,
+            "sum_us": 673968182,
+            "over_1s": 187,
+            "mean_ms": 640.6541653992396
+          },
+          {
+            "name": "cell_command_s3_coverage",
+            "started": 1458,
+            "succeeded": 1458,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 1458,
+            "sum_us": 472821256,
+            "over_1s": 56,
+            "mean_ms": 324.29441426611794
+          },
+          {
+            "name": "cell_command_output_check",
+            "started": 1230,
+            "succeeded": 1052,
+            "failed": 178,
+            "abandoned": 0,
+            "count": 1230,
+            "sum_us": 2179561,
+            "over_1s": 0,
+            "mean_ms": 1.7720008130081302
+          },
+          {
+            "name": "cell_command_output_wait",
+            "started": 34,
+            "succeeded": 34,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 34,
+            "sum_us": 1321773,
+            "over_1s": 0,
+            "mean_ms": 38.87567647058824
+          },
+          {
+            "name": "cell_command_s3_freshness",
+            "started": 1458,
+            "succeeded": 1458,
+            "failed": 0,
+            "abandoned": 0,
+            "count": 1458,
+            "sum_us": 7406121,
+            "over_1s": 0,
+            "mean_ms": 5.07964403292181
+          }
+        ]
+      },
+      "resources": [
+        {
+          "role": "node1",
+          "available": true,
+          "observed_seconds": 188.26162566700077,
+          "average_cores": 0.2397045751629779,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 301584384,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node2",
+          "available": true,
+          "observed_seconds": 188.26162566700077,
+          "average_cores": 0.22505696447636014,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 299933696,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "node3",
+          "available": true,
+          "observed_seconds": 188.26162566700077,
+          "average_cores": 0.23851426354633243,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 298659840,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "store",
+          "available": true,
+          "observed_seconds": 188.26162566700077,
+          "average_cores": 0.375958375740332,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 712192000,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        },
+        {
+          "role": "load",
+          "available": true,
+          "observed_seconds": 188.26162566700077,
+          "average_cores": 0.005566524756636535,
+          "throttled_period_fraction": 0.0,
+          "peak_sampled_memory_bytes": 16502784,
+          "memory_events_delta": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0
+          }
+        }
+      ],
+      "failed_windows_evidence": [
+        {
+          "phase": "warmup",
+          "repeat": 0,
+          "concurrency": 16,
+          "attempts": 61,
+          "successful_requests": 60,
+          "errors": [
+            {
+              "worker": 10,
+              "sequence": 3,
+              "entity": 18,
+              "identity": "97ce5618039a.0.16.warmup.10.3",
+              "error": "HTTP 503: cell binding call [command-id-sha256:8e592178c43baebb089d15b73e208798b4303d3aace1f1aaedbf86b36fdacf55], ambiguous=true: Raft runtime: DeadlineExceeded: Raft runtime: DeadlineExceeded",
+              "mutation_outcome": "unconfirmed"
+            }
+          ],
+          "verification_error": "request failures retained; this window is not qualified",
+          "acknowledged_messages": 480,
+          "delivered_messages": 480,
+          "duplicate_deliveries": 0,
+          "readback_probe_complete": null,
+          "delivery_probe_complete": true,
+          "delivery_set_verified": true,
+          "queue_metrics_probe_complete": true,
+          "queue_settlement_verified": true,
+          "delivery_reconciliation": {
+            "acknowledged_ids_not_observed": 0,
+            "extra_ids": 0,
+            "extra_ids_and_bodies_matching_uncertain_inputs": 0,
+            "unknown_or_body_mismatched_extra_ids": 0,
+            "acknowledged_body_mismatches": 0,
+            "cross_observer_body_conflicts": 0,
+            "uncertain_message_ids_not_observed": 8,
+            "receipt_or_S3_proof_established": false,
+            "observation_complete": true
+          }
+        }
+      ]
+    }
+  ],
+  "pairs": [
+    {
+      "family": "sql",
+      "complete_passing_pair": false,
+      "isolated_causal_gain_accepted": false,
+      "bins": []
+    },
+    {
+      "family": "kv",
+      "complete_passing_pair": false,
+      "isolated_causal_gain_accepted": false,
+      "bins": []
+    },
+    {
+      "family": "queue",
+      "complete_passing_pair": false,
+      "isolated_causal_gain_accepted": false,
+      "bins": []
+    }
+  ],
+  "limits": [
+    "Same S3 acknowledgement/profile/client; this repeat reverses image order within each API relative to the first failed campaign. It is not a standalone complete image-order crossover.",
+    "Host qualification activity is retained. Descriptive timing differences do not establish an isolated causal gain.",
+    "Only complete passing case pairs receive aggregate comparative rates. Failed/unmeasured windows remain explicit.",
+    "Phase histograms are inclusive and overlap, including verification/background work; do not add them or infer per-request causality.",
+    "One Colima VM is one physical failure domain; this run does not qualify provider, partition, crash, feature-mode or complete OPT/CG gates.",
+    "This separate uninstrumented repeat uses the original production images on old main189edd9a, not the subsequently integrated main16c45b26. All 30 created participants stop without OOM/restarts, all 18 node exits are clean, and no NodeLeaseExpired/panic marker is observed. Missing phase snapshots remain unavailable, never zero. Observing uncertain KV/Queue inputs does not establish an exact receipt or S3 proof."
+  ],
+  "counts": {
+    "control": {
+      "passed_cases": 0,
+      "verified_windows": 14,
+      "failed_windows": 3,
+      "unmeasured_windows": 31,
+      "timed_verified": 8,
+      "timed_failed": 1,
+      "timed_unmeasured": 21,
+      "request_errors": 6
+    },
+    "candidate": {
+      "passed_cases": 1,
+      "verified_windows": 27,
+      "failed_windows": 2,
+      "unmeasured_windows": 19,
+      "timed_verified": 17,
+      "timed_failed": 1,
+      "timed_unmeasured": 12,
+      "request_errors": 10
+    }
+  },
+  "raw_capsule": {
+    "bytes": 794041,
+    "sha256": "1a80cf66756e8bd3d82d4ad8024c62ed87699929865ba2feee3ffa741e46fb06",
+    "actual_private_representations_scanned": 23,
+    "credential_matches": 0,
+    "excluded": "Runtime configurations, environment responses, private keys and raw node/store log text."
+  },
+  "kv_readback_reconciliation": {
+    "entity": 20,
+    "expected_identity": "b544d7ba183b.0.4.write.0.6",
+    "expected_sha256": "5c69f47219907dbe5c48efaff0db4c7007249e325b7233ccee9704c2d07e17eb",
+    "key": "b544d7ba183b.0.4.write.0",
+    "matching_unconfirmed_identities": [
+      "b544d7ba183b.0.4.write.0.12"
+    ],
+    "observed_sha256": "bbed9f9b222e8e92f1308159f47e1c710a5a0d876260d2575188ded0e393d38a",
+    "observed_type": "str",
+    "interpretation": "Observed value matches a later timed-out mutation; this does not establish corruption, non-commit, or an S3 receipt."
+  },
+  "all_30_participants_stopped_without_oom_or_restart": true,
+  "terminal_failure_evidence": [
+    {
+      "case": "sql-candidate",
+      "load_started": "2026-11-15T20:29:33.677197294Z",
+      "load_finished": "2026-11-15T20:37:10.611289102Z",
+      "load_started_observed": true,
+      "all_created_participants_stopped": true,
+      "no_oom_or_restarts": true,
+      "node_store_clean_exit": true,
+      "participants": [
+        {
+          "role": "node1",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:37:14.654997094Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "404346493b1d327f0287bb821852bdb59ef0423a255c93fc8746812c071b4ef6",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node2",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:37:12.336659314Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "69299d79dc1598911aac4f3ff521d404716197627707c65afa1a15dcc9718be8",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node3",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:37:11.982809386Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "ba88b9bafb8f55cd9a1291110bf9e345d37800403eae38fd95cad23124812c9d",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "store",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:37:15.896598471Z"
+        },
+        {
+          "role": "load",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:37:10.611289102Z"
+        }
+      ],
+      "before_shutdown_snapshot_scope": null,
+      "before_shutdown_observed_nodes": [],
+      "before_shutdown_unavailable_nodes": []
+    },
+    {
+      "case": "sql-control",
+      "load_started": "2026-11-15T20:37:27.30466663Z",
+      "load_finished": "2026-11-15T20:40:29.013452912Z",
+      "load_started_observed": true,
+      "all_created_participants_stopped": true,
+      "no_oom_or_restarts": true,
+      "node_store_clean_exit": true,
+      "participants": [
+        {
+          "role": "node1",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:40:32.309513869Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "404346493b1d327f0287bb821852bdb59ef0423a255c93fc8746812c071b4ef6",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node2",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:40:30.800240405Z",
+          "node_log_bytes": 349,
+          "node_log_sha256": "b4333145e1e6000870cbfb56c09cbe9408e8c8b1474473e7e55c044caa3c6e9c",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node3",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:40:30.271888694Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "ba88b9bafb8f55cd9a1291110bf9e345d37800403eae38fd95cad23124812c9d",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "store",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:40:32.592869477Z"
+        },
+        {
+          "role": "load",
+          "exit_code": 1,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:40:29.013452912Z"
+        }
+      ],
+      "before_shutdown_snapshot_scope": null,
+      "before_shutdown_observed_nodes": [],
+      "before_shutdown_unavailable_nodes": []
+    },
+    {
+      "case": "kv-control",
+      "load_started": "2026-11-15T20:41:00.465742719Z",
+      "load_finished": "2026-11-15T20:43:27.999894439Z",
+      "load_started_observed": true,
+      "all_created_participants_stopped": true,
+      "no_oom_or_restarts": true,
+      "node_store_clean_exit": true,
+      "participants": [
+        {
+          "role": "node1",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:43:31.772742964Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "404346493b1d327f0287bb821852bdb59ef0423a255c93fc8746812c071b4ef6",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node2",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:43:29.487092316Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "69299d79dc1598911aac4f3ff521d404716197627707c65afa1a15dcc9718be8",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node3",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:43:29.163030536Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "ba88b9bafb8f55cd9a1291110bf9e345d37800403eae38fd95cad23124812c9d",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "store",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:43:32.025622825Z"
+        },
+        {
+          "role": "load",
+          "exit_code": 1,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:43:27.999894439Z"
+        }
+      ],
+      "before_shutdown_snapshot_scope": null,
+      "before_shutdown_observed_nodes": [],
+      "before_shutdown_unavailable_nodes": []
+    },
+    {
+      "case": "kv-candidate",
+      "load_started": "2026-11-15T20:43:46.896228492Z",
+      "load_finished": "2026-11-15T20:46:50.731149004Z",
+      "load_started_observed": true,
+      "all_created_participants_stopped": true,
+      "no_oom_or_restarts": true,
+      "node_store_clean_exit": true,
+      "participants": [
+        {
+          "role": "node1",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:46:54.940732535Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "404346493b1d327f0287bb821852bdb59ef0423a255c93fc8746812c071b4ef6",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node2",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:46:52.339527159Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "69299d79dc1598911aac4f3ff521d404716197627707c65afa1a15dcc9718be8",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node3",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:46:52.024095844Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "ba88b9bafb8f55cd9a1291110bf9e345d37800403eae38fd95cad23124812c9d",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "store",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:46:55.34127036Z"
+        },
+        {
+          "role": "load",
+          "exit_code": 1,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:46:50.731149004Z"
+        }
+      ],
+      "before_shutdown_snapshot_scope": "after failure, before shutdown",
+      "before_shutdown_observed_nodes": [
+        1,
+        2,
+        3
+      ],
+      "before_shutdown_unavailable_nodes": []
+    },
+    {
+      "case": "queue-candidate",
+      "load_started": "2026-11-15T20:47:20.48660786Z",
+      "load_finished": "2026-11-15T20:49:08.346290604Z",
+      "load_started_observed": true,
+      "all_created_participants_stopped": true,
+      "no_oom_or_restarts": true,
+      "node_store_clean_exit": true,
+      "participants": [
+        {
+          "role": "node1",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:49:12.856541978Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "404346493b1d327f0287bb821852bdb59ef0423a255c93fc8746812c071b4ef6",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node2",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:49:10.564701062Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "69299d79dc1598911aac4f3ff521d404716197627707c65afa1a15dcc9718be8",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node3",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:49:10.275226457Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "ba88b9bafb8f55cd9a1291110bf9e345d37800403eae38fd95cad23124812c9d",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "store",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:49:13.231746188Z"
+        },
+        {
+          "role": "load",
+          "exit_code": 1,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:49:08.346290604Z"
+        }
+      ],
+      "before_shutdown_snapshot_scope": null,
+      "before_shutdown_observed_nodes": [],
+      "before_shutdown_unavailable_nodes": []
+    },
+    {
+      "case": "queue-control",
+      "load_started": "2026-11-15T20:49:29.70504344Z",
+      "load_finished": "2026-11-15T20:52:39.45617267Z",
+      "load_started_observed": true,
+      "all_created_participants_stopped": true,
+      "no_oom_or_restarts": true,
+      "node_store_clean_exit": true,
+      "participants": [
+        {
+          "role": "node1",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:52:45.386877885Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "404346493b1d327f0287bb821852bdb59ef0423a255c93fc8746812c071b4ef6",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node2",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:52:43.802803748Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "69299d79dc1598911aac4f3ff521d404716197627707c65afa1a15dcc9718be8",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "node3",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:52:42.88355375Z",
+          "node_log_bytes": 42,
+          "node_log_sha256": "ba88b9bafb8f55cd9a1291110bf9e345d37800403eae38fd95cad23124812c9d",
+          "node_lease_expired_marker": false,
+          "panic_marker": false,
+          "startup_runtime_deadline_marker": false
+        },
+        {
+          "role": "store",
+          "exit_code": 0,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:52:45.990837838Z"
+        },
+        {
+          "role": "load",
+          "exit_code": 1,
+          "running": false,
+          "oom_killed": false,
+          "restarts": 0,
+          "finished_at": "2026-11-15T20:52:39.45617267Z"
+        }
+      ],
+      "before_shutdown_snapshot_scope": null,
+      "before_shutdown_observed_nodes": [],
+      "before_shutdown_unavailable_nodes": []
+    }
+  ]
+}

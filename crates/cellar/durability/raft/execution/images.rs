@@ -8,8 +8,8 @@ use crate::application::consensus::{CellUpdate, ImageCommitment, LtxImage};
 use crate::raft::{cache::CommittedImage, rooted::RootPublishedImage};
 use cellar_ltx::{
     internal::{
-        CacheLimits, Geometry, ImageBinding, ImageRootUpdate, NodeExtentStore, NodeWorkspace,
-        SealedImageRoot, WorkspaceBounds,
+        CacheLimits, ExtentManifest, ExtentRootReference, Geometry, ImageBinding, ImageRootUpdate,
+        NodeExtentStore, NodeWorkspace, SealedImageRoot, WorkspaceBounds,
     },
     stream_snapshot::ScratchPool,
     TXID,
@@ -60,6 +60,8 @@ pub(super) struct Options {
     pub query_services: ReadServices,
     pub application_digest: [u8; 32],
     pub limits: ExecutionLimits,
+    /// The node's committed-apply profile, separate from writer/capture bounds.
+    root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
 }
 
 #[derive(Clone)]
@@ -84,6 +86,7 @@ impl From<PrivateOptions> for Options {
             query_services: options.query_services,
             application_digest: options.application_digest,
             limits: options.limits,
+            root_apply_limits: None,
         }
     }
 }
@@ -104,17 +107,29 @@ impl From<RootPrivateOptions> for Options {
             query_services: options.query_services,
             application_digest: options.application_digest,
             limits: options.limits,
+            root_apply_limits: None,
         }
     }
 }
 
 impl Options {
+    pub(super) fn rooted(
+        options: RootPrivateOptions,
+        limits: Option<cellar_ltx::apply::ApplyLimits>,
+    ) -> Self {
+        Self {
+            root_apply_limits: limits,
+            ..options.into()
+        }
+    }
+
     pub(super) fn prepare_directory(&self) -> Result<(), ExecutionError> {
         let filesystem = self.host.filesystem();
         if let Some(workspace) = self.images.workspace() {
-            // This exact live owner already created and synced the directory
-            // under its locked inventory. Keep its pin; neither a pathname nor
-            // materialized execution can reuse that completed creation proof.
+            // This exact live inventory owner created and charged the private
+            // directory. Scratch may disappear after a crash; its pin grants
+            // neither persistence nor image authority. Validate the path while
+            // retaining the full reservation through physical completion.
             if workspace.directory() != self.directory.as_path()
                 || !filesystem
                     .symlink_metadata(workspace.directory())
@@ -138,6 +153,25 @@ impl Options {
         // their own persistence barriers. Repeating ancestor fsync here adds
         // serial I/O to every command without protecting recovery state.
         filesystem.create_dir_all(&self.directory).map_err(storage)
+    }
+
+    /// Cell writers rebuild scratch from a separately sealed image before entry.
+    /// Its directories need no crash-persistence barrier; the live lock and
+    /// workspace reservation still outlive every physical producer.
+    pub(super) fn prepare_cell_scratch(&self) -> Result<(), ExecutionError> {
+        if self.images.workspace().is_some() {
+            return self.prepare_directory();
+        }
+        if !self.directory.is_absolute() || self.directory.components().take(129).count() > 128 {
+            return Err(storage(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "bounded absolute directory required",
+            )));
+        }
+        self.host
+            .filesystem()
+            .create_dir_all(&self.directory)
+            .map_err(storage)
     }
 
     /// Only shared-cell private scratch is disposable here. Keep the lock inode
@@ -241,6 +275,25 @@ pub(super) struct RootState {
 }
 
 impl RootState {
+    // Private comparison metadata only. The empty workspace has no durable
+    // inventory root and this value cannot stand in for an image seal.
+    pub fn empty(binding: ImageBinding) -> anyhow::Result<Self> {
+        let geometry = Geometry::new(0, 0)?;
+        let manifest = ExtentManifest::new(binding, geometry, &[])?;
+        Ok(Self {
+            image: LtxImage {
+                epoch: binding.epoch,
+                txid: binding.txid,
+                checksum: binding.checksum,
+                commitment: ImageCommitment::Extents(ExtentRootReference::new(
+                    manifest.root(),
+                    manifest.encode()?.len().try_into()?,
+                )?),
+            },
+            geometry,
+        })
+    }
+
     pub fn of(root: &SealedImageRoot) -> Self {
         let binding = root.manifest().binding();
         Self {
@@ -378,10 +431,30 @@ impl WorkingImage {
     }
 
     pub fn database_mut(&mut self) -> &mut crate::storage::CommandDatabase {
+        // Every writable borrow invalidates the captured cut, even if its
+        // caller later aborts. Reuse requires another successful capture.
+        self.begin_mutation();
         match self {
             Self::Materialized(working) => &mut working.database,
             Self::Rooted(working) => &mut working.database,
         }
+    }
+
+    /// Read a quiescent connection at its captured main/WAL cut. The caller
+    /// must retain the independently replayed preview and check authority;
+    /// this supplies data, never proof.
+    pub(super) fn captured_connection(
+        &self,
+        image: cellar_logic::cell_group::CellImage,
+    ) -> Option<&rusqlite::Connection> {
+        let captured = match self {
+            Self::Materialized(working) => working.captured_image(),
+            Self::Rooted(working) => working.captured_image(),
+        };
+        if captured.map(cellar_logic::cell_group::CellImage::from) != Some(image) {
+            return None;
+        }
+        self.database().quiescent()
     }
 
     pub fn begin_mutation(&mut self) {
@@ -401,7 +474,10 @@ impl WorkingImage {
     pub(super) fn close_cell(self, options: &Options) -> anyhow::Result<()> {
         // Close SQLite/WAL capture before removing any path, including when its
         // close reports an error. The caller still owns the private lock.
-        let closed = self.close();
+        let closed = match self {
+            Self::Materialized(working) => (*working).close_for_discard(),
+            Self::Rooted(working) => (*working).close(),
+        };
         options.discard_cell_scratch()?;
         closed
     }
@@ -471,6 +547,15 @@ impl WorkingImage {
 }
 
 impl Preview {
+    pub(super) fn cell_pin(&self) -> crate::raft::cell_groups::CellImagePin {
+        match self {
+            Self::Materialized(pin) => {
+                crate::raft::cell_groups::CellImagePin::Materialized(pin.clone())
+            }
+            Self::Rooted(root) => crate::raft::cell_groups::CellImagePin::Extents(root.clone()),
+        }
+    }
+
     pub fn state(&self) -> State {
         match self {
             Self::Materialized(pin) => State::Materialized(pin.state()),
@@ -480,6 +565,19 @@ impl Preview {
 }
 
 impl Images {
+    pub(super) fn preparation_limits(
+        &self,
+        options: &Options,
+    ) -> anyhow::Result<cellar_ltx::apply::ApplyLimits> {
+        match self {
+            Self::Materialized(store) => Ok(store.apply_limits()),
+            Self::Extents { .. } => options
+                .root_apply_limits
+                .map(Ok)
+                .unwrap_or_else(|| apply_limits(options.limits)),
+        }
+    }
+
     pub fn workspace(&self) -> Option<&NodeWorkspace> {
         match self {
             Self::Materialized(_) => None,
@@ -670,7 +768,7 @@ impl Images {
                         )?,
                         segments,
                     },
-                    &apply_limits(options.limits)?,
+                    &self.preparation_limits(options)?,
                     &mut vec![0; cellar_ltx::internal::EXTENT_BYTES as usize],
                 )?;
                 Ok(Preview::Rooted(Arc::new(prepared.image)))
@@ -744,3 +842,7 @@ pub(super) fn apply_limits(
         max_total_pages: usize::try_from(envelope.max_pages)?,
     })
 }
+
+#[cfg(test)]
+#[path = "images_tests.rs"]
+mod tests;

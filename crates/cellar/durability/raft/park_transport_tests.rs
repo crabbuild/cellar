@@ -169,393 +169,447 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
         DirectFileSystem,
     };
 
-    let root = tempfile::tempdir()?;
+    let mut root = tempfile::tempdir()?;
+    root.disable_cleanup(true);
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-    let (_, leader, _) = route()?;
-    let history = leader.scope;
-    let catalog = Catalog::new(
-        Arc::new(object_store::memory::InMemory::new()),
-        CatalogOptions::default(),
-    )?;
-    let namespace = domain
-        .run(catalog.open_namespace(NamespaceConfig::new(
-            history.cluster,
-            history.namespace,
-            cellar_logic::NamespaceMode::Raft,
-            [5; 32],
-        )))
-        .await??;
-    let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-    let voters = (1..=3)
-        .map(|id| -> anyhow::Result<_> {
-            Ok(InitialMember {
-                member: MemberId::new(u64::from(id))?,
-                node: NodeId::new([id; 16])?,
-            })
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let birth_request = directory.prepare_group_birth(CellGroupBirthSpec {
-        history,
-        range: CellRange::all(),
-        epoch: RouteEpoch::new(1)?,
-        creation: ProposalId::new([18; 16])?,
-        voters: voters.clone(),
-        learners: vec![],
-    })?;
-    domain
-        .run(directory.reserve_group_birth(&birth_request))
-        .await??;
-    let initialize = directory
-        .prepare_initialization(ProposalId::new([19; 16])?, &[birth_request.route().clone()])?;
-    domain.run(directory.publish(&initialize)).await??;
-    let birth = domain
-        .run(directory.materialize_group_birth(&birth_request))
-        .await??;
-
-    let mut peers = Vec::new();
     let mut logs = Vec::new();
     let mut runtimes = Vec::new();
     let mut transports = Vec::new();
     let mut pumps = Vec::new();
-    for (index, voter) in voters.iter().enumerate() {
-        let base = root.path().join(format!("voter-{index}"));
-        let log = domain
-            .run(ReplicaLog::open(
-                ReplicaLogOptions::new(
-                    base.join("log"),
-                    voter.node,
-                    DiskLineage::new([index as u8 + 11; 16])?,
-                    ProcessGeneration::new([index as u8 + 21; 16])?,
-                    LogOpenMode::Create,
-                ),
-                Arc::new(DirectFileSystem),
-            ))
-            .await??;
-        let permit = domain
-            .run(directory.bootstrap_group_member(&birth, &log))
-            .await??;
-        let group = permit.group().clone();
-        let identity = group.identity().clone();
-        let (root, applier) = domain
-            .blocking(move || -> anyhow::Result<_> {
-                let mut pages = ManifestPageStore::open(
-                    &base.join("pages"),
-                    Arc::new(DirectFileSystem),
-                    128,
-                    1024 * 1024,
-                    16,
-                )?;
-                let marker = group.group_manifest()?.context("genesis")?;
-                let tree = ManifestTree::new(marker.route().clone(), Default::default())?;
-                let root = tree.prepare_complete(
-                    &group,
-                    &mut pages,
-                    marker.root(),
-                    marker.position(),
-                    marker.membership_revision(),
-                    |_| unreachable!("empty genesis"),
-                )?;
-                let images = CellGroupApplyImages::Materialized {
-                    images: GenerationStore::open(
-                        base.join("images"),
-                        Arc::new(DirectFileSystem),
-                        Default::default(),
-                    )?,
-                    services: ReadServices {
-                        now_unix_millis: Arc::new(crate::asyncrt::wall_ms),
-                        fill_random: Arc::new(|bytes| bytes.fill(17)),
-                    },
-                };
-                let applier = CellGroupApplier::new(
-                    group,
-                    pages,
-                    images,
-                    Default::default(),
-                    Default::default(),
-                    32,
-                )?;
-                Ok((root, applier))
-            })?
-            .await??;
-        let (runtime, mut events) = CellGroupRuntime::start(
-            log.clone(),
-            RaftRuntimeOptions {
-                election_seed: Some([index as u8 + 31; 32]),
-                ..Default::default()
-            },
-        )
-        .await?;
-        let tls = RaftTls::new(
-            vec![include_bytes!("../../transport/tcp/fixtures/ca.der")
-                .to_vec()
-                .into()],
-            vec![include_bytes!("../../transport/tcp/fixtures/server.der")
-                .to_vec()
-                .into()],
-            rustls::pki_types::PrivatePkcs8KeyDer::from(
-                include_bytes!("../../transport/tcp/fixtures/key.der").to_vec(),
-            )
-            .into(),
+    // Preserve the original certificate lifetimes through owner shutdown.
+    let mut selected_certificate = None;
+    let mut retry_certificate = None;
+    let result = Box::pin(async {
+        let (_, leader, _) = route()?;
+        let history = leader.scope;
+        let catalog = Catalog::new(
+            Arc::new(object_store::memory::InMemory::new()),
+            CatalogOptions::default(),
         )?;
-        let label = format!("park-voter-{index}");
-        let transport = RaftTransport::start_shared(
-            runtime.clone(),
-            Arc::new(PeerAuth::new([8; 32], &label)?),
-            tls,
-            TcpListener::bind("127.0.0.1:0").await?,
-            TcpListener::bind("127.0.0.1:0").await?,
-            TcpListener::bind("127.0.0.1:0").await?,
-            TransportOptions::default(),
-        )
-        .await?;
-        runtime.attach(permit, root).await?;
-        let pump = domain.spawn({
-            let runtime = runtime.clone();
-            let transport = transport.clone();
-            async move {
-                while let Some(event) = events.recv().await {
-                    match event.effect().map_err(Clone::clone)? {
-                        CellGroupEffect::Message(_) => {
-                            // The transport owns queued delivery independent of the waiter.
-                            let _delivery = transport.submit_cell_group_event(&event)?;
-                        }
-                        CellGroupEffect::Apply(_) => {
-                            let work = event.retain_apply().context("physical apply")?;
-                            drop(event);
-                            let prepare = work.clone();
-                            let applier = applier.clone();
-                            let next = crate::asyncrt::blocking(move || applier.prepare(&prepare))
-                                .await??;
-                            runtime.complete_apply(history, work, next).await?;
-                        }
-                        _ => (),
-                    }
-                }
-                Ok::<_, anyhow::Error>(())
-            }
+        let namespace = domain
+            .run(catalog.open_namespace(NamespaceConfig::new(
+                history.cluster,
+                history.namespace,
+                cellar_logic::NamespaceMode::Raft,
+                [5; 32],
+            )))
+            .await??;
+        let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+        let voters = (1..=3)
+            .map(|id| -> anyhow::Result<_> {
+                Ok(InitialMember {
+                    member: MemberId::new(u64::from(id))?,
+                    node: NodeId::new([id; 16])?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let birth_request = directory.prepare_group_birth(CellGroupBirthSpec {
+            history,
+            range: CellRange::all(),
+            epoch: RouteEpoch::new(1)?,
+            creation: ProposalId::new([18; 16])?,
+            voters: voters.clone(),
+            learners: vec![],
         })?;
-        peers.push(RaftPeer {
-            replica: identity,
-            label,
-            server_name: "localhost".into(),
-            control_address: transport.control_address(),
-            data_address: transport.data_address(),
-            query_address: transport.query_address(),
-        });
-        logs.push(log);
-        runtimes.push(runtime);
-        transports.push(transport);
-        pumps.push(pump);
-    }
-    for transport in &transports {
-        transport.install_physical_group(GroupRoute {
-            scope: history,
-            schema_digest: birth.route().schema_digest,
-            revision: 1,
-            peers: peers.clone(),
-        })?;
-    }
-    let runtime = &runtimes[0];
-    let transport = &transports[0];
-    let log = &logs[0];
-    runtime.campaign(history).await?;
-    let status = wait_park_test(&domain, || async {
-        let status = runtime.status(history).await?;
-        Ok(status.ready.then_some(status))
-    })
-    .await?;
-    let abandoned = ParkGeneration::new(status.applied.index.get() + 1)?;
-    let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
-    let status = wait_park_test(&domain, || async {
-        match runtime
-            .fence_managed_park(history, abandoned, status.term, deadline)
+        domain
+            .run(directory.reserve_group_birth(&birth_request))
+            .await??;
+        let initialize = directory
+            .prepare_initialization(ProposalId::new([19; 16])?, &[birth_request.route().clone()])?;
+        domain.run(directory.publish(&initialize)).await??;
+        let birth = domain
+            .run(directory.materialize_group_birth(&birth_request))
+            .await??;
+
+        let mut peers = Vec::new();
+        for (index, voter) in voters.iter().enumerate() {
+            let base = root.path().join(format!("voter-{index}"));
+            let log = domain
+                .run(ReplicaLog::open(
+                    ReplicaLogOptions::new(
+                        base.join("log"),
+                        voter.node,
+                        DiskLineage::new([index as u8 + 11; 16])?,
+                        ProcessGeneration::new([index as u8 + 21; 16])?,
+                        LogOpenMode::Create,
+                    ),
+                    Arc::new(DirectFileSystem),
+                ))
+                .await??;
+            logs.push(log.clone());
+            let permit = domain
+                .run(directory.bootstrap_group_member(&birth, &log))
+                .await??;
+            let group = permit.group().clone();
+            let identity = group.identity().clone();
+            let (root, applier) = domain
+                .blocking(move || -> anyhow::Result<_> {
+                    let mut pages = ManifestPageStore::open(
+                        &base.join("pages"),
+                        Arc::new(DirectFileSystem),
+                        128,
+                        1024 * 1024,
+                        16,
+                    )?;
+                    let marker = group.group_manifest()?.context("genesis")?;
+                    let tree = ManifestTree::new(marker.route().clone(), Default::default())?;
+                    let root = tree.prepare_complete(
+                        &group,
+                        &mut pages,
+                        marker.root(),
+                        marker.position(),
+                        marker.membership_revision(),
+                        |_| unreachable!("empty genesis"),
+                    )?;
+                    let images = CellGroupApplyImages::Materialized {
+                        images: GenerationStore::open(
+                            base.join("images"),
+                            Arc::new(DirectFileSystem),
+                            Default::default(),
+                        )?,
+                        services: ReadServices {
+                            now_unix_millis: Arc::new(crate::asyncrt::wall_ms),
+                            fill_random: Arc::new(|bytes| bytes.fill(17)),
+                        },
+                    };
+                    let applier = CellGroupApplier::new(
+                        group,
+                        pages,
+                        images,
+                        Default::default(),
+                        Default::default(),
+                        32,
+                    )?;
+                    Ok((root, applier))
+                })?
+                .await??;
+            let (runtime, mut events) = CellGroupRuntime::start(
+                log.clone(),
+                RaftRuntimeOptions {
+                    election_seed: Some([index as u8 + 31; 32]),
+                    ..Default::default()
+                },
+            )
             .await
-        {
-            Ok(()) => Ok(Some(runtime.status(history).await?)),
-            Err(RuntimeError::NotReady) => Ok(None),
-            Err(error) => Err(error.into()),
+            .with_context(|| format!("park fixture runtime start voter={index}"))?;
+            runtimes.push(runtime.clone());
+            let tls = RaftTls::new(
+                vec![include_bytes!("../../transport/tcp/fixtures/ca.der")
+                    .to_vec()
+                    .into()],
+                vec![include_bytes!("../../transport/tcp/fixtures/server.der")
+                    .to_vec()
+                    .into()],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(
+                    include_bytes!("../../transport/tcp/fixtures/key.der").to_vec(),
+                )
+                .into(),
+            )?;
+            let label = format!("park-voter-{index}");
+            let transport = RaftTransport::start_shared(
+                runtime.clone(),
+                Arc::new(PeerAuth::new([8; 32], &label)?),
+                tls,
+                TcpListener::bind("127.0.0.1:0").await?,
+                TcpListener::bind("127.0.0.1:0").await?,
+                TcpListener::bind("127.0.0.1:0").await?,
+                TransportOptions::default(),
+            )
+            .await?;
+            transports.push(transport.clone());
+            runtime
+                .attach(permit, root)
+                .await
+                .with_context(|| format!("park fixture attach voter={index}"))?;
+            let pump =
+                domain.spawn({
+                    let runtime = runtime.clone();
+                    let transport = transport.clone();
+                    async move {
+                        while let Some(event) = events.recv().await {
+                            match event.effect().map_err(Clone::clone).with_context(|| {
+                                format!("park fixture event effect voter={index}")
+                            })? {
+                                CellGroupEffect::Message(_) => {
+                                    // The transport owns queued delivery independent of the waiter.
+                                    let _delivery =
+                                        transport.submit_cell_group_event(&event).with_context(
+                                            || format!("park fixture submit event voter={index}"),
+                                        )?;
+                                }
+                                CellGroupEffect::Apply(_) => {
+                                    let work = event.retain_apply().context("physical apply")?;
+                                    drop(event);
+                                    let prepare = work.clone();
+                                    let applier = applier.clone();
+                                    let next =
+                                        crate::asyncrt::blocking(move || applier.prepare(&prepare))
+                                            .await??;
+                                    runtime
+                                        .complete_apply(history, work, next)
+                                        .await
+                                        .with_context(|| {
+                                            format!("park fixture complete apply voter={index}")
+                                        })?;
+                                }
+                                _ => (),
+                            }
+                        }
+                        Ok::<_, anyhow::Error>(())
+                    }
+                })?;
+            peers.push(RaftPeer {
+                replica: identity,
+                label,
+                server_name: "localhost".into(),
+                control_address: transport.control_address(),
+                data_address: transport.data_address(),
+                query_address: transport.query_address(),
+            });
+            pumps.push(pump);
         }
-    })
-    .await?;
-    assert!(status.applied.index.get() > abandoned.get());
-    assert!(log
-        .cell_group(&history)?
-        .group_manifest()?
-        .context("root")?
-        .park_cut()
-        .is_none());
-    let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
-    let request = ParkPrepareRequest {
-        proposal: ProposalId::new([20; 16])?,
-        term: status.term,
-        membership: MembershipRevision::new(1)?,
-        expected_applied: status.applied,
-        deadline_ms: deadline,
-    };
-    let prepared = wait_park_test(&domain, || async {
-        match runtime.prepare_park(history, request).await {
-            Ok(prepared) => Ok(Some(prepared)),
-            Err(RuntimeError::NotReady) => Ok(None),
-            Err(error) => Err(error.into()),
+        for transport in &transports {
+            transport.install_physical_group(GroupRoute {
+                scope: history,
+                schema_digest: birth.route().schema_digest,
+                revision: 1,
+                peers: peers.clone(),
+            })?;
         }
-    })
-    .await?;
-    let cut = wait_park_test(&domain, || async {
-        Ok(log
+        let runtime = &runtimes[0];
+        let transport = &transports[0];
+        let log = &logs[0];
+        runtime
+            .campaign(history)
+            .await
+            .context("park fixture campaign")?;
+        let status = wait_park_test(&domain, || async {
+            let status = runtime.status(history).await?;
+            Ok(status.ready.then_some(status))
+        })
+        .await
+        .context("park fixture ready leader")?;
+        let abandoned = ParkGeneration::new(status.applied.index.get() + 1)?;
+        let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
+        let status = wait_park_test(&domain, || async {
+            match runtime
+                .fence_managed_park(history, abandoned, status.term, deadline)
+                .await
+            {
+                Ok(()) => Ok(Some(runtime.status(history).await?)),
+                Err(RuntimeError::NotReady) => Ok(None),
+                Err(error) => Err(error.into()),
+            }
+        })
+        .await
+        .context("park fixture abandoned generation fence")?;
+        assert!(status.applied.index.get() > abandoned.get());
+        assert!(log
             .cell_group(&history)?
             .group_manifest()?
-            .and_then(|marker| marker.park_cut().cloned())
-            .filter(|cut| cut.position() == prepared.proposal.position))
-    })
-    .await?;
-    let certificate = transport
-        .collect_park_certificate(history, cut.clone(), deadline)
-        .await?;
-    if partial {
-        // Lose the certificate deliveries to the final voter after the leader
-        // and one follower synced their exact authenticated certificate. The
-        // still-active voter must wake its peers through ordinary elections.
-        for runtime in &runtimes[..2] {
-            runtime
-                .enter_park(history, certificate.certificate().clone())
-                .await?;
-        }
-        for log in &logs[..2] {
-            assert!(log
+            .context("root")?
+            .park_cut()
+            .is_none());
+        let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
+        let request = ParkPrepareRequest {
+            proposal: ProposalId::new([20; 16])?,
+            term: status.term,
+            membership: MembershipRevision::new(1)?,
+            expected_applied: status.applied,
+            deadline_ms: deadline,
+        };
+        let prepared = wait_park_test(&domain, || async {
+            match runtime.prepare_park(history, request).await {
+                Ok(prepared) => Ok(Some(prepared)),
+                Err(RuntimeError::NotReady) => Ok(None),
+                Err(error) => Err(error.into()),
+            }
+        })
+        .await
+        .context("park fixture prepare park")?;
+        let cut = wait_park_test(&domain, || async {
+            Ok(log
+                .cell_group(&history)?
+                .group_manifest()?
+                .and_then(|marker| marker.park_cut().cloned())
+                .filter(|cut| cut.position() == prepared.proposal.position))
+        })
+        .await
+        .context("park fixture persisted cut")?;
+        selected_certificate = Some(
+            transport
+                .collect_park_certificate(history, cut.clone(), deadline)
+                .await
+                .context("park fixture collect certificate")?,
+        );
+        let certificate = selected_certificate
+            .as_ref()
+            .context("selected park fixture certificate")?;
+        if partial {
+            // Lose the certificate deliveries to the final voter after the leader
+            // and one follower synced their exact authenticated certificate. The
+            // still-active voter must wake its peers through ordinary elections.
+            for (index, runtime) in runtimes[..2].iter().enumerate() {
+                transports[index]
+                    .handle
+                    .0
+                    .retry_park(deadline, || async {
+                        Ok(runtime
+                            .enter_park(history, certificate.certificate().clone())
+                            .await?)
+                    })
+                    .await
+                    .with_context(|| format!("park fixture partial enter voter={index}"))?;
+            }
+            for log in &logs[..2] {
+                assert!(log
+                    .cell_group(&history)?
+                    .read()?
+                    .local_park
+                    .as_ref()
+                    .is_some_and(|record| record.parked()));
+            }
+            assert!(!logs[2]
                 .cell_group(&history)?
                 .read()?
                 .local_park
                 .as_ref()
-                .is_some_and(|record| record.parked()));
-        }
-        assert!(!logs[2]
-            .cell_group(&history)?
-            .read()?
-            .local_park
-            .as_ref()
-            .context("third voter acknowledged the certificate")?
-            .parked());
-        let resumed = wait_park_test(&domain, || async {
-            let mut all_fresh = true;
-            for runtime in &runtimes {
-                let status = runtime.status(history).await?;
-                all_fresh &= status.term > cut.position().term
-                    && status.applied.index > cut.position().index
-                    && status.applied.term == status.term;
-            }
-            Ok(all_fresh.then_some(()))
-        })
-        .await;
-        // Join the owners even if the liveness assertion failed.
-        let rejected = async {
-            resumed?;
-            for runtime in &runtimes {
-                assert!(matches!(
-                    runtime
-                        .enter_park(history, certificate.certificate().clone())
-                        .await,
-                    Err(RuntimeError::NotReady)
-                ));
-            }
-            assert!(transport
-                .deliver_park_certificate(history, &certificate, deadline)
-                .await
-                .is_err());
-            Ok::<_, anyhow::Error>(())
-        }
-        .await;
-        for runtime in &runtimes {
-            runtime.close().await?;
-        }
-        for pump in pumps {
-            pump.await??;
-        }
-        for transport in &transports {
-            transport.close().await;
-        }
-        for log in &logs {
-            log.close().await?;
-        }
-        domain.shutdown().await;
-        return rejected;
-    }
-    transport
-        .deliver_park_certificate(history, &certificate, deadline)
-        .await?;
-    for log in &logs {
-        let group = log.cell_group(&history)?;
-        let cache = group.read()?;
-        let parked = cache.local_park.as_ref().context("durable park")?;
-        assert!(parked.parked());
-        assert_eq!(parked.certificate(), Some(certificate.certificate()));
-    }
-    assert!(!runtime.status(history).await?.ready);
-    let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
-    assert!(matches!(
-        runtime.park_admission(history, deadline).await,
-        Err(RuntimeError::NotReady)
-    ));
-    assert!(matches!(
-        runtime
-            .wake_park(
-                history,
-                ParkGeneration::new(cut.generation() - 1)?,
-                deadline
-            )
-            .await,
-        Err(RuntimeError::StaleCompletion)
-    ));
-    assert!(matches!(
-        runtime
-            .prepare_park(
-                history,
-                ParkPrepareRequest {
-                    deadline_ms: deadline,
-                    ..request
+                .context("third voter acknowledged the certificate")?
+                .parked());
+            let resumed = wait_park_test(&domain, || async {
+                let mut all_fresh = true;
+                for runtime in &runtimes {
+                    let status = runtime.status(history).await?;
+                    all_fresh &= status.term > cut.position().term
+                        && status.applied.index > cut.position().index
+                        && status.applied.term == status.term;
                 }
-            )
-            .await,
-        Err(RuntimeError::NotReady)
-    ));
-    let retry = transport
-        .collect_park_certificate(history, cut.clone(), deadline)
+                Ok(all_fresh.then_some(()))
+            })
+            .await
+            .context("park fixture partial wake fresh term");
+            // Join the owners even if the liveness assertion failed.
+            let rejected = async {
+                resumed?;
+                for runtime in &runtimes {
+                    assert!(matches!(
+                        runtime
+                            .enter_park(history, certificate.certificate().clone())
+                            .await,
+                        Err(RuntimeError::NotReady)
+                    ));
+                }
+                assert!(transport
+                    .deliver_park_certificate(history, certificate, deadline)
+                    .await
+                    .is_err());
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            return rejected;
+        }
+        transport
+            .deliver_park_certificate(history, certificate, deadline)
+            .await?;
+        for log in &logs {
+            let group = log.cell_group(&history)?;
+            let cache = group.read()?;
+            let parked = cache.local_park.as_ref().context("durable park")?;
+            assert!(parked.parked());
+            assert_eq!(parked.certificate(), Some(certificate.certificate()));
+        }
+        assert!(!runtime.status(history).await?.ready);
+        let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
+        assert!(matches!(
+            runtime.park_admission(history, deadline).await,
+            Err(RuntimeError::NotReady)
+        ));
+        assert!(matches!(
+            runtime
+                .wake_park(
+                    history,
+                    ParkGeneration::new(cut.generation() - 1)?,
+                    deadline
+                )
+                .await,
+            Err(RuntimeError::StaleCompletion)
+        ));
+        assert!(matches!(
+            runtime
+                .prepare_park(
+                    history,
+                    ParkPrepareRequest {
+                        deadline_ms: deadline,
+                        ..request
+                    }
+                )
+                .await,
+            Err(RuntimeError::NotReady)
+        ));
+        retry_certificate = Some(
+            transport
+                .collect_park_certificate(history, cut.clone(), deadline)
+                .await
+                .context("park fixture retry certificate")?,
+        );
+        let retry = retry_certificate
+            .as_ref()
+            .context("selected retry park fixture certificate")?;
+        assert_eq!(retry.certificate(), certificate.certificate());
+        transport
+            .deliver_park_certificate(history, retry, deadline)
+            .await?;
+        let observed = runtime
+            .wake_park(history, ParkGeneration::new(cut.generation())?, deadline)
+            .await?;
+        assert!(observed.root().position().index > cut.position().index);
+        drop(observed);
+        let resumed = wait_park_test(&domain, || async {
+            let status = runtime.status(history).await?;
+            Ok((status.ready && status.applied.index > cut.position().index).then_some(status))
+        })
         .await?;
-    assert_eq!(retry.certificate(), certificate.certificate());
-    transport
-        .deliver_park_certificate(history, &retry, deadline)
-        .await?;
-    let observed = runtime
-        .wake_park(history, ParkGeneration::new(cut.generation())?, deadline)
-        .await?;
-    assert!(observed.root().position().index > cut.position().index);
-    drop(observed);
-    let resumed = wait_park_test(&domain, || async {
-        let status = runtime.status(history).await?;
-        Ok((status.ready && status.applied.index > cut.position().index).then_some(status))
-    })
-    .await?;
-    assert!(resumed.term > cut.position().term);
-    assert!(matches!(
-        runtime
-            .enter_park(history, certificate.certificate().clone())
-            .await,
-        Err(RuntimeError::NotReady)
-    ));
+        assert!(resumed.term > cut.position().term);
+        assert!(matches!(
+            runtime
+                .enter_park(history, certificate.certificate().clone())
+                .await,
+            Err(RuntimeError::NotReady)
+        ));
 
-    for runtime in &runtimes {
-        runtime.close().await?;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await;
+    // Join begun owners after the scenario returns, including failure. Preserve it instead of
+    // replacing it with a later cleanup error; all fixture disks remain private.
+    let mut cleanup = Vec::new();
+    for (index, runtime) in runtimes.iter().enumerate() {
+        if let Err(error) = runtime.close().await {
+            cleanup.push(format!("runtime {index}: {error}"));
+        }
     }
-    for pump in pumps {
-        pump.await??;
+    for (index, pump) in pumps.into_iter().enumerate() {
+        match pump.await {
+            Ok(Ok(())) => (),
+            Ok(Err(error)) => cleanup.push(format!("pump {index}: {error:#}")),
+            Err(error) => cleanup.push(format!("pump join {index}: {error}")),
+        }
     }
     for transport in &transports {
         transport.close().await;
     }
-    for log in &logs {
-        log.close().await?;
+    for (index, log) in logs.iter().enumerate() {
+        if let Err(error) = log.close().await {
+            cleanup.push(format!("log {index}: {error}"));
+        }
     }
     domain.shutdown().await;
-    Ok(())
+    match result {
+        Err(error) if cleanup.is_empty() => Err(error),
+        Err(error) => Err(error.context(format!("park fixture cleanup: {}", cleanup.join("; ")))),
+        Ok(()) if cleanup.is_empty() => Ok(()),
+        Ok(()) => anyhow::bail!("park fixture cleanup: {}", cleanup.join("; ")),
+    }
 }
 
 async fn wait_park_test<T, F: Future<Output = anyhow::Result<Option<T>>>>(

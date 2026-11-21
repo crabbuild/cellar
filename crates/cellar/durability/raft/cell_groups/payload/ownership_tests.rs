@@ -2,6 +2,86 @@
 
 use super::*;
 use cellar_logic::{cell_group::CellId, consensus::IncarnationId};
+use futures_util::FutureExt;
+
+#[tokio::test]
+async fn resolved_payload_capture_keeps_the_shared_bank_and_isolates_ordinary_callers(
+) -> anyhow::Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let outcome = domain
+        .run(async {
+            let pool = CellGroupPayloadPool::new(Default::default())?;
+            let history = CellHistory {
+                cluster: ClusterId::new([2; 16])?,
+                namespace: NamespaceId::new([3; 16])?,
+                cell: CellId::new("Counter:captured")?,
+                incarnation: IncarnationId::new([4; 16])?,
+            };
+            let ordinary = pool.bind(
+                Arc::new(object_store::memory::InMemory::new()),
+                Path::from("namespace"),
+                history.cluster,
+                history.namespace,
+            )?;
+            let timeout = Duration::from_secs(5);
+            let body = bytes::Bytes::from_static(b"actual payload");
+            let value = ordinary.publish(&history, body.clone(), timeout).await?;
+            let mut held = (0..CellGroupPayloadLimits::default().max_operations)
+                .map(|_| pool.acquire(1).unwrap())
+                .collect::<Vec<_>>();
+            let capture = capacity::Capture::new();
+            let mut observed = pool.clone();
+            observed.capture_capacity(capture.clone());
+            let resolved = observed.resolve(history.cluster, history.namespace)?;
+            assert!(matches!(
+                resolved.get(&history, value.reference(), timeout).await,
+                Err(CellGroupPayloadError::Overloaded)
+            ));
+            let mut released = Box::pin(
+                capture
+                    .take()
+                    .expect("actual resolved GET refusal")
+                    .released(),
+            );
+            assert!(released.as_mut().now_or_never().is_none());
+            assert!(matches!(
+                ordinary.get(&history, value.reference(), timeout).await,
+                Err(CellGroupPayloadError::Overloaded)
+            ));
+            assert!(
+                capture.take().is_none(),
+                "ordinary caller inherited the job's capture"
+            );
+            // Joined work refunds its operation slot while retaining its bytes.
+            let retained = held.pop().unwrap().retain_bytes(1).unwrap();
+            released.await;
+            assert_eq!(
+                pool.usage().operations,
+                CellGroupPayloadLimits::default().max_operations - 1
+            );
+            assert_eq!(
+                pool.usage().retained_bytes,
+                CellGroupPayloadLimits::default().max_operations
+            );
+            // A hint grants no reservation: a real competitor can take the credit.
+            let competing = pool.acquire(1).unwrap();
+            assert!(matches!(
+                resolved.get(&history, value.reference(), timeout).await,
+                Err(CellGroupPayloadError::Overloaded)
+            ));
+            drop((held, competing));
+            let actual = resolved.get(&history, value.reference(), timeout).await?;
+            assert_eq!(actual.as_ref(), body.as_ref());
+            drop(actual);
+            assert_eq!(pool.usage().operations, 0);
+            assert_eq!(pool.usage().retained_bytes, 1);
+            drop(retained);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    outcome
+}
 
 #[tokio::test]
 async fn namespace_resolution_uses_the_bound_backend_and_refuses_aliases() -> anyhow::Result<()> {

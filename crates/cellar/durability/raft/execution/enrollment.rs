@@ -10,6 +10,7 @@ use crate::application::consensus::group_protocol::{
 use crate::raft::cell_groups::{
     cell_image_history_digest, CellEnrollmentAuthority, CellEnrollmentState, EnrollmentRecord,
 };
+use crate::raft::completion::RuntimeError;
 
 pub struct CellEnrollmentAttempt {
     pub creation: ProposalId,
@@ -52,7 +53,15 @@ impl CellPrivateEnrollment {
         options: RootPrivateOptions,
         authority: CellEnrollmentAuthority,
     ) -> Result<Self, ExecutionError> {
-        Self::open_image(options.into(), authority)
+        Self::open_rooted_with_apply_limits(options, authority, None)
+    }
+
+    pub(crate) fn open_rooted_with_apply_limits(
+        options: RootPrivateOptions,
+        authority: CellEnrollmentAuthority,
+        limits: Option<cellar_ltx::apply::ApplyLimits>,
+    ) -> Result<Self, ExecutionError> {
+        Self::open_image(Options::rooted(options, limits), authority)
     }
 
     fn open_image(
@@ -68,7 +77,7 @@ impl CellPrivateEnrollment {
             return Err(ExecutionError::Invalid("initialization binding"));
         }
         let filesystem = options.host.filesystem();
-        options.prepare_directory()?;
+        options.prepare_cell_scratch()?;
         let lock = PrivateLock {
             _lock: filesystem
                 .lock_file(&options.directory.join("working.lock"))
@@ -192,6 +201,10 @@ impl CellPrivateEnrollment {
             state.term(),
             &bytes,
             &preview,
+            self.options
+                .images
+                .preparation_limits(&self.options)
+                .map_err(storage)?,
         );
         self.pending = Some(Pending {
             log_reservation: log_reservation.clone(),
@@ -224,6 +237,7 @@ impl CellPrivateEnrollment {
     /// The immutable creation record survives later cell mutations and original
     /// log compaction. Absence/conflict retires an old producer only behind a
     /// strictly newer applied term. No callback or initial-image replay occurs.
+    /// A stale applied observation retains the producer for fresh resolution.
     pub fn resolve(
         &mut self,
         creation: ProposalId,
@@ -233,7 +247,13 @@ impl CellPrivateEnrollment {
         if pending.record.creation() != creation || !self.authority.state().same_binding(&state) {
             return Err(ExecutionError::Invalid("enrollment resolution binding"));
         }
-        state.check().map_err(authority_failure)?;
+        // Apply can advance after this observation is queued for SQL resolution.
+        // Retain the producer for fresh proof; a stale observation does not
+        // establish that the shared SQL worker lost its reply.
+        state.check().map_err(|error| match error {
+            RuntimeError::NotReady => ExecutionError::Uncertain,
+            error => authority_failure(error),
+        })?;
         let outcome = match state.record() {
             Some(record) if record == &pending.record => {
                 CellEnrollmentResolution::Committed(Box::new(record.clone()))

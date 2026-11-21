@@ -582,6 +582,75 @@ struct HeldNodeLease {
     last_ok_mono_ms: u64,
     last_attempt_mono_ms: u64,
     timer_generation: u64,
+    ambiguous: AmbiguousNodeLeases,
+}
+
+impl HeldNodeLease {
+    fn live(&self, now_ms: u64, now_mono_ms: u64) -> bool {
+        now_ms < self.record.expires_ms
+            && now_mono_ms.saturating_sub(self.last_ok_mono_ms) < self.spec.ttl_ms
+    }
+}
+
+/// Unresolved writes under one held ETag. Reading that ETag again does not
+/// cancel native work that may still win it. Only ordinary log states belong
+/// here: recovery/sealing must retain their independent fencing meaning.
+///
+/// Each of the two states has fixed-size bounds, independent of retry count.
+/// Identity is inherited from the held generation; the earliest sample bounds
+/// authority conservatively even when several lost writes share a log state.
+#[derive(Clone, Debug, Default)]
+struct AmbiguousNodeLeases {
+    no_log: Option<AmbiguousNodeLease>,
+    open_log: Option<AmbiguousNodeLease>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AmbiguousNodeLease {
+    minimum_expires_ms: u64,
+    maximum_expires_ms: u64,
+    earliest_anchor_mono_ms: u64,
+}
+
+impl AmbiguousNodeLeases {
+    fn remember(
+        &mut self,
+        log_state: Option<log_tier::LogState>,
+        expires_ms: u64,
+        anchor_mono_ms: u64,
+    ) {
+        let slot = match log_state {
+            None => &mut self.no_log,
+            Some(log_tier::LogState::Open) => &mut self.open_log,
+            Some(log_tier::LogState::Recovering | log_tier::LogState::Sealed) => return,
+        };
+        match slot {
+            Some(candidate) => {
+                candidate.minimum_expires_ms = candidate.minimum_expires_ms.min(expires_ms);
+                candidate.maximum_expires_ms = candidate.maximum_expires_ms.max(expires_ms);
+                candidate.earliest_anchor_mono_ms =
+                    candidate.earliest_anchor_mono_ms.min(anchor_mono_ms);
+            }
+            None => {
+                *slot = Some(AmbiguousNodeLease {
+                    minimum_expires_ms: expires_ms,
+                    maximum_expires_ms: expires_ms,
+                    earliest_anchor_mono_ms: anchor_mono_ms,
+                });
+            }
+        }
+    }
+
+    fn anchor(&self, record: &NodeLeaseRecord) -> Option<u64> {
+        let candidate = match record.log_state {
+            None => self.no_log?,
+            Some(log_tier::LogState::Open) => self.open_log?,
+            Some(log_tier::LogState::Recovering | log_tier::LogState::Sealed) => return None,
+        };
+        (candidate.minimum_expires_ms <= record.expires_ms
+            && record.expires_ms <= candidate.maximum_expires_ms)
+            .then_some(candidate.earliest_anchor_mono_ms)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1059,7 +1128,7 @@ impl State {
     }
 
     /// Authority is the lease's published validity evaluated at ask time on
-    /// the monotonic clock — not the `Held` variant. A peer treats the record
+    /// both clocks — not the `Held` variant. A peer treats the record
     /// as dead the instant `now_ms` reaches `expires_ms`, so a holder whose
     /// lease lapsed must answer `false` here even if `Timer::NodeLeaseFence`
     /// has not fired yet: the timer is the liveness backstop that halts the
@@ -1071,9 +1140,7 @@ impl State {
         if !self.config.require_node_lease {
             return !self.fenced;
         }
-        let fresh = |held: &HeldNodeLease| {
-            self.now_mono_ms.saturating_sub(held.last_ok_mono_ms) < held.spec.ttl_ms
-        };
+        let fresh = |held: &HeldNodeLease| held.live(self.now_ms, self.now_mono_ms);
         match &self.node_authority {
             NodeAuthority::Held(held) => fresh(held),
             NodeAuthority::Reading { pending, .. } | NodeAuthority::Writing { pending, .. } => {
@@ -2655,17 +2722,18 @@ impl State {
         now_mono_ms: u64,
         effects: &mut Vec<Effect>,
     ) {
+        let now_mono_ms = self.now_mono_ms.max(now_mono_ms);
         // The record just published expires at `anchor + ttl`. A round trip
         // that outlived that window landed a lease which is already dead to
         // every peer reading the bucket, so this process must not act on it.
-        let expired = now_mono_ms.saturating_sub(pending.anchor_mono_ms) >= pending.spec.ttl_ms;
+        let expired = self.now_ms >= record.expires_ms
+            || now_mono_ms.saturating_sub(pending.anchor_mono_ms) >= pending.spec.ttl_ms;
         match &pending.prior {
             // A renewal only preserves authority if it lands while the PRIOR
             // lease is still valid. Losing that continuity means peers were
             // already entitled to seize this node's cells.
             Some(prior) => {
-                if expired || now_mono_ms.saturating_sub(prior.last_ok_mono_ms) >= prior.spec.ttl_ms
-                {
+                if expired || !prior.live(self.now_ms, now_mono_ms) {
                     self.fence_node(HaltReason::NodeLeaseExpired, effects);
                     return;
                 }
@@ -2737,6 +2805,7 @@ impl State {
             last_ok_mono_ms: anchor_mono_ms,
             last_attempt_mono_ms: anchor_mono_ms,
             timer_generation: generation,
+            ambiguous: AmbiguousNodeLeases::default(),
         });
         if resume_local {
             self.resuming = true;
@@ -2815,6 +2884,10 @@ impl State {
         result: Result<Option<NodeLeaseRecord>, Failure>,
         effects: &mut Vec<Effect>,
     ) {
+        // Another event can already have observed a later instant. A stale
+        // read completion must not undo the authority loss observed there.
+        let now_ms = self.now_ms.max(now_ms);
+        let now_mono_ms = self.now_mono_ms.max(now_mono_ms);
         let authority = std::mem::replace(&mut self.node_authority, NodeAuthority::Failed);
         let NodeAuthority::Reading {
             op: current,
@@ -2840,6 +2913,17 @@ impl State {
                 }
             }
             Ok(Some(record)) if same_node_lease(&record, &pending.desired) => {
+                let mut pending = pending;
+                if let Some(anchor) = pending
+                    .prior
+                    .as_ref()
+                    .and_then(|prior| prior.ambiguous.anchor(&record))
+                {
+                    // A clock step can make a new attempt identical to an
+                    // older ambiguous body. Its newer sample is not proof
+                    // that the older physical write did not win the CAS.
+                    pending.anchor_mono_ms = pending.anchor_mono_ms.min(anchor);
+                }
                 self.complete_node_lease_write(pending, record, now_mono_ms, effects);
             }
             Ok(Some(record))
@@ -2849,6 +2933,13 @@ impl State {
                     .is_some_and(|prior| same_node_lease(&record, &prior.record)) =>
             {
                 let mut prior = pending.prior.expect("checked above");
+                if !prior.live(now_ms, now_mono_ms) {
+                    self.fence_node(HaltReason::NodeLeaseExpired, effects);
+                    return;
+                }
+                if prior.record.etag != record.etag {
+                    prior.ambiguous = AmbiguousNodeLeases::default();
+                }
                 prior.record.etag = record.etag;
                 self.resume_node_lease_after_failure(prior, now_mono_ms, effects);
             }
@@ -2859,15 +2950,14 @@ impl State {
                         && record.addr == pending.desired.addr
                         && record.peer_protocol == pending.desired.peer_protocol
                         && record.generation == pending.desired.generation
-                        && record.log_state == pending.desired.log_state
                         && record.expires_ms > prior.record.expires_ms
-                        && record.expires_ms <= pending.desired.expires_ms
+                        && prior.ambiguous.anchor(&record).is_some()
                 }) =>
             {
-                // Our own zombie: every identity field ours, including the
-                // folded log state a peer's recovery stamp would have
-                // changed, and only the expiry moved — no further than an
-                // attempt of ours could have written. An earlier ambiguous
+                // Our own zombie: every identity field and ordinary log
+                // stamp matches our unresolved attempts under this ETag.
+                // A newer attempt's stamp does not replace that history.
+                // An earlier ambiguous
                 // renewal landed after its readback missed it (#482). Adopt
                 // the record. Bound the adopted monotonic anchor by both the
                 // expiry delta and the expiry observed at this readback. A
@@ -2875,6 +2965,11 @@ impl State {
                 // one bound but not the other, so taking the earlier anchor
                 // prevents that step from becoming local lease authority.
                 let mut prior = pending.prior.expect("checked above");
+                if !prior.live(now_ms, now_mono_ms) {
+                    self.fence_node(HaltReason::NodeLeaseExpired, effects);
+                    return;
+                }
+                let candidate_anchor = prior.ambiguous.anchor(&record).expect("checked above");
                 let delta = record.expires_ms.saturating_sub(prior.record.expires_ms);
                 let delta_anchor = prior.last_ok_mono_ms.saturating_add(delta);
                 let observed_remaining = record.expires_ms.saturating_sub(now_ms);
@@ -2896,8 +2991,14 @@ impl State {
                     self.fence_node(HaltReason::NodeLeaseExpired, effects);
                     return;
                 };
-                prior.last_ok_mono_ms = delta_anchor.min(observed_anchor);
+                prior.last_ok_mono_ms = delta_anchor.min(observed_anchor).min(candidate_anchor);
+                if now_mono_ms.saturating_sub(prior.last_ok_mono_ms) >= prior.spec.ttl_ms {
+                    self.fence_node(HaltReason::NodeLeaseExpired, effects);
+                    return;
+                }
                 prior.record = record;
+                // The observed ETag displaced every outstanding old guard.
+                prior.ambiguous = AmbiguousNodeLeases::default();
                 // An adoption happens only after an ambiguous attempt, its
                 // readback, a cadence wait, a rejection, and a second
                 // readback have eaten most of the TTL, so the adopted
@@ -2923,11 +3024,8 @@ impl State {
             Ok(Some(_)) if pending.prior.is_some() => {
                 // Every record that this process can safely retain or adopt
                 // matched an earlier arm, so authority is lost. The record is
-                // NOT proof of a foreign writer: an ambiguous renewal of this
-                // process can land late, carrying the folded log stamp it was
-                // serialized with, after OwnLog published a newer one. The
-                // zombie arm above compares that stamp, so it misses, and the
-                // record arrives here self-authored. Report the observation.
+                // NOT proof of a foreign writer. Report the observed mismatch
+                // without inferring who wrote an unrecognized body.
                 self.fence_node(HaltReason::NodeLeaseMismatch, effects);
             }
             Ok(_) if pending.readback_only => {
@@ -3030,6 +3128,13 @@ impl State {
                 // serialized into this attempt, never the core's
                 // pre-attempt belief.
                 pending.desired.log_state = stamped_log_state;
+                if let Some(prior) = &mut pending.prior {
+                    prior.ambiguous.remember(
+                        stamped_log_state,
+                        pending.desired.expires_ms,
+                        pending.anchor_mono_ms,
+                    );
+                }
                 self.node_authority = NodeAuthority::Reading { op: read, pending };
                 effects.push(Effect::ReadSelfNodeLease { op: read });
             }
@@ -3280,8 +3385,7 @@ impl State {
         // deadline are independent upper bounds, so reaching either one ends
         // authority. Checking only monotonic elapsed time lets a resumed node
         // retain or renew a record that every peer already considers dead.
-        let lease_expired = now_ms >= held.record.expires_ms
-            || now_mono_ms.saturating_sub(held.last_ok_mono_ms) >= held.spec.ttl_ms;
+        let lease_expired = !held.live(self.now_ms, self.now_mono_ms);
         match timer {
             // `>=`, not `>`: a peer stops treating the record as live the
             // instant `now_ms` reaches `expires_ms`, so authority must end

@@ -47,8 +47,10 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         .register_node(&cut, &request(id, cut.revision()), &spec, TIMEOUT)
         .await?;
     Ok(Fixture {
+        peer_ports: f.peer_ports.clone(),
         domain: f.domain.clone(),
         store: Arc::new(fault::Store::around(f.store.clone())),
+        host_store: None,
         catalog: f.catalog.clone(),
         declaration: f.declaration.clone(),
         additional_namespaces: f.additional_namespaces.clone(),
@@ -67,6 +69,9 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         max_pending_transactions: f.max_pending_transactions,
         max_client_identities: f.max_client_identities,
         max_input_bytes: f.max_input_bytes,
+        stale_source_timeout_ms: f.stale_source_timeout_ms,
+        small_segments: f.small_segments,
+        settle_periodic_purges: false,
         directory_cache_bytes: f.directory_cache_bytes,
         payloads: f.payloads,
         blob_bucket: f.blob_bucket.clone(),
@@ -279,6 +284,7 @@ pub enum FirstGroupSetup {
 struct StartOptions {
     partitions: Option<cellar::sdk::fleet_operations::RaftFleetAutomaticPartitionOptions>,
     roots: Option<Vec<tempfile::TempDir>>,
+    filesystems: Option<Vec<Arc<dyn cellar_ltx::FileSystem>>>,
 }
 
 pub struct ManagedCluster {
@@ -413,6 +419,26 @@ impl ManagedCluster {
         .await
     }
 
+    /// Capture each node's physical provider before its execution domain starts.
+    pub async fn start_with_filesystems(
+        first: Fixture,
+        filesystems: Vec<Arc<dyn cellar_ltx::FileSystem>>,
+    ) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            first,
+            &[],
+            ArchiveSetup::Initialized,
+            false,
+            None,
+            FirstGroupSetup::Normal,
+            StartOptions {
+                filesystems: Some(filesystems),
+                ..Default::default()
+            },
+        ))
+        .await
+    }
+
     /// Retain caller-created disks so physical I/O faults can target their
     /// exact paths before any node owner starts.
     pub async fn start_with_roots(first: Fixture, roots: Vec<tempfile::TempDir>) -> Result<Self> {
@@ -467,6 +493,12 @@ impl ManagedCluster {
         let mut fixtures = vec![first, second, third];
         for id in spares {
             fixtures.push(peer_fixture(&fixtures[0], *id).await?);
+        }
+        if let Some(filesystems) = options.filesystems {
+            ensure!(filesystems.len() == fixtures.len());
+            for (fixture, filesystem) in fixtures.iter_mut().zip(filesystems) {
+                fixture.filesystem = filesystem;
+            }
         }
         if let Some(applications) = applications {
             ensure!(applications.len() == fixtures.len());

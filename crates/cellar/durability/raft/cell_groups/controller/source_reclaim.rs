@@ -425,7 +425,7 @@ pub(super) async fn drive(
                 })
                 .ok_or(ExecutionError::Invalid("reclamation namespace images"))?;
             super::super::source_reclaim::collect_images(&images.images)?;
-            Ok(pages.usage().pages == 0)
+            Ok(pages.usage().files == 0)
         })
         .map_err(|_| CellGroupControllerError::Closed)?
         .await

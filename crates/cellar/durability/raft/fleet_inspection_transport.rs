@@ -1,6 +1,7 @@
 //! Purpose-specific remote safe-ReadIndex RPC. Node trust alone never creates
 //! group authority; the receiver independently authorizes the rooted history.
 use super::inspections::{classify, Delivery, META_BYTES};
+use super::node_inspections::{InspectionStart, InspectionTarget};
 use super::snapshots::{read_bulk_head, Wire};
 use super::*;
 use crate::application::consensus::{CommandFailure, RaftCells};
@@ -82,19 +83,25 @@ impl RaftTransport {
         if deadline <= now || deadline - now > 60_000 {
             return Err(TransportError::Timeout);
         }
-        let (peer, route, peer_budget) = state.node_metadata_route(node, minimum_revision)?;
         let history = if partition {
             History::for_partition(authorization)
         } else {
             History::new(authorization)
         };
-        validate_history_route(&route, &history)?;
-        let epoch = state.seed_peer_epoch(&peer)?;
-        let node = state
+        let start = match state.bind_node_inspection(node, minimum_revision) {
+            Ok(target) => {
+                validate_history_route(&target.route, &history)?;
+                InspectionStart::Bound(Box::new(target))
+            }
+            Err(TransportError::StalePeer) => InspectionStart::Refresh(Box::new(
+                state
+                    .lagging_node_inspection_trust(minimum_revision)?
+                    .ok_or(TransportError::StalePeer)?,
+            )),
+            Err(error) => return Err(error),
+        };
+        let node_memory = state
             .inspection_metadata
-            .acquire(META_BYTES)
-            .ok_or(TransportError::Overloaded)?;
-        let peer_bytes = peer_budget
             .acquire(META_BYTES)
             .ok_or(TransportError::Overloaded)?;
         let nonce = state
@@ -107,36 +114,52 @@ impl RaftTransport {
         let operation = state.clone();
         state.spawn(async move {
             let stage = Arc::new(AtomicU8::new(0));
-            let io = Box::pin(operation.fleet_inspection_exchange(
-                &peer,
-                &route,
-                &history,
-                nonce,
-                deadline,
-                stage.clone(),
-            ));
-            let result = if *cancelled.borrow() {
-                Err(TransportError::Closed)
-            } else {
+            let result = async {
+                let target = match start {
+                    InspectionStart::Bound(target) => *target,
+                    InspectionStart::Refresh(previous) => {
+                        // Discover only the complete enrolled node cut. The
+                        // receiver still independently authorizes this history
+                        // and obtains fresh quorum proof. This eager owner
+                        // retains the original deadline and cancellation.
+                        if *cancelled.borrow() {
+                            return Err(TransportError::Closed);
+                        }
+                        let refresh = operation.refresh_node_inspection_trust(
+                            *previous, minimum_revision, deadline,
+                        );
+                        crate::asyncrt::select_biased! { "caller cancellation precedes fleet inspection discovery";
+                            _ = cancelled.changed() => return Err(TransportError::Closed),
+                            result = operation.seed_until(deadline, refresh) => result?,
+                        }
+                        operation.bind_node_inspection(node, minimum_revision)?
+                    }
+                };
+                let InspectionTarget { peer, route, epoch, memory } = target;
+                validate_history_route(&route, &history)?;
+                if *cancelled.borrow() {
+                    return Err(TransportError::Closed);
+                }
+                let io = Box::pin(operation.fleet_inspection_exchange(
+                    &peer, &route, &history, nonce, deadline, stage.clone(),
+                ));
+                let view =
                 operation.seed_process_until(&epoch, deadline, async {
                     crate::asyncrt::select_biased! { "caller cancellation precedes node metadata";
                         _ = cancelled.changed() => Err(TransportError::Closed),
                         result = io => result,
                     }
-                }).await
-            };
-            let result = result
-                .and_then(|view| {
-                    operation.validate_node_observation(&view.node, minimum_revision)?;
-                    if *epoch.borrow() || *cancelled.borrow() {
-                        return Err(TransportError::StalePeer);
-                    }
-                    Ok(Received {
-                        observation: view,
-                        _node: node,
-                        _peer: peer_bytes,
-                    })
+                }).await?;
+                operation.validate_node_observation(&view.node, minimum_revision)?;
+                if *epoch.borrow() || *cancelled.borrow() {
+                    return Err(TransportError::StalePeer);
+                }
+                Ok(Received {
+                    observation: view,
+                    _node: node_memory,
+                    _peer: memory,
                 })
+            }.await
                 .map_err(|error| classify(error, stage.load(Ordering::Acquire)));
             let _ = reply.send(result);
         })?;

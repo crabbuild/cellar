@@ -1,0 +1,702 @@
+{
+  "purpose": "Owned RPC checkpoint submission starts before unrelated queued SQL. Component qualification and concrete remaining gaps; no complete optimization, release or constrained performance acceptance.",
+  "production_code_revision": "beb4add465fd11ef63485c314b6907fdc43cc91e",
+  "included_main": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+  "compiler_inputs_sha256": "9748e4020fa3b595ed4d034d143d9c0e3955de8e58a37b8ce7b88a5a6d84d9b9",
+  "build_contract": {
+    "toolchain": "1.98.1",
+    "locked": true,
+    "all_features": true,
+    "strict_clippy_all_targets": true,
+    "internal_test_cfg_enabled": false,
+    "incremental": false,
+    "build_jobs": 1,
+    "test_threads": 1,
+    "test_opt_level": 1,
+    "debug_info": 0,
+    "debug_assertions": true,
+    "overflow_checks": true
+  },
+  "behavior": [
+    "After staging and marking the exact checkpoint, poll its existing owned submission future once before queued physical SQL gets its turn.",
+    "An immediately ready proof or error remains owned in a ready future for ordinary checkpoint/reply-bridge processing. The completed original future is never polled again. Pending submission retains its worker wake.",
+    "Logical writer parking, original admission/byte banks and deadlines, term/activation/image checks, exact committed/applied receipts and required S3/freshness proofs remain unchanged. No new worker, timer or wire/persisted-format marker.",
+    "Diagnostics retain concrete synthetic memory, passing/failing node disks and returned SDK/checkpoint command errors after joined cleanup. Exports are nontransactional diagnostics and cannot establish archival admission."
+  ],
+  "matched_native_regression": {
+    "topology": "Host-native RF3, one shared group and one SQL worker per node; not the requested constrained three-group Colima matrix.",
+    "baseline": {
+      "compiler_inputs_sha256": "4ca90c4a63c96dd5b638aaa727a80337242f95d904fc9f345a3e643165ea8222",
+      "record_sha256": "b5fafe14c3b03ca25e355f0b8d48ebb8fbf54fc2cea2c7187cffb28a993a5a62",
+      "terminal_evidence": {
+        "files": 909,
+        "bytes": 6318717,
+        "manifest_sha256": "5caf60128c69d2a0f0f1976c3e31dd9968b376f7ca6a3950f3d0410b9e0defc3",
+        "closed_copy_matches": true
+      },
+      "memory_snapshots": 4,
+      "memory_objects": 517,
+      "memory_bytes": 1990322
+    },
+    "baseline_executable": {
+      "sha256": "3198fdaaf8d661c41252fccd1dccc82f8375299952afe4d33cbdfc89e990f44d",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "candidate": {
+      "compiler_inputs_sha256": "9748e4020fa3b595ed4d034d143d9c0e3955de8e58a37b8ce7b88a5a6d84d9b9",
+      "record_sha256": "2071d0856ad27fc835ab468fda25109a52e764e7d822debf81c2517ed345c3e7",
+      "terminal_evidence": {
+        "files": 64464,
+        "bytes": 2008780904,
+        "manifest_sha256": "0145d6ac9b504e88b4bb9434bab1126c51199511f79c1c8c5faab80eabdb7d0f",
+        "closed_copy_matches": true
+      },
+      "memory_snapshots": 41,
+      "memory_objects": 25560,
+      "memory_bytes": 348764630
+    },
+    "byte_identical_regression_files": {
+      "crates/cellar/tests/native_cell_groups_primitives.rs": "62cf16be4b128a8d38e1c0e76e772c73a9fe7dda7dc5b28196e92379a6227aac",
+      "crates/cellar/tests/support/cell_group_checkpoint_submit.rs": "7f5bc9825007556fd319fcd17bd93bd59eca228ec76b30edce913bb8da6338b4"
+    },
+    "baseline_controls": [
+      {
+        "durability": "Quorum",
+        "joinedClose": true,
+        "replicatedWhileSqlHeld": false,
+        "rooted": false,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "joinedClose": true,
+        "replicatedWhileSqlHeld": false,
+        "rooted": false,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "Quorum",
+        "joinedClose": true,
+        "replicatedWhileSqlHeld": false,
+        "rooted": true,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "joinedClose": true,
+        "replicatedWhileSqlHeld": false,
+        "rooted": true,
+        "valuesAndReplayVerified": true
+      }
+    ],
+    "candidate_controls": [
+      {
+        "durability": "Quorum",
+        "joinedClose": true,
+        "replicatedWhileSqlHeld": true,
+        "rooted": false,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "joinedClose": true,
+        "replicatedWhileSqlHeld": true,
+        "rooted": false,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "Quorum",
+        "joinedClose": true,
+        "replicatedWhileSqlHeld": true,
+        "rooted": true,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "joinedClose": true,
+        "replicatedWhileSqlHeld": true,
+        "rooted": true,
+        "valuesAndReplayVerified": true
+      }
+    ],
+    "oracle": "While a real unrelated queued SQL callback holds the source worker, both peer stale views reach exact checkpoint value 1, leader applied position stays unchanged and caller remains incomplete. After release the original command returns value 2 with required durability; the exact receipt replays without a second callback and cleanup joins.",
+    "window_note": "Original five-second command budget unchanged. One-second peer observation leaves time for final apply. Fixture elapsed time is neither throughput nor request latency percentile."
+  },
+  "terminal_media_scope": "Manifests inventory remaining files after child-process closure. Existing successful unit fixtures can clean their temporary data. Concrete exports describe the selected SDK/checkpoint/SQL/KV/Queue controls; they are not automatic complete backend snapshots for every unit fixture.",
+  "current_qualification": {
+    "stages": [
+      {
+        "name": "format",
+        "status": "PASSED",
+        "test_footers": [],
+        "log_sha256": "aed6bf4138964efbdb5d9eb6065c79f9d4dcd912a415118f75a85dcc81594614"
+      },
+      {
+        "name": "layout",
+        "status": "PASSED",
+        "test_footers": [],
+        "log_sha256": "ec8ec37db27b4a87ac74f3d8dd5436597b7299a5933dfa7276c13a1d5cae3975"
+      },
+      {
+        "name": "native-dependencies",
+        "status": "PASSED",
+        "test_footers": [],
+        "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+      },
+      {
+        "name": "docs",
+        "status": "PASSED",
+        "test_footers": [],
+        "log_sha256": "7ccee62d0e73a04bd2596e7994e3c5e762e6c6856ecf9d2b4005991d17e24265"
+      },
+      {
+        "name": "whitespace",
+        "status": "PASSED",
+        "test_footers": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "test_footers": [],
+        "log_sha256": "cda56cb5cbdd50cc2b63c8d33135bb4d1a5a547fe232dc14bbc0e3fae68dd4da"
+      },
+      {
+        "name": "compile-native",
+        "status": "PASSED",
+        "test_footers": [],
+        "log_sha256": "4e36ba7ef7ffc759976e7a75fb540e096d9f5f7f8dc01aefdd99d285b628fad2"
+      },
+      {
+        "name": "submission-unit",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "8bdbafe9e2e7b1236337dd445007c4b671b04d3d7621580afbc3074e53ce2446"
+      },
+      {
+        "name": "checkpoint-submit",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "41aa17340b44c10a36d800c196394351a81c2f72ee4f5013ac953acdc345ace3"
+      },
+      {
+        "name": "sdk-dispatch",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3d610030b414c6bd244f2427b402b94c81a784f05ff6585e8769569f7da860a8"
+      },
+      {
+        "name": "checkpoint-polls",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3413656568a88e2a2059d85cf2a9e2be3853d45c41d2fff5725fcfb92c771cf5"
+      },
+      {
+        "name": "load-01",
+        "status": "FAILED",
+        "test_footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "340aa40fb7f666141303285e92b03ea37640de26b6ca50cd3bc64c1f10c332dc"
+      },
+      {
+        "name": "load-02",
+        "status": "FAILED",
+        "test_footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "30a734b7561f47e4fc67d11b5dd0bdd62180546a64f78ba10bb77602efa5e703"
+      },
+      {
+        "name": "load-03",
+        "status": "FAILED",
+        "test_footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "afc5e47a8697a2eba77bfc925d6cf696da7bc5f3996356c8be584a4a80a12020"
+      },
+      {
+        "name": "load-04",
+        "status": "FAILED",
+        "test_footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "550331cf360c44b43a26c19df505eefa7eeedc855d546f27b8e86eaa7af607c2"
+      },
+      {
+        "name": "test-library",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1268",
+            "0",
+            "2"
+          ]
+        ],
+        "log_sha256": "4cc15fa28d49de4522d1f299bcee00549a2063252fd44199681f5202da027388"
+      },
+      {
+        "name": "test-execution",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "234",
+            "0",
+            "2"
+          ]
+        ],
+        "log_sha256": "03e76a0dfc6ca575f95e8787c521da02760f927fa238632cf20c175cc27addea"
+      },
+      {
+        "name": "application-01",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "be21b8a1b2f9d75d6eaaa5eb6954d0ca625533eee9521f4047430a47795a2e0a"
+      },
+      {
+        "name": "application-02",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "aebfe5bae579fba9f2f2f4e06f8bd40dd813d82b570d0696c2b5837a7b08551a"
+      },
+      {
+        "name": "application-03",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0e9f4299e2710887a52b609db8fb5afd2d1c7bfddbec0339de9f062061e542a7"
+      },
+      {
+        "name": "application-04",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "3d4ef859e28f513e389a97fef9bc36f1ea99a787838ebf47de01c41eeed93737"
+      },
+      {
+        "name": "application-05",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "597aea4a9be892aa2922d494be29c333264d12ee80691ac8549272bdea7d6d03"
+      },
+      {
+        "name": "application-06",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "218d56974657125121386032a70899b0cc7f49be15c37e87cf718827e94334f5"
+      },
+      {
+        "name": "application-07",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "75029d024b894715fdce42820042b1ae3a8f6033a484402cfaa9a4eabda3573a"
+      },
+      {
+        "name": "application-08",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "5253a28ff23d1dd05b01f41778bf400f5a7b7b05e8edc1ecee84a854eab4fcd1"
+      },
+      {
+        "name": "application-09",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "b30a8e3c4681fa93933c3aedd1e3893352b89d1d625ce182b67172bd036496cc"
+      },
+      {
+        "name": "application-10",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "10fa0674c382ffa660ada679f63867324638832029843c74d09b8ae7c81b7dfe"
+      },
+      {
+        "name": "application-11",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0ca750f1a80c244668904370a05de5a5469e9bf6f1eb54f7280fbd6de1535eb7"
+      },
+      {
+        "name": "application-12",
+        "status": "PASSED",
+        "test_footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "58c94cd1f15d35543d73e6c62c2a78c33a61f51d4d398e9c9f45bc11c52186c6"
+      }
+    ],
+    "executables": {
+      "cellar": {
+        "sha256": "6a3c7d222654224eaa4c9b01f695c4829bef8fdb9a65ab71e81d0d665882e97c",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_primitives": {
+        "sha256": "19d95c2697eceffe69767a025aeac69a43623cc71a9ae9f08eb22e30fabc937a",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_execution": {
+        "sha256": "60ffb941b4c99056e310eefb438eb5e9179a2ecbcde83279093870e961913705",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "sdk_returned_errors": 44,
+    "checkpoint_reply_polls": [
+      {
+        "durability": "Quorum",
+        "extents": false,
+        "invocations": 3,
+        "joinedClose": true,
+        "polls": [
+          2,
+          2,
+          2
+        ],
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "extents": false,
+        "invocations": 3,
+        "joinedClose": true,
+        "polls": [
+          2,
+          2,
+          2
+        ],
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "Quorum",
+        "extents": true,
+        "invocations": 3,
+        "joinedClose": true,
+        "polls": [
+          2,
+          2,
+          2
+        ],
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "extents": true,
+        "invocations": 3,
+        "joinedClose": true,
+        "polls": [
+          2,
+          2,
+          2
+        ],
+        "valuesAndReplayVerified": true
+      }
+    ],
+    "queue_observations": [
+      {
+        "selection": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "event": "QUEUE_LOAD_FAILURE",
+        "extents": true,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "activeCalls": 0,
+        "failedProducers": 2,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      },
+      {
+        "selection": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "event": "QUEUE_LOAD_FAILURE",
+        "extents": false,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "activeCalls": 0,
+        "failedProducers": 2,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      },
+      {
+        "selection": "queue_load_preserves_acknowledged_messages",
+        "event": "QUEUE_LOAD_FAILURE",
+        "extents": true,
+        "inFlightRequests": 2,
+        "perQueueInFlight": 1,
+        "peakInFlightRequests": 2,
+        "activeCalls": 0,
+        "failedProducers": 2,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      },
+      {
+        "selection": "queue_load_preserves_acknowledged_messages",
+        "event": "QUEUE_LOAD",
+        "extents": false,
+        "inFlightRequests": 2,
+        "perQueueInFlight": 1,
+        "peakInFlightRequests": 2,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2,
+        "delivered": 528,
+        "uniqueMessageIds": 528,
+        "batchMessages": 8,
+        "steadyMessages": 512,
+        "archiveOutageMessages": 16
+      },
+      {
+        "selection": "queue_four_in_flight_preserves_acknowledged_messages",
+        "event": "QUEUE_LOAD_FAILURE",
+        "extents": false,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "activeCalls": 0,
+        "failedProducers": 2,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      }
+    ],
+    "limits": "Selected public SQL/KV/Queue cases and native execution/library coverage do not accept full primitive, backend-fault, recovery, SDK/feature/daemon, independent-domain or release matrices."
+  },
+  "retained_diagnostics_before_final": {
+    "sdk_custody_control": {
+      "compiler_inputs_sha256": "c74ab7a46fb94d87d1198cf0bbf50ab4d242d50e625a75efb9d7c4e9b9b87d6c",
+      "record_sha256": "0fbfc6d9136fb67ddc8f90b8daf2a59e7cc26215f4f0e9472d8c0dc2289c97dc",
+      "terminal_evidence": {
+        "files": 1862,
+        "bytes": 14032209,
+        "manifest_sha256": "432f335093f0588a0de9a256e34ee84efa132ecf926e2543807145b2aab824fd",
+        "closed_copy_matches": true
+      },
+      "memory_snapshots": 4,
+      "memory_objects": 939,
+      "memory_bytes": 3342388
+    },
+    "intermediate_eager_proof_candidate": {
+      "compiler_inputs_sha256": "bc550ea7ac2ee2f38fc1be264e1e0a2d949ff9a5198889e6588733b44aaf11d9",
+      "record_sha256": "d554e800163133135e1bcc01fde86656a07f74766a0d35200b3d0aaf872bbf99",
+      "terminal_evidence": {
+        "files": 2789,
+        "bytes": 20346588,
+        "manifest_sha256": "23b80ff3936ebd4925dc62d9f8d2a86ce28af86722d7a5a83aaa733bc2c272a1",
+        "closed_copy_matches": true
+      },
+      "memory_snapshots": 8,
+      "memory_objects": 1487,
+      "memory_bytes": 5459519
+    },
+    "intermediate_note": "Four mechanism configurations and four original SDK configurations pass. Final source retains ready outcomes for normal reply-bridge processing and adds the ready/pending future lifecycle controls.",
+    "invalid_five_second_observer": {
+      "compiler_inputs_sha256": "abd91b38fc19f45ff299850b3e1340c3e31d8e37fb9f09067b91338eb25d891c",
+      "record_sha256": "174dff0dd97a40053f3b81a0d9c6ec15ac10b51287f7076d857a41cf3ce39ba6",
+      "terminal_evidence": {
+        "files": 769,
+        "bytes": 5138577,
+        "manifest_sha256": "606b448d66a7604acbfc4e220c4ba473b8c3973a476bbb8e0d269998fc94793c",
+        "closed_copy_matches": true
+      },
+      "memory_snapshots": 4,
+      "memory_objects": 454,
+      "memory_bytes": 1779434
+    },
+    "invalid_observer_note": "Observation exhausted the unchanged five-second command deadline; four ambiguous returned deadline errors and terminal media are retained. This is not valid matched-mechanism or performance evidence. Original histories were not reset or manually reissued.",
+    "final_unit_compile_preflight": "Final first build failed a missing Future trait import before any native workload. All source/logs/empty-media record verified; next cohort uses strict all-target Clippy to include library tests.",
+    "initial_preflight": "New fixture first failed strict needless_question_mark before any native workload. That preflight source/log record remains retained."
+  },
+  "rejected_writer_retention_experiment": {
+    "compiler_inputs_sha256": "d69560577045934d2a4eb0f5c131c906ba92d9665f8d3d67e797a264a4740d4e",
+    "new_control_configurations_passed": 8,
+    "existing_sdk_source_proof_passed": false,
+    "failure": "Existing SDK requires paused read-VM and nested callbacks to release logical writer admission before fencing. Uncontended writer retention violated this unchanged assertion and was removed.",
+    "terminal_evidence": {
+      "files": 1990,
+      "bytes": 14415942,
+      "manifest_sha256": "298cec0fd45033045fa1e4f5efed8a6039eaab2b2177dfa0090b9a158803c412",
+      "closed_copy_matches": true
+    },
+    "limitation": "The old failing SDK fixture did not export its concrete synthetic backend or every first-call error before teardown. Remaining node media/source/logs/copies are retained; later custody fixes do not repair that historical gap."
+  },
+  "original_rustfs_capacity": {
+    "observed_at_utc": "2026-11-20T13:18:33.719286+00:00",
+    "reserve_bytes": 6442450944,
+    "available_bytes": 10493952,
+    "admissible": false,
+    "cases_admitted": 0,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_config_and_start_match_original": true,
+    "restarts": 0,
+    "scope": "Only original RustFS container identity/configuration/resources/start and mounted filesystem; not a fresh three-node runtime-resource witness."
+  },
+  "remaining_priorities": [
+    "P0: Repeatable original-bound Queue C2/C4 producer/source-RPC/consumer progress and exact drain of every acknowledged ID/body. Prior same-source passes/failures establish intermittency, not a causal repair.",
+    "P0: Current-source recovery-close committed-prefix/archive settlement, fenced recovery and full SDK/primitive/backend-fault/release coverage. Earlier materialized close reports committed 7, applied/archived 6; not requalified by this scheduling mechanism.",
+    "P1: Complete OPT-01 through OPT-08 acceptance: measured persistence/ReadIndex/archive batching and hot/cold fairness, physical shared-file release/once-only credits and repeated reserve-aware interrupted placement/lifecycle.",
+    "P2: The original three 1-vCPU/2-GiB nodes, RF3/three groups/shared RustFS SQL/KV/Queue x Quorum/Quorum+S3/Fleet/Bucket x C1/4/16 matrix; 256-byte values, Queue batch eight, reversed repetitions and original 60-second windows."
+  ],
+  "no_acceptance_claims": [
+    "Complete OPT-01 through OPT-08 or remaining CG task acceptance",
+    "Full backend/recovery/SDK/release acceptance",
+    "Constrained throughput or p50/p95/p99 improvement",
+    "Current Fleet/Bucket comparison conclusion",
+    "Complete backend retention for older unexported failures"
+  ],
+  "whole_goal_complete": false
+}

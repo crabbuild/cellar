@@ -6,6 +6,7 @@
 mod binding_recovery;
 pub(in crate::raft::cell_groups) mod mutation_route;
 pub(crate) use mutation_route::MutationRouting;
+pub(super) use mutation_route::MutationSelectionError;
 mod query_execution;
 mod query_routing;
 pub(in crate::raft::cell_groups) use query_execution::CellQueryExecution;
@@ -92,18 +93,21 @@ pub enum CellDispatchError {
 
 impl CellDispatchError {
     /// A typed application or readiness refusal from local execution or an
-    /// authenticated remote reply. This does not resolve a command error's ambiguity: callers
+    /// authenticated remote reply, including local non-submission. This does
+    /// not resolve a command error's ambiguity: callers
     /// must inspect `CellCommandError::ambiguous` and preserve its command ID.
     pub fn refusal(&self) -> Option<&cellar_logic::consensus::CommandFailure> {
         match self {
-            Self::Runtime(RuntimeError::NotReady) => {
+            Self::Runtime(RuntimeError::NotReady)
+            | Self::Transport(crate::raft::transport::TransportError::CommandOriginRefused) => {
                 Some(&cellar_logic::consensus::CommandFailure::Unavailable)
             }
             Self::Execution(ExecutionError::Refused(failure))
             | Self::Transport(
                 crate::raft::transport::TransportError::Query(failure)
                 | crate::raft::transport::TransportError::Command(failure)
-                | crate::raft::transport::TransportError::CommandRejected(failure),
+                | crate::raft::transport::TransportError::CommandRejected(failure)
+                | crate::raft::transport::TransportError::CommandNotSent(failure),
             ) => Some(failure),
             _ => None,
         }
@@ -391,6 +395,18 @@ impl CellGroupDispatcher {
                 RegistrationError::KindMismatch,
             ));
         }
+        if self.class.queue_operator_read_contract().as_ref() == Some(&request.contract)
+            && !matches!(request.consistency, CellQueryConsistency::Linearizable)
+        {
+            return Err(CellDispatchError::Invalid(
+                "Queue operator read consistency",
+            ));
+        }
+        if self.class.kv_inline_read_contract().as_ref() == Some(&request.contract)
+            && !matches!(request.consistency, CellQueryConsistency::Linearizable)
+        {
+            return Err(CellDispatchError::Invalid("KV inline read consistency"));
+        }
         if let Some(minimum) = admission.minimum() {
             if !request.consistency.is_linearizable()
                 || minimum < self.host_binding()?.0.minimum_durability
@@ -497,8 +513,16 @@ impl CellQueryInvocation {
         Ok((self.request.invocation, deadline, bytes))
     }
 
-    pub(crate) fn bind_remote_route(&mut self, route: RemoteMutationRoute) {
+    pub(crate) fn bind_remote_route(
+        &mut self,
+        route: RemoteMutationRoute,
+        deadline: u64,
+    ) -> Result<(), CellDispatchError> {
+        self.session
+            .constrain_deadline(deadline)
+            .map_err(CellDispatchError::Routing)?;
         self.remote_route = Some(route);
+        Ok(())
     }
 
     pub fn attempt(&self) -> Option<&CellRouteAttempt> {

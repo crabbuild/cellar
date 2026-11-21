@@ -33,8 +33,11 @@ pub(crate) struct MovementCommand {
 }
 
 impl MovementAction {
-    pub(super) fn finishes_joint(&self) -> bool {
-        matches!(self, Self::Finish { .. })
+    pub(super) fn permits_retained_receiver(&self, is_target: bool) -> bool {
+        // A source that consumed this permit before restart may finish its
+        // existing Seeding transition. The learner still requires its original
+        // admitted boot until Joint; a successor cannot initialize that target.
+        matches!(self, Self::Finish { .. }) || !is_target && matches!(self, Self::Promote { .. })
     }
 }
 
@@ -209,13 +212,15 @@ impl FleetCatalog {
                     return Err(FleetCatalogError::Unconfirmed);
                 }
                 let status = sample.membership().status();
+                let retained_phase = matches!(
+                    status.phase,
+                    Some(FleetPermitPhase::Joint | FleetPermitPhase::Complete)
+                ) || node != row.node
+                    && status.phase == Some(FleetPermitPhase::Seeding);
                 if retained
                     && (status.permit.as_ref() != Some(permit)
                         || status.consumed_sequence != permit.sequence()
-                        || !matches!(
-                            status.phase,
-                            Some(FleetPermitPhase::Joint | FleetPermitPhase::Complete)
-                        ))
+                        || !retained_phase)
                 {
                     continue;
                 }
@@ -255,7 +260,12 @@ impl FleetCatalog {
                     reservation: row.request.identity.id,
                     resource_digest: hash(&row.encode()?),
                     target: self
-                        .movement_boot(snapshot, row, node, action.finishes_joint())
+                        .movement_boot(
+                            snapshot,
+                            row,
+                            node,
+                            action.permits_retained_receiver(node == row.node),
+                        )
                         .await?
                         .0,
                     action,

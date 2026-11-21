@@ -1,0 +1,667 @@
+{
+  "format": 1,
+  "generated_at": "2026-11-16T04:01:37.133908+00:00",
+  "source_digest": "a8b26ff97439342501936eda8497d6a39af0745a17966b8d5350a75ca2160a77",
+  "source_inputs": 3449,
+  "base_revision": "cbde019b9486ef21e5bc4f4449d3b09c13cd93fc",
+  "integrated_main": "16c45b266dc30cb271026f3d6e9e27547f14ca68",
+  "component_status": "PASSED",
+  "combined_native_status": "FAILED",
+  "mechanism": "A missing creation record at or below the prepared applied term cannot decide a retained enrollment. Wait on existing progress instead of queueing SQL resolution. A present record or newer term still enters the unchanged SQL owner for exact binding/current-state validation and physical producer retirement. No result, admission credit or authority is granted by the skip.",
+  "unchanged_contracts": [
+    "Original creation/input identity and initializer-once checks",
+    "Original controller, SQL, node/group and physical ownership budgets",
+    "Original response deadline and uncertain admitted-work lifetime",
+    "Original route, engine, current-state, term and exact record checks on terminal SQL resolution",
+    "Original Quorum and S3 proof, authority and retained-output checks",
+    "Original physical joins, cancellation and shutdown behavior; no new task, runtime or worker",
+    "VM disk/resources and failed data remain unchanged/retained"
+  ],
+  "changed_production_inputs": [
+    {
+      "path": "crates/cellar/durability/raft/cell_groups/dispatch/enrollment.rs",
+      "before_sha256": "bf337ef7fd2b4184849b50eadd97b60742af85fcd2d96d6ab0856ede76538d75",
+      "after_sha256": "b187a018979016d81f71e4ac930504fa941dd1c8c5273132855233c160038828"
+    }
+  ],
+  "before": {
+    "status": "REPRODUCED",
+    "source_digest": "dddf50611a34a2516abc5f10f273474def30fb326850e040479e359b6d730b62",
+    "same_test_bytes": true,
+    "stages": [
+      {
+        "name": "compile",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_execution",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 38.92867999999726,
+        "log_sha256": "0ebe7cb07a627a875f3fb6790b858190c9be995676e5da3b0a59a9a94709d64d"
+      },
+      {
+        "name": "regression-1",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_execution-1391d63ae357928b",
+          "--exact",
+          "controller_enrollment_defers_unprovable_sql_resolution",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.4531988340022508,
+        "log_sha256": "49408282a246febe0bd64dd8d15e415b1d0b2dd4c38e4e158e31c97fa3bc616a"
+      },
+      {
+        "name": "regression-2",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_execution-1391d63ae357928b",
+          "--exact",
+          "controller_enrollment_defers_unprovable_sql_resolution",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.37571420799940825,
+        "log_sha256": "93f46c96696571789d14649f2ec52a6524f58c2988e8176dd6ec45a99c7a159c"
+      }
+    ],
+    "failed_sql_resolution_calls": [
+      5,
+      4
+    ],
+    "executed_image_form": "materialized; first failure follows complete identity/receipt assertions and joined cleanup, before the extent iteration",
+    "retained_fixtures": 2,
+    "retained_regular_files": 94,
+    "retained_bytes": 738753
+  },
+  "after": {
+    "status": "FAILED",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "profile_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+      "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+      "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "stages": [
+      {
+        "name": "compile",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_execution",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--bin",
+          "cellar-perf-raft",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 517.8547701250063,
+        "log_sha256": "5f752988e236deb5aef228f3555f547cf1f308dd992e81646dd3dde6aa0362da",
+        "footer": []
+      },
+      {
+        "name": "regression-1",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_execution-1391d63ae357928b",
+          "--exact",
+          "controller_enrollment_defers_unprovable_sql_resolution",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.80835437499627,
+        "log_sha256": "d821f4256a0da952cf2f03b8df97fd8f997c37cfae3bb8acebf2b36fcbc5b59a",
+        "footer": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 209 filtered out; finished in 0.80s"
+        ]
+      },
+      {
+        "name": "regression-2",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_execution-1391d63ae357928b",
+          "--exact",
+          "controller_enrollment_defers_unprovable_sql_resolution",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7369087080005556,
+        "log_sha256": "d000178f6c45944be7fc937007cc6a9000050a0f7fba360fb42d1b7a8aee6631",
+        "footer": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 209 filtered out; finished in 0.73s"
+        ]
+      },
+      {
+        "name": "full-native_cell_groups_execution",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_execution-1391d63ae357928b",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 222.75153366698942,
+        "log_sha256": "d62c2890e679a1d3886def392237e2bb264e5c42b29fd636b3e03908bd2cd6ff",
+        "footer": [
+          "test result: ok. 208 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 222.73s"
+        ]
+      },
+      {
+        "name": "full-native_cell_groups_archive_controller",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 161.59108337500948,
+        "log_sha256": "ba3c943d067d8591e71d7be35df88477e82b5b3cb5c67fef9ed30b85a87ae2e1",
+        "footer": [
+          "test result: ok. 35 passed; 0 failed; 30 ignored; 0 measured; 0 filtered out; finished in 161.57s"
+        ]
+      },
+      {
+        "name": "full-cellar-perf-raft",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/cellar_perf_raft-8104c53e09f5f25e",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 371.80981079200865,
+        "log_sha256": "9e302c3695bf21d2f91dd729bbe0413ab4032875beb70420a8a001144476098b",
+        "footer": [
+          "test result: FAILED. 25 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 371.80s"
+        ]
+      },
+      {
+        "name": "strict-clippy",
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_cell_groups_execution",
+          "--test",
+          "native_cell_groups_archive_controller",
+          "--bin",
+          "cellar-perf-raft",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 130.6175557920069,
+        "log_sha256": "e9bbbd82272b7b7f0d55c63f061616078b9a30227342ee27af65de099718faaa",
+        "footer": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_execution": {
+        "sha256": "785d5a385665ddb735c21dfabbb72307cc36326e05eecdd5c7f7ce0113a63bd7",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_archive_controller": {
+        "sha256": "43c4cff966fb0f610e7720063ba0dd731274ead0ce7d6c62dde3d4e3c5788135",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "cellar-perf-raft": {
+        "sha256": "62cf88e168bd0a39721b4fe6a1b9e6e15ca4eb16bd12b923f65bf753f6f6c753",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true,
+    "regression": {
+      "repetitions": 2,
+      "images": [
+        "materialized",
+        "extents"
+      ],
+      "failed_sql_resolution_calls_per_image": 0,
+      "successful_exact_resolution_calls_per_image": 1
+    },
+    "distinct_default_suite_counts": {
+      "passed": 268,
+      "failed": 1,
+      "ignored": 32
+    },
+    "counting": "Exact regression reruns are included in the full execution suite, not added to distinct pass counts. The three real-RustFS cases below exercise three default ignores separately."
+  },
+  "rustfs": {
+    "status": "PASSED",
+    "source_digest": "a8b26ff97439342501936eda8497d6a39af0745a17966b8d5350a75ca2160a77",
+    "native_owner_status": "FAILED",
+    "native_broader_failures": [
+      "cellar-perf-raft"
+    ],
+    "stages": [
+      {
+        "name": "original-creation",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_s3_enrollment_requires_the_original_archived_creation",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 4.4753181250125635,
+        "log_sha256": "6f5606f784678c4826d7fc2fee8f17c88fe45907c114932c7bd0ec4556cb07d6",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "serving-authority",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_s3_enrollment_output_waits_for_serving_authority_without_reinitialization",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 15.258362082997337,
+        "log_sha256": "876c1af372af3e8a8521a7f15719173c67f23594d29b842c955eda73f6aa4210",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "original-deadline",
+        "argv": [
+          "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_archive_controller-4095c9f3d956eb16",
+          "--ignored",
+          "--exact",
+          "rustfs_s3_enrollment_deadlines_preserve_resolved_ownership",
+          "--test-threads=1",
+          "--show-output"
+        ],
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 8.09227799999644,
+        "log_sha256": "0a134db96ce65fdf356927cd460d2732a184b80f2e807733d396b4155a13fec6",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "image_configurations": 10,
+    "original_backend_unchanged": true,
+    "ready_http_status": 200,
+    "backend_limits": {
+      "cpus": 1000000000,
+      "memory": 2147483648,
+      "swap": 2147483648
+    },
+    "source_inputs_unchanged": true,
+    "awake_joined": true
+  },
+  "open_rooted128_failure": {
+    "status": "UNRESOLVED",
+    "failures": [
+      {
+        "retained_directory": "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/qualification-evidence/perf-runner-native/occupancy-128-9uqMTc",
+        "cause": "cell enrollment: cell dispatch: Runtime(DeadlineExceeded) (ambiguous=true)",
+        "enrollment_seconds": 60.001798167,
+        "performance_sha256": "c068f4a29cdb3c918a3f8215862495f0d294c1d3cbedba804fd8f883a1c0f3e1",
+        "files": 1417,
+        "operations": [
+          {
+            "node": 0,
+            "name": "engine_file_sync",
+            "count": 398,
+            "failed": 0,
+            "mean_ms": 34.467
+          },
+          {
+            "node": 0,
+            "name": "engine_persist",
+            "count": 342,
+            "failed": 0,
+            "mean_ms": 35.629
+          },
+          {
+            "node": 0,
+            "name": "sql_stage",
+            "count": 112,
+            "failed": 0,
+            "mean_ms": 133.647
+          },
+          {
+            "node": 0,
+            "name": "sql_prepare",
+            "count": 113,
+            "failed": 0,
+            "mean_ms": 122.201
+          },
+          {
+            "node": 0,
+            "name": "sql_publish",
+            "count": 111,
+            "failed": 0,
+            "mean_ms": 129.291
+          },
+          {
+            "node": 1,
+            "name": "engine_file_sync",
+            "count": 399,
+            "failed": 0,
+            "mean_ms": 37.363
+          },
+          {
+            "node": 1,
+            "name": "engine_persist",
+            "count": 342,
+            "failed": 0,
+            "mean_ms": 40.817
+          },
+          {
+            "node": 1,
+            "name": "sql_stage",
+            "count": 0,
+            "failed": 0,
+            "mean_ms": 0.0
+          },
+          {
+            "node": 1,
+            "name": "sql_prepare",
+            "count": 113,
+            "failed": 0,
+            "mean_ms": 186.385
+          },
+          {
+            "node": 1,
+            "name": "sql_publish",
+            "count": 0,
+            "failed": 0,
+            "mean_ms": 0.0
+          },
+          {
+            "node": 2,
+            "name": "engine_file_sync",
+            "count": 398,
+            "failed": 0,
+            "mean_ms": 38.49
+          },
+          {
+            "node": 2,
+            "name": "engine_persist",
+            "count": 342,
+            "failed": 0,
+            "mean_ms": 40.486
+          },
+          {
+            "node": 2,
+            "name": "sql_stage",
+            "count": 0,
+            "failed": 0,
+            "mean_ms": 0.0
+          },
+          {
+            "node": 2,
+            "name": "sql_prepare",
+            "count": 113,
+            "failed": 0,
+            "mean_ms": 183.755
+          },
+          {
+            "node": 2,
+            "name": "sql_publish",
+            "count": 0,
+            "failed": 0,
+            "mean_ms": 0.0
+          }
+        ]
+      }
+    ]
+  },
+  "prior_timing_probe": {
+    "status": "REPRODUCED",
+    "scope": "Diagnostic-only original rooted128 enrollment, no deadline/limit/assertion changes. Temporary per-cell timing source retained; root restored.",
+    "finished_calls": 101,
+    "successful_calls": 100,
+    "failed_calls": [
+      {
+        "node": 2,
+        "group": 0,
+        "ordinal": 98,
+        "elapsed_ms": 154,
+        "ok": false,
+        "remaining_before_ms": 154
+      }
+    ],
+    "pending_at_total_deadline": [],
+    "slowest_completed_calls": [
+      {
+        "node": 2,
+        "group": 0,
+        "ordinal": 54,
+        "elapsed_ms": 1956,
+        "ok": true,
+        "remaining_before_ms": 42932
+      },
+      {
+        "node": 2,
+        "group": 0,
+        "ordinal": 125,
+        "elapsed_ms": 1947,
+        "ok": true,
+        "remaining_before_ms": 36566
+      },
+      {
+        "node": 2,
+        "group": 0,
+        "ordinal": 36,
+        "elapsed_ms": 1552,
+        "ok": true,
+        "remaining_before_ms": 44484
+      },
+      {
+        "node": 2,
+        "group": 0,
+        "ordinal": 73,
+        "elapsed_ms": 1224,
+        "ok": true,
+        "remaining_before_ms": 57521
+      },
+      {
+        "node": 2,
+        "group": 0,
+        "ordinal": 57,
+        "elapsed_ms": 1149,
+        "ok": true,
+        "remaining_before_ms": 6287
+      }
+    ],
+    "total_completed_call_ms": 60384,
+    "instrumented_source_sha256": "0d23b7514d12155e1e312ee631c78eb64da16acea13fea2d7783006845ee5ade",
+    "temporary_markers_removed_from_root": true,
+    "preserved_executable_sha256": "13d93e80b46a8c46742bc85c25cace96096dfa74061f26a3bb43fbea97ce7c60"
+  },
+  "static_checks": [
+    {
+      "name": "formatter",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/cellar-xtask",
+        "fmt",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 109.23869924999599
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/cellar-xtask",
+        "layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.06611049998900853
+    },
+    {
+      "name": "native-dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.5112106669985224
+    },
+    {
+      "name": "design-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "docs/design/multi-raft/cell-groups",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 2.389597874993342
+    },
+    {
+      "name": "design-tests-reviewed",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "docs/design/multi-raft/cell-groups",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.8530652500048745
+    },
+    {
+      "name": "design-tests-final",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "docs/design/multi-raft/cell-groups",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.4613181250024354,
+      "log_sha256": "271d86911eeb97a505235a35d2177e963432d1890c5b9f87d73a5f6b93577dca"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.8501495420059655,
+      "log_sha256": "8d3e1708714c1917f0775a0609fe540ef2555fc37559b1876f3f52a9166e25f0"
+    }
+  ],
+  "source_review": {
+    "before_gate": "43 tests pass; actual reviewed-source preflight rejects catalog hash drift",
+    "reviewed_anchors": [
+      "catalog",
+      "birth"
+    ],
+    "reviewed_diff": "Complete seven-line cell_payloads diff propagates fallible namespace capability binding; conflicts/capacity cannot become unconditional success. Existing mode/backend/prefix, 4096-binding bound, authority and excerpts remain.",
+    "reviewed_source_revision": "cbde019b9486ef21e5bc4f4449d3b09c13cd93fc",
+    "runtime_revision_unchanged": "bc4e08c440d4a22baca7d9e05faf85c14c88614a",
+    "other_anchors_unchanged": 22,
+    "task_and_case_acceptance_unchanged": true,
+    "historical_cg01_evidence_replaced": false
+  },
+  "limits": [
+    "The actual factory/controller counter regression proves fewer unsuccessful SQL resolution calls, not an end-to-end throughput or latency speedup. Before stops at materialized failure; after exercises both image forms. Wall times include different completed image iterations and are not speedup denominators.",
+    "The same source still fails the separate rooted128 diagnostic at its original60s total enrollment budget. Failed data, complete footer and operation observations remain. Zero failed SQL publication checks do not mean zero API errors.",
+    "Prior scoped library/backend/tool records retain their own source. This record covers the complete default execution/archive-controller/Raft-tool suites and three selected real-RustFS cases only; other ignores remain unqualified.",
+    "No matching Linux image, constrained SQL/KV/Queue or four-mode performance matrix, isolated causal gain, independent physical-domain, complete crash/movement/authority/feature/SDK/Axum/daemon or OPT/CG release acceptance.",
+    "Disk expansion still lacks user approval and is not performed. No failed container/volume/image/data is deleted."
+  ],
+  "regression_test_inputs": [
+    {
+      "path": "crates/cellar/tests/native_cell_groups_execution.rs",
+      "before_sha256": "d9412bd3f6cab6076b9f28ff7bafb042d06a574ab591d05b379fe8fc165fcba7",
+      "after_sha256": "d9412bd3f6cab6076b9f28ff7bafb042d06a574ab591d05b379fe8fc165fcba7"
+    },
+    {
+      "path": "crates/cellar/tests/support/cell_group_controller_enrollment.rs",
+      "before_sha256": "f455ecff8f5a0da7ac4c41a73628373f75307695917d0ac7d18cd50682a4c25d",
+      "after_sha256": "f455ecff8f5a0da7ac4c41a73628373f75307695917d0ac7d18cd50682a4c25d"
+    }
+  ],
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "credential_matches": 0,
+    "excluded": "Runtime configurations, environment responses, private keys and raw native/node/store log text."
+  }
+}

@@ -15,6 +15,23 @@ pub struct Gate {
     pub entered: Notify,
     pub release: Notify,
     pub publication_index: AtomicU64,
+    reads_released: AtomicBool,
+}
+
+impl Gate {
+    pub fn release_all_reads(&self) {
+        self.reads_released.store(true, Ordering::Release);
+        self.release.notify_waiters();
+    }
+
+    async fn wait_for_read_release(&self) {
+        let mut released = std::pin::pin!(self.release.notified());
+        released.as_mut().enable();
+        self.entered.notify_one();
+        if !self.reads_released.load(Ordering::Acquire) {
+            released.await;
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -76,6 +93,8 @@ pub struct Store {
     pub inner: Arc<dyn ObjectStore>,
     pub puts: AtomicUsize,
     pub gets: AtomicUsize,
+    pub chunk_gets: AtomicUsize,
+    pub chunk_get_entered: Notify,
     pub immutable_missing_gets: AtomicUsize,
     pub immutable_creates: AtomicUsize,
     pub immutable_create_conflicts: AtomicUsize,
@@ -84,6 +103,7 @@ pub struct Store {
     pub denied_payload_reads: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub lose_immutable_put_response: AtomicBool,
+    pub lose_immutable_put_and_reads: AtomicBool,
     pub lose_directory_head_and_reads: AtomicBool,
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
@@ -114,6 +134,8 @@ impl Store {
             inner,
             puts: AtomicUsize::new(0),
             gets: AtomicUsize::new(0),
+            chunk_gets: AtomicUsize::new(0),
+            chunk_get_entered: Notify::new(),
             immutable_missing_gets: AtomicUsize::new(0),
             immutable_creates: AtomicUsize::new(0),
             immutable_create_conflicts: AtomicUsize::new(0),
@@ -122,6 +144,7 @@ impl Store {
             denied_payload_reads: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             lose_immutable_put_response: AtomicBool::new(false),
+            lose_immutable_put_and_reads: AtomicBool::new(false),
             lose_directory_head_and_reads: AtomicBool::new(false),
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
@@ -338,6 +361,17 @@ impl ObjectStore for Store {
         }
         if immutable
             && self
+                .lose_immutable_put_and_reads
+                .swap(false, Ordering::AcqRel)
+        {
+            self.outage.store(true, Ordering::Release);
+            return Err(Error::Generic {
+                store: "lost immutable archive PUT and subsequent reads",
+                source: "injected after accepted create".into(),
+            });
+        }
+        if immutable
+            && self
                 .lose_immutable_put_response
                 .swap(false, Ordering::AcqRel)
         {
@@ -390,6 +424,10 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> Result<GetResult> {
         self.gets.fetch_add(1, Ordering::AcqRel);
+        if !opts.head && path.as_ref().contains("/chunks/") {
+            self.chunk_gets.fetch_add(1, Ordering::AcqRel);
+            self.chunk_get_entered.notify_one();
+        }
         if !opts.head
             && path.as_ref().contains("/cell-payloads-1/")
             && !path.as_ref().contains("/ownership/")
@@ -398,8 +436,8 @@ impl ObjectStore for Store {
             if self.deny_payload_reads.load(Ordering::Acquire) {
                 self.denied_payload_reads.fetch_add(1, Ordering::AcqRel);
                 return Err(Error::Generic {
-                    store: "payload GET outage",
-                    source: "injected temporary dependency read failure".into(),
+                    store: "archive payload reads denied",
+                    source: "injected temporary I/O failure".into(),
                 });
             }
         }
@@ -423,8 +461,7 @@ impl ObjectStore for Store {
             .filter(|(held, puts, _)| held == path && self.puts.load(Ordering::Acquire) >= *puts)
             .map(|(_, _, gate)| gate.clone());
         if let Some(gate) = gate {
-            gate.entered.notify_one();
-            gate.release.notified().await;
+            gate.wait_for_read_release().await;
         }
         let result = self.inner.get_opts(path, opts).await;
         if path.as_ref().contains("/generations/") && matches!(&result, Err(Error::NotFound { .. }))

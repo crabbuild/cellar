@@ -173,6 +173,10 @@ impl QueryRoute {
         self.purpose == Purpose::Command
     }
 
+    pub fn is_query(&self) -> bool {
+        self.purpose == Purpose::Query
+    }
+
     pub fn for_event_command(mut self) -> Result<Self, TransportError> {
         self.decode_shared()?;
         self.purpose = Purpose::EventCommand;

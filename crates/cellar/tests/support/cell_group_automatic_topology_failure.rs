@@ -178,6 +178,18 @@ async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         }
     }
     domain.shutdown().await;
+    if !matches!(&result, Ok(Ok(_))) || !failures.is_empty() {
+        for root in std::mem::take(&mut cluster.roots).into_iter().chain(roots) {
+            eprintln!(
+                "retained failed admitted handoff disk: {}",
+                root.keep().display()
+            );
+        }
+        eprintln!(
+            "retained failed handoff replay disk: {}",
+            replay.keep().display()
+        );
+    }
     result
         .context("automatic admitted handoff execution domain")?
         .with_context(|| {
@@ -264,7 +276,9 @@ async fn exercise(
         seed,
         histories,
         observer,
-    } = prepare_groups(cluster, rooted, workers, roots).await?;
+    } = prepare_groups(cluster, rooted, workers, roots)
+        .await
+        .context("prepare split histories for admitted handoff")?;
     let directory = cluster.directory.observe().await?;
     let platform = Arc::new(Platform {
         catalog: observer.clone(),
@@ -292,13 +306,34 @@ async fn exercise(
         .deny_group_payload_reads
         .store(true, Ordering::Release);
     let mut controller = 3;
-    let host = start_controller(cluster, nodes, controller, &topology, None, 180).await?;
+    let host = start_controller(cluster, nodes, controller, &topology, None, 180)
+        .await
+        .context("start initial automatic handoff controller")?;
     let (movement, debit, operation, obsolete) =
         tokio::time::timeout(Duration::from_secs(60), async {
             loop {
-                let cut = observer.read(TIMEOUT).await?;
-                let pending = observer.pending_movements(&cut, TIMEOUT).await?;
-                let debts = observer.pending_reservations(&cut, TIMEOUT).await?;
+                // Each status API requires a current root. The configured
+                // controller may commit admission between these read-only
+                // calls; resample that conflict under the original timeout.
+                let observed = async {
+                    let cut = observer.read(TIMEOUT).await?;
+                    let pending = observer.pending_movements(&cut, TIMEOUT).await?;
+                    let debts = observer.pending_reservations(&cut, TIMEOUT).await?;
+                    Ok::<_, FleetCatalogError>((cut, pending, debts))
+                }
+                .await;
+                let (cut, pending, debts) = match observed {
+                    Ok(observed) => observed,
+                    Err(FleetCatalogError::Conflict) => {
+                        eprintln!("handoff admission observation: resampling stale Fleet root");
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        continue;
+                    }
+                    Err(error) => {
+                        return Err(anyhow::Error::from(error)
+                            .context("observe initial automatic admission/debit"))
+                    }
+                };
                 if pending.len() == 1
                     && debts.len() == 1
                     && store.denied_group_payload_reads.load(Ordering::Acquire) > 0
@@ -354,7 +389,8 @@ async fn exercise(
             }
         })
         .await
-        .context("automatic admission and actual blocked learner seeding")??;
+        .context("automatic admission and actual blocked learner seeding deadline")?
+        .context("automatic admission and actual blocked learner seeding observation")?;
     // The controller must remain a source voter, never a restarted Seeding
     // learner. Move controller ownership before failing it if the planner chose
     // that source as obsolete; the generated operation is still the same one.
@@ -410,6 +446,21 @@ async fn exercise(
                         continue;
                     }
                 };
+                let archive = group.archive_status().map(|archive| {
+                    archive.map(|status| {
+                        (
+                            status.attempts,
+                            status.stopped,
+                            status.error.as_ref().map(ToString::to_string),
+                            status
+                                .published
+                                .as_ref()
+                                .map(|marker| (marker.position(), marker.membership_revision())),
+                        )
+                    })
+                });
+                // Diagnostics must preserve the original failed-work result.
+                eprintln!("handoff archive diagnosis: node={index}, status={archive:?}");
                 let status = group.status().await;
                 eprintln!("handoff diagnosis: node={index}, ingress={}, group={history:?}, status={status:?}", index == ingress);
                 if status.is_ok() {
@@ -430,14 +481,16 @@ async fn exercise(
         (Err(error), _) | (_, Err(error)) => return Err(error),
     };
     load.audit(&cluster.hosts[ingress], &seed, &receipts)
-        .await?;
+        .await
+        .context("audit foreground handoff results")?;
     let host = cluster.hosts[controller].clone();
     host.suspend_automatic_topology().await;
     ensure!(platform.active.load(Ordering::Acquire) == 0);
     let cut = observer.read(TIMEOUT).await?;
     let operation = observer
         .topology_operation(&cut, ProposalId::new(operation)?, TIMEOUT)
-        .await?;
+        .await
+        .context("confirm cancelled handoff intent")?;
     ensure!(operation.phase == FleetTopologyPhase::Cancelled && operation.admitted_movements == 1);
     ensure!(
         observer.pending_movements(&cut, TIMEOUT).await?.is_empty()
@@ -470,7 +523,8 @@ async fn exercise(
         );
         let birth = observer
             .history(&cut, &history, TIMEOUT)
-            .await?
+            .await
+            .context("read final handoff birth")?
             .initial_placement()?;
         let mut voters = BTreeSet::new();
         for member in &configuration.voters {

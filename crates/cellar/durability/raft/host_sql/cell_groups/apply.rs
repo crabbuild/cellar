@@ -169,12 +169,13 @@ impl CellGroupSqlPool {
             return Err(ExecutionError::Invalid("apply pool engine"));
         }
         let bytes = applier.reservation_bytes(&work)?;
-        let reservation = self
-            .inner
-            .apply_admission
-            .acquire(bytes)
-            .ok_or_else(overloaded)?;
-        work.ticket.preparation = Some(Arc::new(reservation));
+        let reservation = Arc::new(
+            self.inner
+                .apply_admission
+                .acquire(bytes)
+                .ok_or_else(overloaded)?,
+        );
+        work.ticket.preparation = Some(reservation.clone());
         let group = applier.history();
         let mut hash = Sha256::new();
         for id in [
@@ -193,7 +194,10 @@ impl CellGroupSqlPool {
         ) % self.inner.workers.len() as u64;
         let worker = &self.inner.workers[index as usize];
         worker.domain.mono_ms().map_err(|_| unavailable())?;
-        let (slot, queued_slot) = worker.completion_slots.acquire()?;
+        let (slot, queued_slot) = worker
+            .completion_slots
+            .acquire_queued(|| Ok(reservation))
+            .await?;
         self.admit()?;
         let (reply, wait) = oneshot::channel();
         worker

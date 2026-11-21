@@ -402,24 +402,28 @@ pub(crate) async fn s3_newer_receipt_bypasses_inflight_maintenance(
     closed
 }
 
-/// An idle publisher keeps one admitted proof for later immutable observations.
+/// An idle publisher keeps an already-proved S3 output's physical verification.
+/// A background-only cut cannot authorize a later Quorum-to-S3 upgrade.
 /// Registry authority remains available; rereading the verified chunks is denied.
 pub(crate) async fn s3_idle_observation_reuses_verification(
     rooted: bool,
     store: Arc<dyn ObjectStore>,
 ) -> Result<()> {
     let mut h = Harness::new(rooted, store, 1).await?;
-    let expected = h.fixture.runtimes[0]
-        .execution_authority(h.route.history, h.cell.clone())
+    let proved = h
+        .command(1, b"idle-cut", Durability::S3, Duration::from_secs(5))
         .await?
-        .cell()
-        .version
-        .clone();
+        .response()
+        .await?;
+    anyhow::ensure!(proved.durability() == Durability::S3);
+    anyhow::ensure!(proved.result() == b"idle-cut");
+    let expected = proved.observation().version.clone();
+    drop(proved);
     h.remote.deny_chunk_reads.store(true, Ordering::Release);
     let work = async {
         let mut lookup = h
             .lookup(
-                h.receipt_request(1, b"not-submitted", Durability::S3)?,
+                h.receipt_request(2, b"not-submitted", Durability::S3)?,
                 Duration::from_secs(5),
             )
             .await?;
@@ -436,19 +440,19 @@ pub(crate) async fn s3_idle_observation_reuses_verification(
         anyhow::ensure!(response.observation().version == expected);
         h.token(&response).await?;
         anyhow::ensure!(h.remote.denied_chunk_reads.load(Ordering::Acquire) == 0);
-        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 0);
+        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 1);
         drop((response, lookup));
         h.remote.deny_chunk_reads.store(false, Ordering::Release);
         // A new cut must evict the cached physical admission before recovery.
         let response = h
-            .command(1, b"new-cut", Durability::S3, Duration::from_secs(5))
+            .command(2, b"new-cut", Durability::S3, Duration::from_secs(5))
             .await?
             .response()
             .await?;
         anyhow::ensure!(response.durability() == Durability::S3);
         anyhow::ensure!(response.observation().version.sequence > expected.sequence);
         anyhow::ensure!(response.result() == b"new-cut");
-        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 1);
+        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 2);
         drop(response);
         Ok::<_, anyhow::Error>(())
     }

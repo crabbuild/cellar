@@ -1,17 +1,25 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! A separately owned query connection per peer. Waiting for a read cannot
-//! occupy the control or LTX connection required to establish its barrier.
+//! Concurrent query exchanges share each peer's existing sender worker and
+//! retain the node's physical socket ceiling and original admission bounds.
 
 use super::*;
 use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire as wire;
 use cellar_logic::consensus::NodeIdentity;
-use sha2::{Digest, Sha256};
+use futures_util::stream::{FuturesUnordered, StreamExt};
 
 pub(super) enum SendQuery {
     Shared(Box<super::cell_queries::SendCellQuery>),
     Write(Box<super::cell_commands::SendCellWrite>),
+}
+
+enum QueryEvent {
+    Stop,
+    IdleClosed,
+    Request(SendQuery),
+    Finished(Option<QueryConnection>),
+    Socket(tokio::sync::OwnedSemaphorePermit),
 }
 
 pub(super) struct OriginGrant {
@@ -399,41 +407,15 @@ impl State {
             source_host = Some(host);
             last_sequence = header.sequence()?;
             let (pool, permission) = match self.authorize_query_route(&header.route) {
-                Ok(admission) => admission,
-                Err(TransportError::Refused) => {
-                    // The header MAC and replay checks have passed, but no
-                    // namespace grant or application admission exists. Charge
-                    // and authenticate the body before denying it. Draining it
-                    // also avoids losing the reply to a TCP reset on close with
-                    // unread request bytes. No peer/SQL work is admitted.
-                    let _node = self
-                        .incoming
-                        .query
-                        .acquire(reservation(head.payload_len, &self.options)?)
-                        .ok_or(TransportError::Overloaded)?;
-                    let mut body = vec![0; head.payload_len];
-                    self.bounded(None, async {
-                        stream.read_exact(&mut body).await?;
-                        Ok(())
-                    })
-                    .await?;
-                    header.verify_body(&body)?;
-                    drop(body);
-                    // The empty denial never settles an uncertain mutation.
-                    let response = wire::refusal_head(
-                        &self.auth,
-                        &exporter,
-                        &header,
-                        &head.tag,
-                        &self.options,
-                    )?;
-                    self.bounded(None, async {
-                        write_head(&mut stream, &response).await?;
-                        stream.flush().await?;
-                        Ok(())
-                    })
-                    .await?;
-                    return Err(TransportError::Refused);
+                Ok(authorization) => authorization,
+                Err(error)
+                    if (error == TransportError::Refused && header.route.is_query())
+                        || (error == TransportError::CommandOriginRefused
+                            && wire::command_origin_refusal_allowed(&header)) =>
+                {
+                    self.refuse_origin(&mut stream, &exporter, &header, &head)
+                        .await?;
+                    return Err(error);
                 }
                 Err(error) => return Err(error),
             };
@@ -533,6 +515,80 @@ impl State {
         }
     }
 
+    async fn refuse_origin<S: AsyncRead + AsyncWrite + Unpin>(
+        &self,
+        stream: &mut S,
+        exporter: &[u8; 32],
+        header: &wire::RequestHead,
+        head: &FrameHead,
+    ) -> Result<(), TransportError> {
+        // A metadata-only physical process may lack both a query pool and this
+        // namespace's grant. Its existing process owner and the same peer bank
+        // bound the denial without creating workers or granting data admission.
+        let source = header.route.source()?;
+        let (incoming, epoch) = {
+            let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+            self.admit(&registry)?;
+            let matches = |peer: &RaftPeerNode| {
+                peer.disk == source.disk
+                    && peer.process == source.process
+                    && peer.label == header.route.source_label()
+            };
+            if let Some(pool) = registry
+                .pools
+                .get(&source.node)
+                .filter(|pool| matches(&pool.peer))
+            {
+                (pool.incoming.query.clone(), pool.stop.subscribe())
+            } else {
+                let seed = registry
+                    .seed_peers
+                    .get(&source.node)
+                    .filter(|seed| matches(&seed.peer))
+                    .ok_or(TransportError::Refused)?;
+                (seed.incoming_query.clone(), seed.stop.subscribe())
+            }
+        };
+        let charge = reservation(head.payload_len, &self.options)?;
+        let _node = self
+            .incoming
+            .query
+            .acquire(charge)
+            .ok_or(TransportError::Overloaded)?;
+        let _peer = incoming.acquire(charge).ok_or(TransportError::Overloaded)?;
+        let deadline = self
+            .domain
+            .mono_ms()
+            .map_err(|_| TransportError::Closed)?
+            .saturating_add(self.options.io_timeout_ms);
+        self.seed_process_io(&epoch, deadline, async {
+            // Consume and authenticate the bounded request before closing the
+            // stream, so unread request bytes cannot reset the signed refusal.
+            let mut body = vec![0; head.payload_len];
+            stream.read_exact(&mut body).await?;
+            header.verify_body(&body)?;
+            drop(body);
+            let refusal = if header.route.is_query() {
+                wire::read_refusal_body(header)?
+            } else {
+                wire::command_origin_refusal_body(header)?
+            };
+            let reply = wire::response_head(
+                &self.auth,
+                exporter,
+                header,
+                &head.tag,
+                refusal,
+                &self.options,
+            )?;
+            write_head(stream, &reply).await?;
+            stream.write_all(refusal).await?;
+            stream.flush().await?;
+            Ok(())
+        })
+        .await
+    }
+
     pub(super) async fn send_queries(
         self: Arc<Self>,
         pool: Arc<Pool>,
@@ -541,46 +597,98 @@ impl State {
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();
         let mut connection: Option<QueryConnection> = None;
+        let mut active = FuturesUnordered::new();
+        let mut pending = std::collections::VecDeque::new();
         loop {
             if *stop.borrow() || *peer_stop.borrow() {
                 return;
+            }
+            // Keep socket assignment in the sender. A request waiting for a
+            // new socket must be able to reuse an exchange that just finished,
+            // even when the physical socket ceiling is already full.
+            while let Some(request) = pending.pop_front() {
+                let assigned = match connection.take() {
+                    Some(connection) => connection,
+                    None => match self.outgoing_query_slots.clone().try_acquire_owned() {
+                        Ok(slot) => QueryConnection::reserved(slot),
+                        Err(tokio::sync::TryAcquireError::NoPermits) => {
+                            pending.push_front(request);
+                            break;
+                        }
+                        Err(tokio::sync::TryAcquireError::Closed) => return,
+                    },
+                };
+                let state = self.clone();
+                let pool = pool.clone();
+                let mut connection = Some(assigned);
+                // Requests already own node/peer item and byte admission.
+                // Poll their exchanges here, without spawning more workers.
+                active.push(async move {
+                    let failed = match request {
+                        SendQuery::Write(request) => {
+                            state
+                                .send_cell_write(&pool, *request, &mut connection)
+                                .await
+                        }
+                        SendQuery::Shared(request) => {
+                            state
+                                .send_cell_query(&pool, *request, &mut connection)
+                                .await
+                        }
+                    };
+                    if failed {
+                        state.failed.fetch_add(1, Ordering::Relaxed);
+                        None
+                    } else {
+                        connection
+                    }
+                });
             }
             // The server bounds its idle header read. Observe peer closure
             // while the lane is idle so the next request can connect afresh.
             // No response bytes are valid before the next request is sent.
             let idle_read = async {
-                if let Some((stream, _, _)) = connection.as_mut() {
+                if let Some(socket) = connection.as_mut().and_then(|c| c.socket.as_mut()) {
                     let mut unexpected = [0];
-                    let _ = stream.read(&mut unexpected).await;
+                    let _ = socket.stream.read(&mut unexpected).await;
                 } else {
                     std::future::pending::<()>().await;
                 }
             };
+            let work = async {
+                crate::asyncrt::select! {
+                    finished = active.next(), if !active.is_empty() => {
+                        QueryEvent::Finished(finished.flatten())
+                    },
+                    request = requests.recv() => match request {
+                        Some(request) => QueryEvent::Request(request),
+                        None => QueryEvent::Stop,
+                    },
+                    slot = self.outgoing_query_slots.clone().acquire_owned(), if !pending.is_empty() => match slot {
+                        Ok(slot) => QueryEvent::Socket(slot),
+                        Err(_) => QueryEvent::Stop,
+                    },
+                }
+            };
             let next = crate::asyncrt::select_biased! {
                 "retire a closed idle connection before sending a queued request";
-                _ = stop.changed() => return,
-                _ = peer_stop.changed() => return,
-                _ = idle_read => None,
-                request = requests.recv() => match request {
-                    Some(request) => Some(request),
-                    None => return,
-                },
+                _ = stop.changed() => QueryEvent::Stop,
+                _ = peer_stop.changed() => QueryEvent::Stop,
+                _ = idle_read => QueryEvent::IdleClosed,
+                event = work => event,
             };
-            let Some(request) = next else {
-                connection = None;
-                continue;
-            };
-            let failed = match request {
-                SendQuery::Write(request) => {
-                    self.send_cell_write(&pool, *request, &mut connection).await
+            match next {
+                QueryEvent::Stop => return,
+                QueryEvent::IdleClosed => connection = None,
+                QueryEvent::Finished(completed) => {
+                    // Retain the existing one idle socket per peer. Additional
+                    // completed sockets close before refunding physical slots.
+                    if connection.is_none() {
+                        connection = completed;
+                    }
                 }
-                SendQuery::Shared(request) => {
-                    self.send_cell_query(&pool, *request, &mut connection).await
-                }
-            };
-            if failed {
-                connection = None;
-                self.failed.fetch_add(1, Ordering::Relaxed);
+                QueryEvent::Request(request) => pending.push_back(request),
+                QueryEvent::Socket(slot) => connection = Some(QueryConnection::reserved(slot)),
             }
         }
     }
@@ -592,7 +700,8 @@ impl State {
         route: QueryRoute,
         body: Vec<u8>,
     ) -> Result<Vec<u8>, TransportError> {
-        if connection.is_none() {
+        let connection = connection.as_mut().ok_or(TransportError::Closed)?;
+        if connection.socket.is_none() {
             let owner = self.outgoing_connections.query();
             let tls = self
                 .bounded(None, async {
@@ -612,12 +721,19 @@ impl State {
                 .1
                 .export_keying_material([0; 32], wire::EXPORT_LABEL, None)
                 .map_err(|e| TransportError::Tls(e.to_string()))?;
-            *connection = Some((tls, exporter, owner));
+            connection.socket = Some(Box::new(QuerySocket {
+                stream: tls,
+                exporter,
+                _owner: owner,
+            }));
         }
-        let (stream, exporter, _owner) = connection.as_mut().ok_or(TransportError::Closed)?;
-        // Assign in this peer's single sender, after dequeueing. Allocating at
-        // ingress can enqueue concurrent callers in reverse sequence order and
-        // make the receiver correctly refuse an otherwise valid read as replay.
+        let socket = connection.socket.as_mut().ok_or(TransportError::Closed)?;
+        let QuerySocket {
+            stream, exporter, ..
+        } = socket.as_mut();
+        // Each stream has one exclusive exchange owner. Assign after acquiring
+        // that stream, so its reused requests remain monotone. Authentication
+        // binds replay protection to the exact TLS exporter on each connection.
         let sequence = self
             .sequence
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
@@ -643,7 +759,7 @@ impl State {
                 read_query_tail(stream, prefix, &self.options, true).await
             })
             .await?;
-        let digest = wire::read_response(
+        let verified = wire::read_response(
             &response,
             &self.auth,
             exporter,
@@ -657,18 +773,31 @@ impl State {
             Ok(())
         })
         .await?;
-        if digest != <[u8; 32]>::from(Sha256::digest(&body)) {
-            return Err(TransportError::Authentication);
-        }
+        verified.verify(&body)?;
         Ok(body)
     }
 }
 
-pub(super) type QueryConnection = (
-    tokio_rustls::client::TlsStream<metrics::Socket<TcpStream>>,
-    [u8; 32],
-    resources::ConnectionOwner,
-);
+pub(super) struct QueryConnection {
+    // Drop the physical socket and its observer before refunding its slot.
+    socket: Option<Box<QuerySocket>>,
+    _slot: tokio::sync::OwnedSemaphorePermit,
+}
+
+struct QuerySocket {
+    stream: tokio_rustls::client::TlsStream<metrics::Socket<TcpStream>>,
+    exporter: [u8; 32],
+    _owner: resources::ConnectionOwner,
+}
+
+impl QueryConnection {
+    fn reserved(slot: tokio::sync::OwnedSemaphorePermit) -> Self {
+        Self {
+            socket: None,
+            _slot: slot,
+        }
+    }
+}
 
 async fn read_query_head<S: AsyncRead + Unpin>(
     stream: &mut S,

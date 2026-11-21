@@ -10,6 +10,16 @@ use std::{io::Write, path::Path, time::Duration};
 
 struct Child(std::process::Child);
 
+pub(super) fn retained_directory() -> Result<tempfile::TempDir> {
+    let mut root = tempfile::tempdir()?;
+    root.disable_cleanup(true);
+    eprintln!(
+        "retained crash verification disk: {}",
+        root.path().display()
+    );
+    Ok(root)
+}
+
 impl Drop for Child {
     fn drop(&mut self) {
         let _ = self.0.kill();

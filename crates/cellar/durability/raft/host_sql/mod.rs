@@ -276,6 +276,33 @@ impl CompletionLane {
             .clone()
             .try_acquire_owned()
             .map_err(Self::refusal)?;
+        self.hold(queued)
+    }
+
+    async fn acquire_queued<T: Send>(
+        &self,
+        admit_waiter: impl FnOnce() -> Result<T, ExecutionError> + Send,
+    ) -> Result<
+        (
+            Arc<tokio::sync::OwnedSemaphorePermit>,
+            tokio::sync::OwnedSemaphorePermit,
+        ),
+        ExecutionError,
+    > {
+        let queued = cell_groups::progress::reserve(&self.queue, admit_waiter).await?;
+        self.hold(queued)
+    }
+
+    fn hold(
+        &self,
+        queued: tokio::sync::OwnedSemaphorePermit,
+    ) -> Result<
+        (
+            Arc<tokio::sync::OwnedSemaphorePermit>,
+            tokio::sync::OwnedSemaphorePermit,
+        ),
+        ExecutionError,
+    > {
         let mut prior = self
             .lease
             .lock()
@@ -330,6 +357,7 @@ impl Pool {
         queue: usize,
         max_cells: usize,
         performance: Arc<Performance>,
+        root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Result<Self, ExecutionError> {
         let stopped = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicUsize::new(0));
@@ -368,7 +396,12 @@ impl Pool {
                     })?;
                     let apply_waker =
                         std::task::Waker::from(Arc::new(ApplyWake(worker_wake.clone())));
-                    let mut shared = cell_groups::Cells::new(activations, worker_wake);
+                    let mut shared = cell_groups::Cells::new(
+                        activations,
+                        worker_wake,
+                        performance.clone(),
+                        root_apply_limits,
+                    );
                     // Drop apply owners before cells/connections on unwinding.
                     let mut applying = cell_groups::ApplyTasks::new(apply_waker, max_cells);
                     let mut requests = RequestQueue::new(receiver, capacity);

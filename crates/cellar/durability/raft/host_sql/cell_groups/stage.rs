@@ -46,7 +46,8 @@ impl Cells {
                 return Err(ExecutionError::Invalid("SQL cell history"));
             }
             let max_result = options.limits().max_result_bytes;
-            let mut executor = options.open(authority)?;
+            let mut executor =
+                options.open(authority, &self.performance, self.root_apply_limits)?;
             let captured = match callback {
                 Callback::Verification(callback) => {
                     executor.capture(attempt, mode.allows_new(), callback)

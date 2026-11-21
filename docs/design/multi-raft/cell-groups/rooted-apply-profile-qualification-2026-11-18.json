@@ -1,0 +1,778 @@
+{
+  "copyright": "Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.",
+  "format": 1,
+  "scope": "Configured rooted preview validation, exact-profile reuse capability and separately owned recovery diagnostics. Native qualification; no constrained performance or release acceptance.",
+  "implementation_commit": "070e6abe8e050ce094dc50bb1ec7b45f6be8b544",
+  "main_commit": "2f083f148ac1505a63e183a046593f3c4aa5947e",
+  "candidate_source_digest": "321cde1a365fac246e0796b98c390e8b6234feac76c92fd3b7194d43478fe914",
+  "fixture_sha256": "ee12f1c86fd3f111e8129ac2420d7066487c3e9c7c662b9111222fe7f9bf31f9",
+  "toolchain": "1.98.1",
+  "test_profile": {
+    "opt_level": 1,
+    "debug": 0,
+    "debug_assertions": true,
+    "overflow_checks": true,
+    "incremental": false,
+    "build_jobs": 1
+  },
+  "control_scope": "New profile plumbing retained; former execution-derived preview/profile selectors restored. This is a source-pinned selector control, not a pristine published-parent benchmark.",
+  "control": {
+    "status": "FAILED",
+    "source_digest": "7f694ad8894269c207010b8ae1bf14724b6149dc490aadc4c16f15044fcd86da",
+    "retained": {
+      "files": 3,
+      "bytes": 24720,
+      "manifest_sha256": "72247ed15548dfb0a547d55e968b9a79f733ce86eaa0a58ff0529baf9942b9cf"
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 639.8914827500121,
+        "footers": [],
+        "log_sha256": "8e951c468f9709bd22f271edb7317bfa897f95bc723d7d785129e0012a5e67e2"
+      },
+      {
+        "name": "cellar--raft_execution_images_tests_rooted_preview_validates_configured_apply_profile_before_reuse",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 0.4083693329594098,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "ad715911d6dacad723ed0399977dd6aa76ae865f7a8f11a9ed7c56f30e7afb6b",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "cellar": {
+        "sha256": "eda8034dbd5becefdc6f684d6cc85e620d2d6c0ca09d57796e73bcd0ffd8abe2",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "source_inputs_unchanged": true,
+    "retained_copy": {
+      "label": "root-profile-red-02",
+      "files": 3,
+      "bytes": 24720,
+      "original_and_closed_copy_verified": true,
+      "manifest_sha256": "72247ed15548dfb0a547d55e968b9a79f733ce86eaa0a58ff0529baf9942b9cf"
+    }
+  },
+  "candidate_library": {
+    "status": "PASSED",
+    "source_digest": "321cde1a365fac246e0796b98c390e8b6234feac76c92fd3b7194d43478fe914",
+    "retained": {
+      "files": 127,
+      "bytes": 476345,
+      "manifest_sha256": "a2b8ea3af1975ef6b11181ac8d6030fb9e8f127fb27042efd368c2164950e087"
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 969.3430438749492,
+        "footers": [],
+        "log_sha256": "b80e89fab5307c9eb8172c29667ef5737675ce958940411c87cdabf8959a0d2d"
+      },
+      {
+        "name": "cellar--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 201.99466487497557,
+        "footers": [
+          [
+            "ok",
+            "1259",
+            "0",
+            "2"
+          ]
+        ],
+        "log_sha256": "38f5514a95d70bcf236ed3803676690e9e29c7ba4df4162924131c973987dec2",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "cellar": {
+        "sha256": "b8d734827e0f357034517620b001020d3cafd03a81dbc30725623a36a845b616",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "source_inputs_unchanged": true,
+    "retained_copy": {
+      "label": "root-profile-green-01",
+      "files": 127,
+      "bytes": 476345,
+      "original_and_closed_copy_verified": true,
+      "manifest_sha256": "a2b8ea3af1975ef6b11181ac8d6030fb9e8f127fb27042efd368c2164950e087"
+    }
+  },
+  "candidate_controls": {
+    "status": "FAILED",
+    "source_digest": "321cde1a365fac246e0796b98c390e8b6234feac76c92fd3b7194d43478fe914",
+    "retained": {
+      "files": 4504,
+      "bytes": 37545349,
+      "manifest_sha256": "f0406af3de68c04c71abe566f4ab9225139159bdfeb3d2ce1ca785a288e67400"
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 349.59622949996265,
+        "footers": [],
+        "log_sha256": "de416a02f7be62b70571396a52e09ade5c59733c81b3aa601c4dea5f6840d578"
+      },
+      {
+        "name": "native_cell_groups_effects--full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 109.03715712501435,
+        "footers": [
+          [
+            "ok",
+            "10",
+            "0",
+            "1"
+          ]
+        ],
+        "log_sha256": "66f1211b2b532fedb8bcafde83a66efc7b8fa9f01aae8d974be560c0444f719c",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--unrelated_cell_mutation_does_not_stall_sql_preparation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.9502452079905197,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "ef71453e8dc3ab353ae3bd2a89583caa9cea6b54c096ac5e861491b108c843d2",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--rooted_unrelated_cell_mutation_does_not_stall_sql_preparation",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.9519401660072617,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "5b1b30a3bfaab360dfb8f493565a092cd943920674a79ae6ec35993a450c7326",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--queued_sql_submissions_share_ready_persistence",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.0449094169889577,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "97f5133e98a66887efc0aaae71491b0405cbbed9c382ffff229e28be18002ecd",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--rooted_queued_sql_submissions_share_ready_persistence",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.4139695829944685,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "a31aab3082c08f554f3bdcd9df6ff9bf1eb147f38e2b49e6f53a9dba210ee27c",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--queued_sql_submissions_preserve_intervening_read",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.6563867920194753,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "d9a64b6072aa2bbfaa3a55614bdf847ad47d4951211aa09215df808f97eb051b",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--queued_sql_submissions_respect_event_capacity",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.558969541976694,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0a829ffd17959dd67619e7919c748c083b798491902c23430930f64ee364e075",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--rooted_queued_sql_submissions_respect_event_capacity",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.9611186659894884,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "7db91271b041317765c9a32b1ae417ee865f4d2bb8220a48893a520b44aab4bd",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--command_waits_for_committed_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 3.18100991594838,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "89f9079d7741ae2a1673d16dde2f8074a13d5ed70b86f5cf480c00362f0e20d2",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--command_readiness_wait_keeps_original_deadline",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 4.24602112499997,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "8ad26a3b6c834dce1bb5c7d7e43ab26e9535a3f4c7dca7f873934ffa4b0fe7e7",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_execution--materialized_live_apply_reuses_exact_producer_image",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.3210224159993231,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "aa91e3482d1de352f34559846971887c2eeb124ea6fe896bc262e71af686ab5b",
+        "failed_cases": [],
+        "observed_work": [
+          {
+            "rooted": false,
+            "preview_seals": 1,
+            "apply_seals": 0,
+            "base_reads": [
+              0,
+              1,
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "name": "native_cell_groups_execution--rooted_live_apply_reuses_exact_producer_image",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.3219348340062425,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "700a289cda29ea361d850bd53c1b01209ab15a9759152d3f5f690b25d4a70bbe",
+        "failed_cases": [],
+        "observed_work": [
+          {
+            "rooted": true,
+            "preview_seals": 0,
+            "apply_seals": 0,
+            "base_reads": [
+              0,
+              1,
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_cell_rpcs_interleave_between_proven_roots",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 163.13120291603263,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "2f07658545204a02a98ceef0da876b8537825e45b9ec83952ed9d3e5fb04860e",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--proven_rpc_continuation_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 17.274555333016906,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "0fbd5d4c504df286dff70afe93f27d675b901bcdb2a28a048f9a2d7793ea4851",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 15.21736383397365,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "9e2eff7b827d48984e5d19d221d2d39701ca298d387f1915ad6c69e5fe638635",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 84.5547610000358,
+        "footers": [
+          [
+            "FAILED",
+            "0",
+            "1",
+            "0"
+          ]
+        ],
+        "log_sha256": "28c95627d08785c36ff15170c38f2623b5f297892535fa7d64fab2f32bd520ff",
+        "failed_cases": [
+          "ordinary_sql_bindings_use_managed_shared_groups"
+        ]
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 380.7828751250054,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "ee387178b9643bdeaf24e2617f790bcacb61dc792ac7d7d53133f4c9afdc3530",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_primitives--ordinary_queue_callbacks_use_shared_quorum",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 203.21037654200336,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "ef9129d89766a9cdc2fd6b2615b0a047753a6d4f8295589c19de725ed3e3e260",
+        "failed_cases": []
+      },
+      {
+        "name": "native_cell_groups_disaster--disaster_retry_and_old_token_refusal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 161.45366358297179,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "bc7792d35930cb005297e1b89fc92f5c0e97d39da20567f43398312f52bc4bad",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_primitives": {
+        "sha256": "704657ce4cd9ac895908fa9cb2c2155b0a28e0a09d62609209d9c1cb5b63756d",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_effects": {
+        "sha256": "8504f9d4195320eba7b1f32e0ef85e2b2017d900ce0e2ca3bf6ceea27d3c3333",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_execution": {
+        "sha256": "f46682f31bd46e762491cb0f0da034414ed770be34f5ff74ae049c7eabca9303",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      },
+      "native_cell_groups_disaster": {
+        "sha256": "02fee7c2bd324b1a0183375dc9446fdab100b7aee50e9712100c22cfecbf92d8",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "source_inputs_unchanged": true,
+    "retained_copy": {
+      "label": "root-profile-controls-01",
+      "files": 4504,
+      "bytes": 37545349,
+      "original_and_closed_copy_verified": true,
+      "manifest_sha256": "f0406af3de68c04c71abe566f4ab9225139159bdfeb3d2ce1ca785a288e67400"
+    }
+  },
+  "candidate_checks": {
+    "status": "PASSED",
+    "source_digest": "321cde1a365fac246e0796b98c390e8b6234feac76c92fd3b7194d43478fe914",
+    "scope": "Original nine checks pass across the initial eight successful checks and the reviewed-anchor 44-test rerun. Initial source-drift rejection is retained. Additional full plan CLI validation remains FAILED on missing historical CG-01 evidence; this is not complete qualification.",
+    "initial_suite": {
+      "status": "FAILED",
+      "source_digest": "321cde1a365fac246e0796b98c390e8b6234feac76c92fd3b7194d43478fe914",
+      "retained": {
+        "files": 0,
+        "bytes": 0,
+        "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+      },
+      "stages": [
+        {
+          "name": "clippy",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 705.370560957992,
+          "footers": [],
+          "log_sha256": "6d35e19ecdb3e8bca44b0148074bf72519035efb4fa7dc2e4d5105bdbf623692"
+        },
+        {
+          "name": "native-only",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 113.86132879200159,
+          "footers": [],
+          "log_sha256": "b9f23b88f2e911fe75f40cfb155a5314aa3208c9df7767478636afb7d29b9495"
+        },
+        {
+          "name": "format-check",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 109.72046433400828,
+          "footers": [],
+          "log_sha256": "6ce37e7e57279362030ab8ff028d6a203d97daeb4ecc3c2a6cdee180b80f5cf2"
+        },
+        {
+          "name": "layout",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.1507550830137916,
+          "footers": [],
+          "log_sha256": "48019b76cdf518d85933b2ff69830863acd9cad47acbace412fdac055b64757f"
+        },
+        {
+          "name": "dependencies",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.3928836669656448,
+          "footers": [],
+          "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+        },
+        {
+          "name": "docs",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.9164233329938725,
+          "footers": [],
+          "log_sha256": "492b84c3db3dec30fa4832f2882ac34ee01a6ddf79a11ace6f42f20c4b7bd15b"
+        },
+        {
+          "name": "plan-tests",
+          "status": "FAILED",
+          "exit_code": 1,
+          "elapsed_seconds": 2.3704206660040654,
+          "footers": [],
+          "log_sha256": "9b4f96e969e598f1865b397df2abcff3049320b033d48943b4be02e666860bbd"
+        },
+        {
+          "name": "runner-tests",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.23024608299601823,
+          "footers": [],
+          "log_sha256": "24e7f457db71261082429552c0f3ffe85edc2850cc33c510d6038328f465d964"
+        },
+        {
+          "name": "whitespace",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.025615792023018003,
+          "footers": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "executables": {},
+      "source_inputs_unchanged": true,
+      "retained_copy": {
+        "label": "root-profile-checks-01",
+        "files": 0,
+        "bytes": 0,
+        "original_and_closed_copy_verified": true,
+        "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+      }
+    },
+    "after_anchor_review": {
+      "status": "FAILED",
+      "source_digest": "321cde1a365fac246e0796b98c390e8b6234feac76c92fd3b7194d43478fe914",
+      "retained": {
+        "files": 0,
+        "bytes": 0,
+        "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+      },
+      "stages": [
+        {
+          "name": "plan-tests",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 3.873922540980857,
+          "footers": [],
+          "log_sha256": "a4faacf2cea90e43102477b51a5c05e9d72d0302c8421750e64b2cf3731fa3a3"
+        },
+        {
+          "name": "plan-validate",
+          "status": "FAILED",
+          "exit_code": 1,
+          "elapsed_seconds": 0.5709010409773327,
+          "footers": [],
+          "log_sha256": "b0d39f1199298ba2a97c18e06be715434b6412197159d5f5256b99f0f83d48a5"
+        },
+        {
+          "name": "docs",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.881586832983885,
+          "footers": [],
+          "log_sha256": "492b84c3db3dec30fa4832f2882ac34ee01a6ddf79a11ace6f42f20c4b7bd15b"
+        },
+        {
+          "name": "whitespace",
+          "status": "PASSED",
+          "exit_code": 0,
+          "elapsed_seconds": 0.0211039999849163,
+          "footers": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "executables": {},
+      "source_inputs_unchanged": true,
+      "retained_copy": {
+        "label": "root-profile-review-01",
+        "files": 0,
+        "bytes": 0,
+        "original_and_closed_copy_verified": true,
+        "manifest_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+      }
+    }
+  },
+  "anchor_review": {
+    "source_revision": "070e6abe8e050ce094dc50bb1ec7b45f6be8b544",
+    "changed_anchor": "sql",
+    "unchanged_anchors": 23,
+    "excerpt_and_line_unchanged": true,
+    "reviewed_change": "Only optional immutable apply profile plumbing into existing fixed workers; admission, progress scheduling, budgets and joined shutdown ownership unchanged."
+  },
+  "full_plan_cli_validation": {
+    "status": "FAILED",
+    "cause": "Missing historical CG-01-06-gates-e32115aa-02/CG-01-record.json. No evidence reconstruction, safety waiver or task acceptance."
+  },
+  "profile_scope": "The physical regression verifies configured preview limits, exact-profile capability binding, immutable result and unchanged workspace reservation/release. Existing live-image work controls pass. No non-default public-host physical replay count or throughput/latency gain is asserted.",
+  "application_feedback": {
+    "ordinary_sql": "FAILED: materialized deadline at another phase; rooted concurrent first-use ingress deadline. IngressRace is the scenario name, not an error type.",
+    "ordinary_kv": "PASSED",
+    "ordinary_queue": "PASSED both image modes; earlier C2/C4 load failures remain open and were not rerun here",
+    "combined_application_qualification": "FAILED"
+  },
+  "initial_build_only_failure": {
+    "source_digest": "a725015ac903e5e939729bab80b4fa0f08515b095d71fb0d9c16007056a4dfae",
+    "status": "FAILED",
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 636.1918553340365,
+        "footers": [],
+        "log_sha256": "616ca7c47a8af15ec45b843f927fd6d105a472c57a548a83f362b1e6b349c8f5"
+      }
+    ],
+    "cause": "New test used the immutable database accessor for a mutable transaction (E0596); no test ran. Corrected before both paired runtime executions."
+  },
+  "earlier_diagnostic_only_case": {
+    "status": "PASSED",
+    "source_digest": "c05ee551de41157f2bd43d7917c7332c072bf7e8e952ce3b5ef675f2c73fed34",
+    "retained": {
+      "files": 72,
+      "bytes": 754606,
+      "manifest_sha256": "fa4e9be63ad851e78d5bd6083236e4e21010e370712c6f11ee32f00f32a1e94b"
+    },
+    "stages": [
+      {
+        "name": "compile-cellar",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 75.06694862496806,
+        "footers": [],
+        "log_sha256": "4eaf3417a80271bb1d96a48c639e59268901671278020dc1dc1e73ea8fcc1630"
+      },
+      {
+        "name": "native_cell_groups_disaster--disaster_retry_and_old_token_refusal",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 214.75095233297907,
+        "footers": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "log_sha256": "61bf4f6ac7f420a450396620f591d0028372f79d33eb41f00ae0036229bc3cfc",
+        "failed_cases": []
+      }
+    ],
+    "executables": {
+      "native_cell_groups_disaster": {
+        "sha256": "5abc4555a5442dafd06f11fd3ca018a981a0561ef34d1f124ddea3dedde54e99",
+        "profile": {
+          "opt_level": "1",
+          "debuginfo": 0,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": true
+        }
+      }
+    },
+    "source_inputs_unchanged": true
+  },
+  "diagnostic_scope": "Separately retained diagnostics no longer index erased source roots or recreate voter directories. The earlier diagnostic-only case passed both image modes; no failure snapshot was emitted and the prior hosted failure was not reproduced. This is not a production recovery fix.",
+  "original_rustfs_capacity": {
+    "observed_at_utc": "2026-11-18T21:53:35.836264+00:00",
+    "available_bytes": 0,
+    "reserve_bytes": 6442450944,
+    "capacity_guard_satisfied": false,
+    "admissible": false,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_inspection_config_and_start_unchanged": true,
+    "restarts": 0,
+    "stable_inspection_sha256": "3385998d819d01c22374605e0bb3b8c24fa004b18f19027e33c5f196d0c90c7c"
+  },
+  "retention_limits": "Native processes have exited before filesystem manifests. Disposable workspaces/source erasure still follow their original oracles. Synthetic in-memory stores are not retained as running services. Original RustFS data, containers and resource profiles are unchanged.",
+  "acceptance": {
+    "throughput_latency_gain": "NOT_ESTABLISHED",
+    "full_constrained_comparison": "NOT_ADMITTED",
+    "complete_OPT_01_through_08": "OPEN",
+    "remaining_CG_SDK_release_gates": "OPEN"
+  }
+}

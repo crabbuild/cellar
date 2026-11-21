@@ -1,0 +1,510 @@
+{
+  "format": 1,
+  "status": "FAILED",
+  "scope": "Four fixed checkpoint phase observations, retaining the existing checkpoint runtime and unchanged native fixtures. This is diagnostic qualification, not a Queue performance repair or full TiKV/CG/release acceptance.",
+  "base_head": "08ced51a69a8161353ab2b584feb32edc05d7459",
+  "compiler_inputs_sha256": "d825668eba6d70d8c2f85b3afca0ddaf61371b732a845b43d885cbdcdd01311c",
+  "source_files": [
+    "crates/cellar/durability/raft/host_sql/cell_groups/checkpoint_task.rs",
+    "crates/cellar/durability/raft/host_sql/cell_groups/rpc_commit.rs",
+    "crates/cellar/durability/raft/performance.rs",
+    "crates/cellar/durability/raft/performance_tests.rs"
+  ],
+  "parent_qualification": {
+    "path": "checkpoint-handoff-qualification-2026-11-21.json",
+    "record_sha256": "408e94487adb80299a0c8d055bcd9dbc2a8ef90b6a655cb83487a0458ea8c20e"
+  },
+  "observation_boundaries": {
+    "cell_checkpoint_prepare": "Captured immutable preparation and blocking producer-grant completion; no SQL or handler execution transfers.",
+    "cell_checkpoint_submit": "The same retained submission until its existing outcome, including error/refusal; not an applied receipt.",
+    "cell_checkpoint_handoff": "Submission completion to the original SQL owner first polling returned work, including closing/error paths; not custody adoption or acknowledgement.",
+    "cell_checkpoint_proof": "The unchanged exact-applied/current-fence or newer-term reconciliation wait; not a successful same-term apply in every outcome."
+  },
+  "registry": {
+    "operations": 60,
+    "counters": 82,
+    "duration_buckets_per_operation": 22,
+    "identity_labels_added": 0
+  },
+  "checkpoint_phase_observation_scope": {
+    "snapshots": 12,
+    "distinct_engine_sources": 12,
+    "started_in_last_snapshot_per_engine": {
+      "cell_checkpoint_prepare": 80,
+      "cell_checkpoint_submit": 79,
+      "cell_checkpoint_handoff": 79,
+      "cell_checkpoint_proof": 78
+    },
+    "limits": "Partial lifetime observation counts from failure diagnostics, not accepted requests, a matched performance window, per-request latency or an exclusive cause. Unavailable/saturated durations are unusable."
+  },
+  "validation": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "test_profile": {
+      "locked": true,
+      "all_features": true,
+      "opt_level": 1,
+      "debug_assertions": true,
+      "overflow_checks": true,
+      "test_threads": 1
+    },
+    "library": {
+      "passed": 1360,
+      "failed": 0,
+      "existing_ignored": 2
+    },
+    "owning_controls": {
+      "performance-tests": {
+        "passed": 5,
+        "failed": 0
+      },
+      "waiter-liveness-tests": {
+        "passed": 4,
+        "failed": 0
+      },
+      "checkpoint-task-tests": {
+        "passed": 3,
+        "failed": 0
+      },
+      "domain-task-tests": {
+        "passed": 1,
+        "failed": 0
+      },
+      "submission-prime-tests": {
+        "passed": 2,
+        "failed": 0
+      }
+    },
+    "native": [
+      {
+        "case": "prepared_checkpoints_replicate_before_unrelated_queued_sql",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "completed_checkpoints_advance_ready_reply_bridges",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "ordinary_cell_sdk_dispatch_requires_source_proof",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "ordinary_queue_callbacks_use_shared_quorum",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "queue_long_callbacks_preserve_progress",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "queue_operator_reads_preserve_auth_archive_and_fresh_quorum",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "kv_inline_reads_require_current_archive_and_quorum",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "load_observations": [
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "observation": "completed-drain",
+        "realRustFS": false,
+        "extents": false,
+        "inFlightRequests": 2,
+        "perQueueInFlight": 1,
+        "peakInFlightRequests": 2,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2,
+        "delivered": 528,
+        "uniqueMessageIds": 528
+      },
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "observation": "producer-failure",
+        "realRustFS": false,
+        "extents": true,
+        "inFlightRequests": 2,
+        "perQueueInFlight": 1,
+        "peakInFlightRequests": 2,
+        "failedProducers": 1,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "observation": "producer-failure",
+        "realRustFS": false,
+        "extents": true,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "failedProducers": 4,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "observation": "producer-failure",
+        "realRustFS": false,
+        "extents": false,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "failedProducers": 3,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "observation": "producer-failure",
+        "realRustFS": false,
+        "extents": false,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "failedProducers": 3,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      }
+    ],
+    "producer_failure_observations": [
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      }
+    ],
+    "queue_cleanup": [
+      {
+        "case": "ordinary_queue_callbacks_use_shared_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 1,
+        "returnedOk": true
+      },
+      {
+        "case": "ordinary_queue_callbacks_use_shared_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 1,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_long_callbacks_preserve_progress",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_long_callbacks_preserve_progress",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_operator_reads_preserve_auth_archive_and_fresh_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_operator_reads_preserve_auth_archive_and_fresh_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      }
+    ],
+    "checks": {
+      "format": "PASSED",
+      "clippy": "PASSED",
+      "layout": "PASSED",
+      "native-dependencies": "PASSED",
+      "docs": "PASSED",
+      "whitespace": "PASSED"
+    },
+    "combined_c4_extent_mode": "Not entered after the materialized mode failed."
+  },
+  "evidence": {
+    "status": "VERIFIED_FAILED",
+    "record_sha256": "6bdafa68f7e55e6793663cbd5ea71d8b8f1dce43bce628146d8ef3205a7d760c",
+    "recorded_stages": 27,
+    "planned_stages": 27,
+    "retained_files": 32917,
+    "retained_bytes": 757310527,
+    "manifest_sha256": "9afc035fb756c6210e6c3f3947d2c49d91b324346e76923cbc3903bb1a3fcad4",
+    "exports": 33,
+    "objects": 19174,
+    "memory_bytes": 201501275,
+    "awake_joined": true
+  },
+  "limits": [
+    "The compiler-input manifest covers workspace manifests and crate/vendor/example/tool inputs, not every root configuration or environment input.",
+    "Lifetime snapshots overlap operations, requests, startup and cleanup; they are not request percentiles or exclusive bottleneck attribution.",
+    "Recorded durations include available failed and abandoned observations, but unfinished work has no completed duration. Cancelled future timings can end before entered I/O joins.",
+    "The handoff observation ends on first owner polling, before any remaining join/adoption or proof. Proof can end with newer-term reconciliation.",
+    "The aggregate sql_publish failure count also includes pending/retained reconciliation observations and does not establish publication errors.",
+    "Original fixture assertions, deadlines, workers and banks remain unchanged. Failed/unknown command histories are retained and unreissued.",
+    "The original constrained SQL/KV/Queue Colima/RustFS comparison, Queue repeatability and full OPT/CG/recovery/SDK/release acceptance remain open. No throughput or latency gain is claimed."
+  ],
+  "whole_goal_complete": false,
+  "code_commit": "c9258a82ad2b5c1966c61f54e1017823622d380b",
+  "source_mapping": {
+    "tracked_inputs_mapped": 3520,
+    "ignored_inputs_unchanged_not_committed": 61,
+    "scope": "Tracked compiler inputs match committed blobs. Ignored generated inputs match captured bytes but are not committed. The manifest does not cover every root configuration or environment input.",
+    "record_sha256": "f5dd3dc0effcaba117a0939f2662c7dd837fed3d70a0bcf276181694ee395469"
+  },
+  "original_rustfs_capacity": {
+    "observed_at_utc": "2026-11-21T13:27:01.813617+00:00",
+    "available_bytes": 0,
+    "reserve_bytes": 6442450944,
+    "capacity_guard_satisfied": false,
+    "matched_original_private_identity": true,
+    "resource_limits_unchanged": true,
+    "read_pair_config_and_start_match_original": true,
+    "restarts": 0,
+    "cases_admitted": 0,
+    "scope": "Only original RustFS container identity/configuration/resources/start and mounted filesystem; not a fresh three-node runtime-resource witness.",
+    "record_sha256": "c4b572ad75873fe423c1ecc141256fe29e215e88c7339f7c4282c3abdf4aacbb"
+  }
+}

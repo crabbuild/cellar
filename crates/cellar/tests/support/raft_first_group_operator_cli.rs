@@ -12,6 +12,9 @@ use serde_json::Value;
 use std::time::Duration;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tokio::sync::oneshot;
+use tracing::instrument::WithSubscriber as _;
+#[path = "raft_managed_seal_trace.rs"]
+mod seal_trace;
 
 pub const FLEET: &str = "first-group-fixture";
 pub const OWNER: &str = "fixture-first-group-owner-credential-000";
@@ -22,6 +25,7 @@ pub struct OperatorCli {
     pub catalog: String,
     stop: Option<oneshot::Sender<()>>,
     joined: Option<TaskHandle<std::io::Result<()>>>,
+    seal_trace: Option<Arc<seal_trace::Trace>>,
 }
 
 impl OperatorCli {
@@ -34,6 +38,15 @@ impl OperatorCli {
     ) -> Result<Self> {
         let catalog = control.catalog_id().to_owned();
         let router = Self::router(domain, bucket, control, root, owner_id)?;
+        let seal_trace = Arc::new(seal_trace::Trace::default());
+        let dispatch = seal_trace.dispatch();
+        // Hyper owns connection tasks, so a subscriber on the listener future
+        // alone does not follow each request into its catalog operation.
+        let router = router.layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                next.run(request).with_subscriber(dispatch.clone())
+            },
+        ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let url = format!("http://{}", listener.local_addr()?);
         let (stop, stopped) = oneshot::channel();
@@ -47,6 +60,7 @@ impl OperatorCli {
         let mut client = Self::connect(url, catalog);
         client.stop = Some(stop);
         client.joined = Some(server);
+        client.seal_trace = Some(seal_trace);
         Ok(client)
     }
 
@@ -56,7 +70,16 @@ impl OperatorCli {
             catalog,
             stop: None,
             joined: None,
+            seal_trace: None,
         }
+    }
+
+    fn seal_observations(&self) -> Value {
+        serde_json::json!(self
+            .seal_trace
+            .as_ref()
+            .map(|trace| trace.snapshot())
+            .unwrap_or_default())
     }
 
     pub fn router(
@@ -152,6 +175,7 @@ impl OperatorCli {
         Ok(CliReply {
             code: output.status.code().context("CLI exited by signal")?,
             value,
+            operation: args[..args.len().min(2)].join(" "),
         })
     }
 
@@ -161,12 +185,20 @@ impl OperatorCli {
         Ok(status.observed_revision)
     }
 
-    pub async fn close(mut self) -> Result<()> {
+    pub async fn close(self) -> Result<()> {
+        self.close_with_seal_observations().await.0
+    }
+
+    pub async fn close_with_seal_observations(mut self) -> (Result<()>, Value) {
         self.signal_stop();
-        if let Some(joined) = self.joined.take() {
-            joined.await??;
+        let result = async {
+            if let Some(joined) = self.joined.take() {
+                joined.await??;
+            }
+            Ok(())
         }
-        Ok(())
+        .await;
+        (result, self.seal_observations())
     }
 
     fn signal_stop(&mut self) {
@@ -185,11 +217,17 @@ impl Drop for OperatorCli {
 pub struct CliReply {
     pub code: i32,
     pub value: Value,
+    operation: String,
 }
 
 impl CliReply {
     pub fn success(self) -> Result<Value> {
-        ensure!(self.code == 0, "managed CLI refused: {}", self.value);
+        ensure!(
+            self.code == 0,
+            "managed CLI {} refused: {}",
+            self.operation,
+            self.value
+        );
         Ok(self.value)
     }
 }

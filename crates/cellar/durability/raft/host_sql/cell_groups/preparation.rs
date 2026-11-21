@@ -98,24 +98,31 @@ impl Preparation {
     }
 
     pub fn join(&mut self, waker: &Waker) -> Result<(), ExecutionError> {
-        self.retry = None;
-        self.input.take();
-        if let Some(mut task) = self.task.take() {
-            let mut cx = Context::from_waker(waker);
-            loop {
-                match Pin::new(&mut task).poll(&mut cx) {
-                    Poll::Pending => std::thread::park(),
-                    Poll::Ready(joined) => {
-                        return match joined.map_err(crate::raft::execution::storage)? {
-                            Ok(prepared) => prepared.discard(),
-                            Err(error) if busy(&error) => Ok(()),
-                            Err(error) => Err(error),
-                        }
-                    }
-                }
+        let mut cx = Context::from_waker(waker);
+        loop {
+            match self.poll_join(&mut cx) {
+                Poll::Pending => std::thread::park(),
+                Poll::Ready(result) => return result,
             }
         }
-        Ok(())
+    }
+
+    pub(super) fn poll_join(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), ExecutionError>> {
+        self.retry = None;
+        self.input.take();
+        if let Some(task) = &mut self.task {
+            let joined = match Pin::new(task).poll(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(joined) => joined,
+            };
+            self.task = None;
+            return Poll::Ready(match joined.map_err(crate::raft::execution::storage)? {
+                Ok(prepared) => prepared.discard(),
+                Err(error) if busy(&error) => Ok(()),
+                Err(error) => Err(error),
+            });
+        }
+        Poll::Ready(Ok(()))
     }
 }
 

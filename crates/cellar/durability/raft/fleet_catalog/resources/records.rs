@@ -298,6 +298,9 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         movement: Authority,
     ) -> Result<()> {
+        if super::segment_settlement::check_mutation(mutation, movement)? {
+            return Ok(());
+        }
         if self
             .check_resource_completion_mutation(snapshot, mutation, movement)
             .await?

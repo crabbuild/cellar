@@ -4,7 +4,7 @@ use crate::{values::field, Limits};
 use anyhow::{ensure, Context as _, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use cellar::sdk::{
-    storage::{SqlCursor, SqlValue},
+    storage::{SqlCursor, SqlCursorRefusal, SqlValue},
     Context,
 };
 use serde::Deserialize;
@@ -117,7 +117,13 @@ impl Cursors {
                 Ok((sql, parameters))
             })()
             .context(crate::failure::Validation)?;
-            let cursor = storage.sql_cursor(&sql, &parameters)?;
+            let cursor = storage.sql_cursor(&sql, &parameters).map_err(|error| {
+                if error.is::<SqlCursorRefusal>() {
+                    error.context(crate::failure::Validation)
+                } else {
+                    error
+                }
+            })?;
             // Preparing/stepping can already execute writes. An owned-buffer
             // refusal here must stay an unknown outcome, even for RETURNING.
             ensure!(

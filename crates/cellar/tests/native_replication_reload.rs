@@ -4,7 +4,7 @@ use cellar::replication::ActivationOptions;
 use cellar::sdk::{
     ExecutionDomain, ReplicaStorage, ReplicaStorageOptions, Replication, ReplicationOptions,
 };
-use futures_util::stream::BoxStream;
+use futures_util::{stream::BoxStream, FutureExt as _, TryStreamExt as _};
 use object_store::ObjectStore;
 use object_store::{
     path::Path as ObjectPath, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta,
@@ -24,6 +24,40 @@ struct PausedUpload {
     pause: AtomicBool,
     started: Notify,
     released: Semaphore,
+}
+
+impl PausedUpload {
+    /// Preserve this concrete synthetic store after the domain has joined.
+    /// The export records terminal bytes, not a transactional recovery proof.
+    async fn retain_objects(&self, filesystem: &dyn cellar_ltx::FileSystem) -> anyhow::Result<()> {
+        let mut objects = self.store.list(None).try_collect::<Vec<_>>().await?;
+        objects.sort_by(|left, right| left.location.cmp(&right.location));
+        let root = tempfile::Builder::new()
+            .prefix("cellar-memory-")
+            .tempdir()?
+            .keep();
+        eprintln!("retained reload synthetic memory: {}", root.display());
+        let mut manifest = Vec::new();
+        for (ordinal, object) in objects.into_iter().enumerate() {
+            let response = self.store.get(&object.location).await?;
+            let metadata = response.meta.clone();
+            let bytes = response.bytes().await?;
+            let file = format!("{ordinal:06}.bin");
+            filesystem.write(&root.join(&file), &bytes)?;
+            manifest.push(serde_json::json!({
+                "object": object.location.as_ref(), "file": file,
+                "bytes": bytes.len(), "e_tag": metadata.e_tag, "version": metadata.version,
+            }));
+        }
+        filesystem.write(
+            &root.join("manifest.json"),
+            &serde_json::to_vec_pretty(&serde_json::json!({
+                "format": 1, "phase": "reload-checkpoint", "transactional": false,
+                "objects": manifest,
+            }))?,
+        )?;
+        Ok(())
+    }
 }
 
 impl std::fmt::Display for PausedUpload {
@@ -116,25 +150,38 @@ async fn reload_during_an_aged_checkpoint_keeps_cold_restore_contiguous() -> any
         tokio::runtime::Handle::current(),
         Arc::new(move || selected.load(Ordering::SeqCst)),
     );
-    let result = domain.run(async {
-        let directory = tempfile::tempdir()?;
-        let objects = Arc::new(PausedUpload {
-            store: Default::default(), pause: AtomicBool::new(true),
-            started: Notify::new(), released: Semaphore::new(0),
-        });
+    let filesystem = domain.run(async { cellar::asyncrt::fs() }).await?;
+    let directory = tempfile::tempdir()?.keep();
+    eprintln!("retained reload disk: {}", directory.display());
+    let objects = Arc::new(PausedUpload {
+        store: Default::default(),
+        pause: AtomicBool::new(true),
+        started: Notify::new(),
+        released: Semaphore::new(0),
+    });
+    let result = std::panic::AssertUnwindSafe(domain.run(async {
         let storage = || ReplicaStorage::new(objects.clone(), ReplicaStorageOptions::default());
         let options = ReplicationOptions {
-            flush_interval: Duration::ZERO, compaction: None,
-            hydrate_bytes_per_second: 0, paged_restore: false, ..Default::default()
+            flush_interval: Duration::ZERO,
+            compaction: None,
+            hydrate_bytes_per_second: 0,
+            paged_restore: false,
+            ..Default::default()
         };
-        let backend = Replication::start(&directory.path().join("local"), storage()?, options.clone())?;
+        let backend = Replication::start(&directory.join("local"), storage()?, options.clone())?;
         let cell = "Counter:reload";
         let activate = |fresh, resume_local| ActivationOptions {
-            cell, epoch: 1, fresh, took_over: false, resume_local, prior: None,
+            cell,
+            epoch: 1,
+            fresh,
+            took_over: false,
+            resume_local,
+            prior: None,
         };
         let active = backend.ltx().activate(activate(true, false)).await?;
         let writer = rusqlite::Connection::open(&active.path)?;
-        writer.execute_batch("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES (7)")?;
+        writer
+            .execute_batch("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES (7)")?;
         let close = backend.close_for_reload(cell, 1);
         tokio::pin!(close);
         cellar::asyncrt::select! {
@@ -155,12 +202,35 @@ async fn reload_during_an_aged_checkpoint_keeps_cold_restore_contiguous() -> any
         backend.close_for_reload(cell, 1).await?;
         // An independent local directory forces the public recovery path to
         // prove the remote chain, rather than trusting the retained database.
-        let cold = Replication::start(&directory.path().join("cold"), storage()?, options)?;
-        let restored = cold.ltx().activate(ActivationOptions {cell, epoch: 2, fresh: false, took_over: false, resume_local: false, prior: None}).await?;
+        let cold = Replication::start(&directory.join("cold"), storage()?, options)?;
+        let restored = cold
+            .ltx()
+            .activate(ActivationOptions {
+                cell,
+                epoch: 2,
+                fresh: false,
+                took_over: false,
+                resume_local: false,
+                prior: None,
+            })
+            .await?;
         let connection = rusqlite::Connection::open(restored.path)?;
-        assert_eq!(connection.query_row("SELECT value FROM counter", [], |row| row.get::<_, i64>(0))?, 8);
+        assert_eq!(
+            connection.query_row("SELECT value FROM counter", [], |row| row.get::<_, i64>(0))?,
+            8
+        );
         Ok::<_, anyhow::Error>(())
-    }).await?;
+    }))
+    .catch_unwind()
+    .await;
     domain.shutdown().await;
-    result
+    let retained = objects.retain_objects(filesystem.as_ref()).await;
+    if let Err(error) = &retained {
+        eprintln!("reload memory retention failed: {error:#}");
+    }
+    match result {
+        Ok(result) => result??,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+    retained
 }

@@ -1,0 +1,507 @@
+{
+  "format": 1,
+  "source_revision": "8f6744064484d230d808b23ca3d2b8848d7ffa1e",
+  "source_digest": "948c229d3fcb962e59f1694807860c3094258131e882e567421ad67886b48e61",
+  "image": "sha256:0ccf1de97a1c175073f45bde21dbe14d5392e7452df507c97b486147ba0f5d6f",
+  "status": "PASSED",
+  "purpose": "diagnostic",
+  "verified_windows": 18,
+  "request_errors": 0,
+  "performance_gain_accepted": false,
+  "deadline_fix_established": false,
+  "node_commands_with_log_hook": 4,
+  "source_inputs_unchanged": true,
+  "engine_unchanged": true,
+  "owner_joined": true,
+  "original_backend_restored": true,
+  "original_backend_ready_http_status": 200,
+  "host_qualification_activity_observed": true,
+  "nodes": [
+    {
+      "node": "node1",
+      "log_sha256": "7e007658c7b0a55ef32b80c674e19eb3cc90491ff8d8459872f1fd435babfda0",
+      "stages": {
+        "launch": 5164,
+        "drive": 5164,
+        "captured": 1119,
+        "uploaded": 1119,
+        "verified": 1119,
+        "published": 1119,
+        "coverage": 3033,
+        "settled": 3033,
+        "maintenance-complete": 808
+      },
+      "jobs": {
+        "background": {
+          "published": 226,
+          "maintenance": 808,
+          "unclassified": 1233,
+          "covered": 1914
+        },
+        "demand": {
+          "published": 893,
+          "unclassified": 90
+        }
+      },
+      "groups": {
+        "00000000000000010505050505050505": {
+          "published": 1106,
+          "unclassified": 103,
+          "maintenance": 366
+        },
+        "00000000000000020505050505050505": {
+          "published": 2,
+          "unclassified": 637,
+          "covered": 961,
+          "maintenance": 239
+        },
+        "00000000000000030505050505050505": {
+          "published": 11,
+          "maintenance": 203,
+          "unclassified": 583,
+          "covered": 953
+        }
+      },
+      "settled_remaining_counts": {
+        "0": 3033
+      },
+      "stage_gaps": {
+        "launch->drive": {
+          "count": 5164,
+          "mean_ms": 0.046953824395638485,
+          "p50_ms": 0.015974044799804688,
+          "p95_ms": 0.0438690185546875,
+          "p99_ms": 0.07700920104980469,
+          "max_ms": 64.7890567779541
+        },
+        "drive->captured": {
+          "count": 1119,
+          "mean_ms": 24.930931181647715,
+          "p50_ms": 22.504806518554688,
+          "p95_ms": 43.908119201660156,
+          "p99_ms": 84.21206474304199,
+          "max_ms": 328.3271789550781
+        },
+        "captured->uploaded": {
+          "count": 1119,
+          "mean_ms": 31.597107409152525,
+          "p50_ms": 30.312061309814453,
+          "p95_ms": 65.99593162536621,
+          "p99_ms": 94.33603286743164,
+          "max_ms": 220.84498405456543
+        },
+        "uploaded->verified": {
+          "count": 1119,
+          "mean_ms": 52.7827837725001,
+          "p50_ms": 41.38493537902832,
+          "p95_ms": 113.22283744812012,
+          "p99_ms": 243.2711124420166,
+          "max_ms": 479.3710708618164
+        },
+        "verified->published": {
+          "count": 1119,
+          "mean_ms": 10.7295611162501,
+          "p50_ms": 9.50002670288086,
+          "p95_ms": 19.398927688598633,
+          "p99_ms": 29.91199493408203,
+          "max_ms": 78.26399803161621
+        },
+        "published->coverage": {
+          "count": 1119,
+          "mean_ms": 6.2987062950236545,
+          "p50_ms": 5.117177963256836,
+          "p95_ms": 12.156009674072266,
+          "p99_ms": 17.45891571044922,
+          "max_ms": 287.7161502838135
+        },
+        "coverage->settled": {
+          "count": 3033,
+          "mean_ms": 1.3229310846627447,
+          "p50_ms": 0.0209808349609375,
+          "p95_ms": 6.936073303222656,
+          "p99_ms": 12.221813201904297,
+          "max_ms": 53.02000045776367
+        },
+        "drive->coverage": {
+          "count": 3033,
+          "mean_ms": 105.58221869212426,
+          "p50_ms": 91.31002426147461,
+          "p95_ms": 205.3079605102539,
+          "p99_ms": 367.5060272216797,
+          "max_ms": 1748.4490871429443
+        },
+        "launch->settled": {
+          "count": 3033,
+          "mean_ms": 106.96720393074254,
+          "p50_ms": 92.01407432556152,
+          "p95_ms": 210.40105819702148,
+          "p99_ms": 367.52796173095703,
+          "max_ms": 1748.5041618347168
+        },
+        "drive->maintenance-complete": {
+          "count": 808,
+          "mean_ms": 15.043942940117109,
+          "p50_ms": 12.387990951538086,
+          "p95_ms": 25.99310874938965,
+          "p99_ms": 52.825927734375,
+          "max_ms": 301.8970489501953
+        }
+      }
+    },
+    {
+      "node": "node2",
+      "log_sha256": "c72a2c13ef579a160ad5c0fc464156a2d7eda912b220ffd7713fd6f051523cc3",
+      "stages": {
+        "launch": 5149,
+        "drive": 5149,
+        "coverage": 3021,
+        "settled": 3021,
+        "maintenance-complete": 810,
+        "captured": 1090,
+        "uploaded": 1090,
+        "verified": 1089,
+        "published": 1089
+      },
+      "jobs": {
+        "background": {
+          "covered": 1932,
+          "unclassified": 1232,
+          "maintenance": 810,
+          "published": 201
+        },
+        "demand": {
+          "published": 888,
+          "unclassified": 86
+        }
+      },
+      "groups": {
+        "00000000000000010505050505050505": {
+          "covered": 971,
+          "unclassified": 646,
+          "maintenance": 239
+        },
+        "00000000000000020505050505050505": {
+          "covered": 1,
+          "published": 1089,
+          "unclassified": 101,
+          "maintenance": 370
+        },
+        "00000000000000030505050505050505": {
+          "covered": 960,
+          "unclassified": 571,
+          "maintenance": 201
+        }
+      },
+      "settled_remaining_counts": {
+        "0": 3021
+      },
+      "stage_gaps": {
+        "launch->drive": {
+          "count": 5149,
+          "mean_ms": 0.02327648777016206,
+          "p50_ms": 0.015974044799804688,
+          "p95_ms": 0.04482269287109375,
+          "p99_ms": 0.07009506225585938,
+          "max_ms": 9.390115737915039
+        },
+        "coverage->settled": {
+          "count": 3021,
+          "mean_ms": 1.2623340394551372,
+          "p50_ms": 0.019073486328125,
+          "p95_ms": 6.677150726318359,
+          "p99_ms": 11.02590560913086,
+          "max_ms": 22.27306365966797
+        },
+        "drive->coverage": {
+          "count": 3021,
+          "mean_ms": 105.31058701329262,
+          "p50_ms": 91.80617332458496,
+          "p95_ms": 206.35294914245605,
+          "p99_ms": 353.52015495300293,
+          "max_ms": 732.5339317321777
+        },
+        "launch->settled": {
+          "count": 3021,
+          "mean_ms": 106.59848653256044,
+          "p50_ms": 92.33522415161133,
+          "p95_ms": 211.67612075805664,
+          "p99_ms": 362.4379634857178,
+          "max_ms": 732.5761318206787
+        },
+        "drive->maintenance-complete": {
+          "count": 810,
+          "mean_ms": 15.785487787223156,
+          "p50_ms": 12.114763259887695,
+          "p95_ms": 27.797937393188477,
+          "p99_ms": 90.60788154602051,
+          "max_ms": 459.6211910247803
+        },
+        "drive->captured": {
+          "count": 1090,
+          "mean_ms": 24.853991587227636,
+          "p50_ms": 22.615909576416016,
+          "p95_ms": 44.11911964416504,
+          "p99_ms": 69.27013397216797,
+          "max_ms": 399.3241786956787
+        },
+        "captured->uploaded": {
+          "count": 1090,
+          "mean_ms": 31.66381787816319,
+          "p50_ms": 30.102968215942383,
+          "p95_ms": 63.85207176208496,
+          "p99_ms": 92.90289878845215,
+          "max_ms": 163.6519432067871
+        },
+        "uploaded->verified": {
+          "count": 1089,
+          "mean_ms": 52.9104030055667,
+          "p50_ms": 42.031049728393555,
+          "p95_ms": 115.94510078430176,
+          "p99_ms": 209.16509628295898,
+          "max_ms": 478.5921573638916
+        },
+        "verified->published": {
+          "count": 1089,
+          "mean_ms": 11.478656798573784,
+          "p50_ms": 9.85407829284668,
+          "p95_ms": 19.49000358581543,
+          "p99_ms": 31.719207763671875,
+          "max_ms": 296.27084732055664
+        },
+        "published->coverage": {
+          "count": 1089,
+          "mean_ms": 7.256327691266469,
+          "p50_ms": 5.751132965087891,
+          "p95_ms": 14.394998550415039,
+          "p99_ms": 22.96304702758789,
+          "max_ms": 349.82991218566895
+        }
+      }
+    },
+    {
+      "node": "node3",
+      "log_sha256": "3f1315c82758a300f1693d6fa0ea0894844e694418f5421abf0fd627174c77b3",
+      "stages": {
+        "launch": 5272,
+        "drive": 5272,
+        "coverage": 3048,
+        "settled": 3048,
+        "maintenance-complete": 803,
+        "captured": 1100,
+        "uploaded": 1100,
+        "verified": 1100,
+        "published": 1100
+      },
+      "jobs": {
+        "background": {
+          "covered": 1948,
+          "unclassified": 1349,
+          "maintenance": 803,
+          "published": 190
+        },
+        "demand": {
+          "published": 910,
+          "unclassified": 72
+        }
+      },
+      "groups": {
+        "00000000000000010505050505050505": {
+          "covered": 984,
+          "unclassified": 669,
+          "maintenance": 243
+        },
+        "00000000000000020505050505050505": {
+          "covered": 958,
+          "unclassified": 667,
+          "maintenance": 241
+        },
+        "00000000000000030505050505050505": {
+          "covered": 6,
+          "unclassified": 85,
+          "maintenance": 319,
+          "published": 1100
+        }
+      },
+      "settled_remaining_counts": {
+        "0": 3048
+      },
+      "stage_gaps": {
+        "launch->drive": {
+          "count": 5272,
+          "mean_ms": 0.02360113292977734,
+          "p50_ms": 0.015020370483398438,
+          "p95_ms": 0.04601478576660156,
+          "p99_ms": 0.07414817810058594,
+          "max_ms": 7.791996002197266
+        },
+        "coverage->settled": {
+          "count": 3048,
+          "mean_ms": 1.1851785220499114,
+          "p50_ms": 0.019073486328125,
+          "p95_ms": 5.682945251464844,
+          "p99_ms": 10.216951370239258,
+          "max_ms": 32.93895721435547
+        },
+        "drive->coverage": {
+          "count": 3048,
+          "mean_ms": 105.04360070691646,
+          "p50_ms": 90.35611152648926,
+          "p95_ms": 205.51204681396484,
+          "p99_ms": 392.132043838501,
+          "max_ms": 903.2859802246094
+        },
+        "launch->settled": {
+          "count": 3048,
+          "mean_ms": 106.25219939574795,
+          "p50_ms": 91.0649299621582,
+          "p95_ms": 209.22183990478516,
+          "p99_ms": 393.1689262390137,
+          "max_ms": 903.3219814300537
+        },
+        "drive->maintenance-complete": {
+          "count": 803,
+          "mean_ms": 15.030274800909858,
+          "p50_ms": 13.045787811279297,
+          "p95_ms": 27.203798294067383,
+          "p99_ms": 40.59195518493652,
+          "max_ms": 203.52602005004883
+        },
+        "drive->captured": {
+          "count": 1100,
+          "mean_ms": 24.905925013802268,
+          "p50_ms": 22.90511131286621,
+          "p95_ms": 42.986154556274414,
+          "p99_ms": 57.473182678222656,
+          "max_ms": 608.4761619567871
+        },
+        "captured->uploaded": {
+          "count": 1100,
+          "mean_ms": 30.408088293942537,
+          "p50_ms": 28.482913970947266,
+          "p95_ms": 60.47797203063965,
+          "p99_ms": 98.3741283416748,
+          "max_ms": 147.32789993286133
+        },
+        "uploaded->verified": {
+          "count": 1100,
+          "mean_ms": 52.421864379536025,
+          "p50_ms": 41.628122329711914,
+          "p95_ms": 113.01207542419434,
+          "p99_ms": 246.9809055328369,
+          "max_ms": 620.6719875335693
+        },
+        "verified->published": {
+          "count": 1100,
+          "mean_ms": 11.200437545776367,
+          "p50_ms": 9.618043899536133,
+          "p95_ms": 19.781827926635742,
+          "p99_ms": 29.571056365966797,
+          "max_ms": 169.53802108764648
+        },
+        "published->coverage": {
+          "count": 1100,
+          "mean_ms": 6.4657675136219375,
+          "p50_ms": 5.281925201416016,
+          "p95_ms": 12.547016143798828,
+          "p99_ms": 17.141103744506836,
+          "max_ms": 227.16999053955078
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Existing debug logging changes timing. This passing run does not reproduce the prior deadline failures.",
+    "One publication lane per node permits stage pairing from launch until the next launch; no terminal event is an unclassified attempt, not a proved request failure.",
+    "Timings include background work, overlap command timers and lack per-request linkage. No speedup or complete OPT/CG acceptance."
+  ],
+  "stage_gaps_all_nodes": {
+    "launch->drive": {
+      "count": 15585,
+      "mean_ms": 0.031231655920014614,
+      "p50_ms": 0.015974044799804688,
+      "p95_ms": 0.04482269287109375,
+      "p99_ms": 0.07390975952148438,
+      "max_ms": 64.7890567779541
+    },
+    "drive->captured": {
+      "count": 3309,
+      "mean_ms": 24.897274202938778,
+      "p50_ms": 22.68815040588379,
+      "p95_ms": 43.306827545166016,
+      "p99_ms": 68.34292411804199,
+      "max_ms": 608.4761619567871
+    },
+    "captured->uploaded": {
+      "count": 3309,
+      "mean_ms": 31.223820429548606,
+      "p50_ms": 29.60515022277832,
+      "p95_ms": 62.77203559875488,
+      "p99_ms": 95.29399871826172,
+      "max_ms": 220.84498405456543
+    },
+    "uploaded->verified": {
+      "count": 3308,
+      "mean_ms": 52.704780753319035,
+      "p50_ms": 41.67795181274414,
+      "p95_ms": 115.28897285461426,
+      "p99_ms": 243.2711124420166,
+      "max_ms": 620.6719875335693
+    },
+    "verified->published": {
+      "count": 3308,
+      "mean_ms": 11.13274408799417,
+      "p50_ms": 9.617805480957031,
+      "p95_ms": 19.49000358581543,
+      "p99_ms": 30.242919921875,
+      "max_ms": 296.27084732055664
+    },
+    "published->coverage": {
+      "count": 3308,
+      "mean_ms": 6.669509511760817,
+      "p50_ms": 5.343914031982422,
+      "p95_ms": 12.806177139282227,
+      "p99_ms": 19.987106323242188,
+      "max_ms": 349.82991218566895
+    },
+    "coverage->settled": {
+      "count": 9102,
+      "mean_ms": 1.2566892164561858,
+      "p50_ms": 0.019788742065429688,
+      "p95_ms": 6.28209114074707,
+      "p99_ms": 11.20901107788086,
+      "max_ms": 53.02000045776367
+    },
+    "drive->coverage": {
+      "count": 9102,
+      "mean_ms": 105.3116949697925,
+      "p50_ms": 91.13287925720215,
+      "p95_ms": 205.54804801940918,
+      "p99_ms": 370.9142208099365,
+      "max_ms": 1748.4490871429443
+    },
+    "launch->settled": {
+      "count": 9102,
+      "mean_ms": 106.6053901444789,
+      "p50_ms": 91.8118953704834,
+      "p95_ms": 210.09302139282227,
+      "p99_ms": 372.19715118408203,
+      "max_ms": 1748.5041618347168
+    },
+    "drive->maintenance-complete": {
+      "count": 2421,
+      "mean_ms": 15.287509982815363,
+      "p50_ms": 12.423038482666016,
+      "p95_ms": 27.339935302734375,
+      "p99_ms": 52.825927734375,
+      "max_ms": 459.6211910247803
+    }
+  },
+  "raw_capsule": {
+    "bytes": 692604,
+    "sha256": "aa4ae9965c4e0c441b8aa8710ff5ec32601381c70ef2c4039b51945f1ace21aa",
+    "actual_private_representations_scanned": 8,
+    "credential_matches": 0,
+    "excluded": "Node/store log text, runtime configuration, environment responses and private keys.",
+    "file": "three-node-primitive-main-173-2026-11-15.archive-stages.raw.json.gz"
+  }
+}

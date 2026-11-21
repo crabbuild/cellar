@@ -146,12 +146,16 @@ pub(in crate::raft::host_sql) struct Cells {
     preparing: VecDeque<Preparing>,
     activations: Arc<RpcCache>,
     wake: Arc<crate::raft::host_sql::WorkerWake>,
+    performance: Arc<crate::raft::performance::Registry>,
+    root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
 }
 
 impl Cells {
     pub(in crate::raft::host_sql) fn new(
         activations: Arc<RpcCache>,
         wake: Arc<crate::raft::host_sql::WorkerWake>,
+        performance: Arc<crate::raft::performance::Registry>,
+        root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Self {
         Self {
             pending: BTreeMap::new(),
@@ -159,6 +163,8 @@ impl Cells {
             preparing: VecDeque::new(),
             activations,
             wake,
+            performance,
+            root_apply_limits,
         }
     }
 
@@ -238,7 +244,14 @@ impl Cells {
             tracing::trace!(target: "cellar::raft::sql_publish", action, ?error,
                 "private publication attempt remains unresolved");
         }
-        timer.finish(result.is_ok());
+        timer.finish(
+            result.is_ok()
+                && !matches!(
+                    &result,
+                    Ok(CellSqlOutcome::ReconciliationPending
+                        | CellSqlOutcome::ReconciliationRetained)
+                ),
+        );
         let _ = reply.send(result);
     }
 
@@ -278,7 +291,7 @@ impl Cells {
                         s3: None,
                     })));
                 }
-                let mut executor = options.open_enrollment(authority)?;
+                let mut executor = options.open_enrollment(authority, self.root_apply_limits)?;
                 let prepared = match executor.prepare(attempt, callback) {
                     Ok(prepared) => prepared,
                     Err(error) => {
@@ -398,6 +411,7 @@ impl Cells {
                 pending.producer.close()?;
                 if let Some(mut activation) = pending.activation {
                     activation.fence = fence;
+                    activation.committed(&receipt.receipt);
                     self.activations.put(cell, activation, now)?;
                 }
                 Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
@@ -413,10 +427,23 @@ impl Cells {
                     .get_mut(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
                 let expected = pending.producer.command()?.prepared_final_version();
-                let resolution = pending
+                let resolution = match pending
                     .producer
                     .command()?
-                    .reconcile(proposal, *authority)?;
+                    .observe_reconciliation(proposal, *authority)
+                {
+                    Ok(CellReconciliationObservation::Resolved(resolution)) => resolution,
+                    Ok(CellReconciliationObservation::Pending) => {
+                        return Ok(CellSqlOutcome::ReconciliationPending);
+                    }
+                    Err(ExecutionError::Uncertain) if pending.prepared.proposal() == proposal => {
+                        // This is exactly the ownership check performed by
+                        // Resume. It does not validate the observed image or
+                        // authorize caching, output or producer retirement.
+                        return Ok(CellSqlOutcome::ReconciliationRetained);
+                    }
+                    Err(error) => return Err(error),
+                };
                 let pending = self
                     .pending
                     .remove(&cell)
@@ -437,6 +464,9 @@ impl Cells {
                     };
                     if let Some(fence) = fence {
                         activation.fence = fence;
+                        if let CellReconciliation::Committed(receipt) = &resolution {
+                            activation.committed(&receipt.receipt);
+                        }
                         self.activations.put(cell, activation, now)?;
                     } else {
                         activation.close()?;

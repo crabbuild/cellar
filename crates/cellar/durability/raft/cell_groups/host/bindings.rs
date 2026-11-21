@@ -386,33 +386,46 @@ impl CellGroupHost {
 
     /// Reuse the exact binding/configuration authorization before selecting a
     /// pure resource query. No constructor or enrollment may run on this path.
-    pub(crate) fn workflow_read_route(
+    pub(crate) fn resource_read_route(
         &self,
         source: Option<&CellHistory>,
-        configuration: [u8; 32],
+        configuration: Option<[u8; 32]>,
         scope: &str,
         method: &str,
         log: &crate::raft::storage::ReplicaLog,
     ) -> Result<Route, CellDispatchError> {
-        let operation = crate::application::workflow::read_operation(method)
-            .ok_or(CellDispatchError::Invalid("Workflow read operation"))?;
-        let mut selected = match source {
-            Some(source) => self.binding_route(source, configuration, scope, method, log)?,
-            None => self.native_ingress_route(configuration, scope, method, log)?,
+        let operation = crate::application::cell_bindings::read_operation(scope, method)
+            .ok_or(CellDispatchError::Invalid("resource read operation"))?;
+        let (class, _) = scope
+            .split_once(':')
+            .ok_or(CellDispatchError::Invalid("resource read scope"))?;
+        let mut selected = match (source, configuration) {
+            (Some(source), Some(configuration)) => {
+                self.binding_route(source, configuration, scope, method, log)?
+            }
+            (None, _) if class == crate::deploy::SQL_CLASS => {
+                self.sql_ingress_route(scope, method, log)?
+            }
+            (None, Some(configuration)) => {
+                self.native_ingress_route(configuration, scope, method, log)?
+            }
+            _ => return Err(CellDispatchError::Invalid("resource read authorization")),
         };
         let target = self
             .inner
             .namespaces
             .get(&(selected.cluster, selected.namespace))
             .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
-        if !crate::deploy::is_workflow_class(target.class.name()) {
-            return Err(CellDispatchError::Invalid("Workflow read class"));
+        if target.class.name() != class
+            || !(class == crate::deploy::SQL_CLASS || crate::deploy::is_workflow_class(class))
+        {
+            return Err(CellDispatchError::Invalid("resource read class"));
         }
         selected.contract = target
             .class
             .contract(operation)
             .filter(|contract| contract.kind == crate::application::consensus::OperationKind::Query)
-            .ok_or(CellDispatchError::Invalid("Workflow query contract"))?;
+            .ok_or(CellDispatchError::Invalid("resource query contract"))?;
         Ok(selected)
     }
 
@@ -492,6 +505,33 @@ impl CellGroupHost {
             log,
             Access::QueueOperator,
         )
+    }
+
+    /// Reuse a stateless get's already authorized route without consuming a
+    /// second request. The caller still performs ordinary history selection
+    /// before using this query route; this metadata grants no serving authority.
+    pub(crate) fn kv_inline_read_route(
+        &self,
+        selected: &Route,
+    ) -> Result<Option<Route>, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let target = self
+            .inner
+            .namespaces
+            .get(&(selected.cluster, selected.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if target.class.binding_contract("__kvGet").as_ref() != Some(&selected.contract) {
+            return Ok(None);
+        }
+        let Some(contract) = target.class.kv_inline_read_contract() else {
+            return Ok(None);
+        };
+        if contract.kind != crate::application::consensus::OperationKind::Query {
+            return Err(CellDispatchError::Invalid("KV inline query contract"));
+        }
+        let mut read = selected.clone();
+        read.contract = contract;
+        Ok(Some(read))
     }
 
     pub(crate) fn workflow_operator_route(

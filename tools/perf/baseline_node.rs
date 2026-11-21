@@ -8,6 +8,8 @@ use std::sync::Arc;
 mod baseline_workload;
 mod deployment;
 mod embedded;
+mod object_clients;
+mod primitive_app;
 mod reference_workload;
 
 #[global_allocator]
@@ -25,6 +27,11 @@ fn application(node: Arc<str>) -> Result<Arc<dyn Application>> {
 }
 
 fn main() -> Result<()> {
+    if std::env::var_os("CELLAR_PERF_PRIMITIVE").is_some() {
+        return embedded::run(primitive_app::graph()?, |_| {
+            primitive_app::application(false)
+        });
+    }
     embedded::run(deployment::graph(), application)
 }
 

@@ -1,0 +1,32 @@
+{
+  "status": "PASSED",
+  "before_commit": "24894dd8e31cd12bc4b3deeb2136d5a0d8ce3205",
+  "github_validation_run": 43959650627,
+  "before_workflow_sha256": "8deda9f646582c2b955d55c6389a2f16682a886f358242d641deb1be1dc6f843",
+  "before_lint_exit_code": 1,
+  "before_lint_log_sha256": "42c861056bd1db2191d3b073dbf4aa523313a8b84423890a178814d4815991d6",
+  "invalid_job_environment_contexts": 2,
+  "linter": {
+    "version": "1.7.12",
+    "official_release": "https://github.com/rhysd/actionlint/releases/tag/v1.7.12",
+    "archive_sha256": "aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f",
+    "binary_sha256": "8db11704dc296f096216db4db65d86cd7f0ebfdf4c38453a1da276b137b88388"
+  },
+  "after_lint_exit_code": 0,
+  "after_lint_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "after_workflow_sha256": "d24c4b28f64fb66f5d883d339afeeecddc10190800566ae8dc021dd39497051b",
+  "runtime_inputs_changed": false,
+  "workflow_execution_status": "NOT_YET_EXECUTED",
+  "format": 1,
+  "generated_at": "2026-11-16T21:34:52.657050+00:00",
+  "component": "focused disaster workflow validation",
+  "compiler_source_digest_unchanged": "a52461115c1ece5533172d04b5136bedd2e97c6134ea150623eccde6552bd511",
+  "complete_release": false,
+  "full_objective_complete": false,
+  "fix": "Create the fixture directory in a runtime setup step and export its path and the checkout-owned target through GITHUB_ENV. runner.temp is unavailable in job-level env expressions. Preserve Rust/profile settings, test selection, original business budgets, no-retry policy and structured-only artifact allowlist.",
+  "scope": "Static workflow validation repair only. The initial GitHub run failed before any job started; no native test result follows from that run. The corrected workflow has not yet executed at this checkpoint.",
+  "privacy_scan": {
+    "actual_private_representations": 46,
+    "credential_matches": 0
+  }
+}

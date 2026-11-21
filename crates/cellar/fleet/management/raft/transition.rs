@@ -477,7 +477,14 @@ impl RaftFleetControl {
                 &request.plan_digest,
                 turn.remaining()?,
             )
-            .await?;
+            .await
+            .inspect_err(|_| {
+                tracing::warn!(target: "cellar::raft::managed_transition",
+                    event = "seal_authorization_observation",
+                    phase = "operator_authorization", error_class = "operator_error",
+                    clock_available = false, elapsed_ms = 0u64,
+                    "managed transition operator authorization did not complete");
+            })?;
         let journal = transition
             .journal
             .as_ref()

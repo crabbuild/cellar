@@ -38,6 +38,13 @@ cursor cannot cross a producer incarnation. Required source-owner and per-lane
 columns retain marker 1 and refuse earlier development layouts before mutation;
 there is no legacy reader, identity reset or automatic migration.
 
+The public emission adapter derives the source history and destination wire
+capacity from its executing RPC capability. The private journal receives that
+capacity explicitly and checks the complete encoded event request, including
+host provenance and binding metadata. A capacity refusal rolls back tentative
+source, lane, sequence and work changes. Synchronous journal operations do not
+acquire an asynchronous dispatch capability.
+
 ## Shared durable work
 
 `__sys_work` retains the ordinary installation generation and deadline. Its

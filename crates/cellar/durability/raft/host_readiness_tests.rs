@@ -24,7 +24,7 @@ fn image_fixture() -> (crate::raft::cache::CachedGroup, ImageView) {
 }
 
 fn apply_protocol(cache: &mut crate::raft::cache::CachedGroup, index: u64, term: u64) {
-    cache.entries.insert(
+    Arc::make_mut(&mut cache.entries).insert(
         index,
         ::raft::prelude::Entry {
             index,

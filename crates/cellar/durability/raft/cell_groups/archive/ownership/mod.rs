@@ -176,6 +176,17 @@ pub struct CellGroupArchiveIntent {
 }
 
 impl CellGroupArchiveIntent {
+    pub(crate) fn require_initial_upload(&self) -> Result<()> {
+        self.digest()?;
+        match &self.action {
+            Action::Reserve { parent: None } => Ok(()),
+            Action::Reserve { .. } => Err(CellGroupArchiveError::Conflict),
+            _ => Err(CellGroupArchiveError::Invalid(
+                "initial upload intent purpose",
+            )),
+        }
+    }
+
     pub(crate) fn acquire_marker(&self) -> Result<&GroupManifest> {
         self.digest()?;
         match &self.action {
@@ -229,6 +240,20 @@ pub(super) struct Protection {
 pub struct CellGroupArchiveRegistry {
     pub(super) archive: CellGroupArchive,
     identity: CellGroupArchiveCreation,
+}
+
+impl CellGroupArchiveRegistry {
+    pub(in crate::raft::cell_groups) fn capture_payload_capacity(
+        &mut self,
+        capture: super::capacity::Capture,
+    ) {
+        if let Some(pool) = &mut self.archive.payloads {
+            // Only this publication's registry clone receives the hint. Its
+            // original bank and namespace capabilities stay shared; caller
+            // pools and previously retained archive contexts stay unchanged.
+            Arc::make_mut(pool).capture_capacity(capture);
+        }
+    }
 }
 
 fn encode(value: &impl Serialize, limit: usize) -> Result<Vec<u8>> {

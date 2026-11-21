@@ -9,6 +9,22 @@ type ChildCall = futures_util::future::BoxFuture<
     std::result::Result<CommandReceipt, Arc<CellCommandError>>,
 >;
 
+fn retain_failure(phase: &'static str, error: &CellCommandError) {
+    eprintln!(
+        "SDK_DISPATCH_RESPONSE {}",
+        json!({
+            "phase":phase,"command":format!("{:?}",error.command),
+            "ambiguous":error.ambiguous,"error":format!("{error:#}"),
+        })
+    );
+}
+
+fn retain_response<T>(phase: &'static str, result: &std::result::Result<T, Arc<CellCommandError>>) {
+    if let Err(error) = result {
+        retain_failure(phase, error);
+    }
+}
+
 struct Dependent {
     storage: Storage,
     target: Arc<Mutex<Option<RaftCellHandle>>>,
@@ -72,6 +88,7 @@ impl Cell for Dependent {
                         .now_or_never()
                         .context("oversized input must refuse before source proof")?
                         .expect_err("target input bound");
+                    retain_failure("oversized-child", &error);
                     ensure!(
                         !error.ambiguous
                             && matches!(
@@ -148,6 +165,7 @@ impl Cell for Dependent {
                     }
                     "deadline" => {
                         let error = call.await.expect_err("queued target deadline must expire");
+                        retain_failure("queued-child-deadline", &error);
                         ensure!(
                             !error.ambiguous
                                 && matches!(
@@ -261,6 +279,7 @@ fn refused(target: &RaftCellHandle, horizon: u64, client: u8) -> Result<Vec<u8>>
         .now_or_never()
         .context("callback dispatch must refuse synchronously")?
         .expect_err("synchronous callback cannot dispatch");
+    retain_failure("synchronous-dispatch", &error);
     ensure!(
         !error.ambiguous && error.cause.refusal() == Some(&CommandFailure::UnsupportedCapability)
     );
@@ -311,7 +330,47 @@ async fn cursor_images_released(hosts: &[RaftCells]) -> Result<()> {
     .context("parked cursors did not release their physical images")?
 }
 
+fn first_gate_snapshot(hosts: &[RaftCells], calls: &AtomicUsize) -> serde_json::Value {
+    let nodes: Vec<_> = hosts
+        .iter()
+        .enumerate()
+        .map(|(node, host)| {
+            let usage = host.resource_usage();
+            let performance = host.performance();
+            let counters: std::collections::BTreeMap<_, _> = performance
+                .counters
+                .into_iter()
+                .filter(|counter| counter.name.starts_with("cell_"))
+                .map(|counter| (counter.name, counter.value))
+                .collect();
+            let operations: Vec<_> = performance
+                .operations
+                .into_iter()
+                .filter(|operation| operation.started != 0)
+                .map(|operation| {
+                    json!({"name":operation.name,"started":operation.started,
+                        "count":operation.count,"failed":operation.failed,"sum_us":operation.sum_us})
+                })
+                .collect();
+            json!({"node":node,"sql":usage.sql,"controller":usage.host.controller,
+                "runtime":usage.runtime,"control":usage.control,"services":usage.control_services,
+                "serving_images":usage.serving_images,"counters":counters,"operations":operations,
+                "performance_available":performance.available,"performance_saturated":performance.saturated})
+        })
+        .collect();
+    json!({"target_callback_entries":calls.load(Ordering::Acquire),"nodes":nodes})
+}
+
 pub async fn run(
+    rooted: bool,
+    durability: Durability,
+    store: Arc<catalog_fault::Store>,
+) -> Result<()> {
+    let result = run_with_store(rooted, durability, store.clone()).await;
+    managed_fixture::memory::preserve_result(&store.inner, "sdk-dispatch", result).await
+}
+
+async fn run_with_store(
     rooted: bool,
     durability: Durability,
     store: Arc<catalog_fault::Store>,
@@ -456,7 +515,9 @@ pub async fn run(
             let (result, observed) = tokio::join!(
                 cells[0].command(&cells[0].contract("Run")?, input.clone(), options.clone()),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await.context("SDK gate 0 entered")?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await.with_context(|| {
+                        format!("SDK gate 0 entered; original-deadline snapshot={}", first_gate_snapshot(&cluster.hosts, &calls))
+                    })?;
                     let source = value(&observed_cells[0], 178).await?;
                     let target = value(&observed_cells[1], 179).await?;
                     gates[0].release.notify_one();
@@ -472,6 +533,7 @@ pub async fn run(
                     Ok::<_, anyhow::Error>(())
                 }
             );
+            retain_response("nested-source", &result);
             observed.with_context(|| format!(
                 "SDK nested observer; command error: {:?}",
                 result.as_ref().err().map(ToString::to_string),
@@ -514,14 +576,15 @@ pub async fn run(
             };
             let mut atomic = command(185, durability)?;
             atomic.timeout = Duration::from_secs(20);
-            ensure!(cells[0]
+            let atomic_result = cells[0]
                 .command(
                     &cells[0].contract("Run")?,
                     request("atomic", &atomic),
                     atomic
                 )
-                .await
-                .is_err());
+                .await;
+            retain_response("atomic-source", &atomic_result);
+            ensure!(atomic_result.is_err());
             ensure!(calls.load(Ordering::Acquire) == 1 && value(&cells[0], 186).await? == 11);
 
             // Dropping the child receiver leaves admitted work owned and parent output gated.
@@ -538,6 +601,7 @@ pub async fn run(
                             dropped,
                         )
                         .await;
+                    retain_response("dropped-child-source", &result);
                     completed.store(true, Ordering::Release);
                     result.map_err(anyhow::Error::from)
                 },
@@ -575,6 +639,7 @@ pub async fn run(
                     Ok::<_, anyhow::Error>(())
                 }
             );
+            retain_response("queued-source", &expired);
             observed?;
             let expired = expired?;
             ensure!(expired.result == br#"{"expired":true}"#);
@@ -598,14 +663,15 @@ pub async fn run(
             }
 
             let oversized = command(201, durability)?;
-            ensure!(cells[0]
+            let oversized_result = cells[0]
                 .command(
                     &cells[0].contract("Run")?,
                     request("oversized", &oversized),
                     oversized
                 )
-                .await
-                .is_err());
+                .await;
+            retain_response("oversized-source", &oversized_result);
+            ensure!(oversized_result.is_err());
             ensure!(value(&cells[0], 202).await? == 13 && calls.load(Ordering::Acquire) == 3);
 
             // Fence an admitted child. Its escaped receiver retains uncertainty and its ID.
@@ -676,6 +742,7 @@ pub async fn run(
                     Ok::<_, anyhow::Error>(next)
                 }
             );
+            retain_response("fenced-source", &fenced);
             let next = moved?;
             ensure!(fenced.is_err());
             let pending = escaped
@@ -686,16 +753,18 @@ pub async fn run(
             let error = pending
                 .await
                 .expect_err("obsolete source cannot settle a child");
+            retain_failure("escaped-child", &error);
             ensure!(
                 error.ambiguous && error.command == CommandId::new(ClientId::new([225; 16])?, 1)?
             );
             let source = cluster.hosts[next].cell(cells[0].history().clone())?;
             let target = cluster.hosts[next].cell(cells[1].history().clone())?;
             ensure!(value(&source, 199).await? == 14 && value(&target, 200).await? == 9);
-            ensure!(source
+            let fenced_replay = source
                 .command(&source.contract("Run")?, held, fencing)
-                .await
-                .is_err());
+                .await;
+            retain_response("fenced-source-replay", &fenced_replay);
+            ensure!(fenced_replay.is_err());
             ensure!(calls.load(Ordering::Acquire) == 4);
             ensure!(
                 target
@@ -715,6 +784,7 @@ pub async fn run(
                 .command(&source.contract("Run")?, request("busy", &busy), busy)
                 .await
                 .expect_err("admitted callback Busy");
+            retain_failure("admitted-busy", &error);
             ensure!(matches!(
                 error.cause.as_ref(),
                 CellDispatchError::Execution(ExecutionError::Busy)
@@ -733,9 +803,17 @@ pub async fn run(
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;
-    if work.is_err() || joined.is_err() {
-        for root in std::mem::take(&mut cluster.roots) {
-            eprintln!("retained dispatch disk: {}", root.keep().display());
+    // Passing controls also own acknowledged and ambiguous command histories.
+    for root in std::mem::take(&mut cluster.roots) {
+        eprintln!("retained dispatch disk: {}", root.keep().display());
+    }
+    if let Err(error) = &joined {
+        eprintln!("SDK dispatch joined cleanup: {error:#}");
+    }
+    if let Some(pending) = escaped.lock().unwrap().take() {
+        match pending.now_or_never() {
+            Some(result) => retain_response("escaped-child-cleanup", &result),
+            None => eprintln!("SDK_DISPATCH_UNRESOLVED_CHILD after joined cleanup"),
         }
     }
     target.lock().unwrap().take();

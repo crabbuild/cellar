@@ -199,16 +199,23 @@ pub(super) fn replay(
     if root.marker() != &cut.marker || encoded != cut.conf || membership != cut.membership {
         return Err(CellGroupArchiveError::Invalid("replayed complete cut"));
     }
-    // Recheck every final physical image and page, even after warm replay. An
-    // in-memory pin or a cached destination is never a substitute for bytes.
-    let Storage {
-        tree,
-        pages,
-        images,
-        ..
-    } = &mut *owner;
-    let verified = tree
-        .prepare_archive_complete(&store.owner, pages, root.marker().clone(), &mut |leaf| {
+    let verified = if entries.is_empty() {
+        // This invocation just independently received every checkpoint object
+        // and verified/synced the complete physical closure, including warm
+        // destinations. With no replayed entries, the exact checked cut above
+        // is already that receiver's preparation. Keep its actual pins and
+        // admission instead of traversing/sealing the same closure again.
+        root
+    } else {
+        // Recheck every final physical image and page after replay, including
+        // cached results. Replayed bytes need their own complete preparation.
+        let Storage {
+            tree,
+            pages,
+            images,
+            ..
+        } = &mut *owner;
+        tree.prepare_archive_complete(&store.owner, pages, root.marker().clone(), &mut |leaf| {
             if cancelled.load(Ordering::Acquire) {
                 return Err(super::super::ManifestError::Invalid(
                     "archive replay stopped",
@@ -247,7 +254,8 @@ pub(super) fn replay(
             }
             Ok(pin)
         })
-        .map_err(CellGroupCheckpointError::from)?;
+        .map_err(CellGroupCheckpointError::from)?
+    };
     if cancelled.load(Ordering::Acquire) {
         return Err(CellGroupArchiveError::Stopped);
     }

@@ -17,6 +17,31 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
     ))
     .await?;
     let work = async {
+        for (index, host) in cluster.hosts.iter().enumerate() {
+            let sample = host.performance();
+            ensure!(sample.available && !sample.saturated);
+            for name in [
+                "first_group_archive",
+                "first_group_attach",
+                "first_group_quorum",
+            ] {
+                let phase = sample
+                    .operations
+                    .iter()
+                    .find(|phase| phase.name == name)
+                    .context("startup phase")?;
+                // Operator provisioning first refuses readiness on voter zero
+                // while its archive registry is intentionally missing.
+                let refused = u64::from(index == 0 && name == "first_group_archive");
+                ensure!(
+                    phase.started == 1 + refused
+                        && phase.succeeded == 1
+                        && phase.failed == refused
+                        && phase.abandoned == 0,
+                    "initial startup phase {name}: {phase:?}"
+                );
+            }
+        }
         seed_cells(&cluster.hosts, cluster.history).await?;
         let peers = cluster.nodes.split_off(1);
         close_group_nodes(peers, &cluster.hosts[1..]).await?;
@@ -33,6 +58,8 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
         })
         .await
         .context("observe first group quorum loss")??;
+        let before = survivor.performance();
+        ensure!(before.available && !before.saturated);
         let readiness = survivor
             .start_managed_namespace_first_group(
                 cluster.history.cluster,
@@ -50,6 +77,32 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
             "retained attachment must refuse readiness without quorum: {readiness:?}"
         );
         ensure!(survivor.resource_usage().host.controller.groups == 1);
+        let sample = survivor.performance();
+        ensure!(sample.available && !sample.saturated);
+        for name in [
+            "first_group_archive",
+            "first_group_attach",
+            "first_group_quorum",
+        ] {
+            let phase = sample
+                .operations
+                .iter()
+                .find(|phase| phase.name == name)
+                .context("retained startup phase")?;
+            let previous = before
+                .operations
+                .iter()
+                .find(|phase| phase.name == name)
+                .context("previous startup phase")?;
+            let failed = u64::from(name == "first_group_quorum");
+            ensure!(
+                phase.started == previous.started + 1
+                    && phase.succeeded == previous.succeeded + 1 - failed
+                    && phase.failed == previous.failed + failed
+                    && phase.abandoned == previous.abandoned,
+                "retained startup phase {name}: {phase:?}"
+            );
+        }
         Ok::<_, anyhow::Error>(())
     }
     .await;

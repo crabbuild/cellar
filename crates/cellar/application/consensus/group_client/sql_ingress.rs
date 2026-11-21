@@ -367,6 +367,13 @@ impl RaftCells {
                         .sql_operator_route(&scope, &self.handle.core.log)?
                 }
             };
+            let inline_read = if method == "__kvGet"
+                && matches!(&origin, Origin::Binding | Origin::Native { .. })
+            {
+                self.handle.core.host.kv_inline_read_route(&route)?
+            } else {
+                None
+            };
             if route.history_hint.is_some() {
                 self.handle.core.log.performance().increment(
                     crate::raft::performance::Counter::CellBindingAppliedHistoryHints,
@@ -449,6 +456,7 @@ impl RaftCells {
                 route.contract,
                 route.durability,
                 route.history_hint,
+                inline_read,
                 candidate,
                 creation,
                 retry_until_ms,
@@ -466,13 +474,23 @@ impl RaftCells {
                 contract,
                 durability,
                 history_hint,
+                inline_read,
                 candidate,
                 creation,
                 retry_until_ms,
                 input,
                 deadline,
-                _memory,
+                memory,
             ) = prepared?;
+            // Local contenders must not repeatedly overtake a caller after
+            // consuming its observed sequence. The retained metadata admission
+            // bounds this waiter; the original deadline includes its FIFO wait.
+            // Other nodes still require the exact consumed-other proof below.
+            let lane = owner
+                .handle
+                .core
+                .sql_ingress_lanes
+                .enter(&candidate, memory)?;
             let selected = Mutex::new(None);
             let command = Mutex::new(None);
             let submitted = std::sync::atomic::AtomicBool::new(false);
@@ -489,10 +507,11 @@ impl RaftCells {
                 ))
             };
             let operation = async {
-                // A local applied history is only a locator. Atomic enrollment
-                // already checks current routing, authority and foreign births
-                // before initialization. Do not first prove absence by query.
-                // Every business command still requires its own target proof.
+                let mut turn = lane.lock().await;
+                owner.check_open()?;
+                remaining()?;
+                // A local applied history is only a locator. Neither it nor a
+                // handed-off sequence grants execution or durability authority.
                 let (history, enrollment) = if let Some(history) = history_hint {
                     (history, None)
                 } else {
@@ -555,6 +574,30 @@ impl RaftCells {
                     }
                 };
                 let newly_enrolled = enrollment.is_some();
+                // Reuse ordinary discovery/enrollment. This history is only a
+                // locator; the read still needs current quorum authority. A
+                // freshly enrolled cell needs the original schema command.
+                if let Some(mut route) = inline_read.filter(|_| !newly_enrolled) {
+                    route.history_hint = Some(history.clone());
+                    let response = owner
+                        .query_resource(route, input.clone(), remaining()?, false)
+                        .await?;
+                    if !crate::application::kv::read::is_fallback(&response)? {
+                        if let Some(limit) = reservation.reply_limit() {
+                            anyhow::ensure!(
+                                matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
+                                crate::application::rpc::Failure::new(
+                                    crate::application::rpc::Code::InvalidResponse
+                                )
+                            );
+                        }
+                        remaining()?;
+                        return Ok((Reply::Rpc(response), None));
+                    }
+                    // Only the private callback's eligibility sentinel may
+                    // enter the original command. Errors retain their cause;
+                    // input, identity and deadline remain fixed.
+                }
                 *selected.lock().unwrap() = Some(history.clone());
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
                     phase="history", newly_enrolled, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
@@ -644,12 +687,14 @@ impl RaftCells {
                 // is a hint at the enrollment cut, never an exclusive sequence
                 // reservation: another caller can still consume it first.
                 let now = owner.handle.domain.mono_ms()?;
+                let inherited = turn.take_successor(&history);
                 let next = if newly_enrolled {
                     1
-                } else if let Some(next) = cursor
-                    .as_ref()
-                    .and_then(|(cursor, key)| cursor.take(*key, now))
-                {
+                } else if let Some(next) = inherited.or_else(|| {
+                    cursor
+                        .as_ref()
+                        .and_then(|(cursor, key)| cursor.take(*key, now))
+                }) {
                     // A previous verified receipt only supplies a candidate.
                     // Command admission and the fresh conflict proof below are
                     // unchanged; no read/serving authority is cached here.
@@ -664,7 +709,7 @@ impl RaftCells {
                 *command.lock().unwrap() =
                     Some(CommandId::new(sql_ingress_identity::client(), next)?);
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
-                    phase="sequence", next, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
+                    phase="sequence", next, inherited=inherited.is_some(), elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
                 let fingerprint = super::super::command_request_digest(&input);
                 let mut attempt = 0u64;
                 let receipt = loop {
@@ -753,6 +798,7 @@ impl RaftCells {
                     );
                 }
                 remaining()?;
+                turn.acknowledged(&history, receipt.id);
                 Ok((
                     Reply::Rpc(response),
                     cursor.map(|(_, key)| (key, id.sequence())),

@@ -15,6 +15,7 @@ mod member_reclamation;
 mod member_settlement;
 mod membership;
 mod repair;
+mod segment_settlement;
 pub use completion::{
     FleetAbortedMovementCompletion, FleetFencedMovementCompletion, FleetMovementCompletion,
     FleetMovementCompletionRequest,
@@ -65,6 +66,7 @@ pub(super) enum Authority {
     ManagedTransferCompletion,
     SourceSettlement,
     MemberSettlement,
+    SegmentSettlement,
     ManagedRecoveryReservation,
     ManagedRecoveryRetirement,
     ManagedRecoverySettlement,

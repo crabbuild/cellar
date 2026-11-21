@@ -14,7 +14,7 @@ use raft::prelude::ConfState;
 pub(super) struct SourceCut {
     group: GroupLog<GroupHistory>,
     root: PreparedGroupManifest,
-    configuration: ConfState,
+    configuration: Vec<u8>,
     membership: GroupMembership,
     _reservation: Arc<Permit>,
 }
@@ -33,11 +33,15 @@ impl SourceCut {
         }
         Ok(())
     })?;
+        // Replay rebuilds ConfState through raft-rs, whose set vectors may use
+        // a different order. Retain the complete validated canonical encoding;
+        // vector order must not permanently stop a valid archive publisher.
+        let configuration = crate::raft::manifest::encode_conf(&configuration)
+            .map_err(|_| CellGroupArchiveError::Invalid("tail configuration encoding"))?;
         let mut source_bytes = root
             .reserved_bytes()
             .checked_add(
-                crate::raft::manifest::encode_conf(&configuration)
-                    .map_err(|_| CellGroupArchiveError::Invalid("tail configuration encoding"))?
+                configuration
                     .len()
                     .checked_mul(4)
                     .ok_or(CellGroupArchiveError::Limit)?,
@@ -156,6 +160,17 @@ struct Coverage {
     verified: VerifiedCellGroupArchiveRecovery,
 }
 
+/// Opaque physical-verification identity for scheduling. It grants no
+/// coverage and retains neither the hold nor physical replay admission.
+#[derive(Clone)]
+pub(in crate::raft::cell_groups) struct CoverageIdentity(std::sync::Weak<Coverage>);
+
+impl CoverageIdentity {
+    pub(in crate::raft::cell_groups) fn same_snapshot(&self, other: &Self) -> bool {
+        std::sync::Weak::ptr_eq(&self.0, &other.0)
+    }
+}
+
 #[derive(Clone)]
 pub(in crate::raft::cell_groups) struct CoverageUse {
     hold: CellGroupArchiveHold,
@@ -201,6 +216,10 @@ impl WeakCoverage {
 }
 
 impl CellGroupArchiveCoverage {
+    pub(in crate::raft::cell_groups) fn identity(&self) -> CoverageIdentity {
+        CoverageIdentity(Arc::downgrade(&self.0))
+    }
+
     pub(in crate::raft::cell_groups) fn downgrade(&self) -> WeakCoverage {
         WeakCoverage(Arc::downgrade(&self.0))
     }
@@ -259,17 +278,12 @@ impl CellGroupArchiveUpload {
                 }
                 let reference = uploaded.reference();
                 let verified = self.verify_tail(domain, tails, reference, receiver).await?;
-                // raft-rs emits these sets in hash iteration order. Compare
-                // the same validated canonical encoding used by archive replay;
-                // order alone must not refuse an independently applied cut.
-                let verified_conf = crate::raft::manifest::encode_conf(verified.configuration())
+                let configuration = crate::raft::manifest::encode_conf(verified.configuration())
                     .map_err(|_| {
-                        CellGroupArchiveError::Invalid("verified configuration encoding")
+                        CellGroupArchiveError::Invalid("replayed configuration encoding")
                     })?;
-                let source_conf = crate::raft::manifest::encode_conf(&source.configuration)
-                    .map_err(|_| CellGroupArchiveError::Invalid("source configuration encoding"))?;
                 if verified.manifest().marker() != source.root.marker()
-                    || verified_conf != source_conf
+                    || configuration != source.configuration
                     || verified.membership() != &source.membership
                 {
                     return Err(CellGroupArchiveError::Invalid(

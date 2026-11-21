@@ -150,9 +150,7 @@ impl CellEnrollmentAuthority {
         if !cache
             .conf_state
             .voters
-            .iter()
-            .chain(&cache.conf_state.voters_outgoing)
-            .any(|id| *id == self.state.group.identity().member.get())
+            .contains(&self.state.group.identity().member.get())
         {
             return Err(RuntimeError::NotReady);
         }
