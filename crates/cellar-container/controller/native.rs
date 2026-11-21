@@ -83,7 +83,13 @@ fn decode(operation: Operation, value: Value) -> Result<ContainerReply> {
             })
         }
         Operation::Start => {
-            ContainerReply::Started(value.as_str().context("invalid container run")?.parse()?)
+            let encoded = value.as_str().context("invalid container run")?;
+            let run = encoded.parse::<u64>()?;
+            ensure!(
+                run != 0 && run.to_string() == encoded,
+                "invalid container run"
+            );
+            ContainerReply::Started(run)
         }
         Operation::Monitor => {
             ContainerReply::Exited(value.as_i64().context("invalid container exit status")?)
@@ -176,7 +182,7 @@ mod tests {
             BackendIdentity {
                 binding: "TOOL".into(),
                 provider: "test".into(),
-                configuration_digest: hex::encode([2; 32]),
+                configuration_digest: "02".repeat(32),
             }
         }
 
@@ -221,5 +227,16 @@ mod tests {
             json!({"state":"deleting","generation":"1"})
         )
         .is_err());
+    }
+
+    #[test]
+    fn native_container_runs_require_canonical_nonzero_identity() {
+        for value in ["0", "01", "-1", "18446744073709551616"] {
+            assert!(decode(Operation::Start, json!(value)).is_err());
+        }
+        assert!(matches!(
+            decode(Operation::Start, json!("1")),
+            Ok(ContainerReply::Started(1))
+        ));
     }
 }

@@ -836,7 +836,8 @@ impl Application for Registry {
 #[derive(Default)]
 pub(crate) struct EventState {
     pub(crate) provider_operation: std::sync::atomic::AtomicU64,
-    pub(crate) container_observation: std::sync::OnceLock<Arc<containers::backend::Observation>>,
+    pub(crate) container_observation:
+        std::sync::OnceLock<Arc<dyn containers::backend::Observation>>,
     /// Only the Workflow command driver joins these retained continuations.
     pub(crate) raft_workflow_turn: bool,
     pub(crate) raft_retire_after_turn: std::sync::atomic::AtomicBool,

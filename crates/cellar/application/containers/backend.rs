@@ -222,7 +222,7 @@ impl Handle {
             if changes_running {
                 if let Some(prepared) = context.state.container_observation.get() {
                     prepared.check(&context)?;
-                    prepared.running.store(2, Ordering::Release);
+                    prepared.state().store(2, Ordering::Release);
                 }
             }
             authority.before_effect(&context).await?;
@@ -239,7 +239,7 @@ impl Handle {
                 };
                 if let Some(running) = running {
                     prepared.check(&context)?;
-                    prepared.running.store(u8::from(running), Ordering::Release);
+                    prepared.state().store(u8::from(running), Ordering::Release);
                 }
             }
             result
@@ -254,7 +254,7 @@ impl Handle {
             .get()
             .ok_or(CommandFailure::Unavailable)?;
         prepared.check(context)?;
-        match prepared.running.load(Ordering::Acquire) {
+        match prepared.state().load(Ordering::Acquire) {
             0 => Ok(false),
             1 => Ok(true),
             _ => anyhow::bail!("container running state requires reconciliation"),
@@ -265,7 +265,15 @@ impl Handle {
 /// Weak event/activation references avoid retaining an invocation through itself.
 /// Constructor copies permit only its snapshot; external I/O still requires the
 /// real event Context and its nonempty invocation authority.
-pub(crate) struct Observation {
+pub(crate) trait Observation: Send + Sync {
+    fn check(&self, context: &Context) -> Result<()>;
+
+    fn state(&self) -> &AtomicU8;
+
+    fn for_constructor(&self, constructor: &Context) -> Result<Arc<dyn Observation>>;
+}
+
+struct ObservedInvocation {
     resources: Weak<crate::application::storage::Resources>,
     invocation: Weak<()>,
     event: Weak<crate::application::EventState>,
@@ -273,7 +281,7 @@ pub(crate) struct Observation {
     running: Arc<AtomicU8>,
 }
 
-impl Observation {
+impl Observation for ObservedInvocation {
     fn check(&self, context: &Context) -> Result<()> {
         context.check_binding_turn()?;
         ensure!(
@@ -318,6 +326,22 @@ impl Observation {
             .ok_or(CommandFailure::Unavailable)?
             .check_current()
     }
+
+    fn state(&self) -> &AtomicU8 {
+        &self.running
+    }
+
+    fn for_constructor(&self, constructor: &Context) -> Result<Arc<dyn Observation>> {
+        let snapshot = Arc::new(Self {
+            resources: self.resources.clone(),
+            invocation: self.invocation.clone(),
+            event: self.event.clone(),
+            io: Arc::downgrade(&constructor.io),
+            running: self.running.clone(),
+        });
+        snapshot.check(constructor)?;
+        Ok(snapshot)
+    }
 }
 
 pub(crate) async fn prepare_invocation(context: &Context) -> Result<()> {
@@ -350,7 +374,7 @@ pub(crate) async fn prepare_invocation(context: &Context) -> Result<()> {
         .invocation
         .as_ref()
         .ok_or(CommandFailure::UnsupportedCapability)?;
-    let observation = Arc::new(Observation {
+    let observation: Arc<dyn Observation> = Arc::new(ObservedInvocation {
         resources: Arc::downgrade(&storage.resources),
         invocation: Arc::downgrade(invocation),
         event: Arc::downgrade(&context.state),
@@ -369,14 +393,7 @@ pub(crate) async fn prepare_invocation(context: &Context) -> Result<()> {
 pub(crate) fn prepare_constructor(context: &Context, constructor: &Context) -> Result<()> {
     if let Some(prepared) = context.state.container_observation.get() {
         prepared.check(context)?;
-        let snapshot = Arc::new(Observation {
-            resources: prepared.resources.clone(),
-            invocation: prepared.invocation.clone(),
-            event: prepared.event.clone(),
-            io: Arc::downgrade(&constructor.io),
-            running: prepared.running.clone(),
-        });
-        snapshot.check(constructor)?;
+        let snapshot = prepared.for_constructor(constructor)?;
         constructor
             .state
             .container_observation

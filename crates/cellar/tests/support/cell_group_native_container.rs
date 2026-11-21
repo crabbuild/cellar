@@ -444,7 +444,12 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
             execution.shutdown().await;
             controller.shutdown().await?;
             domain.shutdown().await;
-            result??;
+            result
+                .map_err(anyhow::Error::from)
+                .and_then(std::convert::identity)
+                .with_context(|| {
+                    format!("native container extents={rooted} minimum={minimum:?} outage={outage}")
+                })?;
             closed?;
         }
     }

@@ -225,6 +225,21 @@ impl CellRpcActivation {
     pub(crate) fn close(self) -> Result<()> {
         self.0.retire()
     }
+
+    fn invoke(&self, context: Context, invocation: Invocation) -> Result<HandlerFuture<Output>> {
+        if context
+            .raft_storage
+            .as_ref()
+            .is_none_or(|storage| storage.resources.container_adapter.get().is_none())
+        {
+            return self.0.invoke(context, invocation);
+        }
+        let instance = self.clone();
+        Ok(Box::pin(async move {
+            crate::application::containers::backend::prepare_invocation(&context).await?;
+            instance.0.invoke(context, invocation)?.await
+        }))
+    }
 }
 
 impl LiveCell for NativeActivation {
@@ -735,12 +750,7 @@ impl NativeCellFactory {
                 // Preserve known alarm failure capture around the entire owned
                 // Workflow turn, including physical timeout continuations.
                 let invoked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let future: HandlerFuture<Output> = Box::pin(async move {
-                        crate::application::containers::backend::prepare_invocation(&context)
-                            .await?;
-                        instance.0.invoke(context, invocation)?.await
-                    });
-                    Ok::<_, anyhow::Error>(future)
+                    instance.invoke(context, invocation)
                 }));
                 let result = match invoked {
                     Ok(Ok(future)) => {
@@ -786,10 +796,7 @@ impl NativeCellFactory {
                 })?;
                 return Ok(vec![1]);
             }
-            let future: HandlerFuture<Output> = Box::pin(async move {
-                crate::application::containers::backend::prepare_invocation(&context).await?;
-                instance.0.invoke(context, invocation)?.await
-            });
+            let future = instance.invoke(context, invocation)?;
             let output = if workflow {
                 crate::application::workflow::join_turn(future, state, storage.clone()).await?
             } else {
