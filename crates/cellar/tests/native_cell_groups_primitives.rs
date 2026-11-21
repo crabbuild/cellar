@@ -3220,3 +3220,26 @@ async fn rustfs_controller_remote_sdk_uses_mutual_tls_for_data_and_deletion_reco
 {
     controller_provider::qualify_remote(true).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_admission_batches_business_intent_and_fence_proof() -> Result<()> {
+    controller_provider::qualify_admission(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_prepared_admission_preserves_quorum_and_s3_archive_gates() -> Result<()> {
+    controller_provider::qualify_admission(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_admission_batches_business_intent_and_fence_proof() -> Result<()> {
+    controller_provider::qualify_admission(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_prepared_admission_preserves_quorum_and_s3_archive_gates() -> Result<()>
+{
+    controller_provider::qualify_admission(true, true).await
+}

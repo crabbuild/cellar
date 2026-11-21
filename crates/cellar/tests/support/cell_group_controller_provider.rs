@@ -15,6 +15,8 @@ use std::{
     sync::{atomic::AtomicBool, RwLock},
 };
 
+#[path = "cell_group_provider_admission.rs"]
+mod admission;
 #[path = "cell_group_provider_delete_intent.rs"]
 mod delete_intent;
 #[path = "cell_group_provider_lifecycle_wait.rs"]
@@ -599,6 +601,10 @@ pub async fn qualify_delete_intent(real: bool, maintenance: bool) -> Result<()> 
 
 pub async fn qualify_remote(real: bool) -> Result<()> {
     delete_intent::qualify_remote(real).await
+}
+
+pub async fn qualify_admission(real: bool, archive_outage: bool) -> Result<()> {
+    admission::qualify(real, archive_outage).await
 }
 
 async fn selected(real: bool, scenario: Scenario) -> Result<()> {
