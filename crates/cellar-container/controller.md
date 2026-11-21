@@ -45,10 +45,13 @@ retains the original claim, operation ID, digest and expiry. Ordinary hosts have
 no remote recovery-history or shutdown method. Recovery administration and its
 infrastructure fencing authority remain separately owned.
 
-The client also bounds active connections and reserves a slot from Read/Inspect
-observations for lifecycle control. Local capacity exhaustion refuses before
-network entry. Backend mutation debt still requires explicit reconciliation;
-spare transport capacity does not authorize new execution.
+Both client and listener reserve a slot from Read/Inspect observations for
+lifecycle control. The listener bounds combined observations across all trusted
+hosts before entering the controller. Local capacity exhaustion refuses before
+network entry; listener observation exhaustion returns typed Busy. Handshakes
+and all other requests retain their connection and time bounds. Backend mutation
+debt still requires explicit reconciliation; spare transport capacity does not
+authorize new execution.
 
 The listener and client run in supplied execution domains. Listener shutdown
 stops admission, cancels and joins connections, and leaves the controller journal
@@ -57,9 +60,9 @@ restart; never create a fresh store to clear uncertain work. TLS authentication
 does not supply native provider fencing, volume recovery or quorum proof. The
 SDK retains its original source-admission and result-publication checks.
 
-This endpoint is a production protocol boundary, not a packaged daemon or a
-native compute backend. Deployment credential rotation and recovery ownership
-must preserve the configured identity and trust scope.
+The library supplies authenticated client/server building blocks. A packaged
+daemon and native compute backend remain required. Deployment credential rotation
+and recovery ownership must preserve the configured identity and trust scope.
 
 ## Source admission and recovery
 

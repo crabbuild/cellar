@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::Semaphore,
+    sync::{Semaphore, SemaphorePermit},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -48,6 +48,7 @@ impl ControllerServer {
         let task = domain.spawn(async move {
             let permissions = Arc::new(permissions);
             let capacity = Arc::new(Semaphore::new(options.max_connections));
+            let observations = Arc::new(Semaphore::new(options.max_connections - 1));
             let mut connections = FuturesUnordered::new();
             let result = loop {
                 cellar::asyncrt::select_biased! { "stop admission before accepting another controller request";
@@ -59,12 +60,13 @@ impl ControllerServer {
                         let controller = controller.clone();
                         let acceptor = acceptor.clone();
                         let permissions = permissions.clone();
+                        let observations = observations.clone();
                         let connection = owner.spawn(async move {
                             let _permit = permit;
                             // Handshake, framing, controller work and response share
                             // one transport budget. It never extends effect expiry.
                             let _ = cellar::asyncrt::timeout(Duration::from_millis(options.timeout_ms),
-                                serve(stream, controller, acceptor, &permissions, options)).await;
+                                serve(stream, controller, acceptor, &permissions, &observations, options)).await;
                         });
                         match connection { Ok(task) => connections.push(task), Err(error) => break Err(error.into()) }
                     },
@@ -106,6 +108,7 @@ async fn serve(
     controller: Arc<ExecutionController>,
     acceptor: tokio_rustls::TlsAcceptor,
     permissions: &[Permission],
+    observations: &Semaphore,
     options: RemoteOptions,
 ) -> Result<()> {
     let mut stream = acceptor.accept(stream).await?;
@@ -123,7 +126,13 @@ async fn serve(
         "unauthorized controller certificate"
     );
     let request: Request = wire::read(&mut stream, options.max_frame_bytes).await?;
-    let result = dispatch(controller, permissions, digest, request).await;
+    let (result, _observation) =
+        match admission(&controller, permissions, observations, digest, &request) {
+            Ok(observation) => (dispatch(controller, request).await, observation),
+            Err(error) => (Err(error), None),
+        };
+    // Keep the observation reservation until its response finishes, including
+    // backpressure from a slow reader. A reply cannot consume the control slot.
     wire::write(
         &mut stream,
         &Response {
@@ -135,12 +144,13 @@ async fn serve(
     .await
 }
 
-async fn dispatch(
-    controller: Arc<ExecutionController>,
+fn admission<'a>(
+    controller: &ExecutionController,
     permissions: &[Permission],
+    observations: &'a Semaphore,
     digest: [u8; 32],
-    request: Request,
-) -> Result<Value> {
+    request: &Request,
+) -> Result<Option<SemaphorePermit<'a>>> {
     let history = request.claim.history();
     ensure!(
         request.format == 1
@@ -157,6 +167,24 @@ async fn dispatch(
                     && permission.namespace == history.namespace.bytes()),
         ExecutionControllerFailure::RevokedHistory
     );
+    // Reservations must span all trusted hosts, not merely one client's pool.
+    // Refuse excess authenticated observations before entering the controller,
+    // leaving room for lifecycle control while earlier reads await their result.
+    let observation = if matches!(&request.action, Action::Execute { operation, .. }
+        if matches!(operation.kind, ExecutionOperationKind::Read | ExecutionOperationKind::Inspect))
+    {
+        Some(
+            observations
+                .try_acquire()
+                .map_err(|_| ExecutionControllerFailure::Busy)?,
+        )
+    } else {
+        None
+    };
+    Ok(observation)
+}
+
+async fn dispatch(controller: Arc<ExecutionController>, request: Request) -> Result<Value> {
     let claim = request.claim;
     Ok(match request.action {
         Action::Activate => {
