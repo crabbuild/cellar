@@ -17,6 +17,8 @@ use std::{
 
 #[path = "cell_group_provider_lifecycle_wait.rs"]
 mod lifecycle_wait;
+#[path = "cell_group_provider_delete_intent.rs"]
+mod delete_intent;
 
 #[derive(Default)]
 struct Resource {
@@ -391,6 +393,26 @@ impl Cell for Root {
                         .await?;
                     ensure!(output["stdout"] == STANDARD.encode(b"controlled result"));
                 }
+                "StageDeleteIntent" => {
+                    let _guard = journal.lock_lifecycle(&context).await?;
+                    let current = journal.load(&context)?.context("binding missing")?;
+                    let mut record = current.record;
+                    record.intent = BindingIntent::Deleted;
+                    record.observation = BindingObservation::Pending;
+                    // Model loss after this exact intent is durable, before
+                    // any controller Delete reservation or submission.
+                    journal.compare_exchange(&context, Some(current.revision), record).await?;
+                }
+                "MaintainDeleteIntent" => {
+                    let guard = journal.lock_lifecycle(&context).await?;
+                    let expected = journal.load(&context)?.context("binding missing")?;
+                    let provider = self.1.selected();
+                    let grant = guard.fence_execution(&context, provider.authority()).await?;
+                    ensure!(grant.claim().checkpoint() == &expected);
+                    // The generic coordinator selects Inspect for an already
+                    // persisted deletion intent. Exercise that exact adapter.
+                    provider.maintain(context.clone(), expected, MaintenanceAction::Inspect, grant).await?;
+                }
                 "Destroy" => {
                     session
                         .execute(&context, Operation::Destroy, json!({}), &limits)
@@ -561,6 +583,10 @@ pub async fn qualify_lifecycle_wait(real: bool, dirty: bool) -> Result<()> {
 
 pub async fn profile_extent_create(real: bool) -> Result<()> {
     lifecycle_wait::profile_create(real).await
+}
+
+pub async fn qualify_delete_intent(real: bool, maintenance: bool) -> Result<()> {
+    delete_intent::qualify(real, maintenance).await
 }
 
 async fn selected(real: bool, scenario: Scenario) -> Result<()> {

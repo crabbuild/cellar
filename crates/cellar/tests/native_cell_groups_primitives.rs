@@ -3186,3 +3186,25 @@ async fn profile_extent_s3_controller_provider_create() -> Result<()> {
 async fn profile_rustfs_extent_s3_controller_provider_create() -> Result<()> {
     controller_provider::profile_extent_create(true).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_maintenance_finishes_intent_without_delete_receipt() -> Result<()> {
+    controller_provider::qualify_delete_intent(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_maintenance_finishes_intent_without_delete_receipt() -> Result<()> {
+    controller_provider::qualify_delete_intent(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_reconciliation_finishes_intent_without_delete_receipt() -> Result<()> {
+    controller_provider::qualify_delete_intent(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_reconciliation_finishes_intent_without_delete_receipt() -> Result<()> {
+    controller_provider::qualify_delete_intent(true, false).await
+}
