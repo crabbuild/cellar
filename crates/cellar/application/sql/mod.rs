@@ -30,7 +30,13 @@ use wire::{js_string, params, truthy};
 type Result<T> = std::result::Result<T, Error>;
 
 fn error(error: impl Into<anyhow::Error>) -> Error {
-    Error::from_error(error.into())
+    let cause = error.into();
+    let details = Error::from_message(format!("{cause:#}"));
+    // Retain both the complete binding message and the original local outcome.
+    let mut error = Error::from_error(cause);
+    error.family = details.family;
+    error.message = details.message;
+    error
 }
 
 #[cfg(test)]

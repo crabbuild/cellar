@@ -10,6 +10,14 @@ fn nested_host_failure_keeps_its_reason_at_the_sql_binding_boundary() {
     assert_eq!(failure.family, "SQL_ERROR");
     assert!(failure.message.contains("pinned resource query"));
     assert!(failure.message.contains("DeadlineExceeded"), "{failure}");
+    let runtime =
+        std::iter::successors(std::error::Error::source(&failure), |&cause| cause.source())
+            .find_map(|cause| cause.downcast_ref::<crate::raft::completion::RuntimeError>())
+            .expect("SQL binding must retain its original typed outcome");
+    assert_eq!(
+        runtime,
+        &crate::raft::completion::RuntimeError::DeadlineExceeded
+    );
 }
 
 #[test]
