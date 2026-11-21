@@ -1460,3 +1460,22 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_checkpoint_packs_fragments_and_refuses_corruption() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::packed(rooted, Arc::new(object_store::memory::InMemory::new()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_checkpoint_packs_fragments_and_refuses_corruption() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::packed(rooted, rustfs::store("checkpoint-packed", rooted)?)
+            .await?;
+    }
+    Ok(())
+}
