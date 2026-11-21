@@ -63,12 +63,14 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
                 let cell = cluster.hosts[leader].cell(history.clone())?;
                 cell.enroll(CellEnrollmentRequest { creation: ProposalId::new([247;16])?, durability: minimum }, TIMEOUT).await?;
                 let before = cell.query(ProposalId::new([248;16])?, &cell.contract("Version")?, vec![], QueryOptions::default()).await?;
+                let denied_before = store.denied_group_archive_writes.load(Ordering::Acquire);
                 store.deny_group_archive_writes.store(outage, Ordering::Release);
                 let created = call(&cluster, &history, minimum, 1, "Create").await;
                 if outage && minimum == Durability::S3 {
                     let error = created.err().context("S3 archive outage admitted provider creation")?;
                     let original = bindings::options(1, minimum)?.id;
                     ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error| error.ambiguous && error.command == original));
+                    ensure!(store.denied_group_archive_writes.load(Ordering::Acquire) > denied_before, "S3 admission refusal did not exercise an archive write failure");
                     ensure!(peer.calls.load(Ordering::Acquire) == 0 && peer.creates.load(Ordering::Acquire) == 0 && peer.active.lock().unwrap().is_none(), "controller or provider entered before the required S3 proof");
                 } else {
                     let receipt = created?;
@@ -81,7 +83,7 @@ pub(super) async fn qualify(real: bool, outage: bool) -> Result<()> {
                     let value: serde_json::Value = serde_json::from_slice(&read.result)?;
                     ensure!(value["record"]["intent"] == "running" && value["record"]["observation"] == "confirmed");
                 }
-                eprintln!("controller_admission_observations {}", json!({"extents":rooted,"minimum":format!("{minimum:?}"),"archive_outage":outage,"creates":peer.creates.load(Ordering::Acquire),"required_proof_before_controller":true}));
+                eprintln!("controller_admission_observations {}", json!({"extents":rooted,"minimum":format!("{minimum:?}"),"archive_outage":outage,"creates":peer.creates.load(Ordering::Acquire),"denied_archive_writes":store.denied_group_archive_writes.load(Ordering::Acquire).saturating_sub(denied_before),"required_proof_before_controller":true}));
                 Ok::<_, anyhow::Error>(())
             }).await;
             let closed = managed_fixture::close_group_nodes(
