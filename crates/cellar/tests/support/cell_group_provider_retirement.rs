@@ -83,7 +83,7 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
             let cell = cluster.hosts[leader].cell(history.clone())?;
             let receipt = cell.receipt(CellReceiptRequest { id: original, contract: cell.contract("Run")?, input: serde_json::to_vec("MaintainRetirement")?, durability: Durability::S3 }, TIMEOUT).await;
-            ensure!(receipt.err().is_some_and(|e| e.ambiguous && e.command == original), "framework confirmation fabricated a business completion");
+            ensure!(matches!(receipt.as_ref().err().map(AsRef::as_ref), Some(CellDispatchError::Execution(ExecutionError::Uncertain))), "framework confirmation fabricated a business completion");
             route.factory_refused.store(false, Ordering::Release);
             let read = call(&cluster, &history, Durability::S3, 3, "ReadRetirement").await?;
             ensure!(read.durability >= Durability::S3);
