@@ -50,7 +50,7 @@ replays an uncertain mutation. The same adapter implements fenced background
 maintenance, including cleanup when the business constructor is unavailable.
 
 Live maintenance, Reconcile and Destroy also look up every original pending
-mutation, including exec and writes, before continuing lifecycle work. They do
+mutation, including exec and writes, before further provider mutations. They do
 not require a controller restart and never execute the original call again.
 Each lookup uses the current invocation's fence and retains the operation's
 original history, generation, ID, payload digest and deadline. An unavailable

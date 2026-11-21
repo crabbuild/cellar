@@ -41,41 +41,41 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-`ed7dc4ca5` qualifies the normal SDK `ControllerProvider`: independently durable
-ownership/receipts, safe original-create sealing, lifecycle recovery, buffered
-exec/files and fenced background cleanup. Unchanged execution claims reuse only
-this invocation's proven unfinished receipt. Start and Data each use exactly
-three versions; the retained red Data control uses six. Original request and
-maintenance deadlines remain.
+`b67a27218` delivers live controller receipt recovery for interrupted mutations,
+early binding admission and batched observation/deletion. The normal SDK basic
+profile preserves exactly three versions for Start, Data and Destroy. Unknown
+receipts block progress; recovery never replays the original mutation.
 
-**50 owning/provider checks and all 12 native configurations pass.** Real RustFS
-basic execution and restart recovery pass all eight configurations; expiry adds
-one pass, then fails cold materialized S3 startup before business execution.
-That gate is **FAILED: 9 pass, 1 startup failure, 2 unrun**. Three startup disks,
-all earlier controls, source and executables have verified backups. The owned
-lab is stopped. See the [current checkpoint](progress.md#current-integration-checkpoint)
-for scope and hashes. This uses a controlled protocol peer and one native RF3
-process, not actual native compute or independent process/volume recovery.
+**50 regression checks and all 20 native configurations pass.** Real RustFS live
+write recovery passes all four configurations. Exec recovery passes materialized
+Quorum; materialized S3 completes exec and delete once, but the original Destroy
+sequence 4 misses its five-second response deadline. The two extent exec cases
+remain unrun. The combined gate is **FAILED: 5 real passes, 1 failure, 2 unrun**.
+All failed controls, disks, source and executables are retained; the owned lab is
+stopped. The earlier cold S3 startup and extent/S3 pre-effect refusal remain open.
+See [current progress](progress.md#cg-17-live-provider-mutation-recovery).
 
 The next feature deliveries are:
 
-1. Diagnose and fix the retained managed RF3 S3 startup/close failure under its
-   original budgets, then complete the real-store expiry gate. Keep original
-   startup identities and partially initialized disks for reconciliation.
-2. Reconcile original pending exec/write mutations during live maintenance and
-   explicit reconciliation/destruction. Never re-execute them or mint new IDs
-   to bypass uncertainty; held read observations must leave control runnable.
-3. Connect built-in native Container/sandbox and interactive APIs to the
-   request-bound controller and actual fenced execution. Deliver authenticated
-   transport, safe receipt reclamation, independent faults and real provider
-   volume/zero-quorum recovery.
-4. Finish WebSockets and every required public primitive/feature/deployment/
-   clock/retention/lifecycle ledger, including the retained Fleet and S3 failures.
+1. Close the original S3 destroy-response deadline without replay, fresh IDs or
+   longer budgets. Review contended lifecycle waits, their exact unfinished
+   receipt proof reuse and writer parking. Qualify shared activation ownership
+   across suspended callbacks and same-cell version advances; preserve original
+   resources, class/role/epoch checks and refusal after ownership loss.
+2. Connect built-in native Container/sandbox and interactive APIs to the
+   request-bound controller and actual fenced execution. Complete the owned
+   asynchronous invocation prologue, per-operation authorization, independent
+   controller/backend faults and real provider-volume/zero-quorum recovery.
+3. Complete safe receipt reclamation with origin/recovery floors, WebSockets and
+   every required public primitive/feature/deployment/clock/retention/lifecycle
+   ledger. Reconcile the retained cold startup and earlier Fleet/S3 failures
+   before the combined release and backend cutover gates.
 
 The [controller contract](../../../../crates/cellar-container/controller.md)
-explains the delivered adapter and restart ownership. Inventory remains partial
-at 18 entries/317 symbols. CG-17 stays open at 0/32; the whole design and hard
-cutover goal remain active.
+explains the delivered adapter and restart ownership. Current tests use a
+controlled protocol peer and one native RF3 process. Inventory remains partial
+at 18 entries/318 symbols. CG-17 stays open at 0/32; the whole design and hard
+cutover goal remain active. The source-pinned checkpoints below are historical.
 
 Runtime `6836d6a6c` delivers the ordinary named-provider lifecycle handoff and
 nonwaiting shared-group background admission. The actual custom-provider Start

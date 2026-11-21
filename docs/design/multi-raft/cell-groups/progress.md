@@ -34,6 +34,55 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 live provider mutation recovery
+
+Runtime `b67a27218` adds live original-receipt recovery to controller-backed SDK
+sessions. Maintenance, Reconcile and Destroy settle pending mutations without
+restarting the controller or replaying the original write/exec. Missing or
+unknown receipts still refuse progress. The write driver withholds its receipt,
+proves deletion stays blocked, then restores lookup and requires exactly one
+write and one delete while the business constructor is unavailable.
+
+Bounded provider operations acquire their binding admission before the ordinary
+output proof and pass that same guard into execution. Controller observations
+batch pending lookup, original reconciliation and Running under one admitted I/O
+closure. A delete first proves its intent and claim, then combines original
+receipt lookup and any permitted submission. Every controller call checks the
+immutable claim; no SQLite authority enters those closures. A completed delete
+never repeats, and a fresh attempt requires authoritative no-effect proof.
+Public Start, the four-operation Data request and Destroy each retain exactly
+three committed cell versions in the basic driver.
+
+| Source `b67a27218` qualification | Result |
+| --- | --- |
+| Controller, provider library and native provider regressions | **50 checks pass** |
+| Basic, live write/exec recovery, interrupted lifecycle and expiry | **20/20 native image/minimum configurations pass** |
+| Real RustFS live write recovery | **4/4 configurations pass** |
+| Real RustFS live exec recovery and destruction | **1 pass, 1 S3 response-deadline failure, 2 unrun** |
+| Combined gate | **FAILED; CG-17 remains open at 0/32 formal cases** |
+
+In the failed materialized S3 run, both writes and exec complete once, the
+original exec receipt is recovered, and Delete completes once. Original client
+sequence 4 still misses its five-second response deadline. The failed disks,
+controller state, source, executables and controls are retained in
+`CG-17-live-data-b67a27218-2176`; the frozen primitive executable is
+`4c3121e57289a1730e120631f65a3f05ce615647ba4c8c9e6d63ef182aae181d`.
+Earlier controls retain the unreconciled-exec refusal, S3 pre-effect deadlines
+and extent/S3 pre-effect `Refused(Unavailable)`. The latter is not an established
+exclusive causal fix. The older `ed7dc4ca5` cold S3 startup failure also remains
+open and is not covered by these two real-store functions. The owned lab is
+stopped with its objects and volumes retained.
+
+All workloads, original IDs, five-second requests, three-second maintenance
+attempts and sixty-second observers remain. The accepted lifecycle profile
+retains ten seconds; expiry remains 500 ms with a 600 ms activation delay.
+These tests use one native macOS RF3 process and a controlled protocol peer.
+They do not deliver actual native compute, authenticated remote execution,
+independent process/volume faults or full primitive compatibility. The inventory
+remains partial at 18 entries/318 symbols. See the
+[controller contract](../../../../crates/cellar-container/controller.md) and
+[remaining priorities](remaining-work.md#primitive-delivery-priority).
+
 ### CG-17 ordinary SDK controller adapter
 
 Runtime `c2b73c7fd`, qualified with test-only corrections at `ed7dc4ca5`, connects
