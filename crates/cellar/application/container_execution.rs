@@ -362,8 +362,11 @@ impl BindingJournal {
             let controller = authority.clone();
             // This owned I/O boundary proves the exact newly reserved claim and
             // parks its writer without lending SQLite authority to the controller.
+            // An idempotent reservation can reuse only this invocation's
+            // unchanged unfinished-receipt proof. A new claim or fresh
+            // invocation still requires its own complete checkpoint.
             dispatch
-                .schedule_io(move |_| controller.activate(request))
+                .schedule_effect(move |_| controller.activate(request))
                 .future
                 .await??;
             let grant = ExecutionGrant {
