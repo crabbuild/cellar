@@ -251,10 +251,15 @@ impl ControllerProvider {
                 // Every call rechecks the immutable claim independently.
                 Self::reconcile_pending(controller.clone(), claim.clone()).await?;
                 match controller
+                    .clone()
                     .lifecycle(claim.clone(), ExecutionOperationKind::Delete)
                     .await?
                 {
-                    Some(original) => match controller.reconcile(claim.clone(), original).await? {
+                    Some(original) => match controller
+                        .clone()
+                        .reconcile(claim.clone(), original)
+                        .await?
+                    {
                         outcome @ ExecutionOutcome::Completed(_) => return Ok(outcome),
                         ExecutionOutcome::Refused | ExecutionOutcome::ExpiredBeforeSubmission => {
                             // A fresh attempt is allowed only after authoritative

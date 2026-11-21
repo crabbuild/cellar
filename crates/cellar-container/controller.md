@@ -24,8 +24,39 @@ inactivity configuration, buffered ExecOutput and file read/write/stat/list.
 It does not advertise interactive exec, ports or sockets. The host backend must
 implement the version-1 `controller::Request`/`Reply` protocol, validate requests
 before effects, enforce immutable resource IDs and independently fence every
-operation. This adapter supplies neither a native execution driver nor an
-authenticated network endpoint.
+operation. A native execution driver remains required for actual compute.
+
+## Authenticated controller endpoint
+
+`controller::remote::{ControllerServer, RemoteController}` carries the same
+ordinary protocol over TLS 1.3 with mandatory client certificates. Use
+`ControllerProvider::from_endpoint` to select it. The client verifies the CA,
+server name and exact server certificate pin. The server verifies the client CA
+and authorizes each exact leaf certificate for a cluster and namespace on its
+binding. Configure keys and trust roots explicitly; claims are metadata and do
+not authenticate their sender. Only trusted Cellar hosts may hold these keys.
+
+Each request pins the complete independently durable controller identity and
+limits before dispatch. One connection carries one request, with no early data,
+redirects, connection reuse or automatic retries. Frame sizes, connections and
+handshake/request time are bounded. The transport budget never extends the
+original effect deadline. Lost replies remain typed uncertainty; receipt lookup
+retains the original claim, operation ID, digest and expiry. Ordinary hosts have
+no remote recovery-history or shutdown method. Recovery administration and its
+infrastructure fencing authority remain separately owned.
+
+The listener and client run in supplied execution domains. Listener shutdown
+stops admission, cancels and joins connections, and leaves the controller journal
+owned by its caller. Reopen the exact controller store after listener/process
+restart; never create a fresh store to clear uncertain work. TLS authentication
+does not supply native provider fencing, volume recovery or quorum proof. The
+SDK retains its original source-admission and result-publication checks.
+
+This endpoint is a production protocol boundary, not a packaged daemon or a
+native compute backend. Deployment credential rotation and recovery ownership
+must preserve the configured identity and trust scope.
+
+## Source admission and recovery
 
 Bounded data/control operations acquire binding admission before the SDK's
 ordinary output proof, then pass that same guard into the execution grant.

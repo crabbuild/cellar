@@ -1,11 +1,14 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Normal provider sessions backed by independently durable execution ownership.
+mod endpoint;
 mod lifecycle;
 mod protocol;
+pub mod remote;
 use crate::{Environment, Fencing, Limits, Operation, Provider, ProviderFuture, ProviderSession};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{containers::*, Context};
+pub use endpoint::ControllerEndpoint;
 pub use lifecycle::OperationRefused;
 pub use protocol::{Reply, Request};
 use std::sync::Arc;
@@ -27,18 +30,25 @@ const OPERATIONS: &[Operation] = &[
 
 /// Host-selected Linux container bridge using the durable controller protocol.
 /// The selected backend must implement Request/Reply and actual remote fencing;
-/// the controller is not a Docker driver or an authenticated network transport.
+/// the controller is not a Docker driver. Remote endpoints must authenticate
+/// callers; `remote` supplies the bounded mutually authenticated TLS protocol.
 /// Shared-group declarations must pin `identity()` in their provider binding.
 #[derive(Clone)]
 pub struct ControllerProvider {
-    controller: Arc<ExecutionController>,
+    controller: Arc<dyn ControllerEndpoint>,
     identity: BackendIdentity,
 }
 
 impl ControllerProvider {
     pub fn new(controller: Arc<ExecutionController>) -> Result<Self> {
+        Self::from_endpoint(controller)
+    }
+
+    /// Select a local controller or an authenticated remote controller. The
+    /// endpoint identity must match the declared shared-group provider binding.
+    pub fn from_endpoint(controller: Arc<dyn ControllerEndpoint>) -> Result<Self> {
         ensure!(
-            controller.options().limits.max_inflight >= 2,
+            controller.limits().max_inflight >= 2,
             "container observations need reserved control capacity"
         );
         let identity = controller.identity();
@@ -105,10 +115,10 @@ impl ControllerProvider {
     }
 
     async fn reconcile_pending(
-        controller: Arc<ExecutionController>,
+        controller: Arc<dyn ControllerEndpoint>,
         claim: ExecutionClaim,
     ) -> Result<()> {
-        for original in controller.pending(claim.clone()).await? {
+        for original in controller.clone().pending(claim.clone()).await? {
             match original.operation.kind {
                 ExecutionOperationKind::Read | ExecutionOperationKind::Inspect => {}
                 ExecutionOperationKind::Create
@@ -119,7 +129,10 @@ impl ControllerProvider {
                 | ExecutionOperationKind::Configure => {
                     // Observe the original receipt only. Unknown remains debt;
                     // no recovery call may resubmit a mutation or renew its ID.
-                    controller.reconcile(claim.clone(), original).await?;
+                    controller
+                        .clone()
+                        .reconcile(claim.clone(), original)
+                        .await?;
                 }
             }
         }

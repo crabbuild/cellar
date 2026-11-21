@@ -19,6 +19,8 @@ use std::{
 mod delete_intent;
 #[path = "cell_group_provider_lifecycle_wait.rs"]
 mod lifecycle_wait;
+#[path = "cell_group_provider_remote.rs"]
+mod remote;
 
 #[derive(Default)]
 struct Resource {
@@ -593,6 +595,10 @@ pub async fn profile_extent_create(real: bool) -> Result<()> {
 
 pub async fn qualify_delete_intent(real: bool, maintenance: bool) -> Result<()> {
     delete_intent::qualify(real, maintenance).await
+}
+
+pub async fn qualify_remote(real: bool) -> Result<()> {
+    delete_intent::qualify_remote(real).await
 }
 
 async fn selected(real: bool, scenario: Scenario) -> Result<()> {

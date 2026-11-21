@@ -3208,3 +3208,15 @@ async fn controller_reconciliation_finishes_intent_without_delete_receipt() -> R
 async fn rustfs_controller_reconciliation_finishes_intent_without_delete_receipt() -> Result<()> {
     controller_provider::qualify_delete_intent(true, false).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_remote_sdk_uses_mutual_tls_for_data_and_deletion_recovery() -> Result<()> {
+    controller_provider::qualify_remote(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_remote_sdk_uses_mutual_tls_for_data_and_deletion_recovery() -> Result<()>
+{
+    controller_provider::qualify_remote(true).await
+}
