@@ -4,14 +4,30 @@
 
 Purpose: Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.
 
-Current main integration is recorded in the [source-bound qualification](queue-transfer-claims-qualification-2026-11-21.json).
-The immediate P0s are checkpoint preparation/submission progress before unrelated
-SQL can occupy its owner, and repeatable Queue C4 producer/callback/exact-drain
-behavior within the original deadlines. Both ordinary Queue restart repetitions
-and C2 image modes pass; the C4 and checkpoint failures remain unclosed. The narrow
-SQL error follow-up passes its full library and error-contract checks. Broader
-recovery/SDK/OPT acceptance and the original constrained RustFS comparison remain
-open. Historical checkpoint details below retain their original scope.
+The latest [checkpoint qualification](checkpoint-handoff-qualification-2026-11-21.json)
+records code `5e0b9836c`, including main `5ae2b21f`. Captured checkpoint preparation
+and submission now pass the original four image/durability progress controls while
+unrelated SQL is held. Required applied receipts, archive proofs, producer custody
+and original admission/deadline rules remain. The full library passes 1,360 tests
+with two existing ignores; strict Clippy and repository checks pass.
+
+The immediate **P0** is repeatable Queue service within the original 3,000-ms
+stateless RPC and 5,000-ms callback deadlines. **10 of 14 native selections pass**,
+including ordinary SQL/KV/Queue in both image modes. All four C2/C4 load selections
+fail with ten explicitly ambiguous producer deadlines; standalone materialized C4
+also fails. Successful drains, cleanup and terminal exports retain their exact
+scope. Profile fresh independent fixtures to separate command/apply service from
+startup and background archive work; preserve every failed/unknown command identity
+and its media. One fresh ordinary Queue pass does not establish repeatability.
+
+Before broadening execution/routing qualification, complete fixture retention for
+successful fault controls and cleanup on constructor/early-error paths. Broader
+recovery, SDK, OPT and release gates remain open. The original three-node,
+1-vCPU/2-GiB SQL/KV/Queue RustFS comparison remains unqualified: its read-only check
+at 2026-11-21T11:00:43.246451+00:00 reports zero available bytes against the unchanged
+6-GiB reserve. No case is admitted and no resource/storage change is made. Earlier
+[main-integration evidence](queue-transfer-claims-qualification-2026-11-21.json)
+and historical priorities below retain their source-specific scope.
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
 and the accepted public SQL cutover. This ordering preserves the full

@@ -6,6 +6,48 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Current checkpoint qualification
+
+Code `5e0b9836c` retains main `5ae2b21f` and moves captured immutable checkpoint
+preparation and proposal admission to the existing execution domain. The original
+SQL owner retains SQLite, its continuation, writer and byte admission. Entered
+I/O returns and joins before custody releases. Lost waiters keep the same
+captured submission unless a positive pre-submission seal permits cancellation;
+exact applied receipts and required S3 proofs still gate replies and continuation.
+See the [source-bound qualification](checkpoint-handoff-qualification-2026-11-21.json).
+
+The unchanged checkpoint fixture now passes all four image/durability modes
+while unrelated SQL is held; its baseline fails all four progress predicates.
+Both retain checks for final values, exact replay, no leader apply or caller
+acknowledgement while SQL is held, and joined cleanup. Four unchanged waiter controls improve
+from two failures/two passes to four passes. These demonstrate progress at their
+owning boundaries, without qualifying a throughput or latency gain.
+
+Combined qualification remains **FAILED**: the library passes **1,360 tests /
+two existing ignores**, and **10 of 14 native selections pass**. Ordinary SQL,
+KV and Queue pass both image modes, alongside SDK fencing, reply bridges,
+long-callback progress, archive/fresh-quorum controls and KV inline-read guards.
+The ordinary Queue result is one fresh current-source run, not repeatability.
+All four Queue load selections fail with **ten explicitly ambiguous producer
+deadline errors**. Materialized C2 and combined C4 each finish the original
+**528-message drain / 528 unique IDs**; standalone materialized C4 also fails.
+Every load phase reports successful three-node/three-host cleanup and complete
+synthetic exports. Failed/unknown histories remain retained and unreissued.
+
+Strict all-feature/all-target Clippy for Cellar, LTX and the pure logic crate,
+format, layout, dependencies, docs and whitespace checks pass. Source, artifacts,
+logs, original/copy fixture inventories and **34 memory exports** are independently
+verified. Two separate sampled C4 diagnostics fail with declared overhead and
+verified terminal media; their startup/service/cleanup stacks identify I/O callers
+but do not establish exclusive cause. The record preserves exact hashes and scopes.
+
+The original RustFS check at **2026-11-21T11:00:43.246451+00:00** reports **zero
+available bytes**, below the unchanged **6 GiB reserve**. Original identity,
+configuration, resources and start match, with zero restarts and no cases
+admitted. This is not a fresh three-node resource witness. The original constrained
+comparison and full OPT/CG/recovery/SDK/release acceptance remain open. Earlier
+source-specific integration results remain below.
+
 ## Current main integration
 
 Code `a24eddbe9` includes main `5ae2b21f` and the bounded native Queue transfer
