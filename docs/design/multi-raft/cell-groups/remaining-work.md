@@ -41,39 +41,39 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-Runtime `ac296178f` passes all sixteen fixed Linux/RustFS binding/provider
-functions and 54 image/minimum/fault configurations. Framework-owned cleanup now
-uses an explicitly registered execution fence, retains its original lifecycle
-admission through settlement, refreshes claims after binding changes and
-reconciles a lost accepted DELETE reply without submitting another DELETE.
-Provider cleanup declines a busy writer before enqueueing; catalog dependency
-admission, fresh authority, original budgets and Quorum/S3 proofs remain.
+Runtime `4f87197ec` delivers Raft-only binding preparation: intent plus execution
+claim share a proof, and final observation plus command result share the output
+proof. Create uses two committed versions rather than four. Existing durable CAS,
+original IDs, five-second requests and Quorum/S3 minimums remain. Native provider
+gates pass 24 configurations; real macOS/RustFS/Docker cleanup passes four, with
+actual S3 write-refusal counters and exact receipt-only recovery. Combined
+constrained Linux/RustFS passes all 16 fixed functions and 54 configurations.
+This is a scoped delivery, not full primitive-family acceptance.
 
-**Close the current failures first.** Existing ordinary Fleet supervision passes
-4/5 functions but fails provider-outage cleanup's notification wait. Current
-macOS/RustFS fenced cleanup completes 1/4 configurations: materialized/S3 Create
-sequence 1 expires ambiguous and both extent configurations are unrun. Earlier
-native extent/S3 Read and macOS S3 supervision failures also remain open. Preserve
-original IDs, failed state and budgets; a Linux pass or another source's pass
-cannot waive them. Add failed-root and task/wake observations to the old Fleet
-fixture before diagnosing its failure; it currently deletes that temporary root.
+**Deliver normal native Container/sandbox adapters and close the failures.**
+The ordinary final-source Fleet suite is 3/5: an accepted-create successor closes
+before cleanup and retained restart stops with `NodeLeaseMismatch`. Preserve
+those roots as the outage fixture now does, and diagnose without replacing IDs or
+extending budgets. Earlier provider-outage, native extent/S3 Read and macOS S3
+supervision Delete failures remain open; passing controls do not prove a fix.
 
-**Then deliver normal native Container/sandbox adapters.** Native Container needs
-an async activation prologue and request-bound provider transport using full
-logical history; old contexts must never borrow a newer global grant. Qualify an
-independent controller with durable high-water recovery, authenticated operation
-enforcement and permanent old-history revocation. The current volatile fixture
-stays alive through voter restart. Then close WebSockets and every public
-primitive/provider, feature, deployment/clock, retention, cancellation and recovery
-ledger. A fresh cell incarnation cannot bypass revocation of old execution.
+Ordinary named ProviderSession currently holds lifecycle admission without
+passing it to the backend; forward that exact guard so execution fencing does
+not reacquire and deadlock. Native Container needs an async activation prologue,
+request-bound provider transport and full logical history. Old Contexts must never borrow newer global
+grants. Qualify an independent controller with durable high-water recovery,
+authenticated per-operation enforcement and permanent old-history revocation.
+Then finish WebSockets and every API/provider/feature/deployment/clock/retention/
+cancellation/recovery ledger. Fresh-history DR cannot bypass execution revocation.
 
 RF3 shares one three-CPU/4-GiB Linux process/container with zero swap and ext4
 disks; RustFS has one CPU/2 GiB in the same VM. This does not qualify independent
-voter faults or isolate the macOS failures. Native Docker's disk stays explicitly
-ephemeral; other providers keep their declared volume contracts. Inventory remains
-partial at 18 entries/279 symbols. All 32 formal CG-17 cases and historical CG-01
-custody remain required. See the current checkpoint for exact results and retained
-controls.
+voter/controller faults. The fixture controller has volatile state and stays live
+through voter restart. Native Docker remains ephemeral; other provider-volume
+contracts still apply. Inventory is partial at 18 entries/280 symbols. Formal
+CG-17 acceptance remains 0/32; historical CG-01 custody is also missing. See the
+[current checkpoint](progress.md#current-integration-checkpoint) for source pins,
+failed controls, proof counts and retained evidence.
 
 Runtime `feb22476c` delivers declared provider journals and local invocation/proof
 authority through shared-group storage. Twelve RF3 configurations pass: eight
@@ -529,7 +529,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. Runtime `2ad84151f` passes fifteen fixed Linux/RustFS functions and fifty configurations, plus native and macOS/RustFS/Docker execution-claim checks. Durable claims and an explicit authority API join binding recovery, journals and shared supervision. | Integrate normal Container/sandbox and managed cleanup fencing, finish WebSockets, qualify durable independent controllers and every API/feature/lifecycle/fault/recovery ledger. Earlier macOS S3 supervision and historical custody gaps remain open. The full 32-case matrix is required. See the [current checkpoint](progress.md#current-integration-checkpoint). |
+| CG-17 | In progress. Runtime `4f87197ec` passes 16 fixed Linux/RustFS functions/54 configurations, native provider 24 configurations and real macOS/RustFS/Docker cleanup 4/4. Raft-only preparation reduces canonical Create from four committed versions to two, with exact output/receipt recovery. | Deliver normal Container/sandbox, durable independent controller recovery, WebSockets and every API/feature/lifecycle/fault ledger. Ordinary Fleet is 3/5; earlier failures and missing historical custody remain open. All 32 formal cases remain required. See the [current checkpoint](progress.md#current-integration-checkpoint). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 

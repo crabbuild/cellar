@@ -4,7 +4,60 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current fenced-maintenance delivery
+## Current prepared-provider delivery
+
+Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `4f87197ec`
+delivers Raft-only `BindingJournal::prepare_exchange`, sharing exact existing CAS
+validation. This synchronous return is local preparation. Execution fencing must
+prove intent and claim before provider I/O; final observation and result share
+the output proof. Existing durable `compare_exchange` is unchanged. Native/Fleet
+refuses preparation before mutation. Create uses two committed versions rather
+than four, with original IDs, five-second budgets and required proofs.
+
+Latest `origin/main` `f117a017f` is merged. Runtime/test/tool files match the
+qualified `4f87197ec` source byte for byte; only documentation/task-action notes
+differ. Requirements, dependencies and status are unchanged.
+
+Native provider gates pass six functions/24 configurations. Real macOS/RustFS/
+Docker cleanup passes four configurations, including actual archive-write refusal
+and original receipt-only recovery without callback replay. Combined constrained
+Linux/RustFS passes 16 functions/54 configurations. Owning/library/contracts pass
+53, ordinary native provider tests seven. **Fleet is 3/5**: accepted-create
+successor closes before cleanup and retained restart stops with
+`NodeLeaseMismatch`. The earlier outage failure is not causally resolved by
+passing instrumented controls. Its roots now survive; the other two failed
+fixtures still remove roots and need equivalent retention before diagnosis.
+
+Evidence `CG-17-provider-preparation-4f87197ec-2050/record.json` retains
+179 native/Fleet and 60 Linux roots, frozen executables, archives, independent
+Docker/file proofs and every failed control,
+with a second verified backup. The real `4dac6b498` Create deadline and proper
+`abe55e325` four-version red remain. The initial backend-503 setup ran no business
+request. All owned runtimes are stopped, with volumes/objects and the stopped
+failed trace resource retained. Linux executable SHA-256:
+`0f6e21583d4167628d7155b9cab45a490e600ee6571a3784466103911adb8e50`.
+
+**Next deliver normal Container/sandbox adapters and finish failure recovery.**
+First forward ordinary named ProviderSession lifecycle admission to its fenced
+backend without re-locking; the direct-journal fixture does not cover that path.
+Preserve failed accepted-create/restart roots, original lease/request budgets and
+safe refusal. Do not replace uncertain operations or hide failures with broad
+reruns. Native Container needs an async activation prologue, request-bound fenced
+transport and full logical history; old Contexts must not borrow newer global
+grants. Qualify durable independent controller high-water recovery, authenticated
+per-operation admission and permanent old-history revocation before fresh-history
+DR. Finish WebSockets and every public primitive/provider/feature/lifecycle ledger,
+including the older macOS S3 Read/Delete paths. A Raft-only API's per-backend
+supported/refused behavior also belongs in the complete independent ledger.
+
+RF3 shares one Linux process (3 CPU/4 GiB, zero swap, ext4); RustFS 1 CPU/2 GiB
+in the same VM. The volatile controller survives voter restart. Independent voter/
+controller failures and provider volume recovery remain unqualified. Formal
+acceptance stays **13/17 tasks, 147/195 cases, CG-17 0/32**; partial catalogue is
+18 entries/280 symbols. Historical CG-01 custody still blocks whole-plan validation.
+See [progress](progress.md#current-integration-checkpoint) for controls and limits.
+
+## Previous fenced-maintenance delivery
 
 Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `ac296178f`
 delivers `Supervision::register_fenced`, schema-bound controller selection and

@@ -34,7 +34,105 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
-### CG-17 framework-owned fenced maintenance
+### CG-17 prepared provider checkpoints and result recovery
+
+**CG-17 remains open.** Runtime `4f87197ec` adds Raft-only
+`BindingJournal::prepare_exchange`. It reuses the existing protected SQL CAS,
+record validation, declaration, transaction and original invocation checks. The
+return records local preparation; it is not a durability proof. A subsequent
+execution fence or refreshed grant proves binding intent and claim together
+before provider I/O. The final prepared observation shares the command's exact
+result/output proof. Existing `compare_exchange` still waits for durability;
+Native/Fleet refuses preparation before mutation. See the
+[binding contract](../../../../crates/cellar-container/bindings.md).
+
+Latest `origin/main` `f117a017f` is merged. Its Queue backport was already
+integrated: runtime, test and tool files remain byte-identical to the qualified
+`4f87197ec` source. The merge adds documentation and task-action notes; task
+requirements, dependencies and status remain unchanged.
+
+The canonical fenced-provider Create now commits **two cell versions instead of
+four**: intent plus execution claim, then observation plus result. Deletion intent
+and refreshed claim likewise share a checkpoint. This is a measured proof-count
+reduction for this caller, not a throughput or general provider latency claim.
+The controller, original identities, five-second requests, attempt limits and
+Quorum/S3 minimums remain unchanged.
+
+The real-backend trace at `4dac6b498` reproduces the original materialized/S3
+Create sequence-1 deadline. Reservation, claim and observation proofs consumed
+about 1,890, 716 and 1,465 ms before final result settlement; the Docker create was
+about 132 ms. The version-count regression at `abe55e325` fails with before=1,
+after=5; the unchanged two-version assertion passes on the new caller. Earlier
+`8a14b6176` fails before Create because its new query was registered in the wrong
+fixture; this is retained as a test error, separately from the proper red.
+
+| Current runtime qualification | Result |
+| --- | --- |
+| Native shared-group provider journal/proof/limits/execution/supervision/cleanup | **6 functions, 24 configurations pass** |
+| macOS/RustFS/Docker fenced maintenance and prepared final result | **4/4 image/minimum configurations pass** |
+| Combined constrained Linux/RustFS binding, Consume/Ack and provider campaign | **16/16 fixed functions, 54 configurations pass** |
+| Owning, container-library and declaration/registration contracts | 53 selected tests pass |
+| Existing native provider journals and supervision | 7 selected functions pass |
+| Ordinary Fleet supervision | **3/5 pass.** Accepted-create successor closes before cleanup; retained restart stops with `NodeLeaseMismatch` |
+| Locked host builds, strict affected Clippy, format and repository checks | Pass; catalogue remains partial at 18 entries/280 symbols |
+| Coverage-validator negative fixtures | 13 synthetic tests pass; these do not qualify runtime APIs |
+
+Both S3 configurations record actual refused archive writes after the final
+observation is prepared. The original sequence-3 command remains ambiguous until
+archive restoration; receipt-only recovery returns its exact completed result
+without a second callback. Every configuration observes one staged result, one
+create, one delete and one grant refresh. Pre-effect S3 refusal likewise requires
+an actual denied-write counter and prevents provider I/O. Independent Docker
+inspection verifies the four original immutable IDs are absent, the pinned image,
+0.1 CPU/64 MiB/zero swap, network disabled and restart disabled. Linux execution
+checks independently read four exact file effects and verify eight stopped
+processes with old/new non-overlap.
+
+The initial RustFS startup probe returned 503 before any test ran; that failed
+setup is retained. A later health/readiness check found no qualification resources,
+and the separate signed-preflight gate passed all four configurations. No
+ambiguous business request was reissued under a replacement identity.
+The first Linux rebuild, using two Cargo jobs in a six-CPU/nine-GiB build
+container, was killed by its memory cgroup before any runtime case. Docker
+OOM state and kernel records are retained. A subsequent four-GiB compile also
+OOMs; that was a mistaken reading of the previous profile. The final build
+restores its exact three-CPU/nine-GiB/single-job compile profile, then reduces to
+four GiB for the fixed campaign. Two setup failures follow the successful build:
+the Docker process check omitted its required PID column, then the resume harness
+omitted an image constant. Neither ran a runtime case. The corrected runner
+verifies the same frozen executable, source and actual cgroups before all sixteen
+cases; those failed setup records remain in the evidence bundle.
+
+The Fleet outage fixture now retains roots and writes failure-only stage/wake
+observations. The targeted instrumented case, its complete five-case control and
+the precursor source pass; the final source's outage case passes too. These
+passes do not establish a causal fix for the earlier outage failure. The two
+other final-source failures above remain open; their existing fixtures remove
+the failed temporary roots, while raw traces and frozen binaries are retained.
+Earlier native extent/S3 Read and macOS S3 supervision Delete failures also remain
+open. The new prepared-call gate does not qualify all durable-CAS callers.
+
+Evidence `CG-17-provider-preparation-4f87197ec-2050/record.json` retains
+179 native/Fleet roots, 60 Linux voter roots, source archives, frozen binaries,
+red/failed controls and independent Docker
+proofs, with a second verified backup. Linux executable SHA-256:
+`0f6e21583d4167628d7155b9cab45a490e600ee6571a3784466103911adb8e50`.
+All owned runtimes are stopped; objects, volumes and the stopped original failed
+trace resource are retained.
+
+Linux RF3 shares **one** three-CPU/4-GiB process/container, zero swap and ext4 voter
+disks; RustFS has one CPU/2 GiB in the same VM. The volatile fixture controller
+stays alive across voter restart. The ordinary named ProviderSession also needs
+the adapter's held lifecycle guard forwarded to its backend; reacquiring that
+same guard to fence execution deadlocks. The qualified direct-journal fixture
+does not prove that public session path. Normal native Container/sandbox adapters,
+durable independent controller crashes/partitions and permanent old-history
+revocation, provider-volume restoration, WebSockets and the complete API/feature/
+clock/deployment/retention/recovery matrix remain required. Formal acceptance
+stays **13/17 tasks, 147/195 cases, CG-17 0/32**. Whole-plan validation still fails
+on missing historical CG-01 evidence; nothing is fabricated or waived.
+
+### Previous CG-17 framework-owned fenced maintenance
 
 **CG-17 remains open.** Runtime `ac296178f` delivers explicit controller-fenced
 background provider cleanup. The combined constrained Linux/RustFS campaign
