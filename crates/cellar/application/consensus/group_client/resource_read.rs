@@ -1,13 +1,12 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Value-only SQL and Workflow resources use the linearizable pinned reader.
-
-use super::super::CommandFailure;
+//! Shared immutable resource queries retain the original deadline and private admission.
+use super::super::{native_rpc, CommandFailure, QueryAdmission};
 use super::*;
-use crate::application::{cell_bindings::Route, consensus::native_rpc, HandlerFuture};
+use crate::application::{cell_bindings::Route, HandlerFuture};
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
-use anyhow::Context as _;
+use cellar_logic::consensus::ProposalId;
 use rand::RngCore as _;
 
 impl RaftCells {
@@ -85,9 +84,7 @@ impl RaftCells {
         })
     }
 
-    /// The route is minted by this host's compiled binding authorization. Source
-    /// callers enter only after their existing dispatch task proves its root;
-    /// ingress discovery retains the ordinary callback/admission checks.
+    /// Source and ingress callers share the same immutable routing and admission.
     pub(super) fn query_resource(
         &self,
         route: Route,
@@ -95,102 +92,164 @@ impl RaftCells {
         timeout: Duration,
         source_proven: bool,
     ) -> HandlerFuture<RpcData> {
-        let owner = self.internal_observer();
-        let prepared = (|| -> anyhow::Result<_> {
+        let prepared = (|| -> anyhow::Result<u64> {
             self.check_open()?;
-            anyhow::ensure!(
-                route.contract.kind == super::super::OperationKind::Query,
-                CommandFailure::UnsupportedCapability
-            );
-            let deadline = owner
-                .handle
+            self.handle
                 .domain
                 .mono_ms()?
                 .checked_add(u64::try_from(timeout.as_millis())?)
-                .ok_or(RuntimeError::DeadlineExceeded)?;
-            let mut id = [0; 16];
-            crate::asyncrt::rng("resource-read").fill_bytes(&mut id);
-            Ok((deadline, super::super::ProposalId::new(id)?))
+                .ok_or_else(|| RuntimeError::DeadlineExceeded.into())
         })();
+        let owner = self.internal_observer();
         Box::pin(async move {
-            let (deadline, invocation) = prepared?;
+            let (reply, _) = owner
+                .query_resource_after(route, input, prepared?, source_proven, None)
+                .await?;
+            Ok(reply)
+        })
+    }
+
+    pub(super) fn query_resource_after(
+        &self,
+        route: Route,
+        input: Vec<u8>,
+        deadline: u64,
+        source_proven: bool,
+        after: Option<crate::raft::version::CellVersionToken>,
+    ) -> HandlerFuture<(RpcData, crate::raft::version::CellVersionToken)> {
+        let prepared = (|| -> anyhow::Result<_> {
+            self.check_open()?;
+            let class = route
+                .cell
+                .as_str()
+                .split_once(':')
+                .ok_or(CommandFailure::UnsupportedCapability)?
+                .0;
+            let admission = match route.admission {
+                super::super::CommandAdmission::Event
+                    if route.contract == super::super::native_event_query::contract(class) =>
+                {
+                    QueryAdmission::Event(route.durability)
+                }
+                super::super::CommandAdmission::Public
+                    if class == crate::deploy::QUEUE_CLASS
+                        && route.contract == super::super::native_queue_query::contract() =>
+                {
+                    QueryAdmission::QueueOperator(route.durability)
+                }
+                super::super::CommandAdmission::Public
+                    if class == crate::deploy::QUEUE_CLASS
+                        && route.contract == super::super::native_queue_metrics::contract() =>
+                {
+                    QueryAdmission::QueueMetrics(route.durability)
+                }
+                super::super::CommandAdmission::Public
+                    if route.contract.kind == super::super::OperationKind::Query
+                        && (class == crate::deploy::SQL_CLASS
+                            || class == crate::deploy::KV_CLASS
+                            || crate::deploy::is_workflow_class(class)) =>
+                {
+                    QueryAdmission::Public
+                }
+                _ => anyhow::bail!(CommandFailure::UnsupportedCapability),
+            };
+            if source_proven {
+                super::super::require_framework_dispatch()?;
+            }
+            let mut id = [0; 16];
+            crate::asyncrt::rng("resource-metadata-read").fill_bytes(&mut id);
+            Ok((ProposalId::new(id)?, admission))
+        })();
+        let owner = self.internal_observer();
+        Box::pin(async move {
+            let (invocation, admission) = prepared?;
+            let trace = |phase: &'static str| {
+                tracing::debug!(target: "cellar::raft::resource_read", phase,
+                    cell = %route.cell.as_str(), ?invocation, deadline_ms = deadline,
+                    at_ms = ?owner.handle.domain.mono_ms().ok());
+            };
             let remaining = || -> anyhow::Result<Duration> {
                 owner.check_open()?;
                 Ok(Duration::from_millis(
                     deadline
                         .checked_sub(owner.handle.domain.mono_ms()?)
-                        .filter(|remaining| *remaining != 0)
+                        .filter(|n| *n > 0)
                         .ok_or(RuntimeError::DeadlineExceeded)?,
                 ))
             };
             let operation = async {
                 let mut backoff_ms = 10;
+                trace("started");
                 loop {
                     remaining()?;
                     let result = async {
+                        trace("locating");
                         let history = match route.history_hint.clone() {
                             Some(history) => history,
                             None => {
                                 let options = QueryOptions {
-                                    consistency: QueryConsistency::Linearizable,
                                     timeout: remaining()?,
                                     ..Default::default()
                                 };
-                                // Binding I/O is already inside a source-proof permit;
-                                // ingress has no source and must use ordinary discovery.
-                                let found = if source_proven {
-                                    owner
-                                        .resolve_cell_history_direct(
-                                            route.cluster,
-                                            route.namespace,
-                                            route.cell.clone(),
-                                            options,
-                                        )
-                                        .await
-                                } else {
-                                    owner
-                                        .resolve_cell_history(
-                                            route.cluster,
-                                            route.namespace,
-                                            route.cell.clone(),
-                                            options,
-                                        )
-                                        .await
-                                };
-                                found
-                                    .map_err(anyhow::Error::from)
-                                    .context("resource history discovery")?
-                                    .ok_or(RuntimeError::NotFound)?
+                                let found = owner
+                                    .locate_resource_history(
+                                        route.cluster,
+                                        route.namespace,
+                                        route.cell.clone(),
+                                        options,
+                                        source_proven,
+                                    )
+                                    .await;
+                                found?.ok_or(RuntimeError::NotFound)?
                             }
                         };
-                        let result = owner
-                            .cell(history)
-                            .context("resource handle")?
-                            .query_direct(
-                                invocation,
-                                &route.contract,
-                                input.clone(),
-                                QueryOptions {
-                                    consistency: QueryConsistency::Linearizable,
-                                    timeout: remaining()?,
-                                    ..Default::default()
+                        trace("querying");
+                        let response = owner
+                            .handle
+                            .core
+                            .host
+                            .cell(history)?
+                            .query_routed_admitted(
+                                CellQueryRequest {
+                                    invocation,
+                                    contract: route.contract.clone(),
+                                    input: input.clone(),
+                                    consistency: after.clone().map_or(
+                                        CellQueryConsistency::Linearizable,
+                                        CellQueryConsistency::LinearizableAfter,
+                                    ),
                                 },
-                            )
-                            .await
-                            .context("pinned resource query")?;
+                                CellRoutingLimits {
+                                    timeout: remaining()?,
+                                    max_attempts: 4,
+                                },
+                                CellQueryRouting::Automatic,
+                                admission,
+                            )?
+                            .response()
+                            .await?;
+                        trace("query-returned");
                         remaining()?;
                         anyhow::ensure!(
-                            result.result.len() <= route.max_result_bytes,
+                            response.result().len() <= route.max_result_bytes,
                             CommandFailure::Overloaded
                         );
-                        native_rpc::decode_response(&result.result)
+                        let result = native_rpc::decode_response(response.result())?;
+                        let RpcData::Structured(bytes) = result else {
+                            anyhow::bail!(CommandFailure::CorruptState);
+                        };
+                        let token = response.token().clone();
+                        let retained =
+                            crate::rpc_reservation::Reservation::shared(Arc::new(response));
+                        Ok((RpcData::Structured(retained.retain_bytes(bytes)), token))
                     }
                     .await;
                     match result {
                         Err(error) if super::read_admission::retryable(&error) => {
-                            // A cold selected image may not be locally ready yet.
-                            // Only typed read admission refusals retry; the outer
-                            // original timer and source permit remain authoritative.
+                            trace("admission-retry");
+                            // A cold selected image can temporarily refuse a
+                            // reader. Retry only immutable admission, retaining
+                            // the original deadline, authority and source proof.
                             remaining()?;
                             let now = owner.handle.domain.mono_ms()?;
                             owner
@@ -205,9 +264,15 @@ impl RaftCells {
                 }
             };
             let timer = owner.handle.domain.sleep_until(deadline)?;
-            crate::asyncrt::select_biased! { "bounded resource pinned read";
-                _=timer=>Err(anyhow::Error::from(RuntimeError::DeadlineExceeded)),
-                result=operation=>result,
+            crate::asyncrt::select_biased! { "original resource metadata deadline";
+                _ = timer => {
+                    trace("expired");
+                    Err(anyhow::Error::from(RuntimeError::DeadlineExceeded))
+                },
+                result = operation => {
+                    trace(if result.is_ok() { "completed" } else { "failed" });
+                    result
+                },
             }
         })
     }

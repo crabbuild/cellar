@@ -100,6 +100,69 @@ fn fetch_rejects_wrong_resolved_subscription_and_recreation() {
 }
 
 #[test]
+fn resolved_fetch_pins_empty_results_and_refuses_retargeted_incarnations() -> Result<()> {
+    let (resource, identity, _, _) = fixture();
+    let empty = json!({"identity":identity,"batch":null});
+    let (observed, batch) = accept_resolved_fetch(&resource, "worker", None, empty.clone())?;
+    assert_eq!(observed, identity);
+    assert!(batch.is_null());
+    for field in ["resource", "name", "id", "generation"] {
+        let mut changed = empty.clone();
+        changed["identity"][field] = if field == "name" {
+            json!("other")
+        } else {
+            json!("f".repeat(32))
+        };
+        let failure = accept_resolved_fetch(&resource, "worker", Some(&identity), changed)
+            .expect_err("empty poll accepted a different incarnation");
+        assert_eq!(
+            failure
+                .downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::SubscriptionReset
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn resolved_fetch_requires_explicit_batch_and_matching_receipt() -> Result<()> {
+    let (resource, identity, batch, _) = fixture();
+    for malformed in [
+        json!({"identity":identity}),
+        json!({"batch":null}),
+        Value::Null,
+    ] {
+        assert!(accept_resolved_fetch(&resource, "worker", None, malformed).is_err());
+    }
+    let mut changed = identity.clone();
+    changed.generation = "f".repeat(32);
+    let (observed, batch) = accept_resolved_fetch(
+        &resource,
+        "worker",
+        None,
+        json!({"identity":changed,"batch":batch}),
+    )?;
+    let failure = accept_batch(
+        &resource,
+        &observed,
+        BatchOptions::default(),
+        cellar_logic::event_stream::Limits::default(),
+        batch,
+    )
+    .expect_err("identity and lease came from different incarnations");
+    assert_eq!(
+        failure
+            .downcast_ref::<super::super::DeliveryError>()
+            .unwrap()
+            .code,
+        ErrorCode::SubscriptionReset
+    );
+    Ok(())
+}
+
+#[test]
 fn fetch_rejects_untrusted_envelope_identity_and_malformed_codecs() {
     for field in [
         "id",

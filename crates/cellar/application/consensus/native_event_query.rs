@@ -9,18 +9,83 @@ use sha2::{Digest, Sha256};
 
 const OPERATION: &str = "__sys_raft_event_query";
 
+/// Activation waits without archiving intermediate reconciliation states. Only
+/// a successful selection enters the ordinary target-minimum proof path.
+pub(crate) const CATALOG_READY: &str = "__catalogReady";
+
 pub(crate) fn is_metadata(method: &str) -> bool {
     matches!(
         method,
         "__catalogStatus"
+            | CATALOG_READY
             | "__catalogConfigureReceipt"
             | "__catalogResolveName"
             | "__catalogResolve"
+            | "__streamConfigureReceipt"
             | "__streamResolve"
             | "__streamRead"
             | "__streamSubscriptionStatus"
             | "__streamAckReceipt"
     )
+}
+
+/// Only a host provisioning receipt may lazily initialize a broker. Validate
+/// its bounded definition, exact operation and target before creation; ordinary
+/// metadata reads retain their missing-name refusal.
+pub(crate) fn broker_genesis(scope: &str, input: &[u8]) -> anyhow::Result<bool> {
+    let request = native_event_rpc::decode(scope, input)?;
+    if request.method != "__streamConfigureReceipt" {
+        return Ok(false);
+    }
+    let native_event_rpc::Authority::Event(caller) = request.authority else {
+        anyhow::bail!(super::CommandFailure::UnsupportedCapability);
+    };
+    event_stream::raft::validate_broker_genesis(
+        scope,
+        &caller,
+        &event_stream::broker::body(&request.rpc.args)?,
+    )?;
+    Ok(true)
+}
+
+/// Only a coherent selected receipt's typed absence permits a configuration
+/// mutation. Malformed responses and proof/authorization failures remain errors.
+pub(crate) fn configuration_operation_absent(
+    response: &crate::engine_api::RpcData,
+) -> anyhow::Result<bool> {
+    let value = crate::application::decode_rpc_result(response)?.to_json()?;
+    let Some(error) = value.get("error") else {
+        return Ok(false);
+    };
+    anyhow::ensure!(
+        value.as_object().is_some_and(|object| object.len() == 1),
+        "malformed configuration probe response"
+    );
+    let error: event_stream::DeliveryError = serde_json::from_value(error.clone())?;
+    Ok(matches!(
+        error.code,
+        event_stream::ErrorCode::OperationUnknown | event_stream::ErrorCode::NotInitialized
+    ))
+}
+
+/// A read can discover a missing name before an image exists. The ordinary
+/// enrollment path must independently confirm absence and prove creation.
+pub(crate) fn configuration_target_missing(error: &anyhow::Error) -> bool {
+    use crate::raft::{cell_groups::CellDispatchError, completion::RuntimeError};
+    matches!(
+        error.downcast_ref::<RuntimeError>(),
+        Some(RuntimeError::NotFound)
+    ) || matches!(
+        error.downcast_ref::<CellDispatchError>(),
+        Some(CellDispatchError::Runtime(RuntimeError::NotFound))
+    ) || error
+        .downcast_ref::<std::sync::Arc<CellDispatchError>>()
+        .is_some_and(|error| {
+            matches!(
+                error.as_ref(),
+                CellDispatchError::Runtime(RuntimeError::NotFound)
+            )
+        })
 }
 
 pub(crate) fn contract(class: &str) -> OperationContract {
@@ -52,6 +117,21 @@ pub(crate) fn invoke(context: &QueryContext<'_>, input: &[u8]) -> anyhow::Result
             context.result_limit(),
         )
     });
+    // A pending activation has no successful output to prove. Keep this typed
+    // refusal outside the application response envelope so the destination can
+    // park this invocation for cell progress within its original deadline.
+    let result = match result {
+        Err(error)
+            if request.method == CATALOG_READY
+                && matches!(
+                    error.downcast_ref::<crate::raft::completion::RuntimeError>(),
+                    Some(crate::raft::completion::RuntimeError::NotReady)
+                ) =>
+        {
+            return Err(error)
+        }
+        result => result,
+    };
     let Output::Rpc(result) = event_stream::broker::reply(result)? else {
         anyhow::bail!("invalid event metadata response");
     };

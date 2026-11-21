@@ -13,10 +13,10 @@ use std::time::Duration;
 pub enum CellQueryRouting {
     #[default]
     Local,
-    /// Prefer an observed leader for linearizable reads and a local replica
-    /// for other modes. Eligible fallbacks share the original attempt budget.
-    /// Reserve time for untried trusted replicas after a slow selected reader;
-    /// a sole local candidate receives the remaining invocation budget.
+    /// Prefer the active local replica, then try trusted group destinations.
+    /// The first reader keeps the original deadline while a serial fallback
+    /// lane can rescue a stalled replica. At most two waiters run concurrently;
+    /// both consume the original attempt budget and destination admission.
     Automatic,
     /// One to eight distinct members; attempt_timeout is positive and no larger
     /// than the original timeout. Missing leader advice never grants authority.
@@ -78,7 +78,9 @@ impl CellQueryInvocation {
             .attempt
             .as_ref()
             .ok_or(CellDispatchError::Invalid("missing route"))?;
-        if let CellQueryConsistency::AtLeast(token) = &self.request.consistency {
+        if let CellQueryConsistency::AtLeast(token)
+        | CellQueryConsistency::LinearizableAfter(token) = &self.request.consistency
+        {
             self.dispatcher
                 .keys
                 .verify_cell(
@@ -107,7 +109,7 @@ impl CellQueryInvocation {
     }
 
     pub(crate) fn prefers_leader(&self) -> bool {
-        matches!(self.request.consistency, CellQueryConsistency::Linearizable)
+        self.request.consistency.is_linearizable()
     }
 
     pub(crate) fn leader_hint(&self) -> Option<MemberId> {

@@ -121,6 +121,16 @@ authority nor permission to restore the initial image over newer mutations.
 
 ## Routed read RPC
 
+Internal event metadata discovery may select a present enrollment from a live
+local voter's applied manifest after bounded, verified namespace range routing.
+This supplies only the logical history to address. The actual metadata query still
+obtains fresh quorum authority and its independent target minimum proof before
+activation or output. Missing local records fall back to ordinary name discovery;
+public name and absence observations always retain their own quorum cut. No local
+manifest or routing hint is a successful metadata read or an activation proof.
+`cell_name_quorum_selections` counts enrollment-selection attempts after a group
+ReadIndex, including rejected selections; it is not a successful-read counter.
+
 Use the existing node-owned query lane, with independent control/data progress,
 bounded peer/node admission and joined physical shutdown. Authenticate both the
 physical group and logical cell histories, schema, route epoch, birth identity,
@@ -144,6 +154,17 @@ never compare unrelated monotonic clocks or replenish the original caller's
 deadline/attempt budget. Confirm relocation hints through the trusted catalog.
 Return the selected cell observation and authenticated cell token, never the
 group's newer log cut. The caller independently enforces an AtLeast minimum.
+`LinearizableAfter(token)` authenticates the exact cell history/schema and waits
+for a strictly newer cell observation before starting a fresh quorum ReadIndex.
+Unrelated group progress cannot satisfy the wait. Park in existing bounded read
+admission without SQL/image work until advancement; ordinary reads continue
+independently. Current term, membership, route and ownership still gate admission,
+and the target's separate Quorum/S3 minimum remains mandatory. The caller checks
+strict advancement again. A framework checkpoint can advance the cell, so callers
+must still inspect the returned state. This uses authenticated query mode 4 with
+the existing bounded token encoding and marker 1. Waiting consumes the original
+deadline and quotas. Catalog activation drops its prior response before waiting
+again; a version change grants no readiness or mutation permission.
 Retain result admission until consumption, and retain entered SQL/image owners
 through physical cleanup after disconnect, timeout or cancelled shutdown.
 
@@ -518,6 +539,37 @@ For entry N, verify the cell base/sequence, stage the result, sync its immutable
 image closure, sync changed manifest pages, then atomically persist the group root
 and applied=N in the engine. Publish and acknowledge only after the marker succeeds.
 Old roots remain pinned until no recovery/reader/transfer owner needs them.
+
+Direct final settlement and public reconciliation may read a receipt from the
+frozen private SQLite state only after proving the submitted preparation's exact
+cell version and retained committed entry bytes and term. The writer must remain
+in autocommit under the pending producer's lease. Current authority is checked
+before and after receipt lookup. Missing or compacted entries and changed images
+retain ordinary selected-image reconciliation; independent replay also reads the
+committed image. Explicit S3 output still requires its independent archive proof.
+
+An unchanged base cannot establish final completion. If continuing the RPC
+already validated an unfinished checkpoint receipt in that exact base, retain
+`Uncertain` without reopening it. Do not substitute the private final receipt or
+infer absence. A newer-term barrier after committed partial roots retains the
+existing refusal behavior. Changed images still inspect receipt identity,
+conflicts and replicated pruning floors.
+
+A leader may combine commit-only hard-state metadata with that atomic root
+publication when every entry in the newly committed prefix has an exact live
+retained SQL preparation. Inspection is bounded by the existing owner event
+quantum. Term/vote changes, log entries and snapshots still sync first. Followers,
+membership/control entries and absent/expired preparations retain independent
+commit-metadata persistence.
+
+Before publication, only a private ticket from the same live local group/engine
+lease may authorize preparation of the durable entry. It binds durable term/vote,
+position and exact entry bytes; it is neither persisted nor accepted from peers.
+It grants no execution or output authority. Image/page verification and sync, then
+actual atomic root/hard-state sync, remain mandatory before settlement. Read
+protocol barriers remain available during apply; write admission observes actual
+Raft committed progress and waits for its applied root. Cancellation or a failed
+physical sync cannot publish a successful receipt or resurrect a prior authority.
 
 | Crash cut | Required outcome |
 | --- | --- |
@@ -959,6 +1011,16 @@ before issuing its version token. Original deadlines and captured inputs remain
 unchanged. Deadline/caller cancellation does not release an entered physical read;
 its cancelled flag interrupts SQL, and the archive-specific owner joins the closure.
 Pending requests and unconsumed responses retain bounded S3 admission.
+
+An already committed and archived response may finish while later mutations for
+other cells await apply. The current ready leader must match every unapplied
+committed entry against its bounded admission records: exact position, term and
+payload digest, mutation kind and a different cell. Missing, inherited, control,
+enrollment or same-cell work refuses this independence. The selected cell version
+must cover the returned receipt. This does not permit a new write acknowledgement
+before its own contiguous durable root, replace the archive proof, or change read
+barriers. Capture and recheck the ordinary route, membership and leader fences;
+retain the original response and deadline rather than rerun resolved SQL.
 
 A successful response retains the complete physical coverage, its pool admission
 and the exclusive journal lock. Immutable route authority is shared per group,

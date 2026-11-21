@@ -45,8 +45,9 @@ pub struct ListResult {
     pub cache_status: Option<String>,
 }
 
-/// Copy the exact observed token. Raft tokens include the cell incarnation, so
-/// a restored counter cannot reuse a pre-disaster conditional edit. Fleet tokens
+/// Copy the exact observed token. Raft tokens bind the complete logical cell
+/// history, including its incarnation. Another cell or a post-disaster history
+/// cannot reuse the same counter for a conditional edit. Fleet tokens
 /// remain canonical decimal integers. `None` requires an absent/live-expired key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -58,16 +59,16 @@ impl RevisionCondition {
     pub fn validate(&self) -> Result<()> {
         if let Some(revision) = &self.revision {
             let sequence = if let Some(qualified) = revision.strip_prefix("cg1:") {
-                let (incarnation, sequence) = qualified
+                let (history, sequence) = qualified
                     .split_once(':')
                     .ok_or_else(|| error("invalid revision"))?;
                 ensure!(
-                    incarnation.len() == 32
-                        && incarnation
+                    history.len() == 64
+                        && history
                             .bytes()
                             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-                        && incarnation.bytes().any(|byte| byte != b'0'),
-                    "KV_ERROR: invalid revision incarnation"
+                        && history.bytes().any(|byte| byte != b'0'),
+                    "KV_ERROR: invalid revision history"
                 );
                 sequence
             } else {

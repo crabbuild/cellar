@@ -5,6 +5,66 @@ use cellar_native::sql::{BindValue, Error};
 use serde_json::json;
 
 #[test]
+fn sql_error_retains_owned_causes_without_accepting_wire_provenance() {
+    use std::error::Error as _;
+
+    #[derive(Debug)]
+    struct Outcome {
+        command: u64,
+        ambiguous: bool,
+    }
+
+    impl std::fmt::Display for Outcome {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("SQL_EXEC_ERROR: response lost")
+        }
+    }
+
+    impl std::error::Error for Outcome {}
+
+    for ambiguous in [false, true] {
+        for contextual in [false, true] {
+            let cause = anyhow::Error::new(Outcome {
+                command: 37,
+                ambiguous,
+            });
+            let cause = if contextual {
+                cause.context("SQL dispatch")
+            } else {
+                cause
+            };
+            let expected = Error::from_message(cause.to_string());
+            let original = Error::from_error(cause);
+            let retained = original.clone();
+            drop(original);
+            assert_eq!(retained.family, expected.family);
+            assert_eq!(retained.message, expected.message);
+            assert_eq!(retained.to_string(), expected.to_string());
+            let outcome = std::iter::successors(retained.source(), |&source| source.source())
+                .find_map(|source| source.downcast_ref::<Outcome>())
+                .expect("cloned SQL error must own the original typed outcome");
+            assert_eq!(outcome.command, 37);
+            assert_eq!(outcome.ambiguous, ambiguous);
+            let encoded = serde_json::to_value(&retained).unwrap();
+            assert_eq!(
+                encoded,
+                json!({"family":expected.family,"message":expected.message})
+            );
+            let decoded: Error = serde_json::from_value(encoded).unwrap();
+            assert!(decoded.source().is_none());
+            assert_eq!(decoded.to_string(), retained.to_string());
+        }
+    }
+    let forged: Error = serde_json::from_value(json!({
+        "family":"SQL_ERROR", "message":"untrusted",
+        "source":{"command":37,"ambiguous":false}
+    }))
+    .unwrap();
+    assert!(forged.source().is_none());
+    assert!(Error::new("SQL_ERROR", "refused").source().is_none());
+}
+
+#[test]
 fn sql_bind_values_retain_byte_and_number_semantics() {
     assert_eq!(BindValue::from(f64::NAN).into_json(), json!(null));
     assert_eq!(BindValue::from(f64::INFINITY).into_json(), json!(null));

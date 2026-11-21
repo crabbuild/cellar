@@ -163,6 +163,7 @@ pub struct CellCommandInvocation {
     capacity_wait: Option<SqlCapacityWait>,
     origin: Option<Origin>,
     output: Option<PendingOutput>,
+    archive_invocation: Option<super::super::controller::S3Invocation>,
     remote_route: Option<super::RemoteMutationRoute>,
     _admission: Permit,
 }
@@ -432,6 +433,7 @@ impl PendingCellCommand {
             capacity_wait: None,
             origin: None,
             output: None,
+            archive_invocation: None,
             remote_route: None,
             _admission: admission,
         })
@@ -581,23 +583,33 @@ impl CellCommandInvocation {
         options: CellSqlOptions,
     ) -> Result<CellCommandPreparation, CellDispatchError> {
         let authority = runtime
-            .execution_authority(attempt.route().history, self.cell.clone())
+            .independent_cell_authority(attempt.route().history, self.cell.clone())
             .await
             .map_err(CellDispatchError::Runtime)?;
         if authority.route() != attempt.route() {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
         if self.request.durability == Durability::S3 {
-            self.dispatcher
+            let archive = self
+                .dispatcher
                 .s3
                 .as_ref()
-                .ok_or(CellDispatchError::Invalid("S3 command owner"))?
-                .require_runtime(runtime)?;
-            self.dispatcher
-                .s3
-                .as_ref()
-                .ok_or(CellDispatchError::Invalid("S3 command owner"))?
-                .require_group(attempt.route())?;
+                .ok_or(CellDispatchError::Invalid("S3 command owner"))?;
+            if self
+                .dispatcher
+                .class
+                .is_cell_rpc(&self.request.contract.operation)
+            {
+                self.archive_invocation = Some(archive.invocation(
+                    runtime,
+                    attempt.route(),
+                    attempt.deadline_ms(),
+                    authority.cell().witness.position.index,
+                )?);
+            } else {
+                archive.require_runtime(runtime)?;
+                archive.require_group(attempt.route())?;
+            }
         }
         let (proposal, preview) = self
             .dispatcher

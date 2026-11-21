@@ -337,6 +337,29 @@ impl CellRoutingSession {
         self.live()
     }
 
+    /// Immutable work may finish after another read ticket was issued. The
+    /// original owner, consumed ordinal, request and currently selected route
+    /// must still match; a successor or unfinished refresh refuses the result.
+    pub(crate) fn validate_query_result(
+        &self,
+        attempt: &CellRouteAttempt,
+    ) -> Result<(), CellRoutingError> {
+        if !self.active
+            || !matches!(self.request.operation, CellRouteOperation::Query(_))
+            || !Arc::ptr_eq(&self.owner, &attempt.owner)
+            || !Arc::ptr_eq(&self.request, &attempt.request)
+            || attempt.ordinal == 0
+            || attempt.ordinal > self.attempts
+            || self
+                .cached
+                .as_ref()
+                .is_none_or(|route| route.route() != attempt.route())
+        {
+            return Err(self.error(CellRoutingFailure::StaleAttempt));
+        }
+        self.live()
+    }
+
     fn error(&self, reason: CellRoutingFailure) -> CellRoutingError {
         CellRoutingError {
             reason,

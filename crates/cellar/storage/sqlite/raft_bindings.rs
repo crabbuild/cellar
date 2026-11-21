@@ -14,10 +14,16 @@ pub(crate) fn install(connection: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS __sys_raft_binding_intents(
           parent_client BLOB NOT NULL,parent_sequence BLOB NOT NULL,ordinal BLOB NOT NULL,
           format INTEGER NOT NULL CHECK(format=1),fingerprint BLOB NOT NULL,body BLOB NOT NULL,args BLOB NOT NULL,
-          phase INTEGER NOT NULL CHECK(phase BETWEEN 0 AND 4),selected BLOB,result_digest BLOB,
+          phase INTEGER NOT NULL CHECK(phase BETWEEN 0 AND 5),selected BLOB,result_digest BLOB,
           next_at INTEGER NOT NULL CHECK(next_at>=0),
+          settlement BLOB,settlement_client BLOB,settlement_sequence BLOB,
+          CHECK((phase=5 AND typeof(settlement)='blob' AND length(settlement) BETWEEN 1 AND 1024
+            AND typeof(settlement_client)='blob' AND length(settlement_client)=16
+            AND typeof(settlement_sequence)='blob' AND length(settlement_sequence)=8)
+            OR (phase!=5 AND settlement IS NULL AND settlement_client IS NULL AND settlement_sequence IS NULL)),
           PRIMARY KEY(parent_client,parent_sequence,ordinal)) WITHOUT ROWID;
          CREATE INDEX IF NOT EXISTS __sys_raft_binding_due ON __sys_raft_binding_intents(next_at,parent_client,parent_sequence,ordinal);
+         CREATE INDEX IF NOT EXISTS __sys_raft_binding_receipt_pin ON __sys_raft_binding_intents(settlement_client,settlement_sequence) WHERE phase=5;
          CREATE TABLE IF NOT EXISTS __sys_raft_binding_lanes(
           epoch BLOB NOT NULL,lane INTEGER NOT NULL CHECK(lane BETWEEN 0 AND 63),
           sequence BLOB NOT NULL,busy INTEGER NOT NULL CHECK(busy IN(0,1)),
@@ -101,7 +107,7 @@ pub(crate) fn prepare<T>(
         )?;
         let body = wire(&intent)?;
             connection.execute(
-                "INSERT INTO __sys_raft_binding_intents VALUES(?1,?2,?3,1,?4,?5,?6,0,NULL,NULL,?7)",
+                "INSERT INTO __sys_raft_binding_intents(parent_client,parent_sequence,ordinal,format,fingerprint,body,args,phase,selected,result_digest,next_at) VALUES(?1,?2,?3,1,?4,?5,?6,0,NULL,NULL,?7)",
                 rusqlite::params![intent.parent.client.bytes().as_slice(), intent.parent.sequence().to_be_bytes().as_slice(),
                     intent.ordinal.to_be_bytes().as_slice(), intent.fingerprint.as_slice(), body, intent.input.as_slice(), i64::try_from(intent.deadline_unix_ms)?],
             )?;
@@ -185,7 +191,7 @@ pub(crate) fn refuse(intent: &Intent, history: &CellHistory) -> Result<()> {
 pub(crate) fn complete(intent: &Intent, history: &CellHistory, result: &[u8]) -> Result<()> {
     use sha2::{Digest, Sha256};
     let digest: [u8; 32] = Sha256::digest(result).into();
-    command::with(|connection| as_framework_sql(|| {
+    command::with_binding_completion(|connection| as_framework_sql(|| {
         control(connection, "SAVEPOINT __sys_raft_binding_complete")?;
         let result = (|| {
         let changed = connection.execute(
@@ -227,7 +233,10 @@ pub(crate) fn clear_resolved(connection: &Connection, parent: CommandId) -> Resu
 pub(crate) fn check_clear(connection: &Connection) -> Result<()> {
     as_framework_sql(|| {
         if present(connection)? {
-            let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_binding_intents WHERE phase!=3 OR format!=1)", [], |row| row.get(0))?;
+            // Phase 5 is already logically settled, just as phase 3 is a
+            // completed child. Its remaining row owns receipt-proof/GC work;
+            // it can never authorize another target business dispatch.
+            let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_binding_intents WHERE phase NOT IN(3,5) OR format!=1)", [], |row| row.get(0))?;
             ensure!(
                 !pending,
                 crate::application::consensus::CommandFailure::Unavailable

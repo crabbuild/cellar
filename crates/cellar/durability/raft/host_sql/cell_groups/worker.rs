@@ -1,11 +1,14 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+use super::preparation::Preparation;
 use super::rpc_cache::RpcActivation;
 use super::*;
 use std::collections::{BTreeMap, VecDeque};
 
 #[path = "suspended_rpc.rs"]
 mod rpc;
+#[path = "stage.rs"]
+mod stage;
 
 type VerificationCallback =
     Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>> + Send>;
@@ -74,7 +77,7 @@ pub(in crate::raft::host_sql) struct Request {
     pub(super) queued: crate::raft::performance::Timer,
     pub(super) action: Action,
     pub(super) reply: oneshot::Sender<Result<CellSqlOutcome, ExecutionError>>,
-    pub(super) _slot: tokio::sync::OwnedSemaphorePermit,
+    pub(super) _slot: WorkerReservation,
 }
 
 impl Request {
@@ -95,6 +98,18 @@ struct StageRetention {
     lease: CellLease,
     bytes: Arc<Bytes>,
     max_result: usize,
+}
+
+struct Preparing {
+    // Joined before the executor, writer lease and bytes also on unwinding.
+    task: Preparation,
+    executor: CellPrivateExecutor,
+    cell: CellHistory,
+    mode: CellSqlStageMode,
+    reply: oneshot::Sender<SqlReply>,
+    retention: StageRetention,
+    activation: Option<RpcActivation>,
+    waker: std::task::Waker,
 }
 
 enum Producer {
@@ -128,6 +143,7 @@ impl Producer {
 pub(in crate::raft::host_sql) struct Cells {
     pending: BTreeMap<CellHistory, Pending>,
     suspended: VecDeque<rpc::Suspended>,
+    preparing: VecDeque<Preparing>,
     activations: Arc<RpcCache>,
     wake: Arc<crate::raft::host_sql::WorkerWake>,
     performance: Arc<crate::raft::performance::Registry>,
@@ -144,6 +160,7 @@ impl Cells {
         Self {
             pending: BTreeMap::new(),
             suspended: VecDeque::new(),
+            preparing: VecDeque::new(),
             activations,
             wake,
             performance,
@@ -177,6 +194,13 @@ impl Cells {
             Action::Query(_) => crate::raft::performance::Operation::SqlQuery,
             _ => crate::raft::performance::Operation::SqlOther,
         };
+        let publication = match &action {
+            Action::Finish(_) => Some("finish"),
+            Action::Reconcile(..) => Some("reconcile"),
+            Action::ResolveEnrollment(..) => Some("resolve-enrollment"),
+            Action::Reject(_) => Some("reject"),
+            _ => None,
+        };
         let timer = performance.timer(operation);
         let result = match domain.mono_ms() {
             Ok(now) if !stopped.load(Ordering::Acquire) => {
@@ -192,10 +216,18 @@ impl Cells {
                         timer.finish(self.start_rpc(cell, *stage, reply, max, domain, now));
                         return;
                     }
+                    Action::Stage(stage) => {
+                        timer.finish(self.start_stage(cell, *stage, reply, max, domain, now));
+                        return;
+                    }
                     Action::Query(query) => {
                         // Retirement requires every same-cell private frame to
                         // join. Its discovery must not mask runnable callbacks.
-                        let binding_ready = !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell));
+                        let binding_ready = !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
+                            && !self
+                                .preparing
+                                .iter()
+                                .any(|preparation| preparation.cell == cell);
                         super::query::run(*query, domain, binding_ready)
                     }
                     action => self.run(cell, action, max, now),
@@ -208,7 +240,10 @@ impl Cells {
         };
         // A lost receiver drops only the delivery. Pending owns both the
         // private writer and per-cell reservation until exact settlement.
-        // Pending was historically Uncertain, not a completed publication.
+        if let (Some(action), Err(error)) = (publication, &result) {
+            tracing::trace!(target: "cellar::raft::sql_publish", action, ?error,
+                "private publication attempt remains unresolved");
+        }
         timer.finish(
             result.is_ok()
                 && !matches!(
@@ -229,74 +264,7 @@ impl Cells {
     ) -> Result<CellSqlOutcome, ExecutionError> {
         match action {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
-            Action::Stage(stage) => {
-                self.check_capacity(&cell, max)?;
-                // A parked RPC has released its writer lease, but still owns a
-                // continuation that may later complete the original sequence.
-                // Seal only after every same-cell frame has physically joined.
-                if matches!(
-                    stage.attempt.request.operation.as_str(),
-                    crate::raft::execution::binding_seal::OPERATION
-                        | crate::storage::raft_binding_recovery::CLAIM
-                        | crate::storage::raft_binding_recovery::SETTLE
-                        | crate::storage::raft_payloads::RETIRE
-                ) && self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
-                {
-                    return Err(ExecutionError::Busy);
-                }
-                let Stage {
-                    options,
-                    authority,
-                    attempt,
-                    mode,
-                    callback,
-                    lease,
-                    bytes,
-                } = *stage;
-                if authority.cell().version.history != cell {
-                    return Err(ExecutionError::Invalid("SQL cell history"));
-                }
-                let allow_new = mode.allows_new();
-                let max_result = options.limits().max_result_bytes;
-                let mut executor =
-                    options.open(authority, &self.performance, self.root_apply_limits)?;
-                let result = match callback {
-                    Callback::Verification(callback) => {
-                        executor.stage(attempt, allow_new, callback)
-                    }
-                    Callback::Registered {
-                        class,
-                        input,
-                        admission,
-                        ..
-                    } => match admission {
-                        CommandAdmission::System => {
-                            executor.stage_system_registered(attempt, &class, &input, allow_new)
-                        }
-                        CommandAdmission::Public => {
-                            executor.stage_registered(attempt, &class, &input, allow_new)
-                        }
-                        CommandAdmission::Event if !allow_new => {
-                            executor.lookup_event_registered(attempt, &class, &input)
-                        }
-                        CommandAdmission::Event => {
-                            Err(ExecutionError::Invalid("event requires the RPC owner"))
-                        }
-                    },
-                };
-                self.publish_stage(
-                    cell,
-                    executor,
-                    result,
-                    StageRetention {
-                        lease,
-                        bytes,
-                        max_result,
-                    },
-                    None,
-                    now,
-                )
-            }
+            Action::Stage(_) => Err(ExecutionError::Invalid("stage worker dispatch")),
             Action::Initialize(request) => {
                 self.check_capacity(&cell, max)?;
                 let Initialize {
@@ -522,10 +490,10 @@ impl Cells {
     }
 
     fn check_capacity(&self, cell: &CellHistory, max: usize) -> Result<(), ExecutionError> {
-        if self.pending.contains_key(cell) {
+        if self.pending.contains_key(cell) || self.preparing.iter().any(|p| &p.cell == cell) {
             return Err(ExecutionError::Busy);
         }
-        if self.pending.len() + self.suspended.len() >= max {
+        if self.pending.len() + self.suspended.len() + self.preparing.len() >= max {
             return Err(overloaded());
         }
         Ok(())
@@ -606,6 +574,11 @@ impl Cells {
 
     pub fn close(&mut self) -> Result<(), ExecutionError> {
         let mut result = Ok(());
+        for preparing in std::mem::take(&mut self.preparing) {
+            if let Err(error) = preparing.close() {
+                result = Err(error);
+            }
+        }
         for suspended in std::mem::take(&mut self.suspended) {
             if let Err(error) = suspended.close() {
                 result = Err(error);

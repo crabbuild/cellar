@@ -206,6 +206,16 @@ impl Cell for Broker {
                     "__streamRead" => store::read(&context, &body),
                     "__streamResolve" => store::resolve(&context, &body),
                     "__streamNext" => self.next(&context, &body).await,
+                    "__streamNextResolved" => {
+                        if subscription_store::integer(&body, "wait_ms")? != 0 {
+                            return Err(error(
+                                ErrorCode::InvalidRequest,
+                                "resolved fetch requires consumer-side polling",
+                            ));
+                        }
+                        let fetch = subscription_store::next_resolved(&context, &body)?;
+                        Ok(json!({"identity":fetch.identity,"batch":fetch.value}))
+                    }
                     "__streamAck" => {
                         let services = context.io.host_services();
                         let timer = services.events().metrics.timer(

@@ -21,6 +21,7 @@ pub mod cells;
 pub(crate) mod concurrency;
 pub mod consensus;
 mod container_bindings;
+mod container_execution;
 pub(crate) mod container_supervision;
 pub mod containers;
 pub mod cron;
@@ -844,6 +845,7 @@ pub(crate) struct EventState {
     pub(crate) raft_event: bool,
     /// Declared native classes and their immutable deployment configurations.
     pub(crate) raft_cell_classes: Option<Arc<std::collections::BTreeMap<String, [u8; 32]>>>,
+    pub(crate) raft_ingress_cursor: std::sync::OnceLock<Arc<consensus::ingress_cursor::Cursor>>,
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
     // Keep framework cleanup behind the requesting event and its reply proof.
@@ -1163,12 +1165,15 @@ impl Context {
     /// Move an incoming body into an owned, backpressured stream. Dropping the
     /// stream cancels the source through the ordinary host ownership claim.
     pub fn take_body(&self, body: RequestBody) -> Result<crate::engine_api::HttpChunkStream> {
-        self.check_turn()?;
+        self.check_binding_turn()?;
         match body {
             RequestBody::Bytes(bytes) => Ok(Box::pin(futures_util::stream::once(async move {
                 Ok(bytes.to_vec())
             }))),
-            RequestBody::Stream(id) => crate::native_worker::take_body(self, id),
+            RequestBody::Stream(id) => {
+                self.check_turn()?;
+                crate::native_worker::take_body(self, id)
+            }
         }
     }
 }

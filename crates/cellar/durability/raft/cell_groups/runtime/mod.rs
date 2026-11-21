@@ -171,7 +171,7 @@ enum Command {
     },
     RetireSource(Box<CellGroupSourceRetirementPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
-    OutputAuthority(cellar_logic::cell_group::CellHistory),
+    IndependentCell(cellar_logic::cell_group::CellHistory),
     NextEffect {
         now: u64,
         after: Option<cellar_logic::cell_group::CellId>,
@@ -199,6 +199,7 @@ enum Command {
     Status,
     RoutingStatus {
         advice: bool,
+        activity: bool,
     },
     PendingTransferQuorum,
     Observe,
@@ -724,18 +725,20 @@ impl CellGroupRuntime {
         }
     }
 
-    pub(crate) async fn output_authority(
+    pub(crate) async fn independent_cell_authority(
         &self,
         history: GroupHistory,
         cell: cellar_logic::cell_group::CellHistory,
     ) -> Result<CellExecutionAuthority, RuntimeError> {
         let bytes = cell.cell.as_str().len() + 4096;
         match self
-            .call(Some(history), Command::OutputAuthority(cell), bytes)
+            .call(Some(history), Command::IndependentCell(cell), bytes)
             .await?
         {
             Response::Execution(authority) => Ok(*authority),
-            _ => Err(RuntimeError::Protocol("output authority reply".into())),
+            _ => Err(RuntimeError::Protocol(
+                "independent cell authority reply".into(),
+            )),
         }
     }
 
@@ -1204,8 +1207,9 @@ impl CellGroupRuntime {
     }
 
     /// Observe a destination only after closing its local park generation and
-    /// obtaining fresh quorum authority. Active groups retain a status-only
-    /// observation. The original caller deadline also bounds wake admission.
+    /// obtaining fresh quorum authority. Admitted activity may start one retained
+    /// election; the observation itself grants no authority. The original caller
+    /// deadline also bounds wake admission.
     pub(crate) async fn routing_status(
         &self,
         history: GroupHistory,
@@ -1231,7 +1235,8 @@ impl CellGroupRuntime {
             .await
     }
 
-    /// Query advice must not wake a parked group for an explicitly stale read.
+    /// Explicitly stale advice must not wake a parked group or start a retained
+    /// election.
     pub(crate) async fn leader_advice(
         &self,
         history: GroupHistory,
@@ -1272,7 +1277,14 @@ impl CellGroupRuntime {
         };
         let observation = async {
             let observation = match self
-                .call(Some(history), Command::RoutingStatus { advice }, bytes)
+                .call(
+                    Some(history),
+                    Command::RoutingStatus {
+                        advice,
+                        activity: wake,
+                    },
+                    bytes,
+                )
                 .await?
             {
                 Response::RoutingStatus(observation) => observation,
@@ -1289,7 +1301,14 @@ impl CellGroupRuntime {
                 // A pre-wake sample never supplies reusable advice. Resample
                 // the same owner after the fresh wake barrier has completed.
                 return match self
-                    .call(Some(history), Command::RoutingStatus { advice }, bytes)
+                    .call(
+                        Some(history),
+                        Command::RoutingStatus {
+                            advice,
+                            activity: wake,
+                        },
+                        bytes,
+                    )
                     .await?
                 {
                     Response::RoutingStatus(fresh) if fresh.park.is_none() => {

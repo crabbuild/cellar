@@ -12,8 +12,54 @@ use std::sync::{
 };
 
 impl GroupLog<GroupHistory> {
+    /// Applied startup metadata can locate a candidate before a leader
+    /// is known. This is only a destination hint, never a leader observation or
+    /// serving authority. The destination must run ordinary Raft and recheck all
+    /// command/enrollment admission and output proofs.
+    pub(crate) fn startup_destination_hint(
+        &self,
+        route: &GroupRoute,
+    ) -> Result<Option<cellar_logic::consensus::MemberId>, crate::raft::storage::LogError> {
+        use crate::raft::storage::LogError;
+        if self.identity.scope != route.history
+            || !self.consensus_claimed.load(Ordering::Acquire)
+            || self.closed.load(Ordering::Acquire)
+            || self.reclaimed.load(Ordering::Acquire)
+        {
+            return Ok(None);
+        }
+        let cache = match self.read() {
+            Ok(cache) => cache,
+            Err(LogError::Closed | LogError::NotFound) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let Some(manifest) = &cache.group_manifest else {
+            return Ok(None);
+        };
+        if !manifest.is_active()
+            || manifest.route() != route
+            || cache.hard_state.term != manifest.position().term.get()
+            || cache.hard_state.commit != manifest.position().index.get()
+            || !cache.membership.permits_group(&self.identity)
+            || !cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|member| *member == self.identity.member.get())
+        {
+            return Ok(None);
+        }
+        Ok(super::startup::candidate(
+            &cache.hard_state,
+            &cache.conf_state,
+            manifest.position(),
+        ))
+    }
+
     /// A locator from a live local voter's fully applied tree. Callers must
-    /// first select this exact route from their charged namespace range cache.
+    /// first select this exact route through bounded verified namespace routing
+    /// or its charged range cache.
     /// This grants no read lease, execution, enrollment or durability authority.
     pub(crate) fn applied_history_hint(
         &self,
@@ -507,6 +553,21 @@ impl CellReconciliationAuthority {
 
     pub fn image(&self) -> &CellImagePin {
         &self.image
+    }
+
+    /// A compacted or different entry supplies no frozen-writer proof. Its
+    /// selected image remains eligible for ordinary receipt reconciliation.
+    pub(crate) fn retains_committed_entry(&self, bytes: &[u8]) -> Result<bool, RuntimeError> {
+        self.check()?;
+        let cache = self.group.read()?;
+        let position = self.leaf.last_mutation;
+        Ok(cache.hard_state.commit >= position.index.get()
+            && cache
+                .entries
+                .get(&position.index.get())
+                .is_some_and(|entry| {
+                    entry.term == position.term.get() && entry.data.as_ref() == bytes
+                }))
     }
 
     pub fn check(&self) -> Result<(), RuntimeError> {

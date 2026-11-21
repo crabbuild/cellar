@@ -654,7 +654,8 @@ async fn run_with_store(
                     request("recursive", &recursive),
                     recursive,
                 )
-                .await?;
+                .await
+                .with_context(|| format!("SDK recursive command; target callbacks={}", calls.load(Ordering::Acquire)))?;
             ensure!(result.result == br#"{"recursive":7}"#);
             ensure!(value(&cells[1], 195).await? == 7 && calls.load(Ordering::Acquire) == 3);
             if rooted {

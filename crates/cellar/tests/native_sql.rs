@@ -20,6 +20,40 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const IDENTITY: &str = "native-test/database";
+const LOST_COMMAND: &str = "-- SQL test: lost command response";
+const LOST_ENROLLMENT: &str = "-- SQL test: lost enrollment response";
+
+fn failure_target() -> Result<cellar::sdk::consensus::CellHistory> {
+    use cellar::sdk::consensus::*;
+    Ok(CellHistory {
+        cluster: ClusterId::new([61; 16])?,
+        namespace: NamespaceId::new([62; 16])?,
+        cell: CellId::new(cellar::engine_api::sql_cell_scope(IDENTITY))?,
+        incarnation: IncarnationId::new([63; 16])?,
+    })
+}
+
+/// The adapter supplies exact outcomes as the shared-group dispatcher does.
+/// This tests the public facade, not replication or a simulated commit.
+fn dispatch_failure(sql: &str) -> Result<Option<anyhow::Error>> {
+    use cellar::sdk::{consensus::*, CellBindingCallError, CellBindingEnrollmentError};
+    Ok(match sql {
+        LOST_COMMAND => Some(anyhow::Error::new(CellBindingCallError {
+            command: CommandId::new(ClientId::new([64; 16])?, 7)?,
+            target: Some(failure_target()?),
+            ambiguous: true,
+            cause: anyhow!("connection closed after submission"),
+        })),
+        LOST_ENROLLMENT => Some(anyhow::Error::new(CellBindingEnrollmentError {
+            creation: ProposalId::new([65; 16])?,
+            target: failure_target()?,
+            minimum: Durability::S3,
+            ambiguous: true,
+            cause: anyhow!("connection closed during enrollment"),
+        })),
+        _ => None,
+    })
+}
 
 #[path = "support/sql_read_only_binding.rs"]
 mod read_only;
@@ -358,6 +392,29 @@ async fn check_binding(context: Context) -> Result<Output> {
     assert_eq!(database.prepare("WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<100001) SELECT n FROM seq").first(&context,Some("n")).await?,Some(json!(1)));
     read_only::check(&context).await?;
     read_only::check_sdk(&context).await?;
+    // Neither lost response authorizes replaying the SQL as a fresh call.
+    use cellar::sdk::{consensus::*, CellBindingCallError, CellBindingEnrollmentError};
+    use std::error::Error as _;
+    let error = database.exec(&context, LOST_COMMAND).await.unwrap_err();
+    let failure = error
+        .source()
+        .and_then(|source| source.downcast_ref::<CellBindingCallError>())
+        .expect("the public SQL API discarded the child reconciliation identity");
+    assert_eq!(
+        failure.command,
+        CommandId::new(ClientId::new([64; 16])?, 7)?
+    );
+    assert_eq!(failure.target, Some(failure_target()?));
+    assert!(failure.ambiguous);
+    let error = database.exec(&context, LOST_ENROLLMENT).await.unwrap_err();
+    let failure = error
+        .source()
+        .and_then(|source| source.downcast_ref::<CellBindingEnrollmentError>())
+        .expect("the public SQL API discarded the pending creation identity");
+    assert_eq!(failure.creation, ProposalId::new([65; 16])?);
+    assert_eq!(failure.target, failure_target()?);
+    assert_eq!(failure.minimum, Durability::S3);
+    assert!(failure.ambiguous);
     Ok(response("binding checked"))
 }
 
@@ -574,6 +631,19 @@ async fn run_native_sql_test() -> Result<()> {
             assert_eq!(call.name.as_deref(), Some(IDENTITY));
             assert!(matches!(call.args, RpcData::Structured(_)));
             *count.lock().unwrap() += 1;
+            if call.method == "__sqlExec" {
+                let args = cellar::application::decode_rpc(&call.args)
+                    .expect("owned SQL RPC arguments")
+                    .to_json()
+                    .expect("SQL JSON arguments");
+                let failure = args[0]
+                    .as_str()
+                    .and_then(|sql| dispatch_failure(sql).expect("SQL failure fixture"));
+                if let Some(error) = failure {
+                    let _ = call.reply.send(Err(error));
+                    continue;
+                }
+            }
             let result = host
                 .rpc(
                     call.scope,

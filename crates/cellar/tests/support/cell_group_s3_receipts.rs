@@ -994,3 +994,67 @@ pub(crate) async fn s3_receipt_deadline(
     assert_eq!(pool.usage()?.retained_operations, 0);
     h.close().await
 }
+
+/// A newly waiting S3 receipt must precede an unrelated queued background cut.
+/// The background gate remains physically held until that receipt is observed.
+pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let h = Harness::configured_resources(
+        rooted,
+        store,
+        2,
+        Durability::Quorum,
+        None,
+        None,
+        Some(Resources::QueuedBackgroundArchives),
+    )
+    .await?;
+    let first = &h.background_archives[0];
+    let second = &h.background_archives[1];
+    let active = first.1.hold_publication();
+    let queued = second.1.hold_publication();
+
+    struct Release(Vec<Arc<archive_controller::archive_store::Gate>>);
+
+    impl Drop for Release {
+        fn drop(&mut self) {
+            for gate in &self.0 {
+                gate.release.notify_one();
+            }
+        }
+    }
+    let release = Release(vec![active.clone(), queued.clone()]);
+    let work = async {
+        archive_controller::add(&h.fixture, first.0.birth.route(), false, 1).await?;
+        tokio::time::timeout(Duration::from_secs(5), active.entered.notified()).await?;
+        // This older dirty group enters the same publication queue first.
+        archive_controller::add(&h.fixture, second.0.birth.route(), false, 1).await?;
+        let command = h.command(1, b"foreground", Durability::Quorum, Duration::from_secs(5)).await?.response().await?;
+        let required = command.local_receipt().context("foreground local receipt")?.position.index;
+        drop(command);
+        let mut lookup = h.lookup(h.receipt_request(1, b"foreground", Durability::S3)?, Duration::from_secs(5)).await?;
+        let selection = lookup.select(&h.fixture.runtimes[0], &h.fixture.appliers[&(0, h.route.history)].0,
+            h.fixture.cell_options(&h.cell).await?).await?;
+        let mut response = Box::pin(selection.response());
+        anyhow::ensure!(tokio::time::timeout(Duration::from_millis(30), response.as_mut()).await.is_err(),
+            "held older publication cannot cover the new receipt");
+        // Same controller channel: complete a Quorum command after admission of
+        // the S3 request, before releasing the active background publication.
+        drop(h.command(2, b"barrier", Durability::Quorum, Duration::from_secs(5)).await?.response().await?);
+        active.release.notify_one();
+        let response = response.await.with_context(|| format!(
+            "foreground receipt waited behind queued background publication: extents={rooted}, required={required:?}, queued_background_entered={}",
+            queued.publication_index.load(Ordering::Acquire)))?;
+        anyhow::ensure!(response.durability() == Durability::S3);
+        anyhow::ensure!(response.receipt().context("archived foreground receipt")?.result() == b"foreground");
+        h.token(&response).await?;
+        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 2, "business callback replayed");
+        drop((response, lookup));
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    drop(release);
+    let closed = h.close().await;
+    work.and(closed)
+}

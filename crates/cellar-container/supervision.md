@@ -123,6 +123,36 @@ generic backend defaults to inspection after an uncertain deletion.
 The controller holds lifecycle admission while calling `maintain`; backend
 implementations must use their journal directly and must not reacquire the guard.
 
+## Controller-fenced shared-group maintenance
+
+For a shared-group provider with an independently enforcing controller, implement
+`FencedMaintenanceBackend` and register it with `Supervision::register_fenced`.
+Registration pins the backend and its `ExecutionFenceAuthority`, validates their
+identities, and includes the fencing requirement in the namespace contract.
+Existing direct registrations keep their existing contract.
+
+The framework acquires the binding lifecycle guard, proves an execution claim at
+the invocation's required durability, and obtains a controller acknowledgement
+before calling the fenced backend. Controller refusal leaves the obligation
+pending. Fencing and backend I/O share the configured attempt timeout; the
+original native event deadline also applies.
+
+The backend receives an `ExecutionGrant` and must enforce its claim on every
+provider operation. After preparing or checkpointing deletion intent, call
+`grant.refresh` to prove the changed intent and claim with the same controller.
+Prepared intent and its claim share that proof. This retains the
+existing lifecycle admission; do not acquire another lifecycle guard. The
+framework retains admission through result settlement. Maintenance must inspect
+or retire the original resource and must never create compute.
+
+When a shared writer is busy, provider cleanup defers before claiming work or
+dispatching the backend. Its durable installation remains available for discovery;
+this does not extend the resource lifetime or the attempt's invocation deadline.
+
+This explicit registration does not upgrade the existing E2B, Vercel or native
+Docker adapters. Their execution fences and shared-group adapters need their
+own implementation and qualification.
+
 ## Qualification boundary
 
 This delivers optional scheduled maintenance for the experimental E2B/Vercel

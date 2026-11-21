@@ -29,6 +29,7 @@ use cellar::sdk::{
     },
     NodeOutcome, ShutdownMode,
 };
+use futures_util::FutureExt;
 use managed_fixture::{
     counter_class, inspect_current, leader, movement, request, seed_cells, start_node,
     ArchiveSetup, FirstGroupSetup, Fixture, ManagedCluster, TIMEOUT,
@@ -44,6 +45,21 @@ use tokio::sync::Notify;
 
 const ALARM_DELAY_MS: u64 = 10_000;
 const WAKE_TIMEOUT: Duration = Duration::from_secs(20);
+
+async fn close(cluster: ManagedCluster, result: std::thread::Result<Result<()>>) -> Result<()> {
+    let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+    cluster.fixtures[0].domain.shutdown().await;
+    if !matches!(&result, Ok(Ok(()))) || joined.is_err() {
+        for root in cluster.roots {
+            eprintln!("retained hibernation disk: {}", root.keep().display());
+        }
+    }
+    match result {
+        Ok(result) => result?,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+    joined
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn alarm_and_peer_wake_no_client() -> Result<()> {
@@ -87,11 +103,13 @@ async fn alarm_and_peer_wake_no_client() -> Result<()> {
             FirstGroupSetup::Normal,
         ))
         .await?;
-        let result = Box::pin(exercise_wakes(&mut cluster, fired, calls)).await;
-        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
-        cluster.fixtures[0].domain.shutdown().await;
-        result.with_context(|| format!("parked wake with extent-backed images={rooted}"))?;
-        joined?;
+        let result =
+            std::panic::AssertUnwindSafe(Box::pin(exercise_wakes(&mut cluster, fired, calls)))
+                .catch_unwind()
+                .await;
+        close(cluster, result)
+            .await
+            .with_context(|| format!("parked wake with extent-backed images={rooted}"))?;
     }
     Ok(())
 }
@@ -339,11 +357,12 @@ async fn wake_requires_fresh_quorum_barrier() -> Result<()> {
             ArchiveSetup::Disabled,
         ))
         .await?;
-        let result = Box::pin(exercise_minority_wake(&mut cluster)).await;
-        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
-        cluster.fixtures[0].domain.shutdown().await;
-        result.with_context(|| format!("minority wake with extent-backed images={rooted}"))?;
-        joined?;
+        let result = std::panic::AssertUnwindSafe(Box::pin(exercise_minority_wake(&mut cluster)))
+            .catch_unwind()
+            .await;
+        close(cluster, result)
+            .await
+            .with_context(|| format!("minority wake with extent-backed images={rooted}"))?;
     }
     Ok(())
 }
@@ -469,11 +488,13 @@ async fn partial_park_and_stale_certificate() -> Result<()> {
         for root in &mut cluster.roots {
             root.disable_cleanup(true);
         }
-        let result = Box::pin(exercise_interrupted_park(&mut cluster)).await;
-        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
-        cluster.fixtures[0].domain.shutdown().await;
-        result.with_context(|| format!("interrupted park with extent-backed images={rooted}"))?;
-        joined?;
+        let result =
+            std::panic::AssertUnwindSafe(Box::pin(exercise_interrupted_park(&mut cluster)))
+                .catch_unwind()
+                .await;
+        close(cluster, result)
+            .await
+            .with_context(|| format!("interrupted park with extent-backed images={rooted}"))?;
     }
     Ok(())
 }
@@ -636,11 +657,12 @@ async fn parked_restart_and_leader_loss() -> Result<()> {
             ArchiveSetup::Disabled,
         ))
         .await?;
-        let result = Box::pin(exercise_parked_restart(&mut cluster)).await;
-        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
-        cluster.fixtures[0].domain.shutdown().await;
-        result.with_context(|| format!("parked restart with extent-backed images={rooted}"))?;
-        joined?;
+        let result = std::panic::AssertUnwindSafe(Box::pin(exercise_parked_restart(&mut cluster)))
+            .catch_unwind()
+            .await;
+        close(cluster, result)
+            .await
+            .with_context(|| format!("parked restart with extent-backed images={rooted}"))?;
     }
     Ok(())
 }
@@ -773,26 +795,26 @@ async fn park_requires_all_voters_and_no_pending_work() -> Result<()> {
         ))
         .await?;
         let release = ReleaseCommand(Some(send.clone()));
-        let result = Box::pin(exercise_park_admission(
+        let result = std::panic::AssertUnwindSafe(Box::pin(exercise_park_admission(
             &mut cluster,
             entered,
             release,
             send,
-        ))
+        )))
+        .catch_unwind()
         .await;
-        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
-        cluster.fixtures[0].domain.shutdown().await;
-        result.with_context(|| format!("park admission with extent-backed images={rooted}"))?;
-        joined?;
+        close(cluster, result)
+            .await
+            .with_context(|| format!("park admission with extent-backed images={rooted}"))?;
 
         let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;
-        let result = Box::pin(exercise_topology_park_admission(&mut cluster)).await;
-        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
-        cluster.fixtures[0].domain.shutdown().await;
-        result.with_context(|| {
+        let result =
+            std::panic::AssertUnwindSafe(Box::pin(exercise_topology_park_admission(&mut cluster)))
+                .catch_unwind()
+                .await;
+        close(cluster, result).await.with_context(|| {
             format!("topology park admission with extent-backed images={rooted}")
         })?;
-        joined?;
     }
     Ok(())
 }

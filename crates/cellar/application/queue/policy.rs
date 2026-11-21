@@ -413,6 +413,15 @@ fn effective_queue_batch_timeout(duration: i64) -> i64 {
 
 /// The Queue cell's deployment-wide settings, as the cell reads them: the
 /// consumer catalog by queue, the lease duration, and the limits.
+/// Match the effective node policy used when constructing a native broker.
+pub(crate) fn inspection_limits() -> (Option<i64>, usize) {
+    let limits = crate::application::limits::current().queue;
+    (
+        limits.retention_ms.map(effective_queue_retention),
+        limits.max_admin_batch_size,
+    )
+}
+
 pub(crate) fn consumer_config(
     config: &crate::worker_config::WorkerConfig,
 ) -> Result<serde_json::Value> {

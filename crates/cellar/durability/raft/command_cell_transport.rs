@@ -220,6 +220,7 @@ enum WriteValue {
     Binding,
     Probe(bool),
     Enrollment(CellEnrollmentValue),
+    EnrollmentFailure(crate::raft::cell_groups::CellEnrollmentError),
     Receipt(CellReceiptValue),
     Name(Option<EnrollmentRecord>),
 }
@@ -393,7 +394,10 @@ impl RaftTransport {
         call: CellEnrollmentCall,
         keys: VersionKeys,
         deadline: u64,
-    ) -> Result<CellRemoteEnrollmentResponse, TransportError> {
+    ) -> Result<
+        Result<CellRemoteEnrollmentResponse, crate::raft::cell_groups::CellEnrollmentError>,
+        TransportError,
+    > {
         let response = self
             .handle
             .0
@@ -406,16 +410,18 @@ impl RaftTransport {
                 deadline,
             )
             .await?;
-        let WriteValue::Enrollment(value) = response.value else {
-            return Err(TransportError::Protocol);
+        let value = match response.value {
+            WriteValue::Enrollment(value) => value,
+            WriteValue::EnrollmentFailure(error) => return Ok(Err(error)),
+            _ => return Err(TransportError::Protocol),
         };
-        Ok(CellRemoteEnrollmentResponse {
+        Ok(Ok(CellRemoteEnrollmentResponse {
             record: value.record,
             durability: value.durability,
             served_by: response.served_by,
             _node: response.node,
             _peer: response.peer,
-        })
+        }))
     }
 
     pub(in crate::raft) async fn lookup_cell_receipt(
@@ -848,14 +854,38 @@ impl State {
                             )?
                             .map(WriteValue::Receipt)
                         }
-                        WriteCall::Enrollment(call) => wire::enrollment::decode_result(
-                            &body,
-                            (call.request.creation, call.request.durability),
-                            &request.cell,
-                            request.route.schema_digest,
-                            self.options.max_query_response_bytes,
-                        )?
-                        .map(WriteValue::Enrollment),
+                        WriteCall::Enrollment(call) => {
+                            return Ok(
+                                match wire::enrollment::decode_result(
+                                    &body,
+                                    (call.request.creation, call.request.durability),
+                                    &request.cell,
+                                    request.route.schema_digest,
+                                    self.options.max_query_response_bytes,
+                                )? {
+                                    Ok(value) => WriteValue::Enrollment(value),
+                                    Err(error) => {
+                                        if matches!(
+                                            error.cause.as_ref(),
+                                            crate::raft::cell_groups::CellDispatchError::Runtime(
+                                                crate::raft::completion::RuntimeError::NotLeader
+                                            ) | crate::raft::cell_groups::CellDispatchError::Execution(
+                                                crate::raft::execution::ExecutionError::Refused(
+                                                    CommandFailure::NotLeader { .. }
+                                                )
+                                            )
+                                        ) {
+                                            self.suspect_cell_leader(
+                                                &request.route,
+                                                request.leader_generation.as_ref(),
+                                                request.peer.replica.member,
+                                            );
+                                        }
+                                        WriteValue::EnrollmentFailure(error)
+                                    }
+                                },
+                            );
+                        }
                         WriteCall::Name(_) => {
                             return wire::name::decode_result(
                                 &body,
@@ -975,6 +1005,15 @@ impl State {
             epoch: call.route_epoch,
             birth: call.birth_digest,
         };
+        let failure = |reason, ambiguous| {
+            Arc::new(crate::raft::cell_groups::CellEnrollmentError {
+                creation: call.request.creation,
+                ambiguous,
+                cause: Box::new(CellDispatchError::Execution(
+                    crate::raft::execution::ExecutionError::Refused(reason),
+                )),
+            })
+        };
         let result = async {
             let mut invocation = gateway
                 .dispatcher
@@ -991,29 +1030,28 @@ impl State {
                 .await
                 .map_err(|error| {
                     tracing::debug!(target: "cellar::raft::enrollment", phase = "prepare", error = ?error, "remote enrollment refused");
-                    command_failure(&error.cause)
+                    Arc::new(error)
                 })?;
             invocation.bind_remote_route(binding);
             if !gateway.accepting.load(Ordering::Acquire) {
-                return Err(CommandFailure::Unavailable);
+                return Err(failure(CommandFailure::Unavailable, false));
             }
             self.authorize_cell_command(route)
-                .map_err(|_| CommandFailure::Unavailable)?;
+                .map_err(|_| failure(CommandFailure::Unavailable, false))?;
             let call = gateway
                 .controller
                 .enroll(invocation, options)
                 .map_err(|error| {
                     tracing::debug!(target: "cellar::raft::enrollment", phase = "admission", error = ?error.error, "remote enrollment refused");
-                    command_failure(&error.error.cause)
+                    Arc::new(error.error)
                 })?;
             call.response()
                 .await
-                .map_err(|error| {
+                .inspect_err(|error| {
                     tracing::debug!(target: "cellar::raft::enrollment", phase = "response", error = ?error, "remote enrollment refused");
-                    command_failure(&error.cause)
                 })?
                 .into_local()
-                .ok_or(CommandFailure::CorruptState)
+                .ok_or_else(|| failure(CommandFailure::CorruptState, true))
         }
         .await;
         super::query_replies::Reply::enrollment(result, self.options.max_query_response_bytes)

@@ -352,6 +352,7 @@ dependencies = [
  "cc",
  "cellar-admin",
  "cellar-axum",
+ "cellar-container",
  "cellar-egress",
  "cellar-logic",
  "cellar-ltx",

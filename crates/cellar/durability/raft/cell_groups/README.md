@@ -43,6 +43,27 @@ catalog revision floor, deadline and attempt bank. Incoming RPCs execute locally
 and cannot forward again. Receipt absence remains ambiguous and releases no
 original producer.
 
+Automatic queries retain a completed first response while their fallback finishes
+an entered catalog confirmation. The same future and original deadline/attempt
+bank remain. Only a verified matching route can release that response;
+replacement or failed confirmation refuses it. Other physical replica reads
+retain their existing admission through joined cleanup. The two-waiter bound
+and destination authority checks remain.
+
+Authenticated Queue `info`/`peek` use immutable linearizable inspection. Fresh
+verified name absence may enroll the Queue at its declared minimum, then release
+enrollment output before independently proving the query's selected image.
+Cold inspection leaves the ingress command sequence unused. Unknown creation keeps
+its original candidate and can only join a freshly discovered history; discovery
+failure cannot create another candidate. Wire bounds, current Queue policy/term,
+Quorum/S3 minima and the original absolute deadline still apply. Normal stateful
+and stateless SDK Queue `metrics()` uses a distinct authenticated immutable query
+under its declared binding. Cold source calls use a full source checkpoint before
+possible schema genesis; captured existing histories use read-only proof reuse.
+Metrics consume no target business command or ingress sequence. Remaining SDK
+restoration, cold binding and load failures are tracked in the cell-group
+remaining work; the read adapter does not establish complete Queue qualification.
+
 The joined managed directory worker discovers one selected group per namespace
 turn. Its advisory cache shares the transport route limit. Discovery grants no
 namespace read/write permission or engine ownership. An admitted local engine
@@ -620,6 +641,23 @@ The generic physical capture includes shared histories, while the group-native
 accessor refuses a legacy application engine.
 
 
+## Shared primitive invocation diagnostics
+
+Enable the `cellar::raft::binding` and `cellar::raft::checkpoint` tracing targets
+at debug level to locate a suspended primitive call. Binding events correlate the
+parent command, invocation ordinal and child command across private preparation,
+source proof, target resolution/submission, target response and source-writer
+resumption. Trace level additionally records known target admission refusals.
+Checkpoint events distinguish capture, prepared proposal, applied version and
+continuation after the required proof. Monotonic timestamps are diagnostic samples;
+the events do not supply authority or establish a mutation's outcome.
+
+The targets log identities and phases without request or result bytes. Disabled
+targets evaluate no additional clocks and create no task, timer, reservation or
+retained per-cell state. `completed-private` describes a private binding result;
+another effect or final response still waits for its normal durability proof.
+Use the original command identities and deadlines when investigating a lost reply.
+
 ## Invocation-bounded route confirmation
 
 `RangeDirectory::routing_session` captures an explicit execution domain, original
@@ -671,6 +709,12 @@ checks the current peer view and monotonic permission revision. Read and write
 grants are independent. `revoke_command_origin` retains a revision tombstone and
 seals the old grant while already admitted work remains owned. Reapply these
 trusted host permissions when restarting the transport.
+For an explicit node allowlist, `grant_managed_query_origin` and
+`grant_managed_command_origin` select the currently accepted directory process
+and endpoints without requiring the embedder to reconstruct them. Refresh and
+inspect the managed trust cut before granting. Unknown peers and namespaces
+refuse, and the same monotonic permission revisions and revocation tombstones
+apply. These helpers grant no permission through membership alone.
 The lower-level controller `command` API retains local-only execution; SDK
 `dispatch_command` owns the originating routed invocation.
 
@@ -751,6 +795,29 @@ This cache neither keeps an idle workspace alive nor grows with duplicate calls.
 Covered command, enrollment and receipt outputs can share this admission. Dropping
 one consumer cannot release the final consumer's verifier workspace, and an
 uncovered successor cannot borrow the historical proof or bypass its limits.
+
+An immutable query rejects a candidate prefix older than its selected image's
+commit witness in the same group history. This negative scheduling bound avoids
+known-stale retained or publication proofs; it cannot establish durability.
+Full physical coverage, exact observation checks and current-birth fences still
+decide success. Receipt lookup retains its ability to select an older archived
+observation and does not use this query bound.
+
+The local archive journal publishes immutable generations using file sync,
+atomic rename and directory sync. A concurrent proof reader bounds and reads
+one opened generation; a prior path observation can name a different complete
+generation. Both file bounds and exact engine, purpose, history and canonical
+encoding checks remain mandatory. Journal selection alone supplies no archive
+coverage or serving authority; receipt verification and live output fences still
+apply independently.
+
+An upload owner shares a bounded content lookup across its clones. It remembers
+its protected parent graph and objects confirmed in its own pending generation.
+Repeating those bytes performs a full verifying GET without another PUT; missing
+or corrupt objects refuse without recreation. A full lookup falls back to the
+ordinary conditional-create and exact-GET path. Reopening a pending ticket loses
+the volatile confirmations and reconciles conditional-create conflicts again.
+This lookup supplies no archive coverage, serving right or retention authority.
 
 An outstanding S3 output can retain the previous archive hold while the next
 verified head is already committed. That retention delays another archive

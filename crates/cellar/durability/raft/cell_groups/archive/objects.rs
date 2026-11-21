@@ -24,6 +24,18 @@ impl Object {
         }
     }
 
+    fn validate(&self, limit: usize) -> Result<()> {
+        if self.registry == [0; 32]
+            || self.generation < 2
+            || self.generation == u64::MAX
+            || self.length == 0
+            || self.length > limit as u64
+        {
+            return Err(CellGroupArchiveError::Limit);
+        }
+        Ok(())
+    }
+
     pub fn verify(&self, bytes: &[u8]) -> Result<()> {
         if bytes.len() as u64 != self.length
             || <[u8; 32]>::from(Sha256::digest(bytes)) != self.digest
@@ -57,14 +69,7 @@ impl CellGroupArchive {
     // One deadline includes headers, every body chunk and EOF. Never allocate
     // from unbounded remote metadata or accept a partial/ranged object response.
     async fn read(&self, kind: &str, object: &Object, limit: usize) -> Result<Option<Vec<u8>>> {
-        if object.registry == [0; 32]
-            || object.generation < 2
-            || object.generation == u64::MAX
-            || object.length == 0
-            || object.length > limit as u64
-        {
-            return Err(CellGroupArchiveError::Limit);
-        }
+        object.validate(limit)?;
         let path = self.object_path(kind, object);
         self.io(async {
             let result = match self.store.get(&path).await {
@@ -123,11 +128,11 @@ impl CellGroupArchive {
             return Err(CellGroupArchiveError::Limit);
         }
         let object = Object::of(registry, generation, &bytes);
-        // Reuse verified immutable objects without another PUT. A corrupt
-        // existing object refuses; overwriting could erase evidence of damage.
-        if self.read(kind, &object, limit).await?.is_some() {
-            return Ok(object);
-        }
+        object.validate(limit)?;
+        // The persisted owner reserves a never-reused generation. Create
+        // conditionally first instead of probing each new content address.
+        // A retry cannot overwrite existing bytes; the exact GET below still
+        // verifies success, collisions and ambiguous PUT responses alike.
         let path = self.object_path(kind, &object);
         let put = self
             .io(async {

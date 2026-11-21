@@ -536,3 +536,101 @@ async fn queued_writers_precede_callback_resume_and_cancel_without_refunding_phy
     domain.shutdown().await;
     Ok(())
 }
+
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn writer_release_wakes_waiters_without_raft_apply() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                root.path().join("raft"),
+                NodeId::new([1; 16])?,
+                DiskLineage::new([2; 16])?,
+                ProcessGeneration::new([3; 16])?,
+                LogOpenMode::Create,
+            ),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let group = GroupHistory {
+        cluster: ClusterId::new([4; 16])?,
+        namespace: NamespaceId::new([5; 16])?,
+        group: GroupId::new([6; 16])?,
+        incarnation: IncarnationId::new([7; 16])?,
+    };
+    let cell = CellHistory {
+        cluster: group.cluster,
+        namespace: group.namespace,
+        cell: cellar_logic::cell_group::CellId::new("writer")?,
+        incarnation: group.incarnation,
+    };
+    let admission = Admission::new(
+        CellSqlLimits {
+            workers: 1,
+            queue_per_worker: 4,
+            max_pending_cells: 4,
+            group_pending_cells: 4,
+            node_bytes: 16_384,
+            group_bytes: 8192,
+        },
+        log.claim_sql_pool()?,
+        2,
+    );
+    let mut progress = admission.writer_progress();
+    let (mut first, first_bytes) = admission.reserve(&cell, group, 1024)?;
+    assert!(matches!(
+        admission.reserve(&cell, group, 1024),
+        Err(ExecutionError::Busy)
+    ));
+    assert!(!first.contended());
+    let waiting = admission.note_writer_wait(&cell)?;
+    assert!(
+        first.contended(),
+        "a synchronous writer must be able to force yielding"
+    );
+    drop(waiting);
+    assert!(
+        !first.contended(),
+        "cancelled waiters must release their dependency"
+    );
+    // No group exists and no Raft apply can wake this waiter. Parking must
+    // publish local progress even while the original physical bytes stay held.
+    first.park()?;
+    domain
+        .run(crate::asyncrt::timeout(
+            std::time::Duration::from_secs(1),
+            progress.changed(),
+        ))
+        .await???;
+    let (second, second_bytes) = admission.reserve(&cell, group, 1024)?;
+    assert!(std::future::poll_fn(|cx| first.resume(cx))
+        .now_or_never()
+        .is_none());
+    drop(second);
+    domain
+        .run(crate::asyncrt::timeout(
+            std::time::Duration::from_secs(1),
+            progress.changed(),
+        ))
+        .await???;
+    std::future::poll_fn(|cx| first.resume(cx)).await?;
+    drop(first);
+    domain
+        .run(crate::asyncrt::timeout(
+            std::time::Duration::from_secs(1),
+            progress.changed(),
+        ))
+        .await???;
+    assert_eq!(admission.usage()?.0, 0);
+    assert_eq!(
+        admission.usage()?.2,
+        2,
+        "physical ownership must stay charged after writer release"
+    );
+    drop((first_bytes, second_bytes, admission));
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}

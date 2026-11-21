@@ -6,6 +6,102 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Retained event metadata history
+
+Qualified runtime `0a6fb57b67` selects a present local applied enrollment after
+verified namespace routing for internal event metadata. The result is a locator,
+never read/serving/durability authority. The actual query still gets fresh quorum
+and independent target S3 proof. Missing records and ordinary public name/absence
+observations retain full quorum discovery. Existing admission, source checkpoints,
+fences, deadlines, quotas and marker 1 remain; no cache/task is introduced.
+
+The byte-identical baseline owning fixture fails the redundant name-cut predicate
+in native materialized mode. Final native/real-RustFS tests pass both images,
+including fresh destination reads, public absence and quorum-loss refusal. Election
+setup is settled before the cost oracle. Current-source qualification is **43
+integration selections and 190 units**, plus strict Clippy and repository checks.
+The complete original public cohort 735 is **FAILED, 7/16**. Four frozen baseline/
+current native/Axum paired trials all pass, including the current failed binary;
+they do not replace the cohort or establish stability, exclusive cause, absence
+of regression, measured speedup or an accepted OPT/primitive/release package.
+See the [current checkpoint](progress.md#current-integration-checkpoint).
+
+## Leader commit/root publication
+
+Qualified runtime `d5af055628` combines commit-only metadata with applied-root
+publication for a bounded leader prefix backed entirely by exact live SQL
+preparations. The local lease/engine-bound ticket permits image preparation before
+that metadata sync; it grants no serving authority. Log entries and term/vote
+changes already have their own durability barrier. Real image/page and atomic
+root/hard-state sync still gate successful output. Followers, membership/control
+entries and missing/expired preparations keep separate commit persistence.
+Existing read protocol barriers remain available during apply; write admission
+uses the actual committed prefix. No task, cache, budget or format is added.
+
+Three new physical regressions and 38 existing integration controls pass, as do
+180 units, locked build, strict Clippy and repository checks. Baseline fails both
+independent-barrier predicates; final fixtures also hold actual root sync and
+refuse foreign replica tickets. An overly broad candidate failed nine controls;
+all pass unchanged with the final eligibility/read-barrier fix. Fixture oracle
+corrections and excluded attempts remain recorded.
+
+The complete original public cohort 719 is **FAILED, 13/16**: seven EventStream
+selections pass, while native extent-image outbox restart activation and both
+Queue loads fail. This establishes the scoped publication behavior, not timing
+stability, a complete primitive/OPT package or release. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
+## Cell-version change waits
+
+Runtime `ed8fd243b`, qualified at `9a43d4712`, adds public SDK
+`LinearizableAfter(CellVersionToken)` and uses it for pending catalog activation.
+It parks in existing bounded admission until the authenticated exact cell advances,
+then obtains a fresh quorum ReadIndex. It does no SQL/image work before advancement
+and does not join ordinary read cohorts while waiting. Other-cell progress cannot
+satisfy it. Current authority, independent target minima and caller-side strict
+advancement checks remain. Activation drops its previous SQL/archive response
+before waiting again. No new task/cache or increased deadline/quota is introduced.
+Authenticated mode 4 is new; wire markers remain 1.
+
+Both image formats and actual TLS follower dispatch pass; **33 integration checks
+and 135 units pass** with locked build, strict library/all-test Clippy and repository
+checks. The eager-barrier negative fails both required oracles. Final tests keep
+that safety guard and replay held replies afterward; fixtures are not byte-identical.
+The complete original public cohort 698 is **FAILED, 6/16**: all eight EventStream
+and both Queue loads fail. This qualifies the change-wait capability, not a public
+deadline fix, complete primitive family, OPT package or release. See the
+[current checkpoint](progress.md#current-integration-checkpoint).
+
+## Materialized preview and apply
+
+Runtime `0eeea3033` delivers a typed handoff from independently verified private
+SQL preparation into committed apply, covering initialization, mutations and RPC
+checkpoints in materialized and extent images. A private witness binds the full
+encoded entry to the same live engine, group history and term. Pending producers
+own strong image pins; public command clones and accepted proposals hold weak
+references. Only an exact committed apply ticket upgrades custody. No payload
+copy, new cache/task or separate unbounded pin lifetime is introduced; metadata
+fits existing envelopes and images retain their original admission.
+
+Apply requires matching input/owner and the same physical inventory/result. It
+rereads/verifies actual destination bytes and syncs before publishing the manifest.
+The witness proves the input/result relation, never commit or serving authority.
+Expired or foreign-inventory preparations independently replay, as do followers,
+cold restart and archive/recovery. Current commit/route/receipt fences and original
+budgets, quotas, minima and wire markers remain. The earlier materialized physical
+generation reuse is retained and extended to initialization.
+
+Both old-base read denial oracles fail at baseline `f31f24c41` and pass with the
+byte-identical fixture at feature `94217eaf4`. Final additions test producer closure
+after ticket custody; the original checks remain. Eight physical cases cover live
+reuse, expiry, actual destination corruption and transferred custody in both image
+forms. The complete integration controls pass **32/32**, including enrollment,
+leadership/cancellation, retained recovery and warm forged-LTX refusal; **104 units
+pass**. That historical public cohort is **FAILED, 8/16**, with six EventStream
+and two Queue load failures. These results establish a safe local I/O reduction,
+not latency stability, an exclusive speedup, full OPT or primitive-family acceptance.
+See the [current checkpoint](progress.md#current-integration-checkpoint).
+
 ## Recovery PR integration
 
 PR [#166](https://github.com/crabbuild/cellar/pull/166) includes this implementation

@@ -25,7 +25,8 @@ enum AuthorityPhase {
 }
 
 impl RpcCommitContext {
-    /// New application entry still waits for the complete committed group cut.
+    /// Recheck the exact cell after acquiring its writer. Only certified
+    /// mutations for other cells may remain in the committed apply suffix.
     pub(super) async fn entry_authority(
         &self,
         domain: &crate::asyncrt::DomainToken,
@@ -72,7 +73,7 @@ impl RpcCommitContext {
                 let current = match phase {
                     AuthorityPhase::Entry => {
                         self.runtime
-                            .execution_authority(self.route.history, cell.clone())
+                            .independent_cell_authority(self.route.history, cell.clone())
                             .await
                     }
                     AuthorityPhase::Continuation => self

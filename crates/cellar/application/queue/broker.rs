@@ -155,9 +155,17 @@ impl Broker {
         self.config.consumers.get(&self.queue).cloned()
     }
 
+    fn metadata(&self) -> super::metadata::Metadata<'_> {
+        super::metadata::Metadata::new(
+            &self.storage,
+            self.config.limits.retention_ms,
+            self.config.limits.max_admin_batch_size,
+        )
+    }
+
     fn metrics(&self, at: i64, waiting: bool) -> Result<Value> {
         self.open()?;
-        super::read::metrics(&self.storage, self.retention_cutoff(at), at, waiting)
+        self.metadata().metrics(at, waiting)
     }
 
     async fn rearm(&self, context: &Context, at: i64, wait: bool) -> Result<()> {
@@ -790,18 +798,6 @@ impl Broker {
         Ok(json!({"deleted":deleted,"leased":leased,"metrics":self.metrics(at,false)?}))
     }
 
-    fn peek(&self, requested: i64, console: bool) -> Result<Value> {
-        self.open()?;
-        let at = now();
-        super::read::peek(
-            &self.storage,
-            self.retention_cutoff(at),
-            at,
-            requested,
-            console,
-        )
-    }
-
     async fn redrive(&self, context: &Context, limit: i64) -> Result<Value> {
         self.drive_dlq(context, 100).await?;
         let at = now();
@@ -868,10 +864,9 @@ impl Broker {
 
     async fn control(&self, context: &Context, body: &Value) -> Result<Value> {
         Ok(match body["op"].as_str() {
-            Some("info") => {
+            Some("info" | "peek") => {
                 self.open()?;
-                let at = now();
-                super::read::info(&self.storage, self.retention_cutoff(at), at)?
+                self.metadata().read(body, now())?
             }
             Some("purge") => self.purge(context).await?,
             Some(op @ ("pause" | "resume")) => {
@@ -882,29 +877,10 @@ impl Broker {
                 metrics["paused"] = json!(paused);
                 metrics
             }
-            Some(op @ ("peek" | "redrive")) => {
-                let limit = match body.get("limit").filter(|value| !value.is_null()) {
-                    None => {
-                        if op == "peek" {
-                            10
-                        } else {
-                            100
-                        }
-                    }
-                    Some(value) => value
-                        .as_i64()
-                        .ok_or_else(|| error("limit must be a positive integer"))?,
-                };
-                ensure!(
-                    limit > 0 && limit as u64 <= self.config.limits.max_admin_batch_size as u64,
-                    "QUEUE_ERROR: limit must be from 1 through {}",
-                    self.config.limits.max_admin_batch_size
-                );
-                if op == "peek" {
-                    self.peek(limit, body["console"].as_bool().unwrap_or(false))?
-                } else {
-                    self.redrive(context, limit).await?
-                }
+            Some("redrive") => {
+                let limit =
+                    super::metadata::limit(body, 100, self.config.limits.max_admin_batch_size)?;
+                self.redrive(context, limit).await?
             }
             _ => {
                 return Err(error(format!(

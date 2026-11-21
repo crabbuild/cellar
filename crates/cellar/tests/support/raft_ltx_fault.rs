@@ -29,6 +29,8 @@ pub const BEFORE_PACK_RENAME: u8 = 13;
 pub const AFTER_PACK_RENAME: u8 = 14;
 pub const AFTER_PACK_FRAME_WRITE: u8 = 15;
 
+type ReadOpenHook = Arc<dyn Fn(&Path) -> io::Result<()> + Send + Sync>;
+
 pub struct Faults {
     pub directory: PathBuf,
     pub mode: AtomicU8,
@@ -51,6 +53,8 @@ pub struct Faults {
     pub removed_paths: Mutex<Vec<PathBuf>>,
     pub before_directory_sync: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub before_snapshot_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    pub read_open: Mutex<Option<ReadOpenHook>>,
+    pub lock_open: Mutex<Option<ReadOpenHook>>,
     pub signal: Option<PathBuf>,
 }
 
@@ -76,6 +80,8 @@ impl Faults {
             removed_paths: Mutex::new(Vec::new()),
             before_directory_sync: Mutex::new(None),
             before_snapshot_close: Mutex::new(None),
+            read_open: Mutex::new(None),
+            lock_open: Mutex::new(None),
             signal,
         })
     }
@@ -84,6 +90,11 @@ impl Faults {
         self.mode
             .compare_exchange(mode, 0, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
+    }
+
+    fn opening_read(&self, path: &Path) -> io::Result<()> {
+        let hook = self.read_open.lock().unwrap().clone();
+        hook.map_or(Ok(()), |hook| hook(path))
     }
 
     pub fn pause(&self) -> io::Result<()> {
@@ -323,10 +334,15 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
+        self.faults.opening_read(path)?;
         Ok(self.wrap(path, DirectFileSystem.open_read_write(path)?, false))
     }
 
     fn lock_file(&self, path: &Path) -> io::Result<HostFileLock> {
+        let hook = self.faults.lock_open.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(path)?;
+        }
         DirectFileSystem.lock_file(path)
     }
 
@@ -353,6 +369,7 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn open(&self, path: &Path) -> io::Result<HostFile> {
+        self.faults.opening_read(path)?;
         Ok(self.wrap(path, DirectFileSystem.open(path)?, false))
     }
 

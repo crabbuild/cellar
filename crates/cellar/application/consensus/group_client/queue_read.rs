@@ -1,16 +1,29 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Signed Queue observations avoid entering the mutation lane after bootstrap.
+//! Authenticated Queue inspection reads existing histories without a command.
 
-use super::super::{native_rpc, CommandFailure};
+use super::super::{native_queue_query, CommandFailure};
 use super::*;
-use crate::application::HandlerFuture;
+use crate::application::{cell_bindings::Route, HandlerFuture};
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
 
+pub(super) fn retained_bytes(route: &Route) -> anyhow::Result<usize> {
+    route
+        .max_input_bytes
+        .checked_mul(2)
+        .and_then(|input| {
+            route
+                .max_result_bytes
+                .checked_mul(4)
+                .and_then(|result| input.checked_add(result))
+        })
+        .and_then(|bytes| bytes.checked_add(8192))
+        .ok_or_else(|| CommandFailure::Overloaded.into())
+}
+
 impl RaftCells {
-    /// Only the node's peer-authenticated Queue operator entrance calls this.
-    pub(crate) fn queue_operator_read(
+    pub(crate) fn queue_operator(
         &self,
         admitted: crate::outbound_rpc::Admitted,
         call_scope: crate::host_rpc::CallScope,
@@ -26,78 +39,111 @@ impl RaftCells {
                 .handle
                 .core
                 .host
-                .queue_operator_read_route(&admitted.scope, &self.handle.core.log)?;
-            // Discovery cannot initialize a cell. Keep cold enrollment on the
-            // existing operator command without first attempting any mutation.
-            if route.history_hint.is_none() {
-                return Ok(None);
-            }
-            let bytes = route
-                .max_input_bytes
-                .checked_mul(2)
-                .and_then(|bytes| {
-                    route
-                        .max_result_bytes
-                        .checked_mul(4)
-                        .and_then(|result| bytes.checked_add(result))
-                })
-                .and_then(|bytes| bytes.checked_add(8192))
-                .ok_or(CommandFailure::Overloaded)?;
+                .queue_operator_route(&admitted.scope, &self.handle.core.log)?;
             let timeout = Duration::from_millis(
                 deadline
                     .checked_sub(self.handle.domain.mono_ms()?)
-                    .filter(|remaining| *remaining != 0)
+                    .filter(|ms| *ms > 0)
                     .ok_or(RuntimeError::DeadlineExceeded)?,
             );
-            let (_, memory) = self.metadata_admission(timeout, bytes)?;
-            let input = native_rpc::encode_request(
-                admitted.name.as_deref(),
-                &admitted.args,
-                route.max_input_bytes,
-            )?;
-            Ok(Some((route, input, timeout, memory)))
+            // Classify only while admitted. Release this turn before discovery
+            // or the normal mutating ingress needs the same metadata bank.
+            let (_, memory) = self.metadata_admission(timeout, retained_bytes(&route)?)?;
+            let read = native_queue_query::is_metadata(&admitted.args)?;
+            if read {
+                // Validate bounded private query bytes before a missing name
+                // may create anything. The final read encodes under its own
+                // admission after discovery/enrollment releases this bank.
+                native_queue_query::encode(
+                    &admitted.scope,
+                    admitted.name.as_deref(),
+                    &admitted.args,
+                    route.max_input_bytes,
+                )?;
+            }
+            drop(memory);
+            Ok((route, read))
         })();
         let owner = self.internal_observer();
         Box::pin(async move {
-            let Some((route, input, timeout, memory)) = prepared? else {
-                return owner.queue_operator(admitted, call_scope, deadline).await;
-            };
-            let operation = owner.query_resource(route, input, timeout, false);
-            let operation = crate::runtime::cancellation::receive(
-                call_scope.parent_cancellation.as_ref(),
-                call_scope.signal.as_ref(),
-                operation,
-            );
-            let timer = owner.handle.domain.sleep_until(deadline)?;
-            let response = crate::asyncrt::select_biased! { "original Queue observation deadline";
-                _=timer=>Err(anyhow::Error::from(RuntimeError::DeadlineExceeded)),
-                result=operation=>result,
-            }?;
-            match response {
-                // The registered query emits this exact private sentinel only
-                // for absent schema/statistics. Arbitrary read errors never
-                // cause a command retry or establish mutation non-commit.
-                RpcData::Json(value) if value == "null" => {
-                    drop(memory);
-                    owner.queue_operator(admitted, call_scope, deadline).await
-                }
-                RpcData::Structured(bytes) => {
-                    if let Some(limit) = call_scope.reply_limit() {
-                        anyhow::ensure!(
-                            bytes.len() <= limit,
-                            crate::application::rpc::Failure::new(
-                                crate::application::rpc::Code::InvalidResponse
-                            )
-                        );
-                    }
-                    let held = crate::rpc_reservation::Reservation::shared(Arc::new((
-                        admitted.reservation,
-                        memory,
-                    )));
-                    Ok(RpcData::Structured(held.retain_bytes(bytes)))
-                }
-                _ => anyhow::bail!(CommandFailure::CorruptState),
+            let (mut route, read) = prepared?;
+            if !read {
+                return owner
+                    .queue_operator_command(admitted, call_scope, deadline)
+                    .await;
             }
+            let parent_cancellation = call_scope.parent_cancellation.clone();
+            let signal = call_scope.signal.clone();
+            let operation = async move {
+                let remaining = || -> anyhow::Result<Duration> {
+                    owner.check_open()?;
+                    Ok(Duration::from_millis(
+                        deadline
+                            .checked_sub(owner.handle.domain.mono_ms()?)
+                            .filter(|ms| *ms > 0)
+                            .ok_or(RuntimeError::DeadlineExceeded)?,
+                    ))
+                };
+                owner
+                    .resolve_queue_metadata(&mut route, deadline, false)
+                    .await?;
+                route.contract = native_queue_query::contract();
+                let (_, memory) =
+                    owner.metadata_admission(remaining()?, retained_bytes(&route)?)?;
+                let input = native_queue_query::encode(
+                    &admitted.scope,
+                    admitted.name.as_deref(),
+                    &admitted.args,
+                    route.max_input_bytes,
+                )?;
+                let (reply, _) = owner
+                    .query_resource_after(route, input, deadline, false, None)
+                    .await?;
+                let RpcData::Structured(bytes) = reply else {
+                    anyhow::bail!(CommandFailure::CorruptState);
+                };
+                if let Some(limit) = call_scope.reply_limit() {
+                    anyhow::ensure!(
+                        bytes.len() <= limit,
+                        crate::application::rpc::Failure::new(
+                            crate::application::rpc::Code::InvalidResponse
+                        )
+                    );
+                }
+                let retained = crate::rpc_reservation::Reservation::shared(Arc::new((
+                    admitted.reservation,
+                    memory,
+                )));
+                Ok(RpcData::Structured(retained.retain_bytes(bytes)))
+            };
+            crate::runtime::cancellation::receive(
+                parent_cancellation.as_ref(),
+                signal.as_ref(),
+                operation,
+            )
+            .await
         })
+    }
+
+    pub(super) async fn resolve_queue_metadata(
+        &self,
+        route: &mut Route,
+        deadline: u64,
+        source_proven: bool,
+    ) -> anyhow::Result<()> {
+        if source_proven {
+            super::super::require_framework_dispatch()?;
+        }
+        anyhow::ensure!(
+            route.admission == super::super::CommandAdmission::Public
+                && route
+                    .cell
+                    .as_str()
+                    .split_once(':')
+                    .is_some_and(|(class, _)| class == crate::deploy::QUEUE_CLASS),
+            CommandFailure::UnsupportedCapability
+        );
+        self.resolve_resource_metadata(route, deadline, source_proven)
+            .await
     }
 }

@@ -67,8 +67,10 @@ impl CellRpcTurn {
         self.step != 0 && self.transaction.can_poll_parked_io()
     }
 
-    pub(crate) fn waiting_on_queries(&self) -> bool {
-        self.step != 0 && self.output.is_none() && self.transaction.waiting_on_queries()
+    pub(crate) fn waiting_on_owned_io(&self) -> bool {
+        self.step != 0
+            && self.output.is_none()
+            && (self.transaction.waiting_on_queries() || self.transaction.can_poll_parked_io())
     }
 
     pub(crate) fn poll_parked_io(&self, cx: &mut Context<'_>) -> Result<bool, ExecutionError> {
@@ -247,7 +249,7 @@ impl CellPrivateExecutor {
         &mut self,
         turn: CellRpcTurn,
         result: anyhow::Result<Vec<u8>>,
-    ) -> Result<CellStageOutcome, ExecutionError> {
+    ) -> Result<CellPrivatePreparation, ExecutionError> {
         let CellRpcTurn {
             future,
             output: _,
@@ -334,21 +336,18 @@ impl CellPrivateExecutor {
                 .settle(transaction, result)
                 .map_err(private_failure)?;
         }
-        let outcome = self.capture_stage(
-            attempt,
-            preparation.ok_or(ExecutionError::Invalid("RPC preparation missing"))?,
-        )?;
-        self.pending
-            .as_mut()
-            .ok_or(ExecutionError::Uncertain)?
-            .rpc_prior_steps = step;
-        Ok(outcome)
+        Ok(self
+            .capture_stage_input(
+                attempt,
+                preparation.ok_or(ExecutionError::Invalid("RPC preparation missing"))?,
+            )?
+            .completed_rpc(step))
     }
 
     pub(crate) fn stage_rpc_checkpoint(
         &mut self,
         turn: &mut CellRpcTurn,
-    ) -> Result<CellPreparedCommand, ExecutionError> {
+    ) -> Result<CellPrivatePreparation, ExecutionError> {
         self.check_rpc()?;
         let step = turn
             .step
@@ -390,17 +389,11 @@ impl CellPrivateExecutor {
             .preparation
             .take()
             .ok_or(ExecutionError::Invalid("RPC checkpoint preparation"))?;
-        let CellStageOutcome::Prepared(prepared) = self.capture_stage(attempt, preparation)? else {
-            return Err(ExecutionError::Invalid(
-                "RPC checkpoint unexpectedly duplicate",
-            ));
-        };
-        self.pending
-            .as_mut()
-            .ok_or(ExecutionError::Invalid("RPC checkpoint pending"))?
-            .rpc_step = Some(step);
+        let captured = self
+            .capture_stage_input(attempt, preparation)?
+            .checkpoint(step);
         turn.step = step;
-        Ok(prepared)
+        Ok(captured)
     }
 
     pub(crate) fn rpc_checkpoint_version(
@@ -430,18 +423,54 @@ impl CellPrivateExecutor {
         {
             return Err(ExecutionError::Uncertain);
         }
-        committed.check().map_err(authority_failure)?;
-        let proposal = pending.prepared.proposal();
-        let CellReconciliation::Committed(receipt) = self.reconcile(proposal, reconciliation)?
-        else {
-            return Err(ExecutionError::Uncertain);
+        if !self.authority.accepts_reconciliation(&reconciliation)
+            || !committed.accepts_reconciliation(&reconciliation)
+        {
+            return Err(ExecutionError::Invalid("cell reconciliation identity"));
+        }
+        let check = || {
+            reconciliation.check().map_err(|error| match error {
+                RuntimeError::NotReady => ExecutionError::Uncertain,
+                error => authority_failure(error),
+            })
         };
-        if receipt.receipt.rpc_step != Some(step) || receipt.version != committed.cell().version {
+        check()?;
+        committed.check().map_err(authority_failure)?;
+        // This writer has not run application/owned work since capture and
+        // retains its cell lease until checkpoint settlement. Its frozen SQL
+        // state produced the exact image proven above. Read that same receipt
+        // without opening another immutable connection/cache. Other images or
+        // terms still use ordinary committed-image reconciliation.
+        let receipt = {
+            let connection = self
+                .working
+                .as_ref()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database()
+                .framework();
+            if !connection.is_autocommit() {
+                return Err(ExecutionError::Invalid(
+                    "RPC checkpoint writer is not frozen",
+                ));
+            }
+            receipts::lookup_rpc_identity(connection, &pending.request, &self.options.limits)?
+                .ok_or(ExecutionError::Uncertain)?
+        };
+        if receipt.rpc_step != Some(step) {
             return Err(ExecutionError::Invalid("RPC checkpoint receipt binding"));
         }
+        let receipt = CellCommittedReceipt {
+            receipt,
+            version: committed.cell().version.clone(),
+            position: committed.cell().last_mutation,
+            witness: committed.cell().witness,
+        };
+        check()?;
+        committed.check().map_err(authority_failure)?;
+        self.retire_reconciled()?;
         committed.check().map_err(authority_failure)?;
         self.authority = committed;
-        Ok(*receipt)
+        Ok(receipt)
     }
 
     pub(crate) fn continue_rpc_checkpoint(
@@ -452,6 +481,7 @@ impl CellPrivateExecutor {
         if self.pending.is_some() || turn.preparation.is_some() {
             return Err(ExecutionError::Invalid("RPC checkpoint remains pending"));
         }
+        let read_source = turn.transaction.take_s3_read_source();
         let log_reservation = self
             .authority
             .reserve_log(self.options.limits.envelope)
@@ -475,9 +505,21 @@ impl CellPrivateExecutor {
             .database_mut()
             .continue_checkpoint(&turn.transaction)
             .map_err(private_failure)?;
+        turn.transaction.mark_checkpoint_proven();
         turn.transaction.mark_quorum_read_base(
             turn.step != 0 && turn.attempt.request.durability == Durability::Quorum,
         );
+        // Park can rebase onto another client's commit. SQLite counters alone
+        // cannot establish S3 coverage of that image; retain only the exact
+        // archived source version, and recheck birth/fence at each read.
+        if turn.step != 0 && turn.attempt.request.durability == Durability::S3 {
+            if let Some(proof) = read_source.filter(|proof| {
+                proof.version() == &self.authority.cell().version
+                    && proof.route() == self.authority.route()
+            }) {
+                turn.transaction.mark_s3_read_base(proof);
+            }
+        }
         turn.preparation = Some(StagePreparation {
             sequence,
             log_reservation,
@@ -498,6 +540,24 @@ impl CellPrivateExecutor {
             .park(&turn.transaction)
             .map_err(private_failure)?;
         turn.preparation = None;
+        Ok(())
+    }
+
+    pub(crate) fn bind_rpc_s3_read_source(
+        &self,
+        turn: &CellRpcTurn,
+        proof: Arc<crate::raft::cell_groups::S3ReadSourceProof>,
+    ) -> Result<(), ExecutionError> {
+        self.check_rpc()?;
+        if turn.step == 0
+            || turn.preparation.is_none()
+            || turn.attempt.request.durability != Durability::S3
+            || proof.version() != &self.authority.cell().version
+            || proof.route() != self.authority.route()
+        {
+            return Err(ExecutionError::Invalid("S3 read source version"));
+        }
+        turn.transaction.mark_s3_read_base(proof);
         Ok(())
     }
 

@@ -14,6 +14,10 @@ mod binding_fixture;
 #[path = "support/cell_group_checkpoint.rs"]
 #[allow(dead_code)]
 mod checkpoint_fixture;
+#[path = "support/cell_group_archive_checkpoint_upload_window.rs"]
+mod checkpoint_upload_window_fixture;
+#[path = "support/cell_group_archive_checkpoint_window.rs"]
+mod checkpoint_window_fixture;
 #[path = "support/cell_group_disaster_fence.rs"]
 mod disaster_fixture;
 #[path = "support/cell_group_archive_empty_tail.rs"]
@@ -36,6 +40,8 @@ mod publication_fixture;
 mod rustfs;
 #[path = "support/cell_group_archive_tail.rs"]
 mod tail_fixture;
+#[path = "support/cell_group_archive_tail_window.rs"]
+mod tail_window_fixture;
 #[path = "support/cell_group_archive_window.rs"]
 mod window_fixture;
 
@@ -752,10 +758,37 @@ fn cell_objects(index_path: &Path, index: &serde_json::Value, cell: &str) -> Vec
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
+    checkpoint_roundtrip_and_reuse(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
+    checkpoint_roundtrip_and_reuse(true).await
+}
+
+fn retain_archive_fixture_disks(cluster: &mut Cluster) {
+    // Keep both successful proof inputs and failed sources. Ordinary TempDir
+    // cleanup would otherwise delete the three disks on an assertion or `?`.
+    cluster._root.disable_cleanup(true);
+    for n in 1..=cluster.voters.len() {
+        eprintln!(
+            "retained archive fixture disk: {}",
+            cluster._root.path().join(format!("node-{n}")).display()
+        );
+    }
+}
+
+async fn checkpoint_roundtrip_and_reuse(real_rustfs: bool) -> Result<()> {
     for rooted in [false, true] {
         let (mut cluster, mut expected) =
             checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
-        let store = archive_store::Store::new();
+        retain_archive_fixture_disks(&mut cluster);
+        let store = if real_rustfs {
+            archive_store::Store::around(rustfs::store("checkpoint-roundtrip-reuse", rooted)?)
+        } else {
+            archive_store::Store::new()
+        };
         let archive = new_archive(
             &cluster,
             store.clone(),
@@ -801,6 +834,44 @@ async fn checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
             assert_eq!(objects, cell_objects(&after_path, &after_index, cell));
         }
         assert_ne!(original, latest);
+        // Cached confirmation is only permission to GET. Missing/corrupt
+        // objects must refuse without recreating or overwriting the evidence.
+        let selected = &cell_objects(&after_path, &after_index, "beta")[0];
+        let bytes = store.inner.get(selected).await?.bytes().await?;
+        for missing in [true, false] {
+            let mut damaged = bytes.to_vec();
+            damaged[0] ^= 0x80;
+            if missing {
+                store.inner.delete(selected).await?;
+            } else {
+                store.inner.put(selected, damaged.clone().into()).await?;
+            }
+            let count = store.puts.load(Ordering::Acquire);
+            assert!(archive
+                .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
+                .await
+                .is_err());
+            assert_eq!(store.puts.load(Ordering::Acquire), count);
+            if missing {
+                assert!(matches!(
+                    store.inner.get(selected).await,
+                    Err(object_store::Error::NotFound { .. })
+                ));
+            } else {
+                assert_eq!(
+                    store.inner.get(selected).await?.bytes().await?.as_ref(),
+                    damaged
+                );
+            }
+            store.inner.put(selected, bytes.clone().into()).await?;
+            assert_eq!(
+                archive
+                    .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
+                    .await?,
+                latest
+            );
+            assert_eq!(store.puts.load(Ordering::Acquire), count);
+        }
         let marker = cluster.voters[0]
             .owner
             .as_ref()
@@ -882,8 +953,9 @@ async fn checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
     for rooted in [false, true] {
-        let (cluster, _) =
+        let (mut cluster, _) =
             checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
+        retain_archive_fixture_disks(&mut cluster);
         let store = archive_store::Store::new();
         let history = cluster.birth.route().history;
         let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
@@ -947,12 +1019,20 @@ async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
             &reference,
             receiver(&pool, &applier, &cluster)?,
         ));
+        // Continue polling the operation while waiting for its GET gate. A
+        // dropped timeout waiter alone cannot drive this inline domain future
+        // through a still-running index decode on the blocking owner.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            cellar::asyncrt::select_biased! { "unexpected completion must fail before accepting the archive GET gate";
+                result = &mut pending => anyhow::bail!("gated archive receive completed: {}", result.is_ok()),
+                _ = gate.entered.notified() => Ok(()),
+            }
+        }).await??;
         assert!(
             tokio::time::timeout(Duration::from_millis(50), &mut pending)
                 .await
                 .is_err()
         );
-        tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
         assert_eq!(pool.usage().sources, 1);
         assert_eq!(archive.usage().operations, 1);
         let charged = archive.usage().retained_bytes;
@@ -1383,4 +1463,146 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
         cluster.close().await?;
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::registry_reads_overlap_and_preserve_validation(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::registry_reads_overlap_and_preserve_validation(
+            rooted,
+            rustfs::store("registry-read-window", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_checkpoint_creates_overlap_with_bounded_ordered_confirmation() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_upload_window_fixture::qualify(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_checkpoint_creates_overlap_with_bounded_ordered_confirmation() -> Result<()>
+{
+    for rooted in [false, true] {
+        checkpoint_upload_window_fixture::qualify(
+            rooted,
+            rustfs::store("checkpoint-create-window", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_checkpoint_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_checkpoint_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::qualify(
+            rooted,
+            rustfs::store("checkpoint-read-window", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        tail_window_fixture::qualify(rooted, Arc::new(object_store::memory::InMemory::new()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_tail_reads_overlap_with_bounded_ordered_verification() -> Result<()> {
+    for rooted in [false, true] {
+        tail_window_fixture::qualify(rooted, rustfs::store("tail-read-window", rooted)?).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::create_then_confirm(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_fresh_archive_objects_create_then_confirm_without_missing_reads() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::create_then_confirm(
+            rooted,
+            rustfs::store("immutable-create-confirm", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn persist_archive_intent<T: serde::Serialize + serde::de::DeserializeOwned>(
+    cluster: &Cluster,
+    intent: &T,
+) -> Result<T> {
+    let bytes = serde_json::to_vec(intent)?;
+    let name = hex::encode(Sha256::digest(&bytes));
+    let directory = cluster._root.path().join("archive-intents");
+    let loaded = cluster
+        .domain
+        .blocking(move || -> Result<Vec<u8>> {
+            use std::io::Write;
+            std::fs::create_dir_all(&directory)?;
+            let path = directory.join(name);
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            std::fs::File::open(&directory)?.sync_all()?;
+            Ok(std::fs::read(path)?)
+        })?
+        .await??;
+    Ok(serde_json::from_slice(&loaded)?)
 }

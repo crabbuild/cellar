@@ -204,22 +204,14 @@ impl<E> Subscription<E> {
             return Err(error(ErrorCode::InvalidRequest, "invalid fetch budgets"));
         }
         let limits = crate::application::limits::current().events;
-        let cached = self.resolved.lock().unwrap().clone();
-        let identity = if let Some(identity) = cached {
-            identity
-        } else {
-            let observed = self.status(context).await?.identity;
-            let mut slot = self.resolved.lock().unwrap();
-            if slot.as_ref().is_some_and(|identity| identity != &observed) {
-                return Err(error(
-                    ErrorCode::SubscriptionReset,
-                    "subscription changed while resolving its identity",
-                ));
-            }
-            slot.get_or_insert(observed).clone()
-        };
         let raft = context.raft_storage.is_some()
             || (context.identity().is_none() && context.state.raft_cell_classes.is_some());
+        let mut identity = self.resolved.lock().unwrap().clone();
+        if !raft && identity.is_none() {
+            let observed = self.status(context).await?.identity;
+            self.pin_identity(&observed)?;
+            identity = Some(observed);
+        }
         let wait = options.wait_ms.min(limits.max_poll_ms);
         let _waiter = if raft && wait > 0 {
             Some(
@@ -239,20 +231,60 @@ impl<E> Subscription<E> {
             None
         };
         let deadline = crate::asyncrt::mono_ms().saturating_add(u64::try_from(wait)?);
-        let value = loop {
+        let batch = loop {
             let value = self
                 .call(
                     context,
-                    "__streamNext",
+                    if raft {
+                        "__streamNextResolved"
+                    } else {
+                        "__streamNext"
+                    },
                     json!({"fetch_id":fetch_id,"expected":&identity,
                 "max_records":options.max_records.min(limits.batch_records()),
                 "max_bytes":options.max_bytes.min(limits.batch_bytes()),
                 "wait_ms":if raft { "0".to_owned() } else {wait.to_string()}}),
                 )
                 .await?;
+            let batch = super::error::submitted_result((|| {
+                let (observed, value) = if raft {
+                    accept_resolved_fetch(
+                        self.stream.resource(),
+                        &self.name,
+                        identity.as_ref(),
+                        value,
+                    )?
+                } else {
+                    (
+                        identity.clone().ok_or_else(|| {
+                            error(
+                                ErrorCode::SubscriptionReset,
+                                "missing subscription identity",
+                            )
+                        })?,
+                        value,
+                    )
+                };
+                let batch = if value.is_null() {
+                    None
+                } else {
+                    Some(accept_batch(
+                        self.stream.resource(),
+                        &observed,
+                        options,
+                        limits,
+                        value,
+                    )?)
+                };
+                // Pin only a fully validated response. Empty polls must also
+                // retain their incarnation, so a reset cannot retarget a wait.
+                self.pin_identity(&observed)?;
+                identity = Some(observed);
+                Ok(batch)
+            })())?;
             let now = crate::asyncrt::mono_ms();
-            if !raft || !value.is_null() || now >= deadline {
-                break value;
+            if !raft || batch.is_some() || now >= deadline {
+                break batch;
             }
             let delay = std::time::Duration::from_millis((deadline - now).min(1000));
             if let Some(dispatch) = crate::storage::capture_raft_dispatch()? {
@@ -266,12 +298,9 @@ impl<E> Subscription<E> {
                 crate::asyncrt::sleep(delay).await;
             }
         };
-        if value.is_null() {
+        let Some((receipt, records, issued_at_ms, expires_at_ms)) = batch else {
             return Ok(None);
-        }
-        let (receipt, records, issued_at_ms, expires_at_ms) = super::error::submitted_result(
-            accept_batch(self.stream.resource(), &identity, options, limits, value),
-        )?;
+        };
         Ok(Some(Batch {
             subscription: self.clone(),
             receipt,
@@ -279,6 +308,19 @@ impl<E> Subscription<E> {
             issued_at_ms,
             expires_at_ms,
         }))
+    }
+
+    fn pin_identity(&self, observed: &super::SubscriptionIdentity) -> Result<()> {
+        self.check_identity(observed)?;
+        let mut slot = self.resolved.lock().unwrap();
+        if slot.as_ref().is_some_and(|identity| identity != observed) {
+            return Err(error(
+                ErrorCode::SubscriptionReset,
+                "subscription changed while resolving its identity",
+            ));
+        }
+        slot.get_or_insert_with(|| observed.clone());
+        Ok(())
     }
 
     fn check_receipt(&self, receipt: &Receipt) -> Result<()> {
@@ -362,6 +404,30 @@ impl<E> Subscription<E> {
             .await?;
         super::error::submitted_result(accept_extension(expires_ms, &value))
     }
+}
+
+fn accept_resolved_fetch(
+    resource: &super::Resource,
+    name: &str,
+    expected: Option<&super::SubscriptionIdentity>,
+    mut value: Value,
+) -> Result<(super::SubscriptionIdentity, Value)> {
+    let invalid = || error(ErrorCode::StaleReceipt, "invalid resolved fetch response");
+    let identity: super::SubscriptionIdentity =
+        serde_json::from_value(value.get_mut("identity").ok_or_else(invalid)?.take())
+            .map_err(|_| invalid())?;
+    identity.validate()?;
+    if identity.resource != resource.id
+        || identity.name != name
+        || expected.is_some_and(|expected| expected != &identity)
+    {
+        return Err(error(
+            ErrorCode::SubscriptionReset,
+            "fetch selected another subscription incarnation",
+        ));
+    }
+    let batch = value.get_mut("batch").ok_or_else(invalid)?.take();
+    Ok((identity, batch))
 }
 
 fn accept_completed_acknowledgment(value: &Value) -> Result<Option<Acknowledgment>> {

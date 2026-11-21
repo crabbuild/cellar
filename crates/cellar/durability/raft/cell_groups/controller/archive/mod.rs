@@ -2,13 +2,18 @@
 
 //! One bounded, fair archive lane on the existing node controller. Published
 //! markers are observations, never S3 command settlement or serving authority.
+pub(super) mod foreground;
 mod job;
 mod journal;
 pub(super) mod late;
 mod provision;
+mod queue;
+#[cfg(test)]
+mod retry_tests;
 mod reuse;
 mod reuse_index;
 pub(in crate::raft::cell_groups::controller) mod seed;
+pub(super) mod source_read;
 pub(crate) use provision::Provisioning;
 pub(crate) use seed::{Client as ArchiveSeedClient, Descriptor as ArchiveSeedDescriptor};
 pub(in crate::raft::cell_groups::controller) mod settlement;
@@ -25,6 +30,7 @@ use crate::raft::cell_groups::{
 };
 use cellar_logic::{cell_group::GroupHistory, consensus::LogIndex};
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
+use queue::{Eligibility, PublicationQueue};
 use std::collections::{BTreeSet, VecDeque};
 use tokio::sync::oneshot;
 
@@ -313,7 +319,7 @@ pub(super) struct Manager {
     // caller deadlines and without granting authority from a published marker.
     admissions: reuse::Admissions,
     entries: BTreeMap<GroupHistory, Entry>,
-    queue: VecDeque<GroupHistory>,
+    queue: PublicationQueue,
     job: Option<BoxFuture<'static, PublicationCompleted>>,
     active_group: Option<GroupHistory>,
     proof_job: Option<BoxFuture<'static, ProofCompleted>>,
@@ -352,11 +358,14 @@ impl Manager {
             ))));
             return;
         }
-        shared
-            .archives
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(group, CellGroupArchiveStatus::default());
+        {
+            let mut statuses = shared.archives.lock().unwrap_or_else(|e| e.into_inner());
+            if let Err(error) = shared.foregrounds.register(group) {
+                request.reply.send(Err(Arc::new(Error::Runtime(error))));
+                return;
+            }
+            statuses.insert(group, CellGroupArchiveStatus::default());
+        }
         self.entries.insert(
             group,
             Entry {
@@ -379,7 +388,7 @@ impl Manager {
                 proof_progress: None,
             },
         );
-        self.queue.push_back(group);
+        self.queue.enqueue(group);
     }
 
     pub fn provision(
@@ -402,11 +411,14 @@ impl Manager {
             .archive_compaction
             .begin_activation()
             .map_err(RuntimeError::from)?;
-        shared
-            .archives
-            .lock()
-            .map_err(|_| CellGroupControllerError::Closed)?
-            .insert(group, CellGroupArchiveStatus::default());
+        {
+            let mut statuses = shared
+                .archives
+                .lock()
+                .map_err(|_| CellGroupControllerError::Closed)?;
+            shared.foregrounds.register(group)?;
+            statuses.insert(group, CellGroupArchiveStatus::default());
+        }
         // The physical group/preparation already holds bounded admission. This
         // internal handoff consumes no second ordinary command slot or waiter.
         self.entries.insert(
@@ -431,7 +443,7 @@ impl Manager {
                 proof_progress: None,
             },
         );
-        self.queue.push_back(group);
+        self.queue.enqueue(group);
         Ok(())
     }
 
@@ -446,7 +458,7 @@ impl Manager {
                 entry.dirty = true;
                 if !entry.queued {
                     entry.queued = true;
-                    self.queue.push_back(group);
+                    self.queue.enqueue(group);
                 }
             }
         }
@@ -484,7 +496,7 @@ impl Manager {
         entry.dirty = true;
         if !entry.queued {
             entry.queued = true;
-            self.queue.push_back(group);
+            self.queue.enqueue(group);
         }
     }
 
@@ -530,7 +542,7 @@ impl Manager {
             entry.dirty = true;
             if !entry.queued {
                 entry.queued = true;
-                self.queue.push_back(group);
+                self.queue.enqueue(group);
             }
         }
     }
@@ -699,7 +711,7 @@ impl Manager {
             entry.dirty = true;
             if !entry.queued {
                 entry.queued = true;
-                self.queue.push_back(completed.group);
+                self.queue.enqueue(completed.group);
             }
             if !entry.proof_queued {
                 entry.proof_queued = true;
@@ -729,64 +741,82 @@ impl Manager {
         if self.job.is_some() {
             return;
         }
-        for _ in 0..self.queue.len() {
-            let group = self.queue.pop_front().expect("archive roster queue");
-            let entry = self.entries.get_mut(&group).expect("archive roster entry");
-            entry.queued = false;
-            if !entry.dirty || entry.fatal || entry.stopping {
-                continue;
-            }
-            if entry.retry_at > now {
-                entry.queued = true;
-                self.queue.push_back(group);
-                continue;
-            }
-            entry.foreground_wake = false;
-            entry.dirty = false;
-            let observed_head = shared
-                .archives
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .get_mut(&group)
-                .and_then(|status| {
-                    status.attempts = status.attempts.saturating_add(1);
-                    status.published.clone()
-                })
-                .filter(|_| entry.context.is_some());
-            entry.capacity_wait = None;
-            self.capacity_waits.remove(&group);
-            let mut registration = entry.registration.clone();
-            let activation = entry.activation.clone();
-            let mut context = entry.context.clone();
-            let execution = entry.execution.clone();
-            let runtime = runtime.clone();
-            // Bound receipt SQL work per fair group turn, independently of the
-            // node's potentially larger total command admission.
-            settlement::prune(&mut entry.waiters, now);
-            let count = entry.waiters.len().min(32);
-            let mut waiters: Vec<settlement::Request> = entry.waiters.drain(..count).collect();
-            // Returned physical credit may wake a live foreground proof. It
-            // must not bypass the publisher's background coalescing interval.
-            let capacity = if waiters.is_empty() {
-                CapacityCapture::default()
-            } else {
-                CapacityCapture::new()
+        // A proof batch temporarily owns its requests outside the entry. That
+        // group remains foreground while the independent proof lane is active.
+        let proof_group = self.proof_group;
+        let entries = &mut self.entries;
+        let Some(group) = self.queue.next(|group| {
+            let Some(entry) = entries.get_mut(&group) else {
+                return Eligibility::Remove;
             };
-            registration.tails.capture_capacity(capacity.clone());
-            registration.checkpoints.capture_capacity(capacity.clone());
-            let admitted_through = self.admissions.current();
-            let handoff = self
-                .handoff
-                .take()
-                .filter(|(selected, _)| *selected == group)
-                .and_then(|(_, coverage)| coverage.take());
-            tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
+            if !entry.dirty || entry.fatal || entry.stopping {
+                entry.queued = false;
+                return Eligibility::Remove;
+            }
+            settlement::prune(&mut entry.waiters, now);
+            if entry.retry_at > now {
+                Eligibility::Blocked
+            } else if entry.waiters.is_empty() && proof_group != Some(group) {
+                if shared.foregrounds.blocks(group, now) {
+                    Eligibility::Blocked
+                } else {
+                    Eligibility::Background
+                }
+            } else {
+                Eligibility::Foreground
+            }
+        }) else {
+            return;
+        };
+        let entry = self.entries.get_mut(&group).expect("archive roster entry");
+        if entry.waiters.is_empty() && proof_group != Some(group) {
+            shared.foregrounds.background_started(group);
+        }
+        entry.queued = false;
+        entry.foreground_wake = false;
+        entry.dirty = false;
+        let observed_head = shared
+            .archives
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get_mut(&group)
+            .and_then(|status| {
+                status.attempts = status.attempts.saturating_add(1);
+                status.published.clone()
+            })
+            .filter(|_| entry.context.is_some());
+        entry.capacity_wait = None;
+        self.capacity_waits.remove(&group);
+        let mut registration = entry.registration.clone();
+        let activation = entry.activation.clone();
+        let mut context = entry.context.clone();
+        let execution = entry.execution.clone();
+        let runtime = runtime.clone();
+        // Bound receipt SQL work per fair group turn, independently of the
+        // node's potentially larger total command admission.
+        let count = entry.waiters.len().min(32);
+        let mut waiters: Vec<settlement::Request> = entry.waiters.drain(..count).collect();
+        let capacity = if waiters.is_empty() {
+            CapacityCapture::default()
+        } else {
+            CapacityCapture::new()
+        };
+        registration.tails.capture_capacity(capacity.clone());
+        registration.checkpoints.capture_capacity(capacity.clone());
+        let admitted_through = self.admissions.current();
+        let handoff = self
+            .handoff
+            .take()
+            .filter(|(selected, _)| *selected == group)
+            .and_then(|(_, coverage)| coverage.take());
+        tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                 group = ?group.group, stage = "launch", waiters = count);
-            self.active_group = Some(group);
-            self.job = Some(Box::pin(async move {
-                let mut maintenance_pending = false;
-                let mut completed_coverage = None;
-                let result = std::panic::AssertUnwindSafe(async {
+        settlement::prune(&mut waiters, now);
+        self.active_group = Some(group);
+        self.job = Some(Box::pin(async move {
+            let mut maintenance_pending = false;
+            let mut completed_coverage = None;
+            let result = std::panic::AssertUnwindSafe(async {
                     if context.is_none() {
                         context = Some(
                             job::open(
@@ -894,27 +924,25 @@ impl Manager {
                 .catch_unwind()
                 .await
                 .unwrap_or(Err(Error::Invalid("archive job panicked")));
-                // Reconciliation may have recovered an older head while all
-                // newer apply events were already consumed before this job.
-                // Observe the owner after the attempt so an idle final tail
-                // cannot disappear when the dirty flag was cleared at launch.
-                let observation = runtime
-                    .status(group)
-                    .await
-                    .map(|status| status.applied.index);
-                PublicationCompleted {
-                    group,
-                    context,
-                    result,
-                    maintenance_pending,
-                    observation,
-                    waiters,
-                    coverage: completed_coverage,
-                    capacity_wait: capacity.take(),
-                }
-            }));
-            break;
-        }
+            // Reconciliation may have recovered an older head while all
+            // newer apply events were already consumed before this job.
+            // Observe the owner after the attempt so an idle final tail
+            // cannot disappear when the dirty flag was cleared at launch.
+            let observation = runtime
+                .status(group)
+                .await
+                .map(|status| status.applied.index);
+            PublicationCompleted {
+                group,
+                context,
+                result,
+                maintenance_pending,
+                observation,
+                waiters,
+                coverage: completed_coverage,
+                capacity_wait: capacity.take(),
+            }
+        }));
     }
 
     pub fn complete(&mut self, completed: Completed, shared: &Shared, now: u64, closing: bool) {
@@ -1068,7 +1096,7 @@ impl Manager {
         }
         if entry.dirty && !entry.fatal && !entry.queued {
             entry.queued = true;
-            self.queue.push_back(completed.group);
+            self.queue.enqueue(completed.group);
         }
         if closing || entry.context.is_some() || entry.fatal {
             if let Some(reply) = entry.reply.take() {
@@ -1085,6 +1113,7 @@ impl Manager {
     }
 
     pub(super) fn retire(&mut self, group: GroupHistory, shared: &Shared) -> bool {
+        shared.foregrounds.forget(group);
         if self
             .handoff
             .as_ref()
@@ -1106,7 +1135,7 @@ impl Manager {
         {
             return false;
         }
-        self.queue.retain(|queued| *queued != group);
+        self.queue.remove(group);
         self.proof_queue.retain(|queued| *queued != group);
         if let Some(mut entry) = self.entries.remove(&group) {
             for request in entry.waiters.drain(..) {
@@ -1182,6 +1211,7 @@ impl Manager {
             }
         }
         self.entries.clear();
+        shared.foregrounds.clear();
         for status in shared
             .archives
             .lock()
@@ -1221,10 +1251,16 @@ fn archive_retryable(error: &CellGroupArchiveError) -> bool {
             | CellGroupArchiveError::Expired
             | CellGroupArchiveError::Unconfirmed
             | CellGroupArchiveError::Storage(_)
-            | CellGroupArchiveError::Payload(CellGroupPayloadError::Overloaded)
-            | CellGroupArchiveError::Payload(CellGroupPayloadError::Storage(
-                object_store::Error::Generic { .. }
-            ))
+            // These failures do not disprove a referenced payload. Resume the
+            // journaled publication and verify its bytes again on the next
+            // attempt. Missing, invalid and retired payloads stay fatal.
+            | CellGroupArchiveError::Payload(
+                CellGroupPayloadError::Overloaded
+                    | CellGroupPayloadError::DeadlineExceeded
+                    | CellGroupPayloadError::Unconfirmed
+                    | CellGroupPayloadError::Conflict
+                    | CellGroupPayloadError::Storage(_)
+            )
             | CellGroupArchiveError::Checkpoint(
                 CellGroupCheckpointError::NotReady
                     | CellGroupCheckpointError::Busy

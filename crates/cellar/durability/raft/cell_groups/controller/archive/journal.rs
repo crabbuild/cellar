@@ -251,3 +251,7 @@ fn encode(value: &impl Serialize) -> Result<Vec<u8>> {
 #[cfg(test)]
 #[path = "journal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "journal_snapshot_tests.rs"]
+mod snapshot_tests;

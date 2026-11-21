@@ -1,16 +1,55 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::{BackendIdentity, MaintenanceBackend, MaintenancePolicy};
+use super::{
+    BackendIdentity, DeleteSafety, FencedMaintenanceBackend, MaintenanceBackend, MaintenancePolicy,
+};
+use crate::application::container_execution::ExecutionFenceAuthority;
 use crate::application::{
     Application, Cell, CellIdentity, Context, HandlerFuture, Invocation, Output,
 };
 use anyhow::{ensure, Result};
+use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Clone)]
 pub(crate) struct Registration {
-    pub backend: Arc<dyn MaintenanceBackend>,
+    pub(super) backend: Backend,
     pub policy: MaintenancePolicy,
+}
+
+#[derive(Clone)]
+pub(super) enum Backend {
+    Direct(Arc<dyn MaintenanceBackend>),
+    Fenced {
+        backend: Arc<dyn FencedMaintenanceBackend>,
+        authority: Arc<dyn ExecutionFenceAuthority>,
+    },
+}
+
+impl Backend {
+    fn same(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Direct(a), Self::Direct(b)) => Arc::ptr_eq(a, b),
+            (
+                Self::Fenced {
+                    backend: a,
+                    authority: aa,
+                },
+                Self::Fenced {
+                    backend: b,
+                    authority: ba,
+                },
+            ) => Arc::ptr_eq(a, b) && Arc::ptr_eq(aa, ba),
+            _ => false,
+        }
+    }
+
+    pub(super) fn delete_safety(&self) -> DeleteSafety {
+        match self {
+            Self::Direct(backend) => backend.delete_safety(),
+            Self::Fenced { backend, .. } => backend.delete_safety(),
+        }
+    }
 }
 
 /// Explicit host configuration. Original provider configurations may remain
@@ -27,6 +66,33 @@ impl Supervision {
         policy: MaintenancePolicy,
     ) -> Result<()> {
         let key = backend.identity();
+        self.insert(key, Backend::Direct(backend), policy)
+    }
+
+    /// Require framework-admitted execution fencing for this shared-group
+    /// backend. Registration pins the exact controller without contacting it.
+    /// Fencing and backend I/O share the configured attempt timeout. Existing
+    /// native/Fleet registrations continue to use `register`.
+    pub fn register_fenced(
+        &mut self,
+        backend: Arc<dyn FencedMaintenanceBackend>,
+        policy: MaintenancePolicy,
+    ) -> Result<()> {
+        let key = backend.identity();
+        let authority = backend.authority();
+        ensure!(
+            authority.identity() == key,
+            "maintenance execution authority configuration mismatch"
+        );
+        self.insert(key, Backend::Fenced { backend, authority }, policy)
+    }
+
+    fn insert(
+        &mut self,
+        key: BackendIdentity,
+        backend: Backend,
+        policy: MaintenancePolicy,
+    ) -> Result<()> {
         crate::storage::container_bindings::validate_name(&key.binding)?;
         crate::storage::container_bindings::validate_name(&key.provider)?;
         ensure!(
@@ -55,12 +121,16 @@ impl Supervision {
         for (key, registration) in &other.registrations {
             if let Some(prior) = self.registrations.get(key) {
                 ensure!(
-                    Arc::ptr_eq(&prior.backend, &registration.backend)
+                    prior.backend.same(&registration.backend)
                         && prior.policy == registration.policy,
                     "ambiguous cohosted maintenance backend"
                 );
             } else {
-                self.register(registration.backend.clone(), registration.policy)?;
+                ensure!(
+                    self.registrations.len() < 256,
+                    "maintenance backend registration limit exceeded"
+                );
+                self.registrations.insert(key.clone(), registration.clone());
             }
         }
         Ok(())
@@ -68,6 +138,85 @@ impl Supervision {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.registrations.is_empty()
+    }
+
+    pub(crate) fn select(
+        &self,
+        declarations: &crate::application::container_bindings::ProviderDeclarations,
+    ) -> Result<Self> {
+        let mut selected = Self::default();
+        for (name, declaration) in declarations {
+            let key = BackendIdentity {
+                binding: name.clone(),
+                provider: declaration.provider.clone(),
+                configuration_digest: declaration.configuration_digest.clone(),
+            };
+            if let Some(registration) = self.registrations.get(&key) {
+                selected.registrations.insert(key, registration.clone());
+            } else {
+                ensure!(
+                    !self.registrations.keys().any(|key| key.binding == *name),
+                    "provider supervision does not match its declared configuration"
+                );
+            }
+        }
+        Ok(selected)
+    }
+
+    pub(crate) fn same_registrations(&self, other: &Self) -> bool {
+        self.registrations.len() == other.registrations.len()
+            && self.registrations.iter().all(|(key, registration)| {
+                other.registrations.get(key).is_some_and(|other| {
+                    registration.policy == other.policy && registration.backend.same(&other.backend)
+                })
+            })
+    }
+
+    pub(crate) fn max_attempt_timeout_ms(&self) -> Option<u64> {
+        self.registrations
+            .values()
+            .map(|r| r.policy.attempt_timeout_ms)
+            .max()
+    }
+
+    pub(crate) fn contract_digest(&self) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update(b"cellar-provider-supervision-1");
+        hash.update((self.registrations.len() as u16).to_be_bytes());
+        for (key, registration) in &self.registrations {
+            for text in [&key.binding, &key.provider, &key.configuration_digest] {
+                hash.update((text.len() as u16).to_be_bytes());
+                hash.update(text.as_bytes());
+            }
+            let policy = registration.policy;
+            for value in [
+                policy.inspect_interval_ms,
+                policy.maximum_lifetime_ms,
+                policy.attempt_timeout_ms,
+            ] {
+                hash.update(value.to_be_bytes());
+            }
+            hash.update([u8::from(policy.idle_timeout_ms.is_some())]);
+            hash.update(policy.idle_timeout_ms.unwrap_or(0).to_be_bytes());
+        }
+        // Preserve the existing contract for direct registrations. An explicit
+        // fenced registration adds an unambiguous, sorted contract extension.
+        let fenced: Vec<_> = self
+            .registrations
+            .iter()
+            .filter(|(_, registration)| matches!(&registration.backend, Backend::Fenced { .. }))
+            .collect();
+        if !fenced.is_empty() {
+            hash.update(b"cellar-provider-maintenance-execution-1");
+            hash.update((fenced.len() as u16).to_be_bytes());
+            for (key, _) in fenced {
+                for text in [&key.binding, &key.provider, &key.configuration_digest] {
+                    hash.update((text.len() as u16).to_be_bytes());
+                    hash.update(text.as_bytes());
+                }
+            }
+        }
+        hash.finalize().into()
     }
 
     pub(crate) fn find(
@@ -83,8 +232,10 @@ impl Supervision {
     }
 }
 
-/// Add host-owned provider maintenance to any native or language application.
-/// Backends execute within the native scheduler, independently of guest alarms.
+/// Add host-owned provider maintenance independently of application alarms.
+/// Shared-group classes must declare their provider journals. Matching backend
+/// identities and retention policies become part of the namespace contract;
+/// their work runs through the shared durable scheduler rather than Fleet gates.
 pub fn supervise(
     application: Arc<dyn Application>,
     supervision: Supervision,
@@ -101,6 +252,18 @@ struct Supervised {
 }
 
 impl Application for Supervised {
+    fn uses_raft_primitives(&self) -> bool {
+        self.application.uses_raft_primitives()
+    }
+
+    fn raft_event_definitions(&self) -> &[crate::application::event_stream::Definition] {
+        self.application.raft_event_definitions()
+    }
+
+    fn filesystem_policy(&self, class: &str) -> Option<crate::application::filesystem::Policy> {
+        self.application.filesystem_policy(class)
+    }
+
     fn sandbox_executor(
         &self,
         class: &str,
@@ -146,7 +309,9 @@ impl Application for Supervised {
         Arc<crate::application::consensus::RaftClass>,
         crate::application::consensus::RegistrationError,
     > {
-        self.application.resolve_raft_class(class)
+        self.application
+            .resolve_raft_class(class)?
+            .with_provider_supervision(&self.supervision)
     }
 
     fn supports_workflow(&self, class: &str) -> bool {

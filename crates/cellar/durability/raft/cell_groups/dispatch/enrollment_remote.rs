@@ -65,8 +65,9 @@ impl CellEnrollmentInvocation {
             .ok_or_else(|| self.error(CellDispatchError::Invalid("missing enrollment route")))
     }
 
-    /// One consumed remote attempt. Possible transmission makes errors sticky
-    /// ambiguous; neither a lost reply nor admission refusal proves non-commit.
+    /// One consumed remote attempt. Unknown transmission remains ambiguous.
+    /// An authenticated matching non-entry reply can settle only this send;
+    /// it never erases uncertainty retained from an earlier attempt.
     pub async fn execute_remote(
         &mut self,
         transport: &RaftTransport,
@@ -112,6 +113,7 @@ impl CellEnrollmentInvocation {
             .mark_submitted(&attempt)
             .map_err(|e| self.error(CellDispatchError::Routing(e)))?;
         self.dispatched = true;
+        let previously_ambiguous = self.ambiguous;
         self.ambiguous = true;
         let result = self
             .dispatcher
@@ -134,9 +136,55 @@ impl CellEnrollmentInvocation {
                 other => CellDispatchError::Transport(other),
             })
         })?;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                if error.creation != self.creation {
+                    return Err(self.error(CellDispatchError::Invalid(
+                        "remote enrollment failure binding",
+                    )));
+                }
+                let error = preserve_ambiguity(error, previously_ambiguous);
+                self.ambiguous = error.ambiguous;
+                return Err(error);
+            }
+        };
         self.session
             .validate_attempt(&attempt)
             .map_err(|e| self.error(CellDispatchError::Routing(e)))?;
         Ok(response)
+    }
+}
+
+fn preserve_ambiguity(mut returned: CellEnrollmentError, previous: bool) -> CellEnrollmentError {
+    returned.ambiguous |= previous;
+    returned
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authenticated_non_entry_never_erases_prior_uncertainty() {
+        let creation = ProposalId::new([23; 16]).unwrap();
+        for previous in [false, true] {
+            for reported in [false, true] {
+                let error = preserve_ambiguity(
+                    CellEnrollmentError {
+                        creation,
+                        ambiguous: reported,
+                        cause: Box::new(CellDispatchError::Runtime(RuntimeError::NotReady)),
+                    },
+                    previous,
+                );
+                assert_eq!(error.creation, creation);
+                assert_eq!(error.ambiguous, previous || reported);
+                assert!(matches!(
+                    error.cause.as_ref(),
+                    CellDispatchError::Runtime(RuntimeError::NotReady)
+                ));
+            }
+        }
     }
 }

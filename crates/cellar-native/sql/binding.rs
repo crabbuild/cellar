@@ -144,7 +144,7 @@ pub fn valid_migrations_table(table: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
-/// A typed refusal. `family` is the prefix applications match on
+/// A typed SQL failure. `family` is the prefix applications match on
 /// (`SQL_ERROR`, `SQL_TYPE_ERROR`, `SQL_EXEC_ERROR`), kept apart from the
 /// message so the JS client builds the error and its `.cause` without
 /// parsing its own wire format.
@@ -152,6 +152,10 @@ pub fn valid_migrations_table(table: &str) -> bool {
 pub struct Error {
     pub family: String,
     pub message: String,
+    // Local dispatch provenance is owned, cloneable and never trusted from wire
+    // fields. In particular, an ambiguous mutation is not a SQL refusal.
+    #[serde(skip)]
+    source: Option<std::sync::Arc<anyhow::Error>>,
 }
 
 impl Error {
@@ -159,7 +163,18 @@ impl Error {
         Self {
             family: family.into(),
             message: message.into(),
+            source: None,
         }
+    }
+
+    /// Preserve a local failure's typed reconciliation identity and source chain
+    /// while retaining the existing SQL family/message wire representation.
+    /// Serialization carries no dispatch provenance; inspect `Error::source`
+    /// before converting an uncertain operation to a response or log message.
+    pub fn from_error(error: anyhow::Error) -> Self {
+        let mut result = Self::from_message(error.to_string());
+        result.source = Some(std::sync::Arc::new(error));
+        result
     }
 
     /// Keep an existing SQL error family when a host transports its message.
@@ -193,7 +208,11 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_deref()?.as_ref())
+    }
+}
 
 /// A bind value normalized at the public API boundary. A byte array is a
 /// BLOB; booleans bind as 1/0 and non-finite numbers bind as SQL NULL.

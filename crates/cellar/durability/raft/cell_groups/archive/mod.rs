@@ -23,6 +23,7 @@ mod cache;
 pub(in crate::raft::cell_groups) mod capacity;
 mod checkpoint;
 pub(in crate::raft::cell_groups) use cache::{CacheEviction, CachedCoverage};
+pub(in crate::raft::cell_groups) use publication::WeakCoverage;
 mod data_store;
 mod fleet;
 pub use data_store::CellGroupArchiveStore;

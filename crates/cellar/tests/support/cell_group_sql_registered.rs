@@ -4,6 +4,137 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+pub(crate) async fn disposable_directory() -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let class = Arc::new(RaftClass::new("Counter", 1, [41; 32])?.command(
+        "Increment",
+        [43; 32],
+        move |context, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            context.sql().execute("UPDATE value SET n=n+1", [])?;
+            Ok(b"scratch-result".to_vec())
+        },
+    )?);
+    let root = tempfile::tempdir()?;
+    let directory = root.path().join("private-0-registered-a");
+    let faults = Faults::new(directory.clone(), None);
+    let filesystem: Arc<dyn cellar_ltx::FileSystem> = Arc::new(FaultFileSystem {
+        faults: faults.clone(),
+    });
+    let (mut fixture, route, cell, _) =
+        Box::pin(setup_in(false, &class, root, filesystem.clone())).await?;
+    let pool = fixture.appliers[&(0, route.history)].0.clone();
+    let CellSqlOptions::Materialized(mut options) = fixture.cell_options(&cell).await? else {
+        anyhow::bail!("materialized scratch fixture");
+    };
+    assert_eq!(options.directory, directory);
+    options.host = options.host.with_filesystem(filesystem.clone());
+    let attempt = |tag| -> Result<CommandAttempt> {
+        let mut attempt = cell_attempt(tag)?;
+        attempt.request.operation = "Increment".into();
+        attempt.request.contract_digest = [43; 32];
+        attempt.request.request_digest = command_request_digest(&[]);
+        Ok(attempt)
+    };
+    let initial = fixture.runtimes[0]
+        .reconciliation_authority(route.history, cell.clone())
+        .await?
+        .cell()
+        .version
+        .clone();
+    faults.mode.store(
+        apply_faults::physical::FAIL_DIRECTORY_SYNC,
+        Ordering::Release,
+    );
+    faults.synced_paths.lock().unwrap().clear();
+    let authority = fixture.runtimes[0]
+        .execution_authority(route.history, cell.clone())
+        .await?;
+    let CellSqlOutcome::Prepared(prepared) = pool
+        .stage_registered(
+            CellSqlOptions::Materialized(options),
+            authority,
+            attempt(170)?,
+            class.clone(),
+            vec![],
+            true,
+        )
+        .await
+        .context("disposable scratch open must not require directory persistence")?
+    else {
+        anyhow::bail!("new scratch command preparation");
+    };
+    assert_eq!(
+        faults.mode.load(Ordering::Acquire),
+        apply_faults::physical::FAIL_DIRECTORY_SYNC,
+        "scratch-directory sync was attempted"
+    );
+    assert!(faults
+        .synced_paths
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|path| !directory.starts_with(path)));
+    assert_eq!(
+        fixture.runtimes[0]
+            .reconciliation_authority(route.history, cell.clone())
+            .await?
+            .cell()
+            .version,
+        initial,
+        "private scratch is not committed state"
+    );
+    pool.mark_submitted(cell.clone(), prepared.proposal())
+        .await?;
+    let accepted = accepted_sql(&fixture.runtimes[0], &prepared).await?;
+    fixture.drive(Some(accepted.position.index)).await?;
+    let authority = fixture.runtimes[0]
+        .execution_authority(route.history, cell.clone())
+        .await?;
+    let receipt = pool.finish(authority).await?;
+    assert_eq!(receipt.receipt().receipt.result(), b"scratch-result");
+    assert_eq!(receipt.receipt().version.sequence.get(), 2);
+    drop(receipt);
+    drop(prepared);
+    assert_eq!(pool.usage()?.active_cells, 0);
+    let discarded = directory.clone();
+    fixture
+        .cluster
+        .domain
+        .blocking(move || std::fs::remove_dir_all(discarded))?
+        .await??;
+    let CellSqlOptions::Materialized(mut options) = fixture.cell_options(&cell).await? else {
+        anyhow::bail!("materialized retry fixture");
+    };
+    options.host = options.host.with_filesystem(filesystem);
+    let authority = fixture.runtimes[0]
+        .execution_authority(route.history, cell.clone())
+        .await?;
+    let CellSqlOutcome::Receipt(receipt) = pool
+        .stage_registered(
+            CellSqlOptions::Materialized(options),
+            authority,
+            attempt(171)?,
+            class,
+            vec![],
+            false,
+        )
+        .await?
+    else {
+        anyhow::bail!("replay after discarded scratch");
+    };
+    assert_eq!(receipt.receipt().receipt.result(), b"scratch-result");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        faults.mode.load(Ordering::Acquire),
+        apply_faults::physical::FAIL_DIRECTORY_SYNC
+    );
+    drop(receipt);
+    drop(pool);
+    fixture.close().await
+}
+
 pub(crate) async fn commands(rooted: bool) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();

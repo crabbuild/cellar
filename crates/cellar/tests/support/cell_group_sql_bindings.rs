@@ -288,6 +288,10 @@ async fn public_sql(
 }
 
 fn applied_hints(cluster: &ManagedCluster) -> Result<u64> {
+    observations(cluster, "cell_binding_applied_history_hints")
+}
+
+fn observations(cluster: &ManagedCluster, name: &str) -> Result<u64> {
     let mut total = 0;
     for host in &cluster.hosts {
         let sample = host.performance();
@@ -295,8 +299,8 @@ fn applied_hints(cluster: &ManagedCluster) -> Result<u64> {
         total += sample
             .counters
             .iter()
-            .find(|counter| counter.name == "cell_binding_applied_history_hints")
-            .context("missing applied binding history observations")?
+            .find(|counter| counter.name == name)
+            .context("missing binding observations")?
             .value;
     }
     Ok(total)
@@ -436,6 +440,7 @@ async fn run(
         operator::before(&cluster, backend, sql_group).await?;
         eprintln!("SQL operator admission RustFS={} extents={rooted} host={}: PASS", backend.is_some(), if external { "Axum" } else { "native" });
         let public_hints_before = applied_hints(&cluster)?;
+        let sequence_hints_before = observations(&cluster, "cell_ingress_sequence_hints")?;
         let raced = futures_util::try_join!(
             public_sql(&cluster, 0, "IngressRace", json!(1)),
             public_sql(&cluster, 2, "IngressRace", json!(1)),
@@ -447,6 +452,8 @@ async fn run(
         }
         let raced = raced?;
         ensure!(raced == (json!(true), json!(true)));
+        ensure!(observations(&cluster, "cell_ingress_sequence_hints")? >= sequence_hints_before + 2,
+            "sequential SDK commands did not reuse their invocation's verified receipt candidate");
         ensure!(public_sql(&cluster, 1, "IngressRaceCount", json!(null)).await? == json!(2));
         // Public stateless calls share the operator's canonical database;
         // every voter must expose the same committed history.

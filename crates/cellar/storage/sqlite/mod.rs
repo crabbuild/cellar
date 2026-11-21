@@ -22,6 +22,7 @@ pub(crate) use command::bind_storage as bind_raft_command_storage;
 pub(crate) use command::binding_ordinal as next_raft_binding_ordinal;
 pub(crate) use command::capture_dispatch as capture_raft_dispatch;
 pub(crate) use command::commit_work as commit_raft_work;
+pub(crate) use command::confirm_checkpoint_work as confirm_raft_checkpoint_work;
 pub(crate) use command::confirm_read_work as confirm_raft_read_work;
 pub(crate) use command::dispatch_has_writer as raft_dispatch_has_writer;
 pub(crate) use command::require_dispatch_storage as require_raft_dispatch_storage;
@@ -32,6 +33,7 @@ pub(crate) use command::{ActiveCommand, CommandDatabase};
 pub use command::{CommandInputs, CommandTransaction};
 mod console;
 pub(crate) mod container_bindings;
+pub(crate) mod container_execution;
 pub(crate) mod container_maintenance;
 mod erase;
 mod event_schema;
@@ -437,6 +439,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
     container_bindings::check_schema(c)?;
+    container_execution::check_schema(c)?;
     sandbox_catalog::check_schema(c)?;
     sandbox_children::check_schema(c)?;
     sandbox_erasure::check_schema(c)?;
@@ -2505,17 +2508,11 @@ pub use cellar_native::sql::{
 };
 
 fn sql_error(message: impl Into<String>) -> SqlFailure {
-    SqlFailure {
-        family: "SQL_ERROR".into(),
-        message: message.into(),
-    }
+    SqlFailure::new("SQL_ERROR", message)
 }
 
 fn sql_exec_error(message: impl Into<String>) -> SqlFailure {
-    SqlFailure {
-        family: "SQL_EXEC_ERROR".into(),
-        message: message.into(),
-    }
+    SqlFailure::new("SQL_EXEC_ERROR", message)
 }
 
 /// The refusal for SQL whose tail SQLite could not parse into a statement.
@@ -2549,22 +2546,22 @@ fn sql_bind_value(value: &serde_json::Value) -> Result<rusqlite::types::Value, S
                 match item.as_u64().filter(|byte| *byte < 256) {
                     Some(byte) => bytes.push(byte as u8),
                     None => {
-                        return Err(SqlFailure {
-                            family: "SQL_TYPE_ERROR".into(),
-                            message: format!(
+                        return Err(SqlFailure::new(
+                            "SQL_TYPE_ERROR",
+                            format!(
                                 "Type 'object' not supported for value '{item}': an array bind \
                                  must hold bytes 0-255"
                             ),
-                        })
+                        ))
                     }
                 }
             }
             Ok(Value::Blob(bytes))
         }
-        other => Err(SqlFailure {
-            family: "SQL_TYPE_ERROR".into(),
-            message: format!("Type 'object' not supported for value '{other}'"),
-        }),
+        other => Err(SqlFailure::new(
+            "SQL_TYPE_ERROR",
+            format!("Type 'object' not supported for value '{other}'"),
+        )),
     }
 }
 

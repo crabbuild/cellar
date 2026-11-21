@@ -295,3 +295,73 @@ fn excused_alarm_failures_do_not_exhaust_counted_retries() -> Result<()> {
     assert!(get(&db, "alarm")?.is_none());
     Ok(())
 }
+
+#[test]
+fn resource_cleanup_admission_requires_framework_provenance_and_exact_work() -> Result<()> {
+    use super::super::CommandAdmission;
+    let mut work = Work {
+        reason: "resource-reconciliation".into(),
+        generation: [1; 16],
+        due: 0,
+        attempts: 0,
+        lease_ms: LEASE_MS,
+    };
+    let input = serde_json::to_vec(&work)?;
+    assert!(is_provider_reconciliation(
+        CommandAdmission::System,
+        "Counter",
+        OPERATION,
+        &input
+    ));
+    for admission in [CommandAdmission::Public, CommandAdmission::Event] {
+        assert!(!is_provider_reconciliation(
+            admission, "Counter", OPERATION, &input
+        ));
+    }
+    assert!(!is_provider_reconciliation(
+        CommandAdmission::System,
+        "Counter",
+        "Run",
+        &input
+    ));
+    assert!(!is_provider_reconciliation(
+        CommandAdmission::System,
+        "Counter",
+        OPERATION,
+        b"{}"
+    ));
+    for reason in [
+        "alarm",
+        "queue",
+        "filesystem",
+        "outbox",
+        "stream-maintenance",
+    ] {
+        work.reason = reason.into();
+        assert!(!is_provider_reconciliation(
+            CommandAdmission::System,
+            "Counter",
+            OPERATION,
+            &serde_json::to_vec(&work)?
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn event_catalog_cleanup_keeps_dependency_progress_admission() -> Result<()> {
+    let input = serde_json::to_vec(&Work {
+        reason: "resource-reconciliation".into(),
+        generation: [1; 16],
+        due: 0,
+        attempts: 0,
+        lease_ms: LEASE_MS,
+    })?;
+    assert!(!is_provider_reconciliation(
+        super::super::CommandAdmission::System,
+        crate::deploy::EVENT_CATALOG_CLASS,
+        OPERATION,
+        &input,
+    ));
+    Ok(())
+}

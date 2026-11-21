@@ -531,8 +531,8 @@ pub(super) async fn bounded_queued_submissions(rooted: bool) -> Result<()> {
 mod reads;
 
 pub(crate) use reads::{
-    coherent as coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable,
-    lifecycle as query_lifecycle, recent_source_reads,
+    change_reads, coherent as coherent_reads, cohort_invalidated, cohort_reads,
+    follower_linearizable, lifecycle as query_lifecycle, recent_source_reads,
 };
 
 #[path = "cell_group_sql_apply.rs"]
@@ -547,7 +547,19 @@ pub(super) async fn prepared_image_reuse(rooted: bool) -> Result<()> {
 pub(crate) use apply::apply_images;
 #[path = "cell_group_sql_pipeline.rs"]
 mod pipeline;
+pub(crate) use apply::committed_apply_reuses_verified_preview;
 pub(crate) use pipeline::unrelated_mutation as pipeline_unrelated_mutation;
+
+#[path = "cell_group_commit_publication.rs"]
+mod commit_publication;
+pub(crate) use commit_publication::foreign_ticket as foreign_commit_ticket;
+pub(crate) use commit_publication::run as commit_metadata_publication;
+
+#[path = "cell_group_prepared_apply.rs"]
+mod prepared_apply;
+pub(crate) use prepared_apply::{
+    owned_image_recheck_guards, verified_preparation_handoff, PreparationCase,
+};
 
 #[path = "cell_group_sql_apply_faults.rs"]
 mod apply_faults;
@@ -561,6 +573,7 @@ pub(crate) use apply_recovery::recover as recover_apply;
 #[path = "cell_group_sql_registered.rs"]
 mod registered;
 pub(crate) use registered::commands as registered_commands;
+pub(crate) use registered::disposable_directory;
 
 #[path = "cell_group_sql_registered_queries.rs"]
 mod registered_queries;
@@ -594,9 +607,10 @@ mod s3_response;
 pub(crate) use s3_commands::{
     archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
     enrollment_output_during_apply, follower_acquires_published_prefix,
-    follower_bootstraps_first_prefix, full_backend_outage, output_during_apply,
+    follower_bootstraps_first_prefix, full_backend_outage, output_during_apply, output_progress,
     peer_connection_idle, retirement_coalesces_next_archive_intent, s3_background_capacity_cadence,
     s3_capacity_release, s3_commands, s3_deadline, s3_enrollment, s3_enrollment_deadline,
+    s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_missing_sibling, s3_namespace_minimum, s3_newer_receipt_bypasses_inflight_maintenance,
     s3_payload_capacity_release, s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums,
@@ -623,8 +637,9 @@ pub(crate) use archive_controller::{
 };
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
-    archive_controller_publish_store, archive_controller_reconcile_store,
-    archive_controller_reservation_recovery,
+    archive_controller_payload_outage, archive_controller_publish_store,
+    archive_controller_reconcile_store, archive_controller_reservation_recovery,
+    archive_reservation_retries_from_durable_intent, archive_retirement_joins_next_intent,
 };
 pub(crate) use effects::{alarms_without_clients, hot_and_cold_alarms, shutdown_joins_alarm};
 pub(crate) use outbox_effects::{
@@ -783,6 +798,12 @@ pub(crate) use namespace_host::{
     registration_and_deadline as host_registration_and_deadline,
 };
 
+#[path = "cell_group_query_refresh.rs"]
+mod query_refresh;
 #[path = "cell_group_query_routing.rs"]
 mod query_routing;
-pub(crate) use query_routing::{automatic_queries_leave_blocked_local, controller_routed_queries};
+pub(crate) use query_refresh::automatic_queries_finish_catalog_refresh;
+pub(crate) use query_routing::{
+    automatic_queries_keep_first_progress, automatic_queries_leave_blocked_local,
+    controller_routed_queries,
+};

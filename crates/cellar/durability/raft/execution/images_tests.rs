@@ -87,7 +87,7 @@ fn rooted_preview_validates_configured_apply_profile_before_reuse() -> Result<()
     let preview = options
         .images
         .preview_initial(&options, id, &update, [3; 32])?;
-    let prepared = super::super::PreparedCellImage::new(
+    let prepared = super::super::CellPreparedImage::new(
         Arc::new(()),
         cellar_logic::cell_group::GroupHistory {
             cluster: cellar_logic::consensus::ClusterId::new([1; 16])?,
@@ -95,9 +95,10 @@ fn rooted_preview_validates_configured_apply_profile_before_reuse() -> Result<()
             group: cellar_logic::consensus::GroupId::new([3; 16])?,
             incarnation: cellar_logic::consensus::IncarnationId::new([4; 16])?,
         },
+        cellar_logic::consensus::Term::new(1),
         b"exact input",
-        options.images.preparation_limits(&options)?,
         &preview,
+        options.images.preparation_limits(&options)?,
     );
     ensure!(prepared.image(profile).is_some());
     ensure!(prepared.image(apply_limits(execution)?).is_none());

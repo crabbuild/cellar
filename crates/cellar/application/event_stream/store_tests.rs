@@ -118,6 +118,119 @@ fn status_caller(definition: &Definition) -> Result<Authority> {
     }))?)
 }
 
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn resolved_fetch_selects_identity_with_lease_and_replays_exact_batch() -> Result<()> {
+    run_case(|db, definition| {
+        let mut request = json!({"fetch_id":"a".repeat(32),"max_records":10,"max_bytes":100});
+        // The established operation still refuses an absent expected identity.
+        assert!(super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            false
+        )
+        .is_err());
+        let first = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )?;
+        let batch = first.value.context("first batch")?;
+        let receipt = super::super::Receipt::decode(batch["receipt"].as_str().unwrap())?;
+        assert_eq!(receipt.subscription, first.identity.id);
+        assert_eq!(receipt.incarnation, first.identity.generation);
+        request["expected"] = serde_json::to_value(&first.identity)?;
+        let replay = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )?;
+        assert_eq!(replay.identity, first.identity);
+        assert_eq!(replay.value, Some(batch));
+        request["fetch_id"] = json!("b".repeat(32));
+        let busy = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )
+        .err()
+        .context("competing lease accepted")?;
+        assert_eq!(
+            busy.downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::LeaseBusy
+        );
+        let leases = db.system_sql_read("SELECT count(*) AS n FROM __sys_stream_leases", &[])?;
+        assert_eq!(number(&leases[0], "n")?, 1);
+        let sub = db.system_sql_read(
+            "SELECT next_lease_generation AS n FROM __sys_stream_subscriptions",
+            &[],
+        )?;
+        assert_eq!(number(&sub[0], "n")?, 2);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn empty_resolved_fetch_rejects_reset_before_another_lease() -> Result<()> {
+    run_case(|db, definition| {
+        db.tx(|tx| {
+            tx.system_sql("DELETE FROM __sys_stream_events", &[])?;
+            tx.system_sql(
+                "UPDATE __sys_stream SET earliest_offset=3,rows=0,bytes=0",
+                &[],
+            )?;
+            tx.system_sql("UPDATE __sys_stream_subscriptions SET checkpoint=2", &[])?;
+            Ok(())
+        })?;
+        let mut request = json!({"fetch_id":"a".repeat(32),"max_records":10,"max_bytes":100});
+        let empty = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )?;
+        assert!(empty.value.is_none());
+        request["expected"] = serde_json::to_value(&empty.identity)?;
+        db.system_sql(
+            "UPDATE __sys_stream_subscriptions SET generation=?",
+            &["f".repeat(32).into()],
+        )?;
+        let reset = super::super::subscription_store::next_from(
+            &db,
+            &definition,
+            "projection".into(),
+            &request,
+            true,
+        )
+        .err()
+        .context("empty poll retargeted after reset")?;
+        assert_eq!(
+            reset
+                .downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::SubscriptionReset
+        );
+        let leases = db.system_sql_read("SELECT count(*) AS n FROM __sys_stream_leases", &[])?;
+        assert_eq!(number(&leases[0], "n")?, 0);
+        Ok(())
+    })
+    .await
+}
+
 fn acknowledgment_receipt(definition: &Definition) -> super::super::Receipt {
     super::super::Receipt {
         resource: definition.resource.id.clone(),
@@ -178,6 +291,56 @@ async fn catalog_configuration_join_reads_exact_intent_without_rearming_or_deliv
         absent["operation"] = json!("f".repeat(32));
         let refused = super::super::metadata::read(&db, &scope, "__catalogConfigureReceipt", &authority, &absent, usize::MAX).unwrap_err();
         assert_eq!(refused.downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::DestinationDeleted);
+        Ok(())
+    }).await
+}
+
+#[tokio::test]
+async fn broker_configuration_receipt_preserves_state_and_requires_exact_authority() -> Result<()> {
+    use base64::Engine;
+    run_case(|db, mut definition| {
+        let caller = Authority::deployment("shop", &definition)?;
+        let scope = super::super::cell_scope(&definition.resource)?;
+        let operation = "1".repeat(32);
+        let encoded = serde_json::to_vec(&definition)?;
+        let digest = hex::encode(Sha256::digest(&encoded));
+        db.system_sql("UPDATE __sys_stream SET config_operation=?,config_digest=?", &[operation.clone().into(),digest.clone().into()])?;
+        // This older retention fixture inserts a synthetic cursor. Configuration
+        // updates require its start policy to use the real initializer's codec.
+        db.system_sql("UPDATE __sys_stream_subscriptions SET start=?", &[serde_json::to_string(&definition.subscriptions[0].start)?.into()])?;
+        let body = json!({"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(encoded)});
+        let read = |caller: &Authority, body: &Value| super::super::metadata::read(
+            &db, &scope, "__streamConfigureReceipt",
+            &crate::application::consensus::native_event_rpc::Authority::Event(caller.clone()), body, usize::MAX,
+        );
+        let before = db.system_sql_read("SELECT * FROM __sys_stream", &[])?;
+        let subscriptions = db.system_sql_read("SELECT * FROM __sys_stream_subscriptions", &[])?;
+        let work = db.work_installation(cellar_logic::work::Reason::StreamMaintenance)?;
+        for _ in 0..2 {
+            let receipt = read(&caller, &body)?;
+            assert_eq!(receipt, json!({"revision":"1","resource":definition.resource.id,"operation":operation,"digest":digest}));
+        }
+        let mut changed = body.clone();
+        definition.max_records += 1;
+        definition.revision = 2;
+        changed["definition"] = json!(base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&definition)?));
+        assert_eq!(read(&caller, &changed).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::ConfigConflict);
+        let mut absent = changed.clone(); absent["operation"] = json!("2".repeat(32));
+        assert_eq!(read(&caller, &absent).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::OperationUnknown);
+        let mut foreign = caller.clone(); foreign.principal = "other".into();
+        assert_eq!(read(&foreign, &body).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::Forbidden);
+        let mut ordinary = serde_json::to_value(&caller)?;
+        ordinary["provision"] = json!(false);
+        let ordinary: Authority = serde_json::from_value(ordinary)?;
+        assert_eq!(read(&ordinary, &body).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::Forbidden);
+        assert_eq!(db.system_sql_read("SELECT * FROM __sys_stream", &[])?, before);
+        assert_eq!(db.system_sql_read("SELECT * FROM __sys_stream_subscriptions", &[])?, subscriptions);
+        assert_eq!(db.work_installation(cellar_logic::work::Reason::StreamMaintenance)?, work);
+        // A known-missing revision still takes the ordinary update path.
+        initialize_storage(&db, &scope, &caller, &absent, || panic!("existing stream sampled initial time"))?;
+        assert_eq!(read(&caller, &absent)?["revision"], "2");
+        db.system_sql("UPDATE __sys_stream SET lifecycle='deleted'", &[])?;
+        assert_eq!(read(&caller, &absent).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::DestinationDeleted);
         Ok(())
     }).await
 }

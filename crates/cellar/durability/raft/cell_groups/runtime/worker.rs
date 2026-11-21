@@ -476,14 +476,18 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
-        if let Command::RoutingStatus { advice } = request.command {
-            reply(
-                request,
-                group
-                    .owner
-                    .routing_status(advice)
-                    .map(Response::RoutingStatus),
-            );
+        if let Command::RoutingStatus { advice, activity } = request.command {
+            let observation = group.owner.routing_status(advice).and_then(|observation| {
+                // An authenticated mutation probe reaches this before its
+                // controller can admit execution. Start only ordinary Ready
+                // election work; the returned status still grants no authority.
+                // Explicitly stale advice and parked groups never spend it.
+                if activity && observation.park.is_none() && group.owner.begin_startup_election()? {
+                    group.wake(history, &mut self.order);
+                }
+                Ok(Response::RoutingStatus(observation))
+            });
+            reply(request, observation);
             return;
         }
         if matches!(request.command, Command::PendingTransferQuorum) {
@@ -899,11 +903,12 @@ impl Worker {
                                 }
                                 Command::Execution(cell) => group
                                     .owner
-                                    .execution_authority(&cell)
+                                    .begin_private_startup_election(&cell)
+                                    .and_then(|_| group.owner.execution_authority(&cell))
                                     .map(|authority| Response::Execution(Box::new(authority))),
-                                Command::OutputAuthority(cell) => group
+                                Command::IndependentCell(cell) => group
                                     .owner
-                                    .output_authority(&cell)
+                                    .independent_cell_authority(&cell)
                                     .map(|authority| Response::Execution(Box::new(authority))),
                                 Command::NextEffect { now, after } => group
                                     .owner
@@ -911,7 +916,8 @@ impl Worker {
                                     .map(|authority| Response::NextEffect(authority.map(Box::new))),
                                 Command::Enrollment(cell) => group
                                     .owner
-                                    .enrollment_authority(cell)
+                                    .begin_private_startup_election(&cell)
+                                    .and_then(|_| group.owner.enrollment_authority(cell))
                                     .map(|authority| Response::Enrollment(Box::new(authority))),
                                 Command::EnrollmentState(cell) => group
                                     .owner
@@ -1350,7 +1356,7 @@ impl Worker {
                     if let Some(error) = &group.failed {
                         return Err(error.clone());
                     }
-                    if request.kind.linearizable() && group.owner.begin_startup_read_election()? {
+                    if request.kind.linearizable() && group.owner.begin_startup_election()? {
                         // Campaign messages are ordinary owned Ready work.
                         // Drive them without waiting for another idle tick;
                         // this read still needs its original fresh barrier.
@@ -1368,9 +1374,17 @@ impl Worker {
                     }
                     match &request.kind {
                         reads::ReadKind::Cell(cell, consistency) => {
-                            if matches!(consistency, CellReadConsistency::Linearizable)
-                                && (term.is_none() || retry)
-                            {
+                            if term.is_none() {
+                                if let CellReadConsistency::LinearizableAfter(observed) =
+                                    consistency
+                                {
+                                    // Park before ReadIndex and physical SQL/image admission.
+                                    // An unrelated cell cannot release this wait. Delayed
+                                    // change reads do not occupy a normal read cohort.
+                                    group.owner.require_cell_advanced(cell, observed)?;
+                                }
+                            }
+                            if consistency.is_linearizable() && (term.is_none() || retry) {
                                 let status = group.owner.status()?;
                                 if term.is_some_and(|observed| observed != status.term) {
                                     return Err(RuntimeError::NotLeader);

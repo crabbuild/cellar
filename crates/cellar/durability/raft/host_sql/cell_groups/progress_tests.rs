@@ -17,6 +17,60 @@ fn ordinary_slot(slots: &Arc<Semaphore>) -> Result<OwnedSemaphorePermit, Executi
 }
 
 #[tokio::test]
+async fn physical_completion_lane_keeps_fifo_and_custody_after_waiter_cancellation() {
+    let lane = crate::raft::host_sql::CompletionLane::new();
+    let ordinary = Arc::new(Semaphore::new(2));
+    let (physical, queued) = lane.acquire().unwrap();
+    let mut cancelled = Box::pin(lane.acquire_queued(|| ordinary_slot(&ordinary)));
+    assert!(poll!(cancelled.as_mut()).is_pending());
+    let mut first = Box::pin(lane.acquire_queued(|| ordinary_slot(&ordinary)));
+    assert!(poll!(first.as_mut()).is_pending());
+    assert_eq!(ordinary.available_permits(), 0);
+    assert!(matches!(
+        lane.acquire_queued(|| ordinary_slot(&ordinary)).await,
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    drop(cancelled);
+    assert_eq!(ordinary.available_permits(), 1);
+    let mut second = Box::pin(lane.acquire_queued(|| ordinary_slot(&ordinary)));
+    assert!(poll!(second.as_mut()).is_pending());
+    drop(queued);
+    assert!(poll!(second.as_mut()).is_pending());
+    let (first_physical, first_queue) = first.await.unwrap();
+    assert!(Arc::ptr_eq(&physical, &first_physical));
+    assert_eq!(ordinary.available_permits(), 1);
+    assert_eq!(lane.available_permits(), 0);
+    drop((physical, first_queue));
+    let (second_physical, second_queue) = second.await.unwrap();
+    assert!(Arc::ptr_eq(&first_physical, &second_physical));
+    assert_eq!(ordinary.available_permits(), 2);
+    drop((first_physical, second_queue));
+    assert_eq!(lane.available_permits(), 0);
+    drop(second_physical);
+    assert_eq!(lane.available_permits(), 1);
+}
+
+#[tokio::test]
+async fn closing_completion_queue_refuses_waiter_without_refunding_physical_owner() {
+    let lane = crate::raft::host_sql::CompletionLane::new();
+    let ordinary = Arc::new(Semaphore::new(1));
+    let (physical, queued) = lane.acquire().unwrap();
+    let mut waiting = Box::pin(lane.acquire_queued(|| ordinary_slot(&ordinary)));
+    assert!(poll!(waiting.as_mut()).is_pending());
+    assert_eq!(ordinary.available_permits(), 0);
+    lane.queue.close();
+    assert!(matches!(
+        waiting.await,
+        Err(ExecutionError::Refused(CommandFailure::Unavailable))
+    ));
+    assert_eq!(ordinary.available_permits(), 1);
+    drop(queued);
+    assert_eq!(lane.available_permits(), 0);
+    drop(physical);
+    assert_eq!(lane.available_permits(), 1);
+}
+
+#[tokio::test]
 async fn apply_then_completion_keeps_fifo_and_existing_capacity() {
     let reserved = Arc::new(Semaphore::new(1));
     let ordinary = Arc::new(Semaphore::new(2));

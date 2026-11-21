@@ -57,12 +57,43 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
+    fn shares_catalog(&self, _owner: &str, _caller: &str) -> bool {
+        // activate_event_generation validates every participant uses this owner.
+        true
+    }
+
     fn configuration_known(
         &self,
         _principal: &str,
         authority: &event_stream::Authority,
     ) -> Result<bool> {
         self.owner.event_configuration_known(authority)
+    }
+
+    fn prepare_broker(
+        &self,
+        principal: &str,
+        definition: &event_stream::Definition,
+    ) -> HandlerFuture<bool> {
+        let preparation = self
+            .owner
+            .prepare_event_broker(principal, definition, self.deadline);
+        Box::pin(async move {
+            preparation.await?;
+            Ok(true)
+        })
+    }
+
+    fn configuration_status(
+        &self,
+        _principal: &str,
+        authority: event_stream::Authority,
+        scope: String,
+        name: String,
+        after: Option<crate::raft::version::CellVersionToken>,
+    ) -> HandlerFuture<event_stream::activation::ConfigurationStatus> {
+        self.owner
+            .event_configuration_status(authority, scope, name, after, self.deadline)
     }
 
     fn rpc(
@@ -176,6 +207,171 @@ impl RaftCells {
         result
     }
 
+    /// Create only a declared broker birth, never update or invoke its code.
+    /// Existing applied locators may skip preparation; catalog reconciliation
+    /// and fresh independent proofs still decide serving readiness.
+    pub(crate) fn prepare_event_broker(
+        &self,
+        principal: &str,
+        definition: &event_stream::Definition,
+        deadline: u64,
+    ) -> HandlerFuture<()> {
+        use crate::raft::completion::RuntimeError;
+        use cellar_logic::consensus::{IncarnationId, ProposalId};
+        use rand::RngCore as _;
+        let prepared = (|| -> Result<_> {
+            self.check_open()?;
+            let caller = event_stream::Authority::deployment(principal, definition)?;
+            let scope = event_stream::cell_scope(&definition.resource)?;
+            let route = self.handle.core.host.event_ingress_route(
+                &scope,
+                "__streamConfigure",
+                &Authority::Event(caller),
+                &self.handle.core.log,
+            )?;
+            if route.history_hint.is_some() {
+                return Ok(None);
+            }
+            let remaining = deadline
+                .checked_sub(self.handle.domain.mono_ms()?)
+                .filter(|n| *n != 0)
+                .ok_or(RuntimeError::DeadlineExceeded)?;
+            // Only routing/creation metadata is retained here. The registered
+            // initializer and routed enrollment own their separate byte banks.
+            let (_, memory) = self.metadata_admission(Duration::from_millis(remaining), 8192)?;
+            let mut creation = [0; 16];
+            let mut incarnation = [0; 16];
+            let mut rng = crate::asyncrt::rng("declared-broker-preparation");
+            rng.fill_bytes(&mut creation);
+            rng.fill_bytes(&mut incarnation);
+            creation[0] |= 1;
+            incarnation[0] |= 1;
+            let candidate = CellHistory {
+                cluster: route.cluster,
+                namespace: route.namespace,
+                cell: route.cell,
+                incarnation: IncarnationId::new(incarnation)?,
+            };
+            Ok(Some((
+                candidate,
+                ProposalId::new(creation)?,
+                route.schema,
+                route.durability,
+                memory,
+            )))
+        })();
+        let owner = self.internal_observer();
+        Box::pin(async move {
+            let Some((candidate, creation, schema, durability, _memory)) = prepared? else {
+                return Ok(());
+            };
+            // Atomic enrollment checks the name under current routing and
+            // quorum authority. An absence read adds a barrier without reserving
+            // that name; a concurrent creator can still win after the read.
+            let request = CellEnrollmentRequest {
+                creation,
+                durability,
+            };
+            loop {
+                owner.check_open()?;
+                let remaining = deadline
+                    .checked_sub(owner.handle.domain.mono_ms()?)
+                    .filter(|n| *n != 0)
+                    .ok_or(RuntimeError::DeadlineExceeded)?;
+                match owner
+                    .cell(candidate.clone())?
+                    .enroll(request, Duration::from_millis(remaining))
+                    .await
+                {
+                    Ok(proof) => {
+                        anyhow::ensure!(
+                            proof.record().cell() == &candidate
+                                && proof.record().creation() == creation
+                                && proof.record().schema() == schema
+                                && proof.durability() >= durability,
+                            super::super::CommandFailure::CorruptState
+                        );
+                        return Ok(());
+                    }
+                    Err(error) if super::sql_ingress::retry_unsubmitted_enrollment(&error) => (),
+                    Err(error) => loop {
+                        owner.check_open()?;
+                        // A concurrent trusted owner can win the same name. Join
+                        // its current locator without retransmitting an unknown
+                        // creation or changing this attempt's original identity.
+                        match super::sql_ingress::ready_name(&owner, &candidate, deadline).await {
+                            Ok(Some(_)) => return Ok(()),
+                            Ok(None) => (),
+                            Err(resolution) => {
+                                return Err(crate::application::cell_bindings::EnrollmentReconciliationError::context(
+                                    error.into(),
+                                    resolution,
+                                ));
+                            }
+                        }
+                        let now = owner.handle.domain.mono_ms()?;
+                        let next = now
+                            .saturating_add(owner.handle.core.controller.limits().retry_interval_ms)
+                            .min(deadline);
+                        owner.handle.domain.sleep_until(next)?.await;
+                    },
+                }
+                // Only a typed refusal before initialization permits another send.
+                // Reuse the exact creation and candidate within the original budget.
+                let now = owner.handle.domain.mono_ms()?;
+                let next = now
+                    .saturating_add(owner.handle.core.controller.limits().retry_interval_ms)
+                    .min(deadline);
+                owner.handle.domain.sleep_until(next)?.await;
+            }
+        })
+    }
+
+    pub(crate) fn event_configuration_status(
+        &self,
+        authority: event_stream::Authority,
+        scope: String,
+        name: String,
+        after: Option<crate::raft::version::CellVersionToken>,
+        deadline: u64,
+    ) -> HandlerFuture<event_stream::activation::ConfigurationStatus> {
+        let prepared = (|| -> Result<_> {
+            self.check_open()?;
+            anyhow::ensure!(
+                self.handle.domain.mono_ms()? < deadline,
+                crate::raft::completion::RuntimeError::DeadlineExceeded
+            );
+            let args = crate::application::encode_rpc(
+                &cellar_native::clone::StructuredValue::from_json(serde_json::json!([{}]))?,
+            )?;
+            let admitted = crate::asyncrt::services()
+                .admit_outbound_rpc(
+                    &scope,
+                    Some(&name),
+                    super::super::native_event_query::CATALOG_READY,
+                    &args,
+                )
+                .ok_or(super::super::CommandFailure::Overloaded)?;
+            Ok(self.event_read_observed(
+                admitted,
+                crate::host_rpc::CallScope::default().with_deadline(deadline),
+                deadline,
+                Authority::Event(authority),
+                after,
+            ))
+        })();
+        Box::pin(async move {
+            let (response, token) = prepared?.await?;
+            // Consume and release the prior SQL/archive output before parking
+            // another change read. The token cannot grant readiness or admission.
+            let value = activation_value(&response)?;
+            Ok(event_stream::activation::ConfigurationStatus {
+                value,
+                after: Some(token),
+            })
+        })
+    }
+
     pub(crate) fn activate_event_rpc(
         &self,
         authority: Authority,
@@ -207,16 +403,18 @@ impl RaftCells {
         })();
         Box::pin(async move {
             let result = prepared?.await?;
-            let value = crate::application::decode_rpc_result(&result)?.to_json()?;
-            if let Some(error) = value.get("error") {
-                return Err(
-                    serde_json::from_value::<event_stream::DeliveryError>(error.clone())?.into(),
-                );
-            }
-            value
-                .get("ok")
-                .cloned()
-                .context("invalid resource activation response")
+            activation_value(&result)
         })
     }
+}
+
+fn activation_value(result: &crate::engine_api::RpcData) -> Result<Value> {
+    let value = crate::application::decode_rpc_result(result)?.to_json()?;
+    if let Some(error) = value.get("error") {
+        return Err(serde_json::from_value::<event_stream::DeliveryError>(error.clone())?.into());
+    }
+    value
+        .get("ok")
+        .cloned()
+        .context("invalid resource activation response")
 }

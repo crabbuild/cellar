@@ -21,6 +21,8 @@ pub(crate) struct OutputProof {
     _journal: Arc<journal::Journal>,
     _permit: Arc<Mutex<Permit>>,
     authority: Arc<job::Authority>,
+    tails: CellGroupArchiveTailPool,
+    checkpoints: CellGroupCheckpointPool,
 }
 
 impl OutputProof {
@@ -29,33 +31,67 @@ impl OutputProof {
         domain: &crate::asyncrt::DomainToken,
         deadline: u64,
     ) -> std::result::Result<(), CellDispatchError> {
-        let now = domain
-            .mono_ms()
-            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
-        if now >= deadline {
-            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
-        }
-        let timer = domain
-            .sleep_until(deadline)
-            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
-        let result = crate::asyncrt::select! {
-            result = domain.run(self.authority.require_current()) => result.map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?,
-            _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
-        };
-        if domain
-            .mono_ms()
-            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
-            >= deadline
-        {
-            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
-        }
-        result.map_err(|error| CellDispatchError::Archive(Arc::new(error)))
+        require_current(&self.authority, domain, deadline).await
     }
+}
+
+pub(super) async fn require_current(
+    authority: &Arc<job::Authority>,
+    domain: &crate::asyncrt::DomainToken,
+    deadline: u64,
+) -> std::result::Result<(), CellDispatchError> {
+    let now = domain
+        .mono_ms()
+        .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+    if now >= deadline {
+        return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+    }
+    let timer = domain
+        .sleep_until(deadline)
+        .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+    let result = crate::asyncrt::select! {
+        result = domain.run(authority.require_current()) => result.map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?,
+        _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+    };
+    if domain
+        .mono_ms()
+        .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
+        >= deadline
+    {
+        return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+    }
+    result.map_err(|error| CellDispatchError::Archive(Arc::new(error)))
 }
 
 pub(crate) struct CommandSettled {
     pub receipt: Box<CellSqlReceipt>,
     pub proof: Box<OutputProof>,
+}
+
+impl CommandSettled {
+    /// Transfer only verified source custody; the result and S3 request permit
+    /// are released. Physical verification stays charged to its existing bank.
+    pub(crate) fn into_read_source(self) -> Arc<super::source_read::SourceReadProof> {
+        let version = self.receipt.receipt().version.clone();
+        let OutputProof {
+            _coverage,
+            _journal,
+            _permit,
+            authority,
+            tails,
+            checkpoints,
+        } = *self.proof;
+        drop(self.receipt);
+        drop(_permit);
+        super::source_read::SourceReadProof::new(
+            version,
+            _coverage,
+            _journal,
+            authority,
+            &tails,
+            &checkpoints,
+        )
+    }
 }
 
 pub(crate) struct EnrollmentSettled {
@@ -121,10 +157,10 @@ impl Output {
 
     fn retain(self, permit: Arc<Mutex<Permit>>) -> Self {
         match self {
-            // Immutable queries retain their original SQL pin/admission until
-            // the response owner joins; the archive permit separately bounds
-            // this queued result and its complete coverage.
-            Self::Query(selected) => Self::Query(selected),
+            // SQL and its selected-image pin have joined. Keep the immutable
+            // result charged to the independently acquired archive reservation,
+            // so an S3 wait cannot consume discovery's SQL operation slot.
+            Self::Query(selected) => Self::Query(selected.retain_for_archive(permit)),
             Self::Command(receipt) => Self::Command(receipt.retain_for_archive(permit)),
             Self::Enrollment(enrollment) => Self::Enrollment(enrollment.retain_for_archive(permit)),
             Self::Lookup(lookup) => Self::Lookup(Box::new(Lookup {
@@ -173,6 +209,31 @@ impl CellGroupController {
 }
 
 impl Client {
+    /// Coalesce background cuts while one admitted native S3 callback creates
+    /// its dependent checkpoints. This hint owns no proof, timer or I/O work.
+    pub(crate) fn invocation(
+        &self,
+        runtime: &CellGroupRuntime,
+        route: &GroupRoute,
+        deadline: u64,
+        entered: cellar_logic::consensus::LogIndex,
+    ) -> std::result::Result<super::foreground::Invocation, CellDispatchError> {
+        self.require_runtime(runtime)?;
+        self.require_group(route)?;
+        let shared = self
+            .0
+            .upgrade()
+            .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?;
+        let now = shared
+            .domain
+            .mono_ms()
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+        shared
+            .foregrounds
+            .admit(route.history, deadline, now, entered)
+            .map_err(CellDispatchError::Runtime)
+    }
+
     pub(crate) async fn query(
         &self,
         runtime: &CellGroupRuntime,
@@ -308,6 +369,71 @@ impl Client {
         })
     }
 
+    /// A committed intermediate checkpoint belongs to an admitted invocation.
+    /// Retain its original SQL bytes while awaiting the existing S3 bank; a
+    /// temporary refusal must not abort/replay its native continuation. Ordinary
+    /// public output preparation keeps its fail-fast admission contract.
+    pub(crate) async fn checkpoint(
+        &self,
+        runtime: &CellGroupRuntime,
+        route: GroupRoute,
+        receipt: Box<CellSqlReceipt>,
+        limits: ExecutionLimits,
+        deadline: u64,
+    ) -> std::result::Result<CommandSettled, CellDispatchError> {
+        self.require_runtime(runtime)?;
+        self.require_group(&route)?;
+        let shared = self
+            .0
+            .upgrade()
+            .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?;
+        let output = Output::Command(receipt);
+        let bytes = output.retained_bytes()?;
+        let (max_bytes, max_items) = shared.s3.capacity();
+        if bytes > max_bytes || max_items == 0 {
+            return Err(CellDispatchError::Runtime(RuntimeError::Overloaded));
+        }
+        let timer = shared
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+        tokio::pin!(timer);
+        let permit = loop {
+            let changed = shared.s3.wake.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if shared.closing.load(Ordering::Acquire) {
+                return Err(CellDispatchError::Runtime(RuntimeError::Closed));
+            }
+            let now = shared
+                .domain
+                .mono_ms()
+                .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+            if now >= deadline {
+                return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+            }
+            if let Some(permit) = shared.s3.acquire(bytes) {
+                break permit;
+            }
+            crate::asyncrt::select_biased! { "original checkpoint S3 capacity deadline";
+                _ = &mut timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+                _ = changed => (),
+            }
+        };
+        self.require_group(&route)?;
+        let settled = self
+            .prepare_admitted(route, output, Some(limits), deadline, permit)?
+            .response_checkpoint()
+            .await?;
+        let Output::Command(receipt) = settled.output else {
+            return Err(CellDispatchError::Invalid("S3 checkpoint output"));
+        };
+        Ok(CommandSettled {
+            receipt,
+            proof: settled.proof,
+        })
+    }
+
     pub(crate) async fn enrollment(
         &self,
         runtime: &CellGroupRuntime,
@@ -382,8 +508,26 @@ impl Client {
         let permit = shared
             .s3
             .acquire(output.retained_bytes()?)
-            .map(|permit| Arc::new(Mutex::new(permit)))
             .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
+        self.prepare_admitted(route, output, limits, deadline, permit)
+    }
+
+    fn prepare_admitted(
+        &self,
+        route: GroupRoute,
+        output: Output,
+        limits: Option<ExecutionLimits>,
+        deadline: u64,
+        permit: Permit,
+    ) -> std::result::Result<Prepared, CellDispatchError> {
+        let shared = self
+            .0
+            .upgrade()
+            .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?;
+        if shared.closing.load(Ordering::Acquire) {
+            return Err(CellDispatchError::Runtime(RuntimeError::Closed));
+        }
+        let permit = Arc::new(Mutex::new(permit));
         let output = output.retain(permit.clone());
         let (reply, receiver) = oneshot::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -422,6 +566,14 @@ struct Prepared {
 
 impl Prepared {
     async fn response(self) -> std::result::Result<Settled, CellDispatchError> {
+        self.respond(false).await
+    }
+
+    async fn response_checkpoint(self) -> std::result::Result<Settled, CellDispatchError> {
+        self.respond(true).await
+    }
+
+    async fn respond(self, checkpoint: bool) -> std::result::Result<Settled, CellDispatchError> {
         let Self {
             client,
             request,
@@ -443,22 +595,56 @@ impl Prepared {
         if now >= deadline {
             return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
         }
-        shared
-            .requests
-            .try_send(requests::Request::S3(Box::new(request)))
-            .map_err(|e| {
-                CellDispatchError::Runtime(match e {
-                    tokio::sync::mpsc::error::TrySendError::Closed(_) => RuntimeError::Closed,
-                    tokio::sync::mpsc::error::TrySendError::Full(_) => RuntimeError::Overloaded,
-                })
-            })?;
         let timer = shared
             .domain
             .sleep_until(deadline)
             .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+        tokio::pin!(timer);
+        if checkpoint {
+            // Each waiter already owns one S3 permit and its original invocation
+            // admission. Queue backpressure allocates no additional request and
+            // consumes neither a new deadline nor the worker's stop notification.
+            let queued = shared.requests.reserve();
+            tokio::pin!(queued);
+            let slot = loop {
+                let changed = shared.s3.wake.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if shared.closing.load(Ordering::Acquire) {
+                    return Err(CellDispatchError::Runtime(RuntimeError::Closed));
+                }
+                crate::asyncrt::select_biased! { "original checkpoint S3 enqueue deadline";
+                    _ = &mut timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+                    result = &mut queued => break result.map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?,
+                    _ = changed => (),
+                }
+            };
+            if shared.closing.load(Ordering::Acquire) {
+                return Err(CellDispatchError::Runtime(RuntimeError::Closed));
+            }
+            if shared
+                .domain
+                .mono_ms()
+                .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
+                >= deadline
+            {
+                return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+            }
+            slot.send(requests::Request::S3(Box::new(request)));
+        } else {
+            shared
+                .requests
+                .try_send(requests::Request::S3(Box::new(request)))
+                .map_err(|e| {
+                    CellDispatchError::Runtime(match e {
+                        tokio::sync::mpsc::error::TrySendError::Closed(_) => RuntimeError::Closed,
+                        tokio::sync::mpsc::error::TrySendError::Full(_) => RuntimeError::Overloaded,
+                    })
+                })?;
+        }
         let result = crate::asyncrt::select! {
             result = receiver => result.map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?,
-            _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+            _ = &mut timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
         };
         if shared.closing.load(Ordering::Acquire) {
             return Err(CellDispatchError::Runtime(RuntimeError::Closed));
@@ -488,7 +674,11 @@ impl Request {
     fn minimum_index(&self) -> Option<cellar_logic::consensus::LogIndex> {
         match &self.output {
             Output::Command(receipt) => Some(receipt.receipt().position.index),
-            Output::Enrollment(_) | Output::Lookup(_) | Output::Query(_) => None,
+            Output::Query(selected) => {
+                let witness = &selected.observation().witness;
+                (witness.group == self.route.history).then_some(witness.position.index)
+            }
+            Output::Enrollment(_) | Output::Lookup(_) => None,
         }
     }
 
@@ -506,9 +696,11 @@ impl Request {
     }
 }
 
-/// Only a negative bound: a prefix below every waiting command cannot prove
-/// any of them. An enrollment or lookup lacks this group-position bound and
-/// keeps the ordinary full-verification path.
+/// Only a negative bound: a prefix below every waiting command or selected
+/// query image cannot prove any of them. This does not settle an output: the
+/// physical verifier must still check its exact version, witness and history.
+/// Enrollment and lookup keep the ordinary full-verification path; a lookup
+/// can deliberately replace its selected observation with an archived one.
 pub(super) fn required_prefix(requests: &[Request]) -> Option<cellar_logic::consensus::LogIndex> {
     let mut minimum = None;
     for request in requests {
@@ -722,6 +914,8 @@ pub(super) async fn prove(
                         _journal: context.journal.clone(),
                         _permit: permit,
                         authority: context.authority.clone(),
+                        tails: registration.tails.clone(),
+                        checkpoints: registration.checkpoints.clone(),
                     }),
                 }));
             }

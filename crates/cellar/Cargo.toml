@@ -179,6 +179,8 @@ nix.workspace = true
 tikv-jemallocator = { workspace = true, features = ["background_threads"] }
 
 [dev-dependencies]
+# Exercise ordinary provider sessions on the public shared-group host.
+cellar-container.workspace = true
 # Exercise the authenticated operator path against the real native fleet.
 cellar-admin.workspace = true
 cellar-axum.workspace = true

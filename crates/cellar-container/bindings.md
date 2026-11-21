@@ -13,6 +13,70 @@ This is the persistence contract for remote providers. Add explicit host
 [supervision](supervision.md) for scheduled expiry and cleanup. The journal
 alone does not schedule work or supply remote fencing.
 
+For shared Raft groups, declare each journal on the class with
+`RaftClass::provider_binding(name, provider, configuration_digest)` before
+registering its ordinary cell factory. The declaration contains no credentials,
+participates in the namespace schema and binds every journal record to that
+backend configuration. Open the journal from the executing invocation; a factory
+constructor, retained event handle or storage transaction callback cannot open it.
+`BindingJournal::compare_exchange` and `ProviderAuthority::before_effect` wait
+for the namespace's required Quorum or S3 checkpoint, then recheck the original
+invocation fence and deadline.
+An unfinished checkpoint remains an uncertain command, even after S3 returns.
+Repeated framework gates can share an unchanged checkpoint of the same invocation.
+The first effect still records its own unfinished receipt. Changed business or
+framework state requires a new proof; a pure-read watermark alone is insufficient.
+S3 reuse revalidates the exact physically verified source and its current authority.
+Public `Storage.sync()` continues to request a checkpoint.
+
+To enable scheduled cleanup, wrap the application with
+`cellar::sdk::containers::supervise(application, supervision)`. Matching backend
+identities and all retention-policy values participate in the namespace contract.
+Shared work and provider-task changes commit together; callbacks claim and prove
+their next attempt before backend I/O. Retained restart resumes those obligations
+without application traffic or granting the resource a new lifetime. A changed
+policy changes the class schema; an existing namespace refuses an incompatible
+definition rather than accepting a node-local override.
+
+The native Docker container and sandbox catalog still need shared-group adapters.
+Real provider execution fencing and volume recovery remain independent requirements
+of [CG-17](../../docs/design/multi-raft/cell-groups/qualification.md#full-primitive-compatibility-cg-17).
+
+When an execution-fenced operation prepares or checkpoints a binding change, its
+old grant becomes invalid. `ExecutionGrant::refresh` proves a new claim with the same
+controller and lifecycle admission. It does not retry the business operation or
+extend the invocation deadline. Framework-owned cleanup can use the same
+contract through [fenced maintenance](supervision.md#controller-fenced-shared-group-maintenance).
+
+## Provider-session lifecycle admission
+
+The ordinary named-provider adapter holds lifecycle admission for Start, Destroy
+and Reconcile through backend I/O and result validation. A fenced backend receives
+that exact guard in `ProviderSession::execute_admitted`; reacquiring the same
+journal lock there would deadlock. After preparing the binding intent, call
+`BindingLifecycleGuard::fence_execution(context, authority)` on the supplied guard.
+The returned grant retains the original admission through controller fencing,
+provider I/O and settlement. It cannot grant another invocation authority.
+
+The adapter's existing entry proof still runs before this hook. Its input checks,
+Quorum/S3 minimum, original deadline, post-operation authority checks and result
+validation remain. The default hook calls the existing `execute` implementation.
+A backend requiring admission must refuse its direct `execute` path rather than
+fall back to an unfenced operation.
+
+Other operations receive no lifecycle guard so stream observations can overlap
+the control operation that stops them. They retain their exact invocation and
+resource generation; every provider request and retained stream still requires
+independent remote fencing. A local guard or ownership claim is not a remote lease.
+Native/Fleet events refuse shared execution fencing before reserving a claim.
+Normal native Container/sandbox adapters, durable independent controllers and
+provider-volume recovery remain separate CG-17 requirements.
+
+Shared-group background maintenance declines a busy lifecycle slot without
+parking its writer or publishing its private work claim. The committed obligation
+remains discoverable for a later attempt. Foreground callers still wait with
+their original deadline, and ordinary Fleet maintenance retains its existing wait.
+
 ## Select a host-declared provider slot
 
 Applications can select additional providers declared by the host. `ctx.container`
@@ -119,6 +183,45 @@ the provider's fencing guarantee remains unchanged.
 Keep API keys, access tokens and user environment secrets outside this journal.
 Its fixed record format has no arbitrary credential/configuration payload.
 
+## Prepare within a shared command
+
+`BindingJournal::prepare_exchange` is a synchronous, Raft-only preparation step,
+like `Storage::put_json`. It applies the same protected-record CAS, declaration,
+invocation, transaction and maintenance checks as the durable method. Its returned
+record proves neither commitment nor execution authority. Native/Fleet events
+continue to use `compare_exchange`; preparation refuses them before mutation.
+
+Prepare reservation metadata, then await `fence_execution` so one checkpoint proves
+both the intent and its execution claim before controller I/O. Before another
+provider operation, await the grant's `before_effect`; a changed binding needs
+`refresh`. Preparing deletion intent and then refreshing likewise proves both
+changes together. Hold the original lifecycle guard throughout.
+
+When a provider observation is the final change in the invocation, it can be
+prepared and returned through the ordinary command output gate. That gate proves
+the observation and exact command result together at the required minimum. An
+archive outage still refuses S3 success. A lost reply retains its original ID;
+receipt lookup must not rerun the application or an external operation. Use
+`compare_exchange` when the individual returned future must acknowledge durability.
+
+```rust,no_run
+use cellar::sdk::{
+    containers::{BindingJournal, BindingRecord, ExecutionFenceAuthority, ExecutionGrant}, Context,
+};
+use std::sync::Arc;
+
+async fn prepare_fenced_reservation(
+    ctx: &Context,
+    record: BindingRecord,
+    authority: Arc<dyn ExecutionFenceAuthority>,
+) -> anyhow::Result<ExecutionGrant> {
+    let journal = BindingJournal::open(ctx, "builds")?;
+    let lifecycle = journal.lock_lifecycle(ctx).await?;
+    journal.prepare_exchange(ctx, None, record)?;
+    journal.fence_execution(ctx, lifecycle, authority).await
+}
+```
+
 ## Reserve before creating
 
 ```rust,no_run
@@ -187,6 +290,48 @@ expiry can create another resource. A stored request ID alone is therefore not
 permission to replay an unresolved creation indefinitely.
 
 ## Authority, storage and recovery
+
+### Controller-enforced execution claims
+
+Shared-group hosts can call `journal.fence_execution(ctx, guard, authority).await?`
+with an explicitly configured `ExecutionFenceAuthority`. Its backend identity
+must exactly match the reserved binding. The framework records a protected
+execution sequence in the cell image and proves it at the invocation's original
+Quorum/S3 minimum before polling the controller. A new group/term or resource
+checkpoint advances that sequence; unchanged ownership and checkpoint reuse it. Group terms
+are not compared across movement. The resource key includes cluster, namespace,
+exact cell ID, cell incarnation and binding, and remains stable across ordinary
+movement and resource replacement.
+
+The call consumes the exact binding's original-invocation lifecycle guard and
+retains it through the returned grant and its effect gates. Drop the grant before
+acquiring another lifecycle guard. Do not change the binding checkpoint during
+provider I/O; an invalidated grant cannot publish a result.
+
+The controller must authenticate its caller, persist the high-water mark and
+stop or permanently revoke prior execution before acknowledging a higher claim.
+Every provider request and retained handle must carry the claim and be rejected
+if stale. An equal sequence with another owner or binding checkpoint must refuse.
+Lost controller state must refuse admission. Controller configuration belongs in
+the declared provider configuration digest; the claim is not a bearer credential.
+
+The returned `ExecutionGrant` belongs to the original invocation. Call
+`grant.before_effect(ctx).await?` before submitting provider work with its claim;
+this proves subsequent business changes and rechecks the original authority.
+Local checks cannot revoke an accepted remote command. A changed binding
+checkpoint requires a fresh grant. Lost responses retain the original sequence,
+resource and operation identities; neither a grant nor a timer authorizes replay
+of an unknown create or command. Fresh-history disaster recovery still requires
+permanent infrastructure fencing of the old history, including its external
+provider execution. A fresh resource key cannot bypass that revocation.
+
+This API supplies the framework/controller boundary. There is no default
+production authority, and it does not retrofit fencing into existing E2B,
+Vercel or native Container adapters. Those integrations and controller crash,
+partition and lost-response qualification remain required by CG-17. The Docker
+qualification fixture exercises process revocation with a controller that stays
+alive during retained voter restart; it does not qualify a durable production
+controller or independent voter-process failure.
 
 | Boundary | Behavior |
 | --- | --- |

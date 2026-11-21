@@ -27,7 +27,7 @@ pub(super) async fn tail_index(
     Ok((path, serde_json::from_slice(&body)?))
 }
 
-fn entry_path(path: &Path, entry: &serde_json::Value) -> Result<Path> {
+pub(super) fn entry_path(path: &Path, entry: &serde_json::Value) -> Result<Path> {
     let digest: Vec<u8> = serde_json::from_value(entry["object"]["digest"].clone())?;
     let (prefix, _) = generation_prefix(path)?;
     Ok(Path::from(format!(

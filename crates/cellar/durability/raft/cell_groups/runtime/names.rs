@@ -24,6 +24,10 @@ impl CellGroupRuntime {
         candidate: cellar_logic::cell_group::CellHistory,
         cut: super::super::CellGroupQuorumMembership,
     ) -> Result<Option<super::super::EnrollmentRecord>, RuntimeError> {
+        self.inner
+            .log
+            .performance()
+            .increment(crate::raft::performance::Counter::CellNameSelections, 1);
         let state = self
             .enrollment_state(route.history, candidate.clone())
             .await?;

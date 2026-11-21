@@ -245,7 +245,7 @@ pub(crate) fn list(scope: &str) -> anyhow::Result<Vec<(String, BindingCheckpoint
 }
 
 #[cfg(test)]
-fn transaction(
+pub(super) fn transaction(
     connection: &Connection,
     name: &str,
     expected: Option<u64>,

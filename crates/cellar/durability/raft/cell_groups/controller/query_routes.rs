@@ -11,7 +11,75 @@ use crate::raft::host_sql::cell_groups::ReadRetention;
 use crate::raft::storage::LogError;
 use crate::raft::transport::TransportError;
 use cellar_logic::consensus::{CommandFailure, MemberId};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use std::time::Duration;
+
+enum QueryWinner {
+    Primary(Result<CellQueryResponse, Error>),
+    Fallback(Result<CellQueryResponse, Error>),
+}
+
+/// A completed first read cannot cancel a catalog confirmation already entered
+/// by its fallback. Keep its existing response/admission until that same future
+/// confirms a route, then validate the original ticket before returning it.
+struct QueryHandoff {
+    routing: AtomicBool,
+    response: Mutex<Option<CellQueryResponse>>,
+    attempt: crate::raft::cell_groups::CellRouteAttempt,
+}
+
+impl QueryHandoff {
+    fn begin_routing(&self) {
+        self.routing.store(true, Ordering::Release);
+    }
+
+    fn offer(&self, response: CellQueryResponse) -> Result<(), Error> {
+        let mut slot = self
+            .response
+            .lock()
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+        if slot.is_some() {
+            return Err(Error::Invalid("duplicate primary query handoff"));
+        }
+        *slot = Some(response);
+        Ok(())
+    }
+
+    /// Only call after routing and minimum validation complete. A replacement,
+    /// fence or expired original session still refuses the retained response.
+    fn finish_routing(
+        &self,
+        invocation: &CellQueryInvocation,
+    ) -> Result<Option<CellQueryResponse>, Error> {
+        self.routing.store(false, Ordering::Release);
+        let response = self
+            .response
+            .lock()
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?
+            .take();
+        if response.is_some() {
+            invocation.validate_query_result(&self.attempt)?;
+        }
+        Ok(response)
+    }
+}
+
+// Exhausting fallback tickets or its deadline never invalidates an outstanding
+// first read. Catalog fences and other terminal failures still refuse at once.
+fn wait_for_primary(error: &Error) -> bool {
+    retryable(error)
+        || matches!(
+            error,
+            Error::Routing(crate::raft::cell_groups::CellRoutingError {
+                reason: crate::raft::cell_groups::CellRoutingFailure::AttemptsExhausted
+                    | crate::raft::cell_groups::CellRoutingFailure::Deadline,
+                ..
+            })
+        )
+}
 
 struct Destination<'a> {
     runtime: &'a CellGroupRuntime,
@@ -116,19 +184,158 @@ impl Destination<'_> {
         deadline: u64,
         prefer_leader: bool,
     ) -> Result<Vec<MemberId>, Error> {
-        let selected = || {
-            self.transport
-                .cell_query_candidates(route, maximum, None, None, prefer_leader)
-        };
-        match selected() {
+        match self
+            .transport
+            .cell_query_candidates(route, maximum, None, None, prefer_leader)
+        {
             Err(TransportError::UnknownGroup) => {
                 self.transport
                     .refresh_managed_router(route.history, deadline)
                     .await
                     .map_err(Error::Runtime)?;
-                selected().map_err(Error::Transport)
+                self.transport
+                    .cell_query_candidates(route, maximum, None, None, prefer_leader)
+                    .map_err(Error::Transport)
             }
             result => result.map_err(Error::Transport),
+        }
+    }
+
+    async fn automatic(
+        &self,
+        invocation: &mut CellQueryInvocation,
+        options: CellSqlOptions,
+        permit: Arc<admission::Retention>,
+    ) -> Result<CellQueryResponse, Error> {
+        let attempt = invocation
+            .attempt()
+            .ok_or(Error::Invalid("missing route"))?;
+        let route = attempt.route().clone();
+        let ordinal = usize::from(attempt.ordinal());
+        let members = self
+            .members(
+                invocation,
+                &route,
+                invocation.maximum_attempts(),
+                invocation.deadline_ms(),
+            )
+            .await?;
+        if members.len() < 2 || ordinal >= invocation.maximum_attempts() {
+            return self
+                .automatic_from(invocation, options, permit, None, 0, None)
+                .await;
+        }
+        let now = self
+            .shared
+            .domain
+            .mono_ms()
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+        let tickets = (invocation.maximum_attempts() - ordinal + 1).min(members.len());
+        let delay = (invocation.deadline_ms().saturating_sub(now) / tickets as u64).max(1);
+        let timer = self
+            .shared
+            .domain
+            .sleep_until(now.saturating_add(delay))
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+        // Consume one original ticket. Its immutable request/admission are shared,
+        // never a copied retry bank. The first reader keeps the original deadline
+        // while a bounded serial fallback lane can rescue a stalled replica.
+        let execution = invocation.take_execution()?;
+        let handoff = QueryHandoff {
+            routing: AtomicBool::new(false),
+            response: Mutex::new(None),
+            attempt: execution.attempt().clone(),
+        };
+        let mut primary =
+            Box::pin(self.execute_snapshot(execution, members[0], options.clone(), permit.clone()));
+        let first = crate::asyncrt::select! {
+            result = primary.as_mut() => Some(result),
+            _ = timer => None,
+        };
+        let outcome = {
+            let mut fallback = Box::pin(async {
+                handoff.begin_routing();
+                invocation.retry().await?;
+                invocation.validate_minimum().await?;
+                if let Some(response) = handoff.finish_routing(invocation)? {
+                    return Ok(response);
+                }
+                self.automatic_from(
+                    invocation,
+                    options,
+                    permit,
+                    Some(route.history),
+                    1,
+                    Some(&handoff),
+                )
+                .await
+            });
+            match first {
+                Some(Err(error)) if retryable(&error) => QueryWinner::Fallback(fallback.await),
+                Some(result) => QueryWinner::Primary(result),
+                None => crate::asyncrt::select! {
+                    result = primary.as_mut() => {
+                        match result {
+                            Err(error) if retryable(&error) => QueryWinner::Fallback(fallback.await),
+                            Ok(response) if handoff.routing.load(Ordering::Acquire) => {
+                                // Dropping fallback here would cancel its
+                                // confirmation and leave the session inactive.
+                                // It must reach a verified routing boundary
+                                // before the completed first ticket can escape.
+                                handoff.offer(response)?;
+                                QueryWinner::Fallback(fallback.await)
+                            }
+                            result => QueryWinner::Primary(result),
+                        }
+                    }
+                    result = fallback.as_mut() => {
+                        if result.as_ref().err().is_some_and(wait_for_primary) {
+                            QueryWinner::Primary(primary.await)
+                        } else {
+                            QueryWinner::Fallback(result)
+                        }
+                    }
+                },
+            }
+        };
+        match outcome {
+            QueryWinner::Primary(result) => {
+                let response = result?;
+                // A fallback may have refreshed to a successor. An older read
+                // cannot escape a newly observed route/fence or expired session.
+                invocation.validate_query_result(&handoff.attempt)?;
+                Ok(response)
+            }
+            QueryWinner::Fallback(result) => result,
+        }
+    }
+
+    async fn members(
+        &self,
+        invocation: &CellQueryInvocation,
+        route: &cellar_logic::cell_group::GroupRoute,
+        maximum: usize,
+        deadline: u64,
+    ) -> Result<Vec<MemberId>, Error> {
+        // Retained obsolete logs are physical debt, not serving replicas.
+        let local = match self.runtime.log().cell_group(&route.history) {
+            Ok(group)
+                if self
+                    .shared
+                    .groups
+                    .contains(&route.history)
+                    .map_err(Error::Runtime)? =>
+            {
+                Some(group.identity().member)
+            }
+            Ok(_) | Err(LogError::NotFound) => None,
+            Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
+        };
+        if let Some(local) = local {
+            self.local_members(invocation, route, local, false).await
+        } else {
+            self.router_members(route, maximum, deadline, invocation.prefers_leader())
+                .await
         }
     }
 
@@ -173,120 +380,111 @@ impl Destination<'_> {
         }
     }
 
-    fn limit_automatic_attempt(
+    async fn execute_snapshot(
         &self,
-        invocation: &mut CellQueryInvocation,
-        remaining_members: usize,
-    ) -> Result<(), Error> {
-        let ordinal = usize::from(
-            invocation
-                .attempt()
-                .ok_or(Error::Invalid("missing route"))?
-                .ordinal(),
-        );
-        let now = self
-            .shared
-            .domain
-            .mono_ms()
-            .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
-        let remaining = invocation.deadline_ms().saturating_sub(now);
-        // Reserve time for the actual untried trusted destinations, bounded by
-        // this invocation's remaining tickets. One local-only candidate receives
-        // the whole remaining budget; timeout never refunds entered SQL work.
-        let tickets = (invocation.maximum_attempts().saturating_sub(ordinal) + 1)
-            .min(remaining_members)
-            .max(1);
-        invocation.limit_attempt(Duration::from_millis((remaining / tickets as u64).max(1)))
+        mut execution: crate::raft::cell_groups::dispatch::CellQueryExecution,
+        member: MemberId,
+        options: CellSqlOptions,
+        permit: Arc<admission::Retention>,
+    ) -> Result<CellQueryResponse, Error> {
+        if self.local_destination(execution.attempt(), member).await? {
+            if !self
+                .shared
+                .groups
+                .contains(&execution.attempt().route().history)
+                .map_err(Error::Runtime)?
+            {
+                return Err(Error::Runtime(RuntimeError::NotFound));
+            }
+            execution
+                .execute_retained(
+                    self.runtime,
+                    self.sql,
+                    options,
+                    Some(ReadRetention::new(permit)),
+                )
+                .await
+        } else {
+            execution
+                .execute_remote(self.transport, member)
+                .await
+                .map(CellQueryResponse::remote)
+        }
     }
 
-    async fn automatic(
+    async fn automatic_from(
         &self,
         invocation: &mut CellQueryInvocation,
         options: CellSqlOptions,
         permit: Arc<admission::Retention>,
+        mut previous: Option<cellar_logic::cell_group::GroupHistory>,
+        mut next_member: usize,
+        handoff: Option<&QueryHandoff>,
     ) -> Result<CellQueryResponse, Error> {
-        let mut previous = None;
-        let mut tried_members = Vec::with_capacity(invocation.maximum_attempts());
         loop {
+            if let Some(handoff) = handoff {
+                if let Some(response) = handoff.finish_routing(invocation)? {
+                    return Ok(response);
+                }
+            }
             let attempt = invocation
                 .attempt()
                 .ok_or(Error::Invalid("missing route"))?;
             let route = attempt.route().clone();
             let history = route.history;
             let ordinal = usize::from(attempt.ordinal());
+            let mut exhausted_router = false;
             if previous != Some(history) {
-                tried_members.clear();
+                next_member = 0;
                 previous = Some(history);
             }
-            // Only the active roster permits local proof acquisition. A
-            // retained obsolete engine is physical debt, not a serving owner.
-            let selected = match self.runtime.log().cell_group(&history) {
-                Ok(group)
-                    if self
-                        .shared
-                        .groups
-                        .contains(&history)
-                        .map_err(Error::Runtime)? =>
-                {
-                    self.local_members(
+            let result = async {
+                let members = self
+                    .members(
                         invocation,
-                        &route,
-                        group.identity().member,
-                        !tried_members.is_empty(),
-                    )
-                    .await
-                    .map(|members| (members, false))
-                }
-                Ok(_) | Err(LogError::NotFound) => self
-                    .router_members(
                         &route,
                         invocation.maximum_attempts(),
                         invocation.deadline_ms(),
-                        invocation.prefers_leader(),
                     )
-                    .await
-                    .map(|members| (members, true)),
-                Err(error) => Err(Error::Runtime(RuntimeError::Storage(error))),
-            };
-            let mut exhausted_router = false;
-            let mut cached_remaining = false;
-            let result = match selected {
-                Ok((members, router)) if !members.is_empty() => {
-                    // Advice can reorder this snapshot between tickets. Track
-                    // identities rather than an index that could skip a peer.
-                    let remaining_members = members
-                        .iter()
-                        .filter(|member| !tried_members.contains(*member))
-                        .count();
-                    let member = members
-                        .iter()
-                        .copied()
-                        .find(|member| !tried_members.contains(member))
-                        .unwrap_or(members[0]);
-                    if !tried_members.contains(&member) {
-                        tried_members.push(member);
-                    }
-                    cached_remaining = members.iter().any(|member| !tried_members.contains(member));
-                    exhausted_router = router && !cached_remaining;
-                    self.limit_automatic_attempt(invocation, remaining_members)?;
+                    .await?;
+                if !members.is_empty() {
+                    let index = next_member % members.len();
+                    let member = members[index];
+                    next_member += 1;
+                    exhausted_router = next_member >= members.len();
+                    let now = self
+                        .shared
+                        .domain
+                        .mono_ms()
+                        .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+                    let remaining = invocation.deadline_ms().saturating_sub(now);
+                    let tickets = (invocation.maximum_attempts().saturating_sub(ordinal) + 1)
+                        .min(members.len() - index)
+                        .max(1);
+                    // Even a present voter can lag in apply or retain a
+                    // blocked SQL reader. Leave the original invocation
+                    // time for other trusted destinations; expiry never
+                    // cancels or refunds its entered physical SQL work.
+                    invocation.limit_attempt(Duration::from_millis(
+                        (remaining / tickets as u64).max(1),
+                    ))?;
                     self.attempt(invocation, member, options.clone(), permit.clone())
                         .await
+                } else {
+                    Err(Error::Runtime(RuntimeError::NotFound))
                 }
-                Ok(_) => Err(Error::Runtime(RuntimeError::NotFound)),
-                Err(error) => Err(error),
-            };
+            }
+            .await;
             match result {
                 Ok(response) => return Ok(response),
                 Err(error) if retryable(&error) && ordinal < invocation.maximum_attempts() => {
-                    if cached_remaining && replica_fallback(&error) {
-                        // Lag, pressure or an unavailable first target does not
-                        // by itself replace the cell range. Each next ticket
-                        // retains the ID, minimum, absolute deadline and permit.
-                        invocation.retry().await?;
-                        invocation.validate_minimum().await?;
-                        continue;
+                    if let Some(handoff) = handoff {
+                        handoff.begin_routing();
                     }
                     if exhausted_router {
+                        // Try cached destinations first, including during an
+                        // archive outage. Only an exhausted stale view needs
+                        // fresh rooted discovery before the next read ticket.
                         match self
                             .transport
                             .refresh_managed_router(history, invocation.deadline_ms())
@@ -295,11 +493,16 @@ impl Destination<'_> {
                             Ok(()) | Err(RuntimeError::NotFound) => (),
                             Err(error) => return Err(Error::Runtime(error)),
                         }
-                        tried_members.clear();
+                        // A selected successor can have completely different
+                        // members. Replan against a verified root without
+                        // replenishing the invocation's deadline or attempt bank.
+                        invocation.refresh().await?;
+                    } else {
+                        // A slow replica supplies no relocation evidence. Try
+                        // the remaining trusted peers before requiring rooted
+                        // discovery, including while the archive is unavailable.
+                        invocation.retry().await?;
                     }
-                    // Actual route/membership repair keeps the same session.
-                    // A selected successor can have a wholly different roster.
-                    invocation.refresh().await?;
                     invocation.validate_minimum().await?;
                 }
                 Err(error) => return Err(error),
@@ -317,6 +520,22 @@ impl Destination<'_> {
         let attempt = invocation
             .attempt()
             .ok_or(Error::Invalid("missing route"))?;
+        let is_local = self.local_destination(attempt, member).await?;
+        if is_local {
+            self.local(invocation, options, permit).await
+        } else {
+            invocation
+                .execute_remote(self.transport, member)
+                .await
+                .map(CellQueryResponse::remote)
+        }
+    }
+
+    async fn local_destination(
+        &self,
+        attempt: &crate::raft::cell_groups::CellRouteAttempt,
+        member: MemberId,
+    ) -> Result<bool, Error> {
         let route = attempt.route();
         let history = route.history;
         let (is_local, router) = match self.runtime.log().cell_group(&history) {
@@ -351,9 +570,7 @@ impl Destination<'_> {
                 Err(error) => return Err(Error::Transport(error)),
             }
         }
-        if is_local {
-            self.local(invocation, options, permit).await
-        } else {
+        if !is_local {
             self.transport
                 .refresh_cell_query_endpoint(route, member, router, attempt.deadline_ms())
                 .await
@@ -361,11 +578,8 @@ impl Destination<'_> {
                     TransportError::Runtime(error) => Error::Runtime(error),
                     error => Error::Transport(error),
                 })?;
-            invocation
-                .execute_remote(self.transport, member)
-                .await
-                .map(CellQueryResponse::remote)
         }
+        Ok(is_local)
     }
 
     async fn local(
@@ -406,23 +620,6 @@ fn unavailable(failure: &CommandFailure) -> bool {
             | CommandFailure::Overloaded
             | CommandFailure::VersionUnavailable
     )
-}
-
-fn replica_fallback(error: &Error) -> bool {
-    match error {
-        Error::Runtime(
-            RuntimeError::NotLeader
-            | RuntimeError::NotReady
-            | RuntimeError::DeadlineExceeded
-            | RuntimeError::Overloaded,
-        )
-        | Error::Transport(
-            TransportError::Io(_) | TransportError::Timeout | TransportError::Overloaded,
-        ) => true,
-        Error::Execution(crate::raft::execution::ExecutionError::Refused(failure))
-        | Error::Transport(TransportError::Query(failure)) => unavailable(failure),
-        _ => false,
-    }
 }
 
 pub(super) fn retryable(error: &Error) -> bool {

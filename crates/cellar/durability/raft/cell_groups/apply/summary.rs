@@ -43,7 +43,7 @@ pub(super) fn read(
         0
     } else {
         let (pending, invalid): (u64, u64) = connection.query_row(
-            "SELECT COALESCE(SUM(phase!=3),0),COALESCE(SUM(CASE WHEN typeof(format)='integer' AND format=1 AND phase BETWEEN 0 AND 4 THEN 0 ELSE 1 END),0) FROM __sys_raft_binding_intents",
+            "SELECT COALESCE(SUM(phase!=3),0),COALESCE(SUM(CASE WHEN typeof(format)='integer' AND format=1 AND phase BETWEEN 0 AND 5 THEN 0 ELSE 1 END),0) FROM __sys_raft_binding_intents",
             [], |row| Ok((row.get(0)?, row.get(1)?)),
         ).map_err(storage)?;
         if invalid != 0 {

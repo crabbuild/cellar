@@ -476,22 +476,26 @@ impl CellGroupArchiveRegistry {
     }
 
     async fn load(&self) -> Result<(State, UpdateVersion)> {
-        let identity = self
-            .archive
-            .read_versioned(&self.path("identity"), MAX_CONTROL_BYTES)
-            .await?
-            .ok_or(CellGroupArchiveError::MissingRegistry)?
-            .0;
+        let identity_path = self.path("identity");
+        let registry_path = self.path("registry");
+        // Both bounded bodies fit the existing eight-chunk I/O workspace.
+        // Identity is immutable; state still binds that exact expected identity
+        // and its own conditional version. Join both reads on ordinary errors
+        // before releasing the caller's admission, including unread peer bodies.
+        let (identity, registry) = futures_util::future::join(
+            self.archive
+                .read_versioned(&identity_path, MAX_CONTROL_BYTES),
+            self.archive
+                .read_versioned(&registry_path, MAX_CONTROL_BYTES),
+        )
+        .await;
+        let identity = identity?.ok_or(CellGroupArchiveError::MissingRegistry)?.0;
         if identity != encode(&self.identity, MAX_CONTROL_BYTES)? {
             return Err(CellGroupArchiveError::Invalid(
                 "archive registry identity changed",
             ));
         }
-        let (bytes, version) = self
-            .archive
-            .read_versioned(&self.path("registry"), MAX_CONTROL_BYTES)
-            .await?
-            .ok_or(CellGroupArchiveError::MissingRegistry)?;
+        let (bytes, version) = registry?.ok_or(CellGroupArchiveError::MissingRegistry)?;
         check_registry_version(&version)?;
         let state: State = serde_json::from_slice(&bytes)
             .map_err(|_| CellGroupArchiveError::Invalid("archive registry encoding"))?;

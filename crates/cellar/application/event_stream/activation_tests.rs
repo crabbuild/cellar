@@ -50,13 +50,15 @@ impl super::Host for Host {
         let reply = (|| -> Result<_> {
             anyhow::ensure!(principal == "app");
             authority.validate_target(&scope, Some(&name), method)?;
-            let (expected, value) = self
-                .replies
-                .lock()
-                .unwrap()
-                .pop_front()
+            let mut replies = self.replies.lock().unwrap();
+            let expected = replies
+                .front()
+                .map(|(method, _)| *method)
                 .ok_or_else(|| anyhow::anyhow!("unexpected activation call {method}"))?;
             anyhow::ensure!(method == expected, "expected {expected}, observed {method}");
+            let (_, value) = replies
+                .pop_front()
+                .ok_or_else(|| anyhow::anyhow!("activation reply disappeared"))?;
             Ok(value)
         })();
         Box::pin(async move { reply })
@@ -87,6 +89,671 @@ fn definition() -> Definition {
         }],
         subscriptions: vec![],
     }
+}
+
+fn binding_declaration(named: bool) -> (super::super::Binding, BindingConfig) {
+    let binding = super::super::Binding {
+        environment: "EVENTS".into(),
+        resource: definition().resource,
+        principal: "app".into(),
+        grant: "owner".into(),
+        publish: false,
+        read: true,
+        subscriptions: vec![],
+        administer: false,
+    };
+    let mut declaration = BindingConfig::from(binding.clone());
+    if named {
+        declaration.resource.id = None;
+    }
+    (binding, declaration)
+}
+
+#[test]
+fn explicit_adoption_polls_both_authorities_and_requires_both_proofs() -> Result<()> {
+    use std::{
+        future::Future,
+        sync::{
+            atomic::{AtomicU8, Ordering},
+            Arc, Mutex,
+        },
+        task::{Context, Poll},
+    };
+
+    struct Gated {
+        known: bool,
+        configured: Option<Value>,
+        replies: [Mutex<Option<tokio::sync::oneshot::Receiver<Result<Value>>>>; 2],
+        polled: Arc<AtomicU8>,
+    }
+
+    impl super::Host for Gated {
+        fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
+            Ok(self.known)
+        }
+
+        fn prepare_broker(&self, _: &str, _: &Definition) -> HandlerFuture<bool> {
+            let prepared = self.configured.is_some();
+            Box::pin(async move { Ok(prepared) })
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            _args: Value,
+        ) -> HandlerFuture<Value> {
+            if method == "__catalogConfigure"
+                || (self.configured.is_some() && method == "__catalogResolve")
+            {
+                let result = (|| -> Result<Value> {
+                    anyhow::ensure!(principal == "app");
+                    authority.validate_target(&scope, Some(&name), method)?;
+                    if method == "__catalogResolve" {
+                        // A failed early read must still refuse readiness when
+                        // the original-deadline fresh adoption also refuses.
+                        return Err(RuntimeError::DeadlineExceeded.into());
+                    }
+                    self.configured
+                        .clone()
+                        .ok_or_else(|| anyhow::anyhow!("unexpected configuration"))
+                })();
+                return Box::pin(async move { result });
+            }
+            let admitted = (|| -> Result<_> {
+                anyhow::ensure!(principal == "app");
+                authority.validate_target(&scope, Some(&name), method)?;
+                let index = match method {
+                    "__catalogResolve" | "__catalogStatus" => 0,
+                    "__streamResolve" => 1,
+                    _ => anyhow::bail!("unexpected activation call {method}"),
+                };
+                let reply = self.replies[index]
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .ok_or_else(|| anyhow::anyhow!("repeated activation proof {method}"))?;
+                Ok((index, reply))
+            })();
+            let polled = self.polled.clone();
+            Box::pin(async move {
+                let (index, reply) = admitted?;
+                polled.fetch_or(1 << index, Ordering::SeqCst);
+                reply.await?
+            })
+        }
+    }
+
+    // Either independently placed authority may be cold after retained restart.
+    // Holding one read cannot prevent the other from beginning its quorum work,
+    // and one successful proof can never publish a binding by itself.
+    for (known, fresh, first) in [
+        (false, false, 0),
+        (false, false, 1),
+        (true, false, 0),
+        (true, false, 1),
+        (false, true, 0),
+        (false, true, 1),
+    ] {
+        for accepted in [false, true] {
+            let (binding, declaration) = binding_declaration(false);
+            let mut declared = definition();
+            declared.grants[0].read = true;
+            let active = json!({"state":"active","resource":binding.resource});
+            let status = json!({"state":"active","resource":declared.resource.id,
+                "operation":super::super::raft::operation("app", &declared)?,
+                "accepted_revision":declared.revision.to_string(),
+                "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+            let successes = [
+                if known || fresh {
+                    status.clone()
+                } else {
+                    active.clone()
+                },
+                active,
+            ];
+            let (catalog, catalog_reply) = tokio::sync::oneshot::channel();
+            let (partition, partition_reply) = tokio::sync::oneshot::channel();
+            let host = Gated {
+                known,
+                configured: fresh.then_some(status),
+                replies: [
+                    Mutex::new(Some(catalog_reply)),
+                    Mutex::new(Some(partition_reply)),
+                ],
+                polled: Arc::new(AtomicU8::new(0)),
+            };
+            let declarations = [declaration];
+            let definitions = if known || fresh {
+                vec![("app".into(), declared)]
+            } else {
+                vec![]
+            };
+            let mut activation = Box::pin(configure(&host, &definitions, &declarations));
+            let waker = futures_util::task::noop_waker();
+            let mut cx = Context::from_waker(&waker);
+            assert!(activation.as_mut().poll(&mut cx).is_pending());
+            assert_eq!(
+                host.polled.load(Ordering::SeqCst),
+                3,
+                "serialized current-authority reads"
+            );
+            let mut replies = [Some(catalog), Some(partition)];
+            replies[first]
+                .take()
+                .unwrap()
+                .send(Ok(successes[first].clone()))
+                .unwrap();
+            assert!(
+                activation.as_mut().poll(&mut cx).is_pending(),
+                "one proof granted readiness"
+            );
+            let last = if accepted {
+                Ok(successes[1 - first].clone())
+            } else {
+                Err(anyhow::Error::from(RuntimeError::DeadlineExceeded))
+            };
+            replies[1 - first].take().unwrap().send(last).unwrap();
+            match activation.as_mut().poll(&mut cx) {
+                Poll::Ready(Ok(bindings)) if accepted => assert_eq!(bindings, vec![binding]),
+                Poll::Ready(Err(error)) if !accepted => assert!(matches!(
+                    error.downcast_ref::<RuntimeError>(),
+                    Some(RuntimeError::DeadlineExceeded)
+                )),
+                result => panic!("incorrect two-authority activation result: {result:?}"),
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn broker_birth_preparation_and_catalog_bootstrap_make_progress_together() -> Result<()> {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    struct Bootstrap {
+        entered: Arc<AtomicBool>,
+        completed: Arc<AtomicBool>,
+        catalog: Arc<tokio::sync::Notify>,
+        active: Value,
+    }
+
+    impl super::Host for Bootstrap {
+        fn prepare_broker(&self, principal: &str, declared: &Definition) -> HandlerFuture<bool> {
+            let admitted = principal == "app" && declared == &definition();
+            let entered = self.entered.clone();
+            let completed = self.completed.clone();
+            let catalog = self.catalog.clone();
+            Box::pin(async move {
+                anyhow::ensure!(admitted, "preparation changed its declared owner/resource");
+                entered.store(true, Ordering::SeqCst);
+                // Preparation cannot finish until the catalog runs. Awaiting
+                // either whole path before starting the other cannot pass.
+                catalog.notified().await;
+                completed.store(true, Ordering::SeqCst);
+                Ok(true)
+            })
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            _args: Value,
+        ) -> HandlerFuture<Value> {
+            let admitted = principal == "app";
+            let validated = authority.validate_target(&scope, Some(&name), method);
+            let entered = self.entered.clone();
+            let catalog = self.catalog.clone();
+            let active = self.active.clone();
+            Box::pin(async move {
+                anyhow::ensure!(admitted);
+                validated?;
+                match method {
+                    "__catalogConfigure" => {
+                        anyhow::ensure!(
+                            entered.load(Ordering::SeqCst),
+                            "catalog bootstrap ran before broker preparation was polled"
+                        );
+                        catalog.notify_one();
+                    }
+                    "__catalogStatus" => (),
+                    _ => anyhow::bail!("unexpected bootstrap call {method}"),
+                }
+                Ok(active)
+            })
+        }
+    }
+    let declared = definition();
+    let host = Bootstrap {
+        entered: Arc::new(AtomicBool::new(false)),
+        completed: Arc::new(AtomicBool::new(false)),
+        catalog: Arc::new(tokio::sync::Notify::new()),
+        active: json!({"state":"active","resource":declared.resource.id,
+            "operation":super::super::raft::operation("app", &declared)?,
+            "accepted_revision":"1",
+            "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))}),
+    };
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let observed = domain
+        .run(crate::asyncrt::timeout(
+            std::time::Duration::from_secs(1),
+            configure(&host, &[("app".into(), declared)], &[]),
+        ))
+        .await?;
+    domain.shutdown().await;
+    observed??;
+    assert!(
+        host.completed.load(Ordering::SeqCst),
+        "catalog success dropped preparation"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn retained_definition_proof_does_not_authorize_revoked_or_foreign_bindings() -> Result<()> {
+    let mut declared = definition();
+    declared.grants[0].read = true;
+    let status = json!({"state":"active","resource":declared.resource.id,
+        "accepted_revision":declared.revision.to_string(),
+        "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+    for revoked in [false, true] {
+        let (mut binding, _) = binding_declaration(false);
+        let mut resource = binding.resource.clone();
+        resource.id = "02020202020202020202020202020202".into();
+        let mut replies = vec![("__catalogStatus", status.clone())];
+        if revoked {
+            binding.grant = "revoked".into();
+        } else {
+            replies.push((
+                "__streamResolve",
+                json!({"state":"active","resource":resource}),
+            ));
+        }
+        let host = Host {
+            known: true,
+            replies: std::sync::Mutex::new(replies.into()),
+        };
+        let result = configure(
+            &host,
+            &[("app".into(), declared.clone())],
+            &[binding.into()],
+        )
+        .await;
+        assert!(result.is_err(), "unproven binding admitted: {result:?}");
+        assert!(host.replies.lock().unwrap().is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn unproven_brokers_and_other_backends_require_current_adoption() -> Result<()> {
+    struct Prepared {
+        inner: Host,
+        sharing: bool,
+        calls: std::sync::Mutex<Vec<&'static str>>,
+    }
+
+    impl super::Host for Prepared {
+        fn shares_catalog(&self, _: &str, _: &str) -> bool {
+            self.sharing
+        }
+
+        fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
+            Ok(self.inner.known)
+        }
+
+        fn prepare_broker(&self, _: &str, _: &Definition) -> HandlerFuture<bool> {
+            Box::pin(async { Ok(true) })
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            args: Value,
+        ) -> HandlerFuture<Value> {
+            self.calls.lock().unwrap().push(method);
+            super::Host::rpc(&self.inner, principal, authority, scope, name, method, args)
+        }
+    }
+    let mut declared = definition();
+    declared.grants[0].read = true;
+    let (binding, declaration) = binding_declaration(false);
+    let current = json!({"state":"active","resource":declared.resource.id,
+        "operation":super::super::raft::operation("app", &declared)?,
+        "accepted_revision":declared.revision.to_string(),
+        "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+    let active = json!({"state":"active","resource":binding.resource});
+    let mut foreign = active.clone();
+    foreign["resource"]["id"] = json!("02020202020202020202020202020202");
+    for (known, sharing) in [(false, true), (false, false), (true, false)] {
+        let mut replies = Vec::new();
+        if sharing {
+            replies.push(("__streamResolve", foreign.clone()));
+        }
+        if !known {
+            replies.push(("__catalogConfigure", current.clone()));
+        }
+        replies.extend([
+            ("__catalogStatus", current.clone()),
+            ("__catalogResolve", active.clone()),
+            ("__streamResolve", active.clone()),
+        ]);
+        let mut expected: Vec<_> = replies.iter().map(|(method, _)| *method).collect();
+        let host = Prepared {
+            inner: Host {
+                known,
+                replies: std::sync::Mutex::new(replies.into()),
+            },
+            sharing,
+            calls: std::sync::Mutex::new(Vec::new()),
+        };
+        assert_eq!(
+            configure(
+                &host,
+                &[("app".into(), declared.clone())],
+                std::slice::from_ref(&declaration)
+            )
+            .await?,
+            vec![binding.clone()]
+        );
+        assert!(host.inner.replies.lock().unwrap().is_empty());
+        let mut actual = host.calls.lock().unwrap().clone();
+        actual.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(actual, expected, "extra or missing current proofs");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn proved_catalog_rejects_revoked_binding_capabilities() -> Result<()> {
+    struct Proved(Host);
+
+    impl super::Host for Proved {
+        fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
+            Ok(self.0.known)
+        }
+
+        fn prepare_broker(&self, _: &str, _: &Definition) -> HandlerFuture<bool> {
+            Box::pin(async { Ok(true) })
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            args: Value,
+        ) -> HandlerFuture<Value> {
+            super::Host::rpc(&self.0, principal, authority, scope, name, method, args)
+        }
+    }
+    for known in [false, true] {
+        for capability in ["read", "publish", "administer", "subscription"] {
+            let mut declared = definition();
+            declared.grants[0].read = true;
+            let (mut binding, _) = binding_declaration(false);
+            match capability {
+                "read" => declared.grants[0].read = false,
+                "publish" => binding.publish = true,
+                "administer" => {
+                    let mut provisioner = declared.grants[0].clone();
+                    provisioner.id = "provisioner".into();
+                    declared.grants[0].administer = false;
+                    declared.grants.push(provisioner);
+                    binding.administer = true;
+                }
+                "subscription" => binding.subscriptions.push("removed".into()),
+                _ => unreachable!(),
+            }
+            let current = json!({"state":"active","resource":declared.resource.id,
+                "operation":super::super::raft::operation("app", &declared)?,
+                "accepted_revision":declared.revision.to_string(),
+                "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+            let mut replies = Vec::new();
+            if !known {
+                replies.push(("__catalogConfigure", current.clone()));
+            }
+            replies.push(("__catalogStatus", current));
+            let host = Proved(Host {
+                known,
+                replies: std::sync::Mutex::new(replies.into()),
+            });
+            let error = configure(&host, &[("app".into(), declared)], &[binding.into()])
+                .await
+                .expect_err("revoked binding capability granted readiness");
+            assert!(
+                error
+                    .downcast_ref::<super::super::DeliveryError>()
+                    .is_some_and(|error| error.code == super::super::ErrorCode::Forbidden),
+                "{error:?}"
+            );
+            assert!(host.0.replies.lock().unwrap().is_empty());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn speculative_partition_proof_is_discarded_when_catalog_needs_reconciliation() -> Result<()> {
+    use std::{
+        future::Future,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        task::{Context, Poll},
+    };
+
+    struct Cancelled(Arc<AtomicBool>);
+
+    impl Drop for Cancelled {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct Reconciling {
+        inner: Host,
+        first_status: AtomicBool,
+        first_partition: AtomicBool,
+        cancelled: Arc<AtomicBool>,
+    }
+
+    impl super::Host for Reconciling {
+        fn configuration_known(&self, _: &str, _: &Authority) -> Result<bool> {
+            Ok(true)
+        }
+
+        fn rpc(
+            &self,
+            principal: &str,
+            authority: native_event_rpc::Authority,
+            scope: String,
+            name: String,
+            method: &'static str,
+            args: Value,
+        ) -> HandlerFuture<Value> {
+            let reply =
+                super::Host::rpc(&self.inner, principal, authority, scope, name, method, args);
+            if method == "__catalogStatus" && self.first_status.swap(false, Ordering::SeqCst) {
+                return Box::pin(async move {
+                    // Give the concurrent broker read one poll before revealing
+                    // that the catalog needs creation/reconciliation.
+                    let mut yielded = false;
+                    futures_util::future::poll_fn(|cx| {
+                        if yielded {
+                            Poll::Ready(())
+                        } else {
+                            yielded = true;
+                            cx.waker().wake_by_ref();
+                            Poll::Pending
+                        }
+                    })
+                    .await;
+                    reply.await
+                });
+            }
+            if method == "__streamResolve" && self.first_partition.swap(false, Ordering::SeqCst) {
+                let guard = Cancelled(self.cancelled.clone());
+                return Box::pin(async move {
+                    let _guard = guard;
+                    reply.await?;
+                    futures_util::future::pending().await
+                });
+            }
+            reply
+        }
+    }
+    let mut declared = definition();
+    declared.grants[0].read = true;
+    let (binding, declaration) = binding_declaration(false);
+    let status = json!({"state":"active","operation":super::super::raft::operation("app", &declared)?,
+        "resource":declared.resource.id,"accepted_revision":declared.revision.to_string(),
+        "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&declared)?))});
+    let mut pending = status.clone();
+    pending["state"] = json!("updating");
+    let active = json!({"state":"active","resource":binding.resource});
+    let inner = Host {
+        known: true,
+        replies: std::sync::Mutex::new(
+            vec![
+                ("__catalogStatus", pending),
+                ("__streamResolve", active.clone()),
+                ("__catalogConfigure", status.clone()),
+                ("__catalogStatus", status),
+                ("__catalogResolve", active.clone()),
+                ("__streamResolve", active),
+            ]
+            .into(),
+        ),
+    };
+    let host = Reconciling {
+        inner,
+        first_status: AtomicBool::new(true),
+        first_partition: AtomicBool::new(true),
+        cancelled: Arc::new(AtomicBool::new(false)),
+    };
+    let definitions = [("app".into(), declared)];
+    let declarations = [declaration];
+    let mut activation = Box::pin(configure(&host, &definitions, &declarations));
+    let waker = futures_util::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert!(activation.as_mut().poll(&mut cx).is_pending());
+    match activation.as_mut().poll(&mut cx) {
+        Poll::Ready(result) => assert_eq!(result?, vec![binding]),
+        Poll::Pending => panic!("speculative read blocked catalog reconciliation"),
+    }
+    assert!(host.cancelled.load(Ordering::SeqCst));
+    assert!(host.inner.replies.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn named_adoption_uses_its_current_catalog_proof_but_still_checks_the_partition() -> Result<()>
+{
+    let (binding, named) = binding_declaration(true);
+    let active = json!({"state":"active","resource":binding.resource,"revision":"1"});
+    // Name resolution already proved current catalog lifecycle and all captured
+    // grant capabilities. A second catalog read is unavailable in this host.
+    let host = Host {
+        known: false,
+        replies: std::sync::Mutex::new(
+            vec![
+                (super::super::name_resolution::METHOD, active.clone()),
+                ("__streamResolve", active.clone()),
+            ]
+            .into(),
+        ),
+    };
+    assert_eq!(
+        configure(&host, &[], &[named]).await?,
+        vec![binding.clone()]
+    );
+    assert!(host.replies.lock().unwrap().is_empty());
+    // An explicit UUID supplies no catalog proof. It cannot use the same
+    // shortcut; both independently authorized authorities must still be read.
+    let (_, explicit) = binding_declaration(false);
+    let missing_catalog = Host {
+        known: false,
+        replies: std::sync::Mutex::new(vec![("__streamResolve", active.clone())].into()),
+    };
+    assert!(
+        configure(&missing_catalog, &[], std::slice::from_ref(&explicit))
+            .await
+            .is_err()
+    );
+    let explicit_host = Host {
+        known: false,
+        replies: std::sync::Mutex::new(
+            vec![
+                ("__catalogResolve", active.clone()),
+                ("__streamResolve", active),
+            ]
+            .into(),
+        ),
+    };
+    assert_eq!(
+        configure(&explicit_host, &[], &[explicit]).await?,
+        vec![binding]
+    );
+    assert!(explicit_host.replies.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn catalog_adoption_never_replaces_partition_lifecycle_or_resource_identity() -> Result<()> {
+    for named in [false, true] {
+        let (binding, declaration) = binding_declaration(named);
+        let active = json!({"state":"active","resource":binding.resource,"revision":"1"});
+        for field in ["state", "resource"] {
+            let mut refused = active.clone();
+            if field == "state" {
+                refused["state"] = json!("retiring");
+            } else {
+                refused["resource"]["id"] = json!("f".repeat(32));
+            }
+            let catalog_method = if named {
+                super::super::name_resolution::METHOD
+            } else {
+                "__catalogResolve"
+            };
+            let host = Host {
+                known: false,
+                replies: std::sync::Mutex::new(
+                    vec![
+                        (catalog_method, active.clone()),
+                        ("__streamResolve", refused),
+                    ]
+                    .into(),
+                ),
+            };
+            assert!(configure(&host, &[], std::slice::from_ref(&declaration))
+                .await
+                .is_err());
+            assert!(
+                host.replies.lock().unwrap().is_empty(),
+                "partition check was skipped"
+            );
+        }
+    }
+    Ok(())
 }
 
 #[tokio::test]

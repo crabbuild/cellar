@@ -20,16 +20,19 @@ impl Storage {
         self.prepare_entry_with_image(base, entry, configuration, verify_existing, None)
     }
 
-    /// Only live committed apply supplies a checked producer capability.
-    /// Archive/recovery callers retain the independent replay entry point above.
-    pub(super) fn prepare_entry_with_image(
+    pub(in crate::raft::cell_groups) fn prepare_entry_with_image(
         &mut self,
         base: &PreparedGroupManifest,
         entry: &Entry,
         configuration: Option<(&ConfState, &GroupMembership)>,
         verify_existing: bool,
-        prepared: Option<&crate::raft::execution::PreparedCellImage>,
+        prepared_image: Option<&crate::raft::execution::CellPreparedImage>,
     ) -> Result<PreparedGroupManifest, ExecutionError> {
+        if verify_existing && prepared_image.is_some() {
+            return Err(ExecutionError::Invalid(
+                "recovery cannot reuse a local preparation",
+            ));
+        }
         let Storage {
             tree,
             pages,
@@ -149,7 +152,7 @@ impl Storage {
                                 max_effect_rows: *max_effect_rows,
                             },
                             verify_existing,
-                            prepared,
+                            prepared_image,
                         )?;
                         let leaf = CellManifestLeaf {
                             enrollment: record,
@@ -186,7 +189,7 @@ impl Storage {
                         max_effect_rows: *max_effect_rows,
                     },
                     verify_existing,
-                    prepared,
+                    prepared_image,
                 )?;
                 let leaf = CellManifestLeaf {
                     enrollment: old.enrollment.clone(),

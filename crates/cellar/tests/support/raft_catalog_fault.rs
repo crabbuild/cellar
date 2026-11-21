@@ -8,6 +8,77 @@ use object_store::{
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+/// Observe complete selected bodies, including cancellation, without buffering or
+/// changing the real store's stream, conditional requests or error delivery.
+struct StoreObservation {
+    started: std::time::Instant,
+    operation: &'static str,
+    ownership: bool,
+    archive_kind: Option<&'static str>,
+    bytes: usize,
+    outcome: &'static str,
+}
+
+impl StoreObservation {
+    // This external backend also observes catalog setup before a host domain
+    // exists. Instrument elapsed process time without installing a new owner.
+    #[allow(clippy::disallowed_methods)]
+    fn start(store: &Store, path: &Path, operation: &'static str) -> Option<Self> {
+        let archive_kind = (store.observe_group_archive_io.load(Ordering::Acquire)
+            && path.as_ref().contains("/cell-group-archives/"))
+        .then(|| match path.filename() {
+            Some("identity") => "identity",
+            Some("registry") => "registry",
+            _ => [
+                ("chunks", "/chunks/"),
+                ("indexes", "/indexes/"),
+                ("entries", "/entries/"),
+                ("tails", "/tails/"),
+                ("roots", "/roots/"),
+            ]
+            .into_iter()
+            .find(|(_, part)| path.as_ref().contains(*part))
+            .map_or("other-control", |(kind, _)| kind),
+        });
+        ((store.observe_cell_payloads.load(Ordering::Acquire)
+            && path.as_ref().contains("/cell-payloads-1/"))
+            || archive_kind.is_some())
+        .then(|| Self {
+            started: std::time::Instant::now(),
+            operation,
+            ownership: path.as_ref().contains("/ownership/"),
+            archive_kind,
+            bytes: 0,
+            outcome: "cancelled",
+        })
+    }
+}
+
+impl Drop for StoreObservation {
+    fn drop(&mut self) {
+        if let Some(kind) = self.archive_kind {
+            eprintln!(
+                "[DEBUG-cg17-archive-io] op={} kind={} bytes={} outcome={} elapsed_us={} at_ms={}",
+                self.operation,
+                kind,
+                self.bytes,
+                self.outcome,
+                self.started.elapsed().as_micros(),
+                cellar::asyncrt::wall_ms()
+            );
+            return;
+        }
+        eprintln!(
+            "payload observation op={} ownership={} bytes={} outcome={} elapsed_us={}",
+            self.operation,
+            self.ownership,
+            self.bytes,
+            self.outcome,
+            self.started.elapsed().as_micros()
+        );
+    }
+}
+
 fn is_managed_recovery_record(path: &Path) -> bool {
     path.as_ref()
         .contains("/fleet/managed-transition-recovery/")
@@ -159,8 +230,84 @@ impl RegistryGate {
     }
 }
 
+/// Park actual backend reads for one namespace while an SDK metadata owner is
+/// observed. This does not replace bytes, routing, admission or quorum proofs.
+#[derive(Debug)]
+pub struct NamespaceReadGate {
+    namespace: String,
+    pending: AtomicBool,
+    pub entered: AtomicUsize,
+    resume: tokio::sync::Notify,
+}
+
+/// Hold admitted archive PUTs without changing conditional-write semantics.
+/// Release wakes every waiter, including work whose response was cancelled.
+#[derive(Debug, Default)]
+pub struct ArchiveWriteGate {
+    blocked: AtomicBool,
+    pub entered: tokio::sync::Notify,
+    resumed: tokio::sync::Notify,
+}
+
+impl ArchiveWriteGate {
+    pub fn arm(&self) {
+        self.blocked.store(true, Ordering::Release);
+    }
+
+    pub fn release(&self) {
+        self.blocked.store(false, Ordering::Release);
+        self.resumed.notify_waiters();
+    }
+
+    async fn pause(&self) {
+        if !self.blocked.load(Ordering::Acquire) {
+            return;
+        }
+        loop {
+            let resumed = self.resumed.notified();
+            tokio::pin!(resumed);
+            resumed.as_mut().enable();
+            if !self.blocked.load(Ordering::Acquire) {
+                return;
+            }
+            self.entered.notify_one();
+            resumed.await;
+        }
+    }
+}
+
+impl NamespaceReadGate {
+    pub fn new(namespace: String) -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            namespace,
+            pending: AtomicBool::new(true),
+            entered: AtomicUsize::new(0),
+            resume: tokio::sync::Notify::new(),
+        })
+    }
+
+    pub fn release(&self) {
+        self.pending.store(false, Ordering::Release);
+        self.resume.notify_waiters();
+    }
+
+    async fn wait(&self) {
+        self.entered.fetch_add(1, Ordering::AcqRel);
+        loop {
+            let resumed = self.resume.notified();
+            tokio::pin!(resumed);
+            resumed.as_mut().enable();
+            if !self.pending.load(Ordering::Acquire) {
+                return;
+            }
+            resumed.await;
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Store {
+    pub binding_namespace_reads: std::sync::Mutex<Option<std::sync::Arc<NamespaceReadGate>>>,
     external: Option<std::sync::Arc<dyn ObjectStore>>,
     gate_identity: std::sync::Arc<()>,
     pub deny_routing_metadata_reads: AtomicBool,
@@ -170,6 +317,8 @@ pub struct Store {
     pub cell_payload_put_bytes: AtomicUsize,
     pub cell_payload_get_calls: AtomicUsize,
     pub cell_payload_chunk_bytes: AtomicUsize,
+    pub observe_cell_payloads: AtomicBool,
+    pub observe_group_archive_io: AtomicBool,
     pub deny_cell_payload_reads: AtomicBool,
     pub denied_cell_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
@@ -177,6 +326,9 @@ pub struct Store {
     pub denied_prefix: std::sync::Mutex<Option<Path>>,
     pub denied_prefix_reads: AtomicUsize,
     pub deny_group_archive_writes: AtomicBool,
+    pub deny_binding_settlement_writes: AtomicBool,
+    pub denied_binding_settlement_writes: AtomicUsize,
+    pub group_archive_writes: ArchiveWriteGate,
     pub denied_group_archive_writes: AtomicUsize,
     pub group_archive_puts_hang: AtomicBool,
     pub group_archive_puts_entered: AtomicUsize,
@@ -306,6 +458,7 @@ pub struct Store {
     pub view_waiting: AtomicBool,
     pub view_resume: tokio::sync::Notify,
     pub fail_directory_reads: AtomicBool,
+    pub group_head_read: RegistryGate,
     pub hold_group_head_reads: AtomicBool,
     pub active_group_head_reads: AtomicUsize,
     pub group_head_reads_resume: tokio::sync::Notify,
@@ -434,6 +587,25 @@ impl ObjectStore for Store {
                 }
                 resumed.await;
             }
+        }
+        // Only the archive export of a real settlement image triggers this
+        // cut. No command/input/result callback is fabricated by the fixture.
+        let settlement = b"__sys_raft_binding_settle";
+        if self.deny_binding_settlement_writes.load(Ordering::Acquire)
+            && path.as_ref().contains("/cell-group-archives/")
+            && payload.iter().any(|bytes| {
+                bytes
+                    .windows(settlement.len())
+                    .any(|part| part == settlement)
+            })
+        {
+            self.denied_binding_settlement_writes
+                .fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
+        let mut observation = StoreObservation::start(self, path, "put");
+        if let Some(observation) = &mut observation {
+            observation.bytes = payload.iter().map(|bytes| bytes.len()).sum();
         }
         if path.as_ref().contains("/cell-payloads-1/")
             && !path.as_ref().contains("/cell-payloads-1/ownership/")
@@ -583,12 +755,13 @@ impl ObjectStore for Store {
                 return Err(failure());
             }
         }
-        if path.as_ref().contains("/cell-group-archives/")
-            && self.deny_group_archive_writes.load(Ordering::Acquire)
-        {
-            self.denied_group_archive_writes
-                .fetch_add(1, Ordering::AcqRel);
-            return Err(failure());
+        if path.as_ref().contains("/cell-group-archives/") {
+            self.group_archive_writes.pause().await;
+            if self.deny_group_archive_writes.load(Ordering::Acquire) {
+                self.denied_group_archive_writes
+                    .fetch_add(1, Ordering::AcqRel);
+                return Err(failure());
+            }
         }
         if path.as_ref().contains("/cell-group-archives/")
             && path.as_ref().ends_with("/ownership/registry")
@@ -632,7 +805,12 @@ impl ObjectStore for Store {
             path.as_ref().ends_with("/cell-groups/head") && matches!(options.mode, PutMode::Create);
         let group_birth = path.as_ref().contains("/cell-groups/births/")
             && matches!(options.mode, PutMode::Create);
-        let result = self.backend().put_opts(path, payload, options).await?;
+        let result = self.backend().put_opts(path, payload, options).await;
+        if let Some(observation) = &mut observation {
+            observation.outcome = if result.is_ok() { "complete" } else { "error" };
+        }
+        drop(observation);
+        let result = result?;
         if directory_cas {
             let _ = DIRECTORY_CONFIRMATION.try_with(|state| {
                 if state.get() == DirectoryConfirmation::WaitingForWrite {
@@ -780,6 +958,14 @@ impl ObjectStore for Store {
         }
         if path.as_ref().contains("/cell-groups/ranges/") {
             self.range_page_reads.fetch_add(1, Ordering::AcqRel);
+        }
+        let mut observation = StoreObservation::start(self, path, "get");
+        if path.as_ref().ends_with("/cell-groups/head") {
+            self.group_head_read.pause().await;
+        }
+        let gate = self.binding_namespace_reads.lock().unwrap().clone();
+        if let Some(gate) = gate.filter(|gate| path.as_ref().contains(&gate.namespace)) {
+            gate.wait().await;
         }
         if path.as_ref().contains("/cell-payloads-1/")
             && !path.as_ref().contains("/cell-payloads-1/ownership/")
@@ -1153,7 +1339,11 @@ impl ObjectStore for Store {
         if self.fail_read.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
-        let mut result = self.backend().get_opts(path, options).await?;
+        let result = self.backend().get_opts(path, options).await;
+        if let Some(observation) = &mut observation {
+            observation.outcome = if result.is_ok() { "cancelled" } else { "error" };
+        }
+        let mut result = result?;
         // Retain the real response selected by this GET, including its body and
         // version, while a later CAS can advance the directory independently.
         let gate = self
@@ -1240,6 +1430,33 @@ impl ObjectStore for Store {
                         chunks.fetch_add(1, Ordering::AcqRel);
                     })
                     .boxed(),
+            );
+        }
+        if let Some(observation) = observation {
+            let GetResultPayload::Stream(stream) = result.payload;
+            result.payload = GetResultPayload::Stream(
+                futures_util::stream::unfold(
+                    (stream, observation),
+                    |(mut stream, mut observation)| async move {
+                        match stream.next().await {
+                            Some(item) => {
+                                match &item {
+                                    Ok(bytes) => observation.bytes += bytes.len(),
+                                    Err(_) => observation.outcome = "error",
+                                }
+                                Some((item, (stream, observation)))
+                            }
+                            None => {
+                                if observation.outcome != "error" {
+                                    observation.outcome = "complete";
+                                }
+                                drop(observation);
+                                None
+                            }
+                        }
+                    },
+                )
+                .boxed(),
             );
         }
         Ok(result)

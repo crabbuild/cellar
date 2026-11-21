@@ -47,6 +47,10 @@ pub(crate) struct Resources {
     pub(crate) filesystem: super::filesystem::Registry,
     pub(crate) filesystem_policy: Mutex<Option<super::filesystem::RaftPolicy>>,
     pub(crate) event_source: std::sync::OnceLock<Arc<EventSourceConfiguration>>,
+    pub(crate) provider_bindings:
+        std::sync::OnceLock<Arc<super::container_bindings::ProviderDeclarations>>,
+    pub(crate) provider_supervision:
+        std::sync::OnceLock<Arc<super::container_supervision::Supervision>>,
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,

@@ -3,10 +3,12 @@
 use super::super::PreparedGroupManifest;
 use super::{objects::Object, *};
 use crate::raft::{cache::GroupLog, member_state::GroupMembership};
+use futures_util::{stream::FuturesOrdered, StreamExt};
 use raft::prelude::ConfState;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const TAIL_DOMAIN: &str = "cellar-cell-group-archive-tail-1";
+const TAIL_READ_WINDOW: usize = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -743,11 +745,34 @@ impl CellGroupArchive {
                     .read_tail_index(domain, reference, limits, io.clone(), retention.clone())
                     .await?;
                 let mut encoded = Vec::with_capacity(tail.entries.len());
-                for entry in &tail.entries {
-                    encoded.push(
-                        self.get("entries", &entry.object, limits.max_tail_bytes)
-                            .await?,
-                    );
+                // The validated sum of all encoded entries is charged to the
+                // tail pool's existing four-copy workspace. Overlap two body
+                // downloads without tasks, retaining descriptor order for the
+                // independent decode/replay below. On error, stop extending
+                // the window and join its remaining reads before releasing I/O
+                // or replay admission, including their owned response buffers.
+                let mut remaining = tail.entries.iter();
+                let mut reads = FuturesOrdered::new();
+                let mut failure = None;
+                loop {
+                    while failure.is_none() && reads.len() < TAIL_READ_WINDOW {
+                        let Some(entry) = remaining.next() else {
+                            break;
+                        };
+                        reads.push_back(self.get("entries", &entry.object, limits.max_tail_bytes));
+                    }
+                    let Some(result) = reads.next().await else {
+                        break;
+                    };
+                    match result {
+                        Ok(bytes) if failure.is_none() => encoded.push(bytes),
+                        Err(error) if failure.is_none() => failure = Some(error),
+                        _ => (),
+                    }
+                }
+                drop(reads);
+                if let Some(error) = failure {
+                    return Err(error);
                 }
                 let retained = retention.clone();
                 let retained_io = io.clone();

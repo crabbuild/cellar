@@ -68,15 +68,17 @@ fn exact_preparation_requires_input_engine_group_and_validation_profile() -> any
     let group = group()?;
     let bytes = b"exact encoded entry, including every LTX byte and declaration";
     let limits = store.apply_limits();
-    let prepared = PreparedCellImage::new(engine.clone(), group, bytes, limits, &preview);
-    assert!(prepared.matches(&engine, group, bytes));
-    assert!(!prepared.matches(&Arc::new(()), group, bytes));
+    let prepared =
+        CellPreparedImage::new(engine.clone(), group, Term::new(1), bytes, &preview, limits);
+    assert!(prepared.accepts(&engine, group, Term::new(1), bytes));
+    assert!(!prepared.accepts(&Arc::new(()), group, Term::new(1), bytes));
     let mut other = group;
     other.incarnation = IncarnationId::new([9; 16])?;
-    assert!(!prepared.matches(&engine, other, bytes));
-    assert!(!prepared.matches(
+    assert!(!prepared.accepts(&engine, other, Term::new(1), bytes));
+    assert!(!prepared.accepts(
         &engine,
         group,
+        Term::new(1),
         b"different input with the same expected image"
     ));
     assert!(prepared.image(limits).is_some());
@@ -101,8 +103,14 @@ fn submission_clones_do_not_retain_prepared_images_after_producer_closes() -> an
     let engine = Arc::new(());
     let group = group()?;
     let bytes = b"exact encoded entry";
-    let image =
-        PreparedCellImage::new(engine.clone(), group, bytes, store.apply_limits(), &preview);
+    let image = CellPreparedImage::new(
+        engine.clone(),
+        group,
+        Term::new(1),
+        bytes,
+        &preview,
+        store.apply_limits(),
+    );
     let command = CellPreparedCommand::new(
         bytes.to_vec(),
         ProposalId::new([1; 16])?,
@@ -110,7 +118,7 @@ fn submission_clones_do_not_retain_prepared_images_after_producer_closes() -> an
         group,
         engine,
     )
-    .with_image(&image);
+    .with_prepared_image(&image);
     let clone = command.clone();
     let id = match &preview {
         Preview::Materialized(pin) => pin.id(),
@@ -120,10 +128,10 @@ fn submission_clones_do_not_retain_prepared_images_after_producer_closes() -> an
     drop(preview);
     store.reclaim(16)?;
     assert_eq!(store.usage()?.generations, 1);
-    assert!(clone.prepared_image().unwrap().upgrade().is_some());
+    assert!(clone.prepared_image().upgrade().is_some());
     drop(image);
-    assert!(command.prepared_image().unwrap().upgrade().is_none());
-    assert!(clone.prepared_image().unwrap().upgrade().is_none());
+    assert!(command.prepared_image().upgrade().is_none());
+    assert!(clone.prepared_image().upgrade().is_none());
     store.reclaim(16)?;
     assert_eq!(store.usage()?.generations, 0);
     Ok(())

@@ -42,10 +42,16 @@ impl DueEffect {
                 crate::application::consensus::native_work::OPERATION.into(),
                 serde_json::to_vec(work)?,
             ),
-            Self::Binding(pending) => (
-                crate::storage::raft_binding_recovery::CLAIM.into(),
-                serde_json::to_vec(&pending.key)?,
-            ),
+            Self::Binding(pending) => {
+                ensure!(
+                    pending.confirmation.is_none(),
+                    CommandFailure::UnsupportedCapability
+                );
+                (
+                    crate::storage::raft_binding_recovery::CLAIM.into(),
+                    serde_json::to_vec(&pending.key)?,
+                )
+            }
             Self::Payload(key) => (
                 crate::storage::raft_payloads::RETIRE.into(),
                 serde_json::to_vec(key)?,
@@ -124,7 +130,7 @@ fn scan_connection(
     };
     // Alternate existing work with binding recovery. A hot binding lane cannot
     // indefinitely starve alarms/outbox work in the same cell.
-    let previous_binding:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_receipts r JOIN __sys_raft_clients c ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1 AND r.operation IN('__sys_raft_binding_claim','__sys_raft_binding_settle','__sys_raft_payload_retire'))",[client.bytes().as_slice()],|row|row.get(0))?;
+    let previous_binding:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_receipts r JOIN __sys_raft_clients c ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1 AND r.operation IN('__sys_raft_binding_claim','__sys_raft_binding_settle','__sys_raft_binding_confirm','__sys_raft_payload_retire'))",[client.bytes().as_slice()],|row|row.get(0))?;
     let other = if previous.is_some_and(|operation| {
         operation.starts_with("__sys_raft_alarm_")
             || operation == crate::application::consensus::native_work::OPERATION

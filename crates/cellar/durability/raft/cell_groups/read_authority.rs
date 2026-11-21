@@ -24,6 +24,14 @@ pub enum CellReadConsistency {
     /// The dispatcher must first authenticate the version and its schema/lineage.
     AtLeast(CellVersion),
     Linearizable,
+    /// Wait for this logical cell to advance, then use a fresh quorum barrier.
+    LinearizableAfter(CellVersion),
+}
+
+impl CellReadConsistency {
+    pub(super) fn is_linearizable(&self) -> bool {
+        matches!(self, Self::Linearizable | Self::LinearizableAfter(_))
+    }
 }
 
 pub(super) struct ReadSelection {

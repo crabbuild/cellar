@@ -7,7 +7,7 @@ pub(crate) use dependencies::archive_dependencies;
 
 #[path = "cell_group_s3_output.rs"]
 mod output;
-pub(crate) use output::output_during_apply;
+pub(crate) use output::{output_during_apply, output_progress};
 
 #[path = "cell_group_s3_outage.rs"]
 mod outage;
@@ -20,7 +20,7 @@ mod receipts;
 #[path = "cell_group_s3_remote.rs"]
 mod remote;
 use super::*;
-#[path = "cell_group_archive_retirement.rs"]
+#[path = "cell_group_archive_retirement_coalescing.rs"]
 mod retirement;
 pub(crate) use enrollment::{
     enrollment_output_during_apply, s3_enrollment, s3_enrollment_deadline,
@@ -28,6 +28,7 @@ pub(crate) use enrollment::{
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
+    s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
     s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
@@ -62,12 +63,17 @@ struct Harness {
     remote: Arc<archive_controller::archive_store::Store>,
     calls: Arc<AtomicUsize>,
     initializations: Arc<AtomicUsize>,
+    background_archives: Vec<(
+        CellGroupArchiveRegistration,
+        Arc<archive_controller::archive_store::Store>,
+    )>,
     retry_until: u64,
 }
 
 enum Resources {
     SlowMaintenance,
     BackgroundCoalescing,
+    QueuedBackgroundArchives,
     Retention(CellGroupLogRetentionLimits),
     Storage {
         root: tempfile::TempDir,
@@ -216,7 +222,11 @@ impl Harness {
         );
         let mut limits = controller::limits();
         limits.max_commands = max_commands;
-        if slow_maintenance {
+        let queued_background = matches!(&resources, Some(Resources::QueuedBackgroundArchives));
+        if queued_background {
+            limits.max_groups = 3;
+        }
+        if matches!(resources, Some(Resources::SlowMaintenance)) {
             limits.retry_interval_ms = 60_000;
         }
         let (mut fixture, route, cell, _) = if let Some(Resources::Retention(retention)) = resources
@@ -261,7 +271,7 @@ impl Harness {
             } else {
                 ExecutionDomain::new(tokio::runtime::Handle::current())
             };
-            let cluster = Cluster::with_store_birth_in_domain(
+            let cluster = Cluster::with_store_birth_domain(
                 RaftRuntimeOptions::default(),
                 root,
                 filesystem.clone(),
@@ -300,7 +310,45 @@ impl Harness {
         if send_buffer.is_some() {
             fixture.connect_tcp_with_query_buffer(send_buffer).await?;
         }
+        let mut background_archives = Vec::new();
+        if queued_background {
+            for number in [31, 41] {
+                let (directory, birth) = fixture
+                    .add_group_in_store(number, fixture.cluster.store.clone(), |_| {
+                        Arc::new(DirectFileSystem)
+                    })
+                    .await?;
+                controller::attach_group_appliers(
+                    &mut fixture,
+                    route.history,
+                    birth.route().history,
+                )
+                .await?;
+                let (mut config, remote) =
+                    archive_controller::registration_for(&fixture, &directory, &birth, false)
+                        .await?;
+                config.io = archive.io.clone();
+                config.owners = archive.owners.clone();
+                config.tails = archive.tails.clone();
+                config.checkpoints = archive.checkpoints.clone();
+                config.scratch = archive.scratch.clone();
+                background_archives.push((config, remote));
+            }
+        }
         let controllers = controller::start_with_limits(&mut fixture, limits).await?;
+        for (config, _) in &background_archives {
+            let group = config.birth.route().history;
+            fixture.runtimes[0].campaign(group).await?;
+            controller::wait_for(async || Ok(fixture.runtimes[0].status(group).await?.ready))
+                .await?;
+            controllers[0].archive(config.clone())?.response().await?;
+            archive_controller::published(
+                &controllers[0],
+                group,
+                fixture.runtimes[0].status(group).await?.applied.index,
+            )
+            .await?;
+        }
         controllers[0].archive(archive.clone())?.response().await?;
         archive_controller::published(
             &controllers[0],
@@ -346,6 +394,7 @@ impl Harness {
             remote,
             calls,
             initializations,
+            background_archives,
             retry_until,
         })
     }
@@ -430,6 +479,7 @@ impl Harness {
         }
         drop(self.dispatcher);
         drop(self.archive);
+        drop(self.background_archives);
         self.fixture.close().await
     }
 }

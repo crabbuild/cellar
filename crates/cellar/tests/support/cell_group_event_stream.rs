@@ -3,6 +3,16 @@
 //! Public publication, leased delivery and source/inbox recovery on shared RF3.
 
 use super::*;
+
+#[path = "cell_group_event_ack_recovery.rs"]
+mod ack_recovery;
+#[path = "cell_group_event_activation.rs"]
+mod activation;
+
+pub async fn qualify_ack_recovery(real: bool, minimum: Durability) -> Result<()> {
+    Box::pin(ack_recovery::qualify(real, minimum)).await
+}
+pub use activation::qualify as qualify_retained_metadata;
 use cellar::sdk::event_stream::{self as events, BatchOptions, Event, Stream};
 use cellar::sdk::OutboxOptions;
 use serde::Serialize;
@@ -99,7 +109,7 @@ pub fn registration() -> Result<()> {
     Ok(())
 }
 
-struct Caller(Stream<Order>);
+struct Caller(Stream<Order>, Option<Arc<ack_recovery::AckCut>>);
 
 impl Cell for Caller {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
@@ -175,7 +185,24 @@ impl Cell for Caller {
                         .map(|record| &record.event)
                         .collect::<Vec<_>>())
                 }
-                "Consume" => {
+                "RecoveryReady" => {
+                    let mut clear = false;
+                    let attempted: Result<()> = storage.transaction_sync(|tx| {
+                        tx.delete_all()?;
+                        clear = true;
+                        anyhow::bail!("rollback business and framework recovery probe")
+                    });
+                    ensure!(attempted.is_err());
+                    json!(clear)
+                }
+                "Consume" | "HoldAck" => {
+                    if method == "HoldAck" {
+                        self.1
+                            .as_ref()
+                            .context("Ack cut observer")?
+                            .calls
+                            .fetch_add(1, Ordering::AcqRel);
+                    }
                     let subscription = self.0.subscription("fulfillment")?;
                     let Some(batch) = subscription
                         .next_with_id(
@@ -206,7 +233,16 @@ impl Cell for Caller {
                     storage.sync().await?;
                     let receipt = batch.receipt().encode()?;
                     if args["ack"].as_bool() == Some(true) {
-                        batch.ack(&context).await?;
+                        let outcome = batch.ack(&context).await?;
+                        if method == "HoldAck" {
+                            ensure!(outcome == events::Acknowledgment::Acknowledged);
+                            let cut = self.1.as_ref().context("Ack cut observer")?;
+                            *cut.receipt.lock().unwrap() = Some(receipt.clone());
+                            cut.committed.notify_one();
+                            // Lose only the parent response, after the actual
+                            // child Ack satisfied its independent durability.
+                            return std::future::pending().await;
+                        }
                     }
                     json!({"receipt":receipt,"expires_ms":batch.expires_at_ms,"effects":storage.get_json("effects")?,"records":batch.records.iter().map(|r|&r.event).collect::<Vec<_>>()})
                 }
@@ -309,6 +345,23 @@ fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptio
 fn application_with_selector(
     named: bool,
 ) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    application_for_selector(named, None)
+}
+
+fn application_with_ack_cut(
+    cut: Option<Arc<ack_recovery::AckCut>>,
+) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    let (app, options) = application_for_selector(false, cut)?;
+    // Configuration validation installs the compiled stream/catalog classes,
+    // exactly as in the ordinary application fixture, before resolving them.
+    app.validate_configuration(&options)?;
+    Ok((app, options))
+}
+
+fn application_for_selector(
+    named: bool,
+    cut: Option<Arc<ack_recovery::AckCut>>,
+) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
     let mut class =
         RaftClass::new("Counter", 1, [171; 32])?.initializer([172; 32], |_, _| Ok(()))?;
     for (index, name) in [
@@ -333,6 +386,11 @@ fn application_with_selector(
     .enumerate()
     {
         class = class.json_cell_rpc(name, [u8::try_from(index + 173)?; 32])?;
+    }
+    if cut.is_some() {
+        class = class
+            .json_cell_rpc("HoldAck", [229; 32])?
+            .json_cell_rpc("RecoveryReady", [230; 32])?;
     }
     let app = Arc::new(
         Registry::new(|context, invocation| {
@@ -382,8 +440,8 @@ fn application_with_selector(
             })
         })
         .raft_event_stream(definition())?
-        .raft_cell(class, |context, _| {
-            Ok(Arc::new(Caller(context.stream("ORDERS")?)))
+        .raft_cell(class, move |context, _| {
+            Ok(Arc::new(Caller(context.stream("ORDERS")?, cut.clone())))
         })?,
     );
     let mut options = configuration::options(SCRIPT);
@@ -439,9 +497,30 @@ async fn call_options(
         let encoded = serde_json::to_vec(&input)?;
         let deadline =
             cellar::asyncrt::mono_ms().saturating_add(u64::try_from(options.timeout.as_millis())?);
+        let before = cluster
+            .hosts
+            .iter()
+            .map(|host| host.performance())
+            .collect::<Vec<_>>();
+        eprintln!(
+            "EventStream command start cell={} method={method} sequence={} at_ms={}",
+            history.cell.as_str(),
+            id.sequence(),
+            cellar::asyncrt::mono_ms()
+        );
         let mut response = cell
             .command(&contract, encoded.clone(), options.clone())
             .await;
+        eprintln!(
+            "EventStream command response cell={} method={method} sequence={} ok={} at_ms={}",
+            history.cell.as_str(),
+            id.sequence(),
+            response.is_ok(),
+            cellar::asyncrt::mono_ms()
+        );
+        if response.is_err() || cellar::asyncrt::mono_ms().saturating_add(2000) >= deadline {
+            report_progress(cluster, &before, method);
+        }
         loop {
             let refused = response.as_ref().err().is_some_and(|error| {
                 !error.ambiguous
@@ -544,9 +623,27 @@ async fn call_options(
     }
 }
 
+fn report_progress(cluster: &ManagedCluster, before: &[RaftPerformanceSnapshot], method: &str) {
+    for (node, (before, host)) in before.iter().zip(&cluster.hosts).enumerate() {
+        let after = host.performance();
+        let operations = before.operations.iter().zip(&after.operations)
+            .filter(|(a, b)| a.started != b.started || a.sum_us != b.sum_us)
+            .map(|(a, b)| json!({"name":b.name,"started":b.started.checked_sub(a.started),
+                "succeeded":b.succeeded.checked_sub(a.succeeded),"failed":b.failed.checked_sub(a.failed),
+                "abandoned":b.abandoned.checked_sub(a.abandoned),"sum_us":b.sum_us.checked_sub(a.sum_us)}))
+            .collect::<Vec<_>>();
+        eprintln!(
+            "EventStream progress {}",
+            json!({"node":node,"method":method,
+            "same_source":before.source==after.source,"available":before.available && after.available,
+            "saturated":before.saturated || after.saturated,"operations":operations})
+        );
+    }
+}
+
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug")
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug,cellar::raft::sql_publish=trace,cellar::raft::cell_reconciliation=trace,cellar::raft::group_archive=debug")
         .try_init();
     for rooted in [false, true] {
         eprintln!("EventStream RustFS={real_rustfs} extents={rooted} Axum={external}: START");
@@ -606,7 +703,12 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
                 named_service::activate_at(&cluster, "stream-archive", 0).await?;
                 named_service::activate_at(&cluster, "catalog-archive", 1).await?;
                 for (index, node) in cluster.nodes.iter().enumerate() {
-                    node.activate_event_resources().await.with_context(|| format!("initial explicit event activation node={index}"))?;
+                    let before = cluster.hosts.iter().map(|host| host.performance()).collect::<Vec<_>>();
+                    eprintln!("EventStream activation node={index}: START at_ms={}", cellar::asyncrt::mono_ms());
+                    let activated = node.activate_event_resources().await;
+                    eprintln!("EventStream activation node={index}: ok={} at_ms={}", activated.is_ok(), cellar::asyncrt::mono_ms());
+                    report_progress(&cluster, &before, "activation");
+                    activated.with_context(|| format!("initial explicit event activation node={index}"))?;
                 }
                 let source = CellHistory {
                     cluster: cluster.history.cluster,

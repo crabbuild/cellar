@@ -298,9 +298,13 @@ pub(crate) enum Counter {
     SqlPrivateOpenRefusals,
     CellCommandSubmissionRejections,
     CellCommandSettlementOverloads,
+    CellNameSelections,
+    CellBindingRecoveryClaims,
+    CellBindingRecoverySettlements,
+    CellIngressSequenceHints,
 }
 
-const COUNTERS: [Counter; 78] = [
+const COUNTERS: [Counter; 82] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -379,6 +383,10 @@ const COUNTERS: [Counter; 78] = [
     Counter::SqlPrivateOpenRefusals,
     Counter::CellCommandSubmissionRejections,
     Counter::CellCommandSettlementOverloads,
+    Counter::CellNameSelections,
+    Counter::CellBindingRecoveryClaims,
+    Counter::CellBindingRecoverySettlements,
+    Counter::CellIngressSequenceHints,
 ];
 
 impl Counter {
@@ -392,6 +400,10 @@ impl Counter {
             Self::SqlPrivateOpenRefusals => "sql_private_open_refusals",
             Self::CellCommandSubmissionRejections => "cell_command_submission_rejections",
             Self::CellCommandSettlementOverloads => "cell_command_settlement_overloads",
+            Self::CellIngressSequenceHints => "cell_ingress_sequence_hints",
+            Self::CellBindingRecoveryClaims => "cell_binding_recovery_claims",
+            Self::CellBindingRecoverySettlements => "cell_binding_recovery_settlements",
+            Self::CellNameSelections => "cell_name_quorum_selections",
             Self::CellKvResolvedPayloadPreparations => "cell_kv_resolved_payload_preparations",
             Self::CellKvLocalPayloadPreparations => "cell_kv_local_payload_preparations",
             Self::CellBindingAppliedHistoryHints => "cell_binding_applied_history_hints",

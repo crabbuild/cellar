@@ -1,0 +1,451 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Recover expired binding obligations while all original hosts keep running.
+
+use super::*;
+
+const SETTLEMENTS: &str = "cell_binding_recovery_settlements";
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Cut {
+    Checkpoint,
+    Unused,
+}
+
+async fn run(
+    rooted: bool,
+    minimum: Durability,
+    store: Arc<catalog_fault::Store>,
+    cut: Cut,
+) -> Result<()> {
+    run_case(rooted, minimum, store, cut, false).await
+}
+
+struct SettlementCut(Arc<catalog_fault::Store>);
+
+impl Drop for SettlementCut {
+    fn drop(&mut self) {
+        self.0
+            .deny_binding_settlement_writes
+            .store(false, Ordering::Release);
+    }
+}
+
+async fn run_case(
+    rooted: bool,
+    minimum: Durability,
+    store: Arc<catalog_fault::Store>,
+    cut: Cut,
+    lose_settlement: bool,
+) -> Result<()> {
+    let checkpoint = Arc::new(Notify::new());
+    let observer = Arc::new(bindings::RecoveryObserver::default());
+    let observed_store = store.clone();
+    let mut cluster = Box::pin(bindings::start_with_recovery_observer(
+        rooted,
+        store,
+        checkpoint.clone(),
+        Some(observer.clone()),
+    ))
+    .await?;
+    let domain = cluster.fixtures[0].domain.clone();
+    let restore = SettlementCut(observed_store.clone());
+    let work = domain
+        .run(async {
+            let group = cluster.history;
+            let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+            let source = cluster.hosts[leader].cell(CellHistory {
+                cluster: group.cluster,
+                namespace: group.namespace,
+                cell: bindings::identity("source")?,
+                incarnation: IncarnationId::new([119; 16])?,
+            })?;
+            source
+                .enroll(
+                    CellEnrollmentRequest {
+                        creation: ProposalId::new([120; 16])?,
+                        durability: minimum,
+                    },
+                    TIMEOUT,
+                )
+                .await.context("live recovery source enrollment")?;
+            let original = bindings::options(1, minimum)?;
+            ensure!(original.timeout == TIMEOUT);
+            let initial: Vec<_> = cluster.hosts.iter().map(RaftCells::performance).collect();
+            let (method, target_name, next_method, before, after) = match cut {
+                Cut::Checkpoint => ("Abandon", "held-target", "Again", b"1".as_slice(), 3),
+                Cut::Unused => (
+                    "Refused",
+                    "refused-target",
+                    "AgainRefused",
+                    b"0".as_slice(),
+                    2,
+                ),
+            };
+            let contract = source.contract(method)?;
+            observed_store.deny_binding_settlement_writes.store(lose_settlement, Ordering::Release);
+            let rejected_before_recovery = match cut {
+                Cut::Checkpoint => {
+                    let call = source
+                        .command(&contract, b"{}".to_vec(), original.clone())
+                        .boxed();
+                    let call = cellar::asyncrt::timeout(TIMEOUT, async {
+                        match futures_util::future::select(call, checkpoint.notified().boxed())
+                            .await
+                        {
+                            futures_util::future::Either::Left((result, _)) => {
+                                anyhow::bail!(
+                                    "binding returned before the target checkpoint: {result:?}"
+                                )
+                            }
+                            futures_util::future::Either::Right(((), call)) => Ok(call),
+                        }
+                    })
+                    .await
+                    .context("target checkpoint within the original request budget")??;
+                    let error = call
+                        .await
+                        .err()
+                        .context("held child cannot produce a final response")?;
+                    ensure!(
+                        error.ambiguous,
+                        "committed checkpoint must remain unknown: {error}"
+                    );
+                    0
+                }
+                Cut::Unused => {
+                    let receipt = source
+                        .command(&contract, b"{}".to_vec(), original.clone())
+                        .await.context("unused-sequence parent before recovery")?;
+                    ensure!(receipt.result == b"true");
+                    let rejected = observer.rejected.load(Ordering::Acquire);
+                    ensure!(
+                        rejected != 0,
+                        "unused-sequence cut must reach the refusing target"
+                    );
+                    // The completed parent does not shorten its outgoing intent's
+                    // original deadline. Do not ask recovery to steal a live lane.
+                    cellar::asyncrt::sleep(TIMEOUT).await;
+                    rejected
+                }
+            };
+            // Observe only synchronous host metrics until the node-owned worker
+            // confirms settlement. Application probes cannot drive this phase.
+            let recovery_deadline = cellar::asyncrt::mono_ms() + 60_000;
+            if lose_settlement {
+                cellar::asyncrt::timeout(Duration::from_secs(20), async {
+                    while observed_store.denied_binding_settlement_writes.load(Ordering::Acquire) == 0 {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                }).await.context("actual settlement archive output cut was not reached")?;
+                // Force the admitted maintenance operation's original window
+                // to expire. Only the store fault is released; no request is
+                // retried, no deadline changed and no application probe sent.
+                cellar::asyncrt::sleep(Duration::from_millis(RaftEffectOptions::default().operation_timeout_ms + 250)).await;
+                observed_store.deny_binding_settlement_writes.store(false, Ordering::Release);
+            }
+            cellar::asyncrt::sleep(Duration::from_secs(2)).await;
+            let end = if lose_settlement { recovery_deadline } else { cellar::asyncrt::mono_ms() + 60_000 };
+            loop {
+                let mut observed = false;
+                for (host, initial) in cluster.hosts.iter().zip(&initial) {
+                    let current = host.performance();
+                    ensure!(current.available && !current.saturated && initial.available && !initial.saturated,
+                        "recovery observations must be available and unsaturated");
+                    ensure!(current.source == initial.source, "a voter owner restarted during live recovery");
+                    let before = initial.counters.iter().find(|counter| counter.name == SETTLEMENTS)
+                        .map_or(0, |counter| counter.value);
+                    let current = current.counters.iter().find(|counter| counter.name == SETTLEMENTS)
+                        .context("binding recovery settlement observation is missing")?.value;
+                    ensure!(current >= before, "binding recovery counter moved backwards");
+                    observed |= current > before;
+                }
+                if observed {
+                    break;
+                }
+                ensure!(
+                    cellar::asyncrt::mono_ms() < end,
+                    "live recovery did not confirm settlement without application traffic"
+                );
+                cellar::asyncrt::sleep(Duration::from_millis(100)).await;
+            }
+            // The metric is a historical observation, never serving authority.
+            // Now check the real committed obligation guard and business state.
+            let probe = source.command(&source.contract("RecoveryProbe")?, b"{}".to_vec(),
+                bindings::options(2, minimum)?).await.context("readiness after autonomous settlement")?;
+            ensure!(probe.result == b"true", "observed settlement left a binding obligation");
+            let sequence = 3;
+            let target_history = cluster.hosts[leader]
+                .resolve_cell_history(
+                    group.cluster,
+                    group.namespace,
+                    bindings::identity(target_name)?,
+                    QueryOptions::default(),
+                )
+                .await?
+                .context("recovery must retain or enroll the original target")?;
+            let target = cluster.hosts[leader].cell(target_history)?;
+            let value = target
+                .query(
+                    ProposalId::new([130; 16])?,
+                    &target.contract("Get")?,
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        ..Default::default()
+                    },
+                )
+                .await.context("target state after recovery, before next child")?;
+            ensure!(
+                value.result == before,
+                "recovery executed or repeated the child business mutation"
+            );
+            let replay = source.command(&contract, b"{}".to_vec(), original).await;
+            match cut {
+                Cut::Checkpoint => ensure!(
+                    replay
+                        .err()
+                        .context("original parent result must stay unknown")?
+                        .ambiguous
+                ),
+                Cut::Unused => ensure!(
+                    replay?.result == b"true",
+                    "recovery changed the completed parent receipt"
+                ),
+            }
+            ensure!(
+                observer.rejected.load(Ordering::Acquire) == rejected_before_recovery,
+                "recovery or parent replay redispatched the refusing target callback"
+            );
+            let before_next: Vec<_> = cluster.hosts.iter().map(RaftCells::performance).collect();
+            let before_reads = store_reads(&observed_store);
+            let result = source
+                .command(
+                    &source.contract(next_method)?,
+                    b"{}".to_vec(),
+                    bindings::options(sequence, minimum)?,
+                )
+                .await;
+            // Existing store counters include concurrent owner work. This
+            // records I/O categories, not exclusive request cost or authority.
+            let read_delta: std::collections::BTreeMap<_, _> = store_reads(&observed_store)
+                .into_iter().zip(before_reads)
+                .map(|((name, after), (_, before))| (name, after.saturating_sub(before)))
+                .collect();
+            let observations = progress(&cluster.hosts, &before_next);
+            eprintln!("live_binding_request_observations {}", json!({
+                "cut": format!("{cut:?}"), "extents": rooted,
+                "minimum": format!("{minimum:?}"),
+                "callback_phase": observer.next_phase.load(Ordering::Acquire),
+                "succeeded": result.is_ok(), "store_reads": read_delta,
+                "owners": &observations,
+            }));
+            let next = result.with_context(|| format!(
+                    "first {next_method} child after recovered lane, parent sequence {sequence}; callback phase={} (0=before source,1=source entered,2=child entered,3=child business finished,4=source resumed); observations={}",
+                    observer.next_phase.load(Ordering::Acquire),
+                    observations,
+                ))?;
+            ensure!(
+                serde_json::from_slice::<serde_json::Value>(&next.result)?
+                    == json!({"value": after, "name": target_name}),
+                "next child did not advance beyond the retired sequence"
+            );
+            let source_value = source
+                .query(
+                    ProposalId::new([132; 16])?,
+                    &source.contract("Get")?,
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        ..Default::default()
+                    },
+                )
+                .await.context("source state after the next child")?;
+            ensure!(
+                source_value.result == b"0",
+                "recovery probes published business writes"
+            );
+            ensure!(
+                cluster.nodes.len() == 3,
+                "all original voter owners must stay alive"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(std::convert::identity);
+    drop(restore);
+    let joined =
+        managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
+            .await;
+    if work.is_err() || joined.is_err() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!(
+                "retained live-binding-recovery disk: {}",
+                root.keep().display()
+            );
+        }
+    }
+    domain.shutdown().await;
+    work?;
+    joined
+}
+
+fn store_reads(store: &catalog_fault::Store) -> [(&'static str, usize); 7] {
+    [
+        (
+            "group_chunks",
+            store.group_payload_reads.load(Ordering::Acquire),
+        ),
+        (
+            "archive_payloads",
+            store.archive_payload_reads.load(Ordering::Acquire),
+        ),
+        (
+            "snapshot_parts",
+            store.snapshot_part_reads.load(Ordering::Acquire),
+        ),
+        (
+            "root_extents",
+            store.root_extent_reads.load(Ordering::Acquire),
+        ),
+        (
+            "root_extent_hits",
+            store.root_extent_hits.load(Ordering::Acquire),
+        ),
+        (
+            "cell_payloads",
+            store.cell_payload_get_calls.load(Ordering::Acquire),
+        ),
+        ("views", store.view_reads.load(Ordering::Acquire)),
+    ]
+}
+
+// Owner observations around one request. Concurrent owner work can
+// contribute to these deltas; they establish neither authority nor causality.
+fn progress(hosts: &[RaftCells], before: &[RaftPerformanceSnapshot]) -> serde_json::Value {
+    json!(hosts
+        .iter()
+        .zip(before)
+        .map(|(host, before)| {
+            let after = host.performance();
+            let counters: Vec<_> = after
+                .counters
+                .iter()
+                .zip(&before.counters)
+                .filter(|(after, before)| after.name == before.name && after.value > before.value)
+                .map(|(after, before)| json!({"name": after.name, "delta": after.value - before.value}))
+                .collect();
+            let operations: Vec<_> = after
+                .operations
+                .iter()
+                .zip(&before.operations)
+                .filter(|(after, before)| after.name == before.name && after.started > before.started)
+                .map(|(after, before)| {
+                        json!({"name": after.name,
+                    "started": after.started.saturating_sub(before.started),
+                    "succeeded": after.succeeded.saturating_sub(before.succeeded),
+                    "failed": after.failed.saturating_sub(before.failed),
+                    "abandoned": after.abandoned.saturating_sub(before.abandoned),
+                    "sum_us": after.sum_us.saturating_sub(before.sum_us)})
+                })
+                .collect();
+            json!({"same_source": before.source == after.source,
+            "available": before.available && after.available,
+            "saturated": before.saturated || after.saturated,
+            "counters": counters, "operations": operations})
+        })
+        .collect::<Vec<_>>())
+}
+
+pub(super) async fn qualify(rooted: bool, real_rustfs: bool, cut: Cut) -> Result<()> {
+    let minima = if real_rustfs {
+        &[Durability::Quorum, Durability::S3][..]
+    } else {
+        &[Durability::Quorum][..]
+    };
+    let mut failures = Vec::new();
+    for &minimum in minima {
+        let store = Arc::new(if real_rustfs {
+            catalog_fault::Store::around(rustfs::store(
+                match (cut, minimum) {
+                    (Cut::Checkpoint, Durability::S3) => "live-binding-checkpoint-s3",
+                    (Cut::Checkpoint, _) => "live-binding-checkpoint-quorum",
+                    (Cut::Unused, Durability::S3) => "live-binding-unused-s3",
+                    (Cut::Unused, _) => "live-binding-unused-quorum",
+                },
+                rooted,
+            )?)
+        } else {
+            catalog_fault::Store::default()
+        });
+        if let Err(error) = Box::pin(run(rooted, minimum, store, cut)).await {
+            let error = error.context(format!("live binding cut={cut:?} extents={rooted} RustFS={real_rustfs} minimum={minimum:?}"));
+            eprintln!("{error:?}");
+            failures.push(error);
+        } else {
+            eprintln!("live binding cut={cut:?} extents={rooted} RustFS={real_rustfs} minimum={minimum:?}: PASS");
+        }
+    }
+    match failures.into_iter().next() {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+pub(super) async fn qualify_rustfs(rooted: bool) -> Result<()> {
+    let mut failures = Vec::new();
+    for cut in [Cut::Checkpoint, Cut::Unused] {
+        if let Err(error) = qualify(rooted, true, cut).await {
+            failures.push(error);
+        }
+    }
+    match failures.into_iter().next() {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+pub(super) async fn trace_rustfs(rooted: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_publish=trace,cellar::raft::cell_reconciliation=trace")
+        .with_test_writer()
+        .try_init();
+    qualify_rustfs(rooted).await
+}
+
+/// The exact failing extent/S3 checkpoint configuration, with private worker
+/// errors visible. It is a diagnostic, never the complete recovery gate.
+pub(super) async fn trace_checkpoint_s3() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::cell_groups::controller::effects=debug,cellar::raft::binding=debug,cellar::raft::group_archive=debug,cellar::raft::checkpoint=debug")
+        .with_test_writer().try_init()
+        .map_err(|error| anyhow::anyhow!("binding recovery subscriber: {error}"))?;
+    let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+        "diagnostic-binding-checkpoint-s3",
+        true,
+    )?));
+    Box::pin(run(true, Durability::S3, store, Cut::Checkpoint)).await
+}
+
+/// Force loss of the maintenance response after a real S3 settlement-image
+/// upload has entered. Recovery still needs its original proof and identities.
+pub(super) async fn lost_settlement(real: bool) -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(if real {
+            catalog_fault::Store::around(rustfs::store("binding-settlement-output-loss", rooted)?)
+        } else {
+            catalog_fault::Store::default()
+        });
+        Box::pin(run_case(
+            rooted,
+            Durability::S3,
+            store,
+            Cut::Checkpoint,
+            true,
+        ))
+        .await
+        .with_context(|| format!("settlement output loss RustFS={real} extents={rooted}"))?;
+    }
+    Ok(())
+}

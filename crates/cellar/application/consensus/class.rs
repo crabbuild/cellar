@@ -365,6 +365,7 @@ enum CommandHandler {
     NativeCellRpc { method: String, json_only: bool },
     NativeWork,
     NativeEventRpc,
+    NativeFetch,
 }
 
 /// Framework provenance is supplied by admission, never by application input.
@@ -382,11 +383,24 @@ impl CommandAdmission {
 }
 
 /// Admission is minted by the host or authenticated private query transport;
-/// event bytes alone never grant access to the private resource reader.
+/// Resource bytes alone never grant access to the private resource reader.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum QueryAdmission {
     Public,
     Event(super::Durability),
+    QueueOperator(super::Durability),
+    QueueMetrics(super::Durability),
+}
+
+impl QueryAdmission {
+    pub(crate) fn minimum(self) -> Option<super::Durability> {
+        match self {
+            Self::Public => None,
+            Self::Event(minimum) | Self::QueueOperator(minimum) | Self::QueueMetrics(minimum) => {
+                Some(minimum)
+            }
+        }
+    }
 }
 
 pub(crate) struct CommandTarget<'a> {
@@ -410,6 +424,8 @@ struct Query {
 /// `Registry::raft_cell`. Schema versions do not authorize automatic migration.
 pub struct RaftClass {
     pub(super) event_configuration_bytes: usize,
+    pub(super) event_enrollments: Option<Arc<super::native_event_enrollment::CatalogEnrollments>>,
+    pub(super) event_enrollment_bytes: usize,
     name: String,
     schema_version: u32,
     base_schema_digest: [u8; 32],
@@ -425,6 +441,8 @@ pub struct RaftClass {
     outbox: Option<Arc<super::RaftOutbox>>,
     cell_factory: Option<Arc<CellRpcFactory>>,
     filesystem: Option<crate::application::filesystem::Policy>,
+    providers: Arc<crate::application::container_bindings::ProviderDeclarations>,
+    provider_supervision: Option<Arc<crate::application::container_supervision::Supervision>>,
 }
 
 impl RaftClass {
@@ -500,7 +518,7 @@ impl RaftClass {
         Self::definition(
             crate::deploy::KV_CLASS.into(),
             1,
-            Sha256::digest(b"cellar-raft-kv-owned-payload-reference-service-1").into(),
+            Sha256::digest(b"cellar-raft-kv-full-history-revision-payload-service-1").into(),
         )
     }
 
@@ -544,6 +562,8 @@ impl RaftClass {
             commands: BTreeMap::new(),
             initializer: None,
             event_configuration_bytes: 0,
+            event_enrollments: None,
+            event_enrollment_bytes: 0,
             system_commands: BTreeMap::new(),
             queries: BTreeMap::new(),
             blobs: None,
@@ -553,6 +573,8 @@ impl RaftClass {
             outbox: None,
             cell_factory: None,
             filesystem: None,
+            providers: Arc::default(),
+            provider_supervision: None,
         };
         class.bind_command_manifest();
         Ok(class)
@@ -691,6 +713,35 @@ impl RaftClass {
         Ok(self)
     }
 
+    /// Declare one host-owned provider journal for ordinary cell invocations.
+    /// The credential-free provider/configuration identity participates in the
+    /// namespace schema. This grants no remote execution fencing or automatic
+    /// provider retry; adapters must reconcile their original pending operation.
+    pub fn provider_binding(
+        mut self,
+        name: impl Into<String>,
+        provider: impl Into<String>,
+        configuration_digest: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
+        let name = name.into();
+        crate::storage::container_bindings::validate_name(&name)
+            .map_err(|_| RegistrationError::Invalid("provider binding name"))?;
+        let declaration = crate::application::container_bindings::ProviderDeclaration::new(
+            provider.into(),
+            configuration_digest,
+        )
+        .map_err(|_| RegistrationError::Invalid("provider binding declaration"))?;
+        if self.providers.contains_key(&name) {
+            return Err(RegistrationError::Duplicate(name));
+        }
+        if self.providers.len() == crate::application::container_bindings::MAX_BINDINGS {
+            return Err(RegistrationError::Limit);
+        }
+        Arc::make_mut(&mut self.providers).insert(name, declaration);
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
     pub fn alarms(mut self, limits: super::RaftAlarmLimits) -> Result<Self, RegistrationError> {
         limits
             .validate()
@@ -770,6 +821,33 @@ impl RaftClass {
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
         self.validate_cell_factory()?;
+        if let Some(supervision) = &self.provider_supervision {
+            anyhow::ensure!(
+                supervision.max_attempt_timeout_ms().is_none_or(|timeout| {
+                    timeout <= host.effects.unwrap_or_default().callback_timeout_ms
+                }),
+                "provider maintenance timeout exceeds the callback budget"
+            );
+        }
+        if !self.providers.is_empty() {
+            // Provider records consume framework-generated SQLite mutations.
+            // The producer also checks each complete encoded checkpoint.
+            let metadata = self.providers.len()
+                * (crate::application::container_bindings::MAX_BINDING_BYTES + 1024)
+                + 128 * 1024;
+            anyhow::ensure!(
+                self.has_cell_factory()
+                    && host.execution.max_pending_transactions > 0
+                    && host.execution.max_client_identities >= 2
+                    && host.execution.max_retained_receipts >= 2
+                    && host.execution.envelope.max_payload_bytes >= 64 * 1024
+                    && host.execution.envelope.max_decoded_bytes >= 64 * 1024
+                    && host.execution.envelope.max_pages >= 16
+                    && host.execution.max_image_bytes >= metadata as u64
+                    && host.archive.limits.max_capture_bytes >= metadata,
+                "provider journals require an ordinary cell factory and bounded command/image/archive capacity"
+            );
+        }
         if self.has_native_callbacks() {
             anyhow::ensure!(
                 host.effects
@@ -974,6 +1052,23 @@ impl RaftClass {
         Ok(self)
     }
 
+    /// Retain buffered ordinary `Invocation::Fetch` responses in independently
+    /// durable command receipts. Input and result use the host's encoded byte
+    /// limits. Streams and WebSocket upgrades require a separate session owner.
+    pub fn cell_fetch(mut self, digest: [u8; 32]) -> Result<Self, RegistrationError> {
+        let operation = super::native_fetch::OPERATION;
+        self.validate_new(operation, digest)?;
+        self.commands.insert(
+            operation.into(),
+            Command {
+                digest,
+                handler: CommandHandler::NativeFetch,
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
     pub(crate) fn binding_contract(&self, operation: &str) -> Option<OperationContract> {
         if (self.name == crate::deploy::SQL_CLASS
             && operation == crate::application::sql::operator::METHOD)
@@ -988,7 +1083,9 @@ impl RaftClass {
         }
         let command = self.commands.get(operation)?;
         match &command.handler {
-            CommandHandler::NativeCellRpc { .. } => self.contract(operation),
+            CommandHandler::NativeCellRpc { .. } | CommandHandler::NativeFetch => {
+                self.contract(operation)
+            }
             CommandHandler::JsonCellRpc => {
                 self.contract(&super::native_rpc::binding_operation(operation))
             }
@@ -1038,6 +1135,7 @@ impl RaftClass {
         match &self.commands.get(operation)?.handler {
             CommandHandler::JsonCellRpc => Some(true),
             CommandHandler::NativeCellRpc { json_only, .. } => Some(*json_only),
+            CommandHandler::NativeFetch => Some(false),
             CommandHandler::Registered(_)
             | CommandHandler::NativeWork
             | CommandHandler::NativeEventRpc => None,
@@ -1131,11 +1229,8 @@ impl RaftClass {
             .is_some_and(|factory| factory.allows_binding(scope))
     }
 
-    pub(in crate::application) fn configured_cell(
-        &self,
-        configuration: &super::AdmittedCellConfiguration,
-    ) -> Self {
-        let mut class = Self {
+    fn clone_definition(&self) -> Self {
+        Self {
             name: self.name.clone(),
             schema_version: self.schema_version,
             base_schema_digest: self.base_schema_digest,
@@ -1143,6 +1238,8 @@ impl RaftClass {
             commands: self.commands.clone(),
             initializer: self.initializer.clone(),
             event_configuration_bytes: self.event_configuration_bytes,
+            event_enrollments: self.event_enrollments.clone(),
+            event_enrollment_bytes: self.event_enrollment_bytes,
             system_commands: self.system_commands.clone(),
             queries: self.queries.clone(),
             blobs: self.blobs,
@@ -1152,7 +1249,45 @@ impl RaftClass {
             outbox: self.outbox.clone(),
             cell_factory: self.cell_factory.clone(),
             filesystem: self.filesystem,
-        };
+            providers: self.providers.clone(),
+            provider_supervision: self.provider_supervision.clone(),
+        }
+    }
+
+    pub(crate) fn with_provider_supervision(
+        self: &Arc<Self>,
+        registry: &Arc<crate::application::container_supervision::Supervision>,
+    ) -> Result<Arc<Self>, RegistrationError> {
+        let mut selected = registry
+            .select(&self.providers)
+            .map_err(|_| RegistrationError::Invalid("provider supervision configuration"))?;
+        if selected.is_empty() {
+            return Ok(self.clone());
+        }
+        // The event catalog already owns this reconciliation reason.
+        if !self.has_cell_factory() || self.name == crate::deploy::EVENT_CATALOG_CLASS {
+            return Err(RegistrationError::UnsupportedFactory(self.name.clone()));
+        }
+        if let Some(previous) = &self.provider_supervision {
+            selected
+                .merge(previous)
+                .map_err(|_| RegistrationError::Invalid("ambiguous provider supervision"))?;
+            if selected.same_registrations(previous) {
+                return Ok(self.clone());
+            }
+        }
+        let mut class = self.clone_definition();
+        class.provider_supervision = Some(Arc::new(selected));
+        class.install_native_callbacks();
+        class.bind_command_manifest();
+        Ok(Arc::new(class))
+    }
+
+    pub(in crate::application) fn configured_cell(
+        &self,
+        configuration: &super::AdmittedCellConfiguration,
+    ) -> Self {
+        let mut class = self.clone_definition();
         if !configuration.stream_bindings.is_empty() && !class.has_native_callbacks() {
             class.install_native_callbacks();
         }
@@ -1218,6 +1353,7 @@ impl RaftClass {
                         | CommandHandler::NativeCellRpc { .. }
                         | CommandHandler::NativeWork
                         | CommandHandler::NativeEventRpc
+                        | CommandHandler::NativeFetch
                 )
             })
     }
@@ -1233,6 +1369,7 @@ impl RaftClass {
                         | CommandHandler::NativeCellRpc { .. }
                         | CommandHandler::NativeWork
                         | CommandHandler::NativeEventRpc
+                        | CommandHandler::NativeFetch
                 )
             })
     }
@@ -1278,10 +1415,67 @@ impl RaftClass {
             },
             CommandHandler::NativeWork => CellRpcMethod::Work,
             CommandHandler::NativeEventRpc => CellRpcMethod::Event,
+            CommandHandler::NativeFetch => CellRpcMethod::Fetch,
             CommandHandler::Registered(_) => return Err(RegistrationError::KindMismatch.into()),
         };
         if self.filesystem.is_some() {
             self.configure_filesystem(&transaction.storage()?, target.cell, false);
+        }
+        if !self.providers.is_empty() {
+            let storage = transaction.storage()?;
+            if let Some(supervision) = &self.provider_supervision {
+                let installed = storage
+                    .resources()
+                    .provider_supervision
+                    .get_or_init(|| supervision.clone());
+                anyhow::ensure!(
+                    installed.same_registrations(supervision),
+                    "provider supervision changed within an activation"
+                );
+            } else {
+                anyhow::ensure!(
+                    storage.resources().provider_supervision.get().is_none(),
+                    "provider supervision was removed within an activation"
+                );
+            }
+            let installed = storage
+                .resources()
+                .provider_bindings
+                .get_or_init(|| self.providers.clone());
+            anyhow::ensure!(
+                installed.as_ref() == self.providers.as_ref(),
+                "provider declaration changed within an activation"
+            );
+            for (name, checkpoint) in
+                crate::storage::container_bindings::list(crate::storage::RAFT_STORAGE_SCOPE)?
+            {
+                anyhow::ensure!(
+                    self.providers
+                        .get(&name)
+                        .is_some_and(|declaration| declaration.accepts(&checkpoint.record)),
+                    "retained provider journal has an undeclared backend configuration"
+                );
+            }
+            for task in
+                crate::storage::container_maintenance::list(crate::storage::RAFT_STORAGE_SCOPE)?
+            {
+                let checkpoint = crate::storage::container_bindings::load(
+                    crate::storage::RAFT_STORAGE_SCOPE,
+                    &task.binding,
+                )?
+                .ok_or_else(|| anyhow::anyhow!("provider maintenance journal missing"))?;
+                anyhow::ensure!(
+                    checkpoint.record.generation == task.generation
+                        && self
+                            .provider_supervision
+                            .as_ref()
+                            .and_then(
+                                |supervision| supervision.find(&task.binding, &checkpoint.record)
+                            )
+                            .is_some_and(|registration| registration.policy == task.policy),
+                    "retained provider maintenance has an undeclared policy"
+                );
+            }
         }
         factory.start(target.cell, epoch, method, input, transaction, activation)
     }
@@ -1361,8 +1555,14 @@ impl RaftClass {
     ) -> anyhow::Result<()> {
         let ingress = id.client == super::sql_ingress_identity::client();
         let event = self.event_contract().as_ref() == Some(contract);
+        let fetch = self
+            .commands
+            .get(&contract.operation)
+            .is_some_and(|command| matches!(command.handler, CommandHandler::NativeFetch));
         let nonce = if event {
             super::native_event_rpc::has_ingress_nonce(input)
+        } else if fetch {
+            super::native_fetch::has_ingress_nonce(input)
         } else {
             super::native_rpc::has_ingress_nonce(input)
         };
@@ -1385,6 +1585,8 @@ impl RaftClass {
             );
             if event {
                 super::native_event_rpc::decode(scope.cell.as_str(), input)?;
+            } else if fetch {
+                super::native_fetch::decode_request(input)?;
             } else {
                 super::native_rpc::decode_request(input)?;
             }
@@ -1484,6 +1686,7 @@ impl RaftClass {
                 operation,
                 crate::storage::raft_binding_recovery::CLAIM
                     | crate::storage::raft_binding_recovery::SETTLE
+                    | crate::storage::raft_binding_recovery::CONFIRM
                     | crate::storage::raft_payloads::RETIRE
             ) {
                 return Some(OperationContract {
@@ -1517,6 +1720,17 @@ impl RaftClass {
             .map(|_| super::native_event_query::contract(&self.name))
     }
 
+    pub(crate) fn queue_query_contract(&self) -> Option<OperationContract> {
+        self.queue_operator_contract()
+            .map(|_| super::native_queue_query::contract())
+    }
+
+    pub(crate) fn queue_metrics_query_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::QUEUE_CLASS
+            && self.binding_contract("__queueMetrics").is_some())
+        .then(super::native_queue_metrics::contract)
+    }
+
     pub(crate) fn validate_query_admission(
         &self,
         contract: &OperationContract,
@@ -1528,6 +1742,18 @@ impl RaftClass {
                 Ok(())
             }
             QueryAdmission::Event(_) => Err(RegistrationError::ContractMismatch),
+            QueryAdmission::QueueOperator(_)
+                if self.queue_query_contract().as_ref() == Some(contract) =>
+            {
+                Ok(())
+            }
+            QueryAdmission::QueueOperator(_) => Err(RegistrationError::ContractMismatch),
+            QueryAdmission::QueueMetrics(_)
+                if self.queue_metrics_query_contract().as_ref() == Some(contract) =>
+            {
+                Ok(())
+            }
+            QueryAdmission::QueueMetrics(_) => Err(RegistrationError::ContractMismatch),
         }
     }
 
@@ -1659,6 +1885,7 @@ impl RaftClass {
             contract.operation.as_str(),
             crate::storage::raft_binding_recovery::CLAIM
                 | crate::storage::raft_binding_recovery::SETTLE
+                | crate::storage::raft_binding_recovery::CONFIRM
         ) {
             let _guard = CallbackGuard::enter()?;
             anyhow::ensure!(
@@ -1679,6 +1906,16 @@ impl RaftClass {
                     )?,
                 )?);
             }
+            if contract.operation == crate::storage::raft_binding_recovery::CONFIRM {
+                crate::storage::raft_binding_recovery::confirm(
+                    &connection,
+                    scope,
+                    origin,
+                    request.durability,
+                    &serde_json::from_slice(input)?,
+                )?;
+                return Ok(vec![1]);
+            }
             let settlement = serde_json::from_slice(input)?;
             crate::storage::raft_binding_recovery::settle(
                 &connection,
@@ -1686,6 +1923,7 @@ impl RaftClass {
                 origin,
                 request.durability,
                 &settlement,
+                request,
             )?;
             return Ok(vec![1]);
         }
@@ -1838,6 +2076,12 @@ impl RaftClass {
                         .ok_or(RegistrationError::KindMismatch)?
                         .callback)(&context, input),
                     QueryAdmission::Event(_) => super::native_event_query::invoke(&context, input),
+                    QueryAdmission::QueueOperator(_) => {
+                        super::native_queue_query::invoke(&context, input)
+                    }
+                    QueryAdmission::QueueMetrics(_) => {
+                        super::native_queue_metrics::invoke(&context, input)
+                    }
                 }
             })
         }))
@@ -1856,6 +2100,24 @@ impl RaftClass {
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
+        if let Some(supervision) = &self.provider_supervision {
+            hash.update(b"provider-supervision-1");
+            hash.update(supervision.contract_digest());
+        }
+        if !self.providers.is_empty() {
+            hash.update(b"provider-bindings-1");
+            hash.update((self.providers.len() as u16).to_be_bytes());
+            for (name, declaration) in self.providers.iter() {
+                for text in [
+                    name,
+                    &declaration.provider,
+                    &declaration.configuration_digest,
+                ] {
+                    hash.update((text.len() as u16).to_be_bytes());
+                    hash.update(text.as_bytes());
+                }
+            }
+        }
         if let Some(policy) = self.filesystem {
             hash.update(b"filesystem-1");
             hash.update(policy.creation_mask.to_be_bytes());
@@ -1930,11 +2192,20 @@ impl RaftClass {
                 hash.update([u8::from(*json_only)]);
             }
         }
+        if self
+            .commands
+            .values()
+            .any(|c| matches!(c.handler, CommandHandler::NativeFetch))
+        {
+            hash.update(b"native-cell-buffered-http-ingress-1");
+        }
         if self.has_binding_maintenance() {
             hash.update(b"binding-sequence-seal-1");
             hash.update(crate::raft::execution::binding_seal::contract().digest);
             hash.update(crate::storage::raft_binding_recovery::CLAIM.as_bytes());
             hash.update(crate::storage::raft_binding_recovery::SETTLE.as_bytes());
+            hash.update(crate::storage::raft_binding_recovery::CONFIRM.as_bytes());
+            hash.update(b"binding-settlement-confirmation-1");
             hash.update(crate::storage::raft_payloads::RETIRE.as_bytes());
         }
         if !self.system_commands.is_empty() {

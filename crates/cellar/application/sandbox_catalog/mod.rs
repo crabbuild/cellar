@@ -36,6 +36,13 @@ impl SandboxCatalog {
     }
 
     pub(crate) fn check<'a>(&self, context: &'a Context) -> Result<&'a str> {
+        // Provider journals have a shared storage adapter; the native sandbox
+        // controller still owns Fleet admission and cleanup. Do not borrow its
+        // scope or suggest that journal authority enables that controller.
+        ensure!(
+            context.raft_storage.is_none(),
+            super::consensus::CommandFailure::UnsupportedCapability
+        );
         self.authority.check(context)?;
         ensure!(
             context

@@ -5,9 +5,11 @@
 
 mod admission;
 mod archive;
+pub(crate) use archive::foreground::Invocation as S3Invocation;
 pub(crate) use archive::settlement::{
     Client as S3Client, LookupPrepared as S3LookupPrepared, OutputProof as S3OutputProof,
 };
+pub(crate) use archive::source_read::SourceReadProof as S3ReadSourceProof;
 pub(crate) use archive::Provisioning as CellGroupArchiveProvisioning;
 pub(crate) use archive::{ArchiveSeedClient, ArchiveSeedDescriptor};
 mod calls;
@@ -179,6 +181,7 @@ struct Shared {
     archive_discovery: Mutex<std::collections::BTreeSet<cellar_logic::cell_group::GroupHistory>>,
     archive_seeds: Arc<archive::seed::Jobs>,
     s3: Arc<crate::raft::budget::Budget>,
+    foregrounds: Arc<archive::foreground::Foregrounds>,
     active_apply: AtomicUsize,
     pending_apply: AtomicUsize,
     applied: AtomicU64,
@@ -197,6 +200,9 @@ struct Shared {
 impl Shared {
     fn stop(&self) {
         self.closing.store(true, Ordering::Release);
+        // Checkpoints waiting for existing output capacity retain their original
+        // SQL admission. Wake them without consuming the worker's stop signal.
+        self.s3.wake.notify_waiters();
         self.stop.notify_one();
     }
 
@@ -356,6 +362,7 @@ impl CellGroupController {
             archive_discovery: Mutex::new(std::collections::BTreeSet::new()),
             archive_seeds: Arc::new(archive::seed::Jobs::new(limits.max_groups)),
             s3: commands::budget(limits),
+            foregrounds: archive::foreground::Foregrounds::new(limits.max_groups),
             active_apply: AtomicUsize::new(0),
             pending_apply: AtomicUsize::new(0),
             applied: AtomicU64::new(0),

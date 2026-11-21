@@ -6,12 +6,43 @@ use cellar::sdk::kv::{PutOptions, ReadType, ReadValue};
 
 #[path = "cell_group_kv_cli.rs"]
 mod cli;
+#[path = "cell_group_operator_ingress.rs"]
+mod ingress;
+#[path = "cell_group_kv_revisions.rs"]
+mod revisions;
+#[path = "cell_group_kv_stream.rs"]
+mod streams;
+
+pub(super) async fn revision_scope(real_rustfs: bool) -> Result<()> {
+    revisions::qualify(real_rustfs).await
+}
 
 #[path = "cell_group_kv_inline_read.rs"]
 mod inline_read;
 
 const SCRIPT: &str = "kv-binding-service";
 const NAMESPACE: &str = "shared/cache";
+
+/// Restore injected outages before managed shutdown, including early errors.
+struct StoreFault<'a> {
+    flag: &'a std::sync::atomic::AtomicBool,
+    previous: bool,
+}
+
+impl<'a> StoreFault<'a> {
+    fn enable(flag: &'a std::sync::atomic::AtomicBool) -> Self {
+        Self {
+            flag,
+            previous: flag.swap(true, Ordering::AcqRel),
+        }
+    }
+}
+
+impl Drop for StoreFault<'_> {
+    fn drop(&mut self) {
+        self.flag.store(self.previous, Ordering::Release);
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Coverage {
@@ -21,13 +52,22 @@ enum Coverage {
     Streaming,
     InlineRead,
     InlineReadBoundaries,
+    PayloadRecovery,
+    StreamDeadline,
+    IngressDeadline,
 }
 
 impl Coverage {
     fn focused(self) -> bool {
         matches!(
             self,
-            Self::Preparation | Self::Streaming | Self::InlineRead | Self::InlineReadBoundaries
+            Self::Preparation
+                | Self::Streaming
+                | Self::InlineRead
+                | Self::InlineReadBoundaries
+                | Self::PayloadRecovery
+                | Self::StreamDeadline
+                | Self::IngressDeadline
         )
     }
 }
@@ -59,6 +99,10 @@ async fn operation(context: &Context, method: &str) -> Result<serde_json::Value>
         "Contract" => kv_contract::basic(context, &namespace).await?,
         "Large" => kv_contract::large(context, &namespace).await?,
         "PublicLarge" => kv_contract::large(context, &context.kv("SIDE")?).await?,
+        "StreamDeadline" => {
+            streams::deadline(context).await?;
+            streams::publication_deadline(context).await?;
+        }
         "ReadLarge" => {
             let Some(ReadValue::Bytes(value)) =
                 namespace.get(context, "large", ReadType::Bytes).await?
@@ -354,11 +398,19 @@ async fn public_ok(cluster: &ManagedCluster, node: usize, method: &str) -> Resul
 }
 
 async fn admin(cluster: &ManagedCluster, body: serde_json::Value) -> Result<serde_json::Value> {
+    admin_at(cluster, NAMESPACE, body).await
+}
+
+async fn admin_at(
+    cluster: &ManagedCluster,
+    namespace: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
     let info = cluster.nodes[0].info();
     let path = format!(
         "/runtime/{}?name={}",
-        cellar::engine_api::kv_cell_scope(NAMESPACE, 0),
-        url::form_urlencoded::byte_serialize(format!("{NAMESPACE}/0").as_bytes())
+        cellar::engine_api::kv_cell_scope(namespace, 0),
+        url::form_urlencoded::byte_serialize(format!("{namespace}/0").as_bytes())
             .collect::<String>()
     );
     let payload = serde_json::to_vec(&body)?;
@@ -387,8 +439,8 @@ async fn operator_contract(cluster: &ManagedCluster) -> Result<serde_json::Value
     let original = admin(cluster, json!({"op":"get","key":"warm"})).await?;
     let token = original["revision"].as_str().context("KV revision token")?;
     ensure!(
-        token.starts_with("cg1:") && token.len() > 37,
-        "incarnation-qualified revision: {original}"
+        token.starts_with("cg1:") && token.split(':').nth(1).map(str::len) == Some(64),
+        "history-qualified revision: {original}"
     );
     let edit = |revision| json!({"op":"edit","key":"warm","condition":{"revision":revision},"value":"cXVvcnVt","tag":"bytes","metadata":"null","expiration_mode":{"mode":"never"}});
     ensure!(admin(cluster, edit(json!(token))).await?["ok"] == true);
@@ -399,10 +451,10 @@ async fn operator_contract(cluster: &ManagedCluster) -> Result<serde_json::Value
         .context("current revision")?
         .rsplit_once(':')
         .context("revision sequence")?;
-    let foreign = format!("cg1:{}:{sequence}", "01".repeat(16));
+    let foreign = format!("cg1:{}:{sequence}", "01".repeat(32));
     ensure!(
         admin(cluster, edit(json!(foreign))).await?["conflict"] == true,
-        "another incarnation reused the same counter"
+        "another logical history reused the same counter"
     );
     // Existing operator expiration has no minimum public TTL. Leave the cell
     // alone until due; storage metrics distinguish physical removal from reads
@@ -433,6 +485,10 @@ pub async fn qualify_preparation() -> Result<()> {
     qualify_case(false, false, Coverage::Preparation).await
 }
 
+pub async fn qualify_cli_publication() -> Result<()> {
+    qualify_case(true, false, Coverage::Preparation).await
+}
+
 pub async fn qualify_streaming() -> Result<()> {
     qualify_case(false, false, Coverage::Streaming).await
 }
@@ -445,14 +501,53 @@ pub async fn qualify_inline_read_boundaries() -> Result<()> {
     qualify_case(false, true, Coverage::InlineReadBoundaries).await
 }
 
+pub async fn qualify_payload_recovery(real_rustfs: bool, external: bool) -> Result<()> {
+    qualify_case(real_rustfs, external, Coverage::PayloadRecovery).await
+}
+
+pub async fn qualify_stream_deadline(real_rustfs: bool) -> Result<()> {
+    qualify_case(real_rustfs, false, Coverage::StreamDeadline).await
+}
+
+pub async fn qualify_ingress_deadline(real_rustfs: bool) -> Result<()> {
+    qualify_case(real_rustfs, false, Coverage::IngressDeadline).await
+}
+
+fn payload_recovery_usage(cluster: &ManagedCluster, stage: &str) -> Result<()> {
+    for (node, host) in cluster.hosts.iter().enumerate() {
+        let usage = host
+            .resource_usage()
+            .host
+            .payloads
+            .context("installed KV pool")?;
+        eprintln!("KV payload recovery stage={stage} node={node} usage={usage:?}");
+    }
+    Ok(())
+}
+
 async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> Result<()> {
     let mut failures = Vec::new();
+    let kind = match coverage {
+        Coverage::Preparation => "preparation",
+        Coverage::PayloadRecovery => "payload recovery",
+        Coverage::StreamDeadline => "stream deadline",
+        Coverage::IngressDeadline => "ingress deadline",
+        _ => "binding",
+    };
     for rooted in [false, true] {
         let result = async {
             let backend = real_rustfs
                 .then(|| {
                     rustfs::StoreConfig::load(
-                        if external {
+                        if coverage == Coverage::StreamDeadline {
+                            "kv-stream-deadline"
+                        } else if coverage == Coverage::PayloadRecovery {
+                            if external {
+                                "kv-payload-recovery-axum"
+                            } else {
+                                "kv-payload-recovery"
+                            }
+                        } else if external {
                             "kv-bindings-axum"
                         } else {
                             "kv-bindings"
@@ -471,6 +566,9 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
                     .cell_payload_chunk_bytes
                     .store(16 * 1024, Ordering::Release);
             }
+            if coverage == Coverage::StreamDeadline {
+                store.cell_payload_chunk_bytes.store(512, Ordering::Release);
+            }
             let result = Box::pin(run(
                 rooted,
                 store.clone(),
@@ -484,19 +582,9 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
         .await;
         match result {
             Ok(()) => {
-                let kind = if coverage == Coverage::Preparation {
-                    "preparation"
-                } else {
-                    "binding"
-                };
                 eprintln!("KV {kind} RustFS={real_rustfs} extents={rooted} Axum={external}: PASS")
             }
             Err(error) => {
-                let kind = if coverage == Coverage::Preparation {
-                    "preparation"
-                } else {
-                    "binding"
-                };
                 eprintln!("KV {kind} RustFS={real_rustfs} extents={rooted} Axum={external}: FAILED: {error:#}");
                 failures.push(format!("extents={rooted}: {error:#}"));
             }
@@ -615,6 +703,22 @@ async fn run(
             }
             } else {
                 public_ok(&cluster, leader, "Write").await?;
+                if coverage == Coverage::PayloadRecovery {
+                    // An unfulfilled wire preparation must not obstruct later
+                    // reads after the payload provider has returned.
+                    public_ok(&cluster, 0, "Unconfirmed").await?;
+                }
+            }
+            if coverage == Coverage::StreamDeadline {
+                public_ok(&cluster, 0, "StreamDeadline").await?;
+                ensure!(cluster.fixtures[0].store.cell_payload_get_calls.load(Ordering::Acquire) > 0,
+                    "stream deadline did not reach the payload reader");
+                ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == 1,
+                    "stream deadline did not publish exactly one immutable candidate");
+                return Ok(());
+            }
+            if coverage == Coverage::IngressDeadline {
+                return ingress::qualify(&cluster).await;
             }
             if coverage == Coverage::InlineRead {
                 return inline_read::qualify(&mut cluster, kv_group).await;
@@ -707,8 +811,9 @@ async fn run(
                 }
                 sequence += 1;
             }
-            if let Some(backend) = backend {
+            if let Some(backend) = backend.filter(|_| coverage != Coverage::PayloadRecovery) {
                 let before = local_preparations(&cluster)?;
+                let _observation = StoreFault::enable(&cluster.fixtures[0].store.observe_cell_payloads);
                 cli::large(&cluster, backend).await?;
                 ensure!(local_preparations(&cluster)? == before + 1,
                     "warm operator value still required a preparation command");
@@ -729,13 +834,13 @@ async fn run(
             let preparation_before = local_preparations(&cluster)?;
             let puts_before = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
             let denied_before = cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire);
-            cluster.fixtures[0].store.deny_group_archive_writes.store(true, Ordering::Release);
+            let proof_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_group_archive_writes);
             let refused = proof_source.command(&proof_source.contract("ProofGuard")?,
                 b"null".to_vec(), bindings::options(1, Durability::S3)?).await;
             let published = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
             let denied = cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire);
             let preparations_after = local_preparations(&cluster);
-            cluster.fixtures[0].store.deny_group_archive_writes.store(false, Ordering::Release);
+            drop(proof_outage);
             ensure!(refused.is_err(), "unproved S3 source published a KV value");
             ensure!(preparations_after? == preparation_before + 1, "S3 guard did not reach warm preparation");
             ensure!(denied > denied_before, "S3 guard did not reach the actual archive adapter");
@@ -754,7 +859,7 @@ async fn run(
             ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == puts_before + 1,
                 "expired source upload started after restoring its archive provider");
             }
-            if coverage.focused() {
+            if coverage.focused() && coverage != Coverage::PayloadRecovery {
                 return Ok(());
             }
             let duplicate_options = bindings::options(sequence, Durability::Quorum)?;
@@ -784,22 +889,29 @@ async fn run(
             );
             ensure!(admin(&cluster, json!({"op":"get","key":"warm"})).await?["revision"] == token);
             public_ok(&cluster, 2, "ReadLarge").await?;
+            if coverage == Coverage::PayloadRecovery {
+                payload_recovery_usage(&cluster, "before-outage")?;
+            }
             let denied_payload = cluster.fixtures[0].store.denied_cell_payload_reads.load(Ordering::Acquire);
-            cluster.fixtures[0].store.deny_cell_payload_reads.store(true, Ordering::Release);
+            let payload_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_cell_payload_reads);
             let (status, body) = public(&cluster, 0, "ReadLarge").await?;
-            cluster.fixtures[0].store.deny_cell_payload_reads.store(false, Ordering::Release);
+            drop(payload_outage);
             ensure!(status == 503 && body.contains("payload"), "unavailable external value became a miss/success: {status}: {body}");
             ensure!(cluster.fixtures[0].store.denied_cell_payload_reads.load(Ordering::Acquire) > denied_payload);
+            if coverage == Coverage::PayloadRecovery {
+                payload_recovery_usage(&cluster, "after-denial")?;
+            }
             public_ok(&cluster, 2, "ReadLarge").await?;
+            if coverage == Coverage::PayloadRecovery {
+                payload_recovery_usage(&cluster, "restored")?;
+                return Ok(());
+            }
             public_ok(&cluster, 1, "Read").await?;
             let denied = cluster.fixtures[0]
                 .store
                 .denied_group_archive_writes
                 .load(Ordering::Acquire);
-            cluster.fixtures[0]
-                .store
-                .deny_group_archive_writes
-                .store(true, Ordering::Release);
+            let archive_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_group_archive_writes);
             source
                 .command(
                     &source.contract("Write")?,
@@ -839,6 +951,7 @@ async fn run(
                 .store
                 .deny_group_archive_writes
                 .store(false, Ordering::Release);
+            drop(archive_outage);
             let stopped = cluster.nodes.split_off(1);
             managed_fixture::close_group_nodes_with_groups(stopped, &cluster.hosts[1..], 2).await?;
             cluster.hosts.truncate(1);

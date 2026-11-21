@@ -9,7 +9,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 /// The caller charges its retained waiter before joining the FIFO: apply uses
 /// its existing apply reservation; SQL completions borrow an ordinary slot.
 /// An idle progress slot remains available when the ordinary queue is full.
-pub(super) async fn reserve<T: Send>(
+pub(in crate::raft::host_sql) async fn reserve<T: Send>(
     reserved: &Arc<Semaphore>,
     admit_waiter: impl FnOnce() -> Result<T, ExecutionError> + Send,
 ) -> Result<OwnedSemaphorePermit, ExecutionError> {

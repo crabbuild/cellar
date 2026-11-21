@@ -874,6 +874,7 @@ async fn provider_outage_recovery(
             false,
         )
         .await?;
+        let wait_started_ms = unix_ms().ok();
         let failed = tokio::time::timeout(Duration::from_secs(15), witness.failed.notified()).await;
         let result = (|| -> Result<()> {
             failed.context("expired resource never attempted cleanup during provider outage")?;
@@ -890,8 +891,41 @@ async fn provider_outage_recovery(
             Ok(())
         })();
         if let Err(error) = result {
-            let _ = stop(node, ShutdownMode::Preserve).await;
-            return Err(error);
+            let wait_finished_ms = unix_ms().ok();
+            let wake = match before["scope"].as_str() {
+                Some(scope) => observe_wake(&bucket, scope).await,
+                None => Err(anyhow::anyhow!("failure observation has no scope")),
+            };
+            let observation = json!({
+                "stage": directory_name,
+                "provider": if matches!(peer, Peer::Vercel(_)) { "vercel" } else { "e2b" },
+                "wait_started_ms": wait_started_ms,
+                "wait_finished_ms": wait_finished_ms,
+                "inspections": witness.inspections.load(Ordering::SeqCst),
+                "failed_inspections": witness.failed_inspections.load(Ordering::SeqCst),
+                "deletions": witness.deletions.load(Ordering::SeqCst),
+                "failed_deletions": witness.failed_deletions.load(Ordering::SeqCst),
+                "provider_refused": peer.refused(),
+                "business_calls": calls.application.load(Ordering::SeqCst),
+                "factories": calls.factories.load(Ordering::SeqCst),
+                "original": before,
+                "wake": wake.as_ref().ok(),
+                "wake_observed": wake.is_ok(),
+            });
+            eprintln!("provider_outage_failure {observation}");
+            let written = serde_json::to_vec_pretty(&observation)
+                .map_err(anyhow::Error::from)
+                .and_then(|bytes| {
+                    std::fs::write(
+                        directory.join(format!("{directory_name}-failure.json")),
+                        bytes,
+                    )
+                    .map_err(anyhow::Error::from)
+                });
+            let stopped = stop(node, ShutdownMode::Preserve).await;
+            return Err(error).with_context(|| {
+                format!("provider outage stage {directory_name}; observation stored: {written:?}; joined stop: {stopped:?}")
+            });
         }
         if directory_name == "outage" {
             stop(node, ShutdownMode::Preserve).await?;
@@ -984,6 +1018,33 @@ fn unix_ms() -> Result<i64> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis()
         .try_into()?)
+}
+
+/// A failure-only observation, after the original wait has already expired.
+/// Never poll the provider or use a diagnostic read to extend its admission.
+async fn observe_wake(bucket: &cellar::bucket::Bucket, scope: &str) -> Result<Vec<Value>> {
+    let observer = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let observed = observer
+        .run(async {
+            tokio::time::timeout(Duration::from_secs(3), async {
+                let mut entries = Vec::new();
+                for object in bucket.list("wake/entries/").await? {
+                    let Some((bytes, _)) = bucket.get(object.location.as_ref()).await? else {
+                        continue;
+                    };
+                    let value: Value = serde_json::from_slice(&bytes)?;
+                    if value["cell"] == scope {
+                        entries.push(value);
+                    }
+                }
+                Ok::<_, anyhow::Error>(entries)
+            })
+            .await
+            .context("failure-only wake observation expired")?
+        })
+        .await;
+    observer.shutdown().await;
+    observed?
 }
 
 async fn published_retry(bucket: &cellar::bucket::Bucket, scope: &str) -> Result<i64> {
@@ -1191,11 +1252,14 @@ fn exercise_outage(provider_outage: bool) -> Result<()> {
     host.block_on(async {
         for vercel in [false, true] {
             let peer = Peer::start(vercel).await?;
-            let directory = tempfile::tempdir()?;
+            // Keep the complete original cohort even on failure/panic. These
+            // disposable protocol peers contain no credentials or live data.
+            let directory = tempfile::tempdir()?.keep();
+            eprintln!("retained provider outage root: {}", directory.display());
             let result = if provider_outage {
-                provider_outage_recovery(&peer, directory.path(), core.handle().clone()).await
+                provider_outage_recovery(&peer, &directory, core.handle().clone()).await
             } else {
-                owner_store_outage_recovery(&peer, directory.path(), core.handle().clone()).await
+                owner_store_outage_recovery(&peer, &directory, core.handle().clone()).await
             };
             peer.unavailable(false);
             let closed = peer.stop().await;

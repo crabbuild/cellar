@@ -15,6 +15,8 @@ use cli::{first_group_plan, OperatorCli, OWNER};
 pub(super) mod cron;
 #[path = "raft_daemon_maintenance.rs"]
 pub(super) mod maintenance;
+#[path = "raft_daemon_primitives/mod.rs"]
+pub(super) mod primitives;
 #[path = "raft_daemon_repair.rs"]
 pub(super) mod repair;
 #[path = "raft_daemon_standby.rs"]
@@ -165,6 +167,15 @@ impl Operator {
         root: &Path,
         class: &RaftClass,
     ) -> Result<Self> {
+        Self::open_for_namespace(domain, root, class, history()?.namespace)
+    }
+
+    fn open_for_namespace(
+        domain: Arc<ExecutionDomain>,
+        root: &Path,
+        class: &RaftClass,
+        namespace: NamespaceId,
+    ) -> Result<Self> {
         let history = history()?;
         let bucket = open_bucket(root, "catalog.sqlite", "")?;
         let fleet = FleetCatalog::new(
@@ -177,7 +188,7 @@ impl Operator {
         let adapter = Catalog::new(bucket.raft_store(), catalog_options())?;
         let mut namespace = NamespaceConfig::new(
             history.cluster,
-            history.namespace,
+            namespace,
             NamespaceMode::Raft,
             class.schema_digest(),
         );
@@ -214,10 +225,6 @@ fn catalog_options() -> CatalogOptions {
     }
 }
 
-async fn provision_call(root: &Path, plan: &Value) -> Result<std::process::Output> {
-    provision_call_for(root, plan, "provision-sql").await
-}
-
 async fn provision_call_for(root: &Path, plan: &Value, mode: &str) -> Result<std::process::Output> {
     let path = root.join("sql-namespace.json");
     std::fs::write(&path, serde_json::to_vec(plan)?)?;
@@ -251,6 +258,23 @@ async fn provision_from_compiled_cli(
     operator: &Operator,
     identity: &FleetRequestIdentity,
 ) -> Result<RaftNamespaceRegistration> {
+    provision_compiled_namespace(
+        root,
+        operator,
+        identity,
+        "provision-sql",
+        serde_json::json!({}),
+    )
+    .await
+}
+
+async fn provision_compiled_namespace(
+    root: &Path,
+    operator: &Operator,
+    identity: &FleetRequestIdentity,
+    mode: &str,
+    configuration: Value,
+) -> Result<RaftNamespaceRegistration> {
     let id = hex::encode(operator.fleet.catalog_id()?);
     let namespace = hex::encode(operator.namespace.namespace.bytes());
     let mut plan = serde_json::json!({
@@ -262,11 +286,16 @@ async fn provision_from_compiled_cli(
         "namespace_id": namespace,
         "script": "raft-cli",
         "version": "test",
-        "class": "Counter",
+        "class": operator.class,
         "principal": identity.principal,
         "request_id": hex::encode(identity.id),
         "operation_id": hex::encode(identity.operation),
         "expected_revision": identity.expected_revision,
+        "minimum_durability": match operator.namespace.minimum_durability {
+            Durability::Quorum => "quorum",
+            Durability::S3 => "s3",
+        },
+        "configuration": configuration,
     });
     let image_storage = match operator.namespace.image_storage {
         RaftImageStorage::Materialized => "materialized",
@@ -282,14 +311,14 @@ async fn provision_from_compiled_cli(
     ] {
         let mut wrong = plan.clone();
         wrong[field] = value.into();
-        let refused = provision_call(root, &wrong).await?;
+        let refused = provision_call_for(root, &wrong, mode).await?;
         ensure!(
             !refused.status.success(),
             "invalid SQL namespace plan was admitted"
         );
         ensure!(operator.fleet.read(TIMEOUT).await?.revision() == identity.expected_revision);
     }
-    let admitted = provision_call(root, &plan).await?;
+    let admitted = provision_call_for(root, &plan, mode).await?;
     ensure!(
         admitted.status.success(),
         "compiled SQL namespace command failed"
@@ -298,14 +327,15 @@ async fn provision_from_compiled_cli(
     ensure!(
         receipt["catalog_id"] == id
             && receipt["namespace_id"] == namespace
-            && receipt["class"] == "Counter"
+            && receipt["class"] == operator.class
+            && receipt["minimum_durability"] == plan["minimum_durability"]
             && receipt["image_storage"] == image_storage
             && receipt["schema_digest"] == hex::encode(operator.namespace.schema_digest)
             && receipt["request_id"] == plan["request_id"]
             && receipt["operation_id"] == plan["operation_id"]
     );
     ensure!(operator.fleet.read(TIMEOUT).await?.revision() == identity.expected_revision + 1);
-    let replay = provision_call(root, &plan).await?;
+    let replay = provision_call_for(root, &plan, mode).await?;
     ensure!(replay.status.success() && replay.stdout == admitted.stdout);
     let mut changed = plan;
     changed["image_storage"] = match operator.namespace.image_storage {
@@ -313,7 +343,10 @@ async fn provision_from_compiled_cli(
         RaftImageStorage::Extents => "materialized",
     }
     .into();
-    ensure!(!provision_call(root, &changed).await?.status.success());
+    ensure!(!provision_call_for(root, &changed, mode)
+        .await?
+        .status
+        .success());
     ensure!(operator.fleet.read(TIMEOUT).await?.revision() == identity.expected_revision + 1);
     operator.declaration()
 }
@@ -395,10 +428,14 @@ async fn open_archive_verifier(
 
 pub(super) fn retained_index(mode: &str) -> Option<&str> {
     mode.strip_prefix("cluster-resume-")
+        .or_else(|| mode.strip_prefix("cluster-rejoin-"))
         .or_else(|| mode.strip_prefix("cluster-maintenance-"))
 }
 
 pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
+    if primitives::enabled() {
+        return primitives::child(root, mode);
+    }
     let returning = mode.starts_with("cluster-maintenance-");
     let (retained, index) = match retained_index(mode) {
         Some(index) => (true, index.parse::<u8>()?),
@@ -594,6 +631,23 @@ impl Operator {
         store: Arc<dyn object_store::ObjectStore>,
     ) -> Result<NativeRaftCells> {
         let declaration = self.declaration()?;
+        self.prepare_declarations(native, index, retained, returning, store, vec![declaration])
+            .await
+    }
+
+    async fn prepare_declarations(
+        self: Arc<Self>,
+        native: NativeRaftNode,
+        index: u8,
+        retained: bool,
+        returning: bool,
+        store: Arc<dyn object_store::ObjectStore>,
+        declarations: Vec<RaftNamespaceRegistration>,
+    ) -> Result<NativeRaftCells> {
+        ensure!(
+            !declarations.is_empty(),
+            "managed namespace declarations are empty"
+        );
         let id = node(index)?;
         let disk = DiskLineage::new([index + 4; 16])?;
         let snapshot = self.fleet.read(TIMEOUT).await?;
@@ -638,7 +692,17 @@ impl Operator {
             data_address: listeners.data.local_addr()?,
             query_address: listeners.query.local_addr()?,
         }];
-        let shared = configuration::limits();
+        let mut shared = configuration::limits();
+        shared.namespaces.max_namespaces = shared
+            .namespaces
+            .max_namespaces
+            .checked_mul(declarations.len())
+            .context("managed namespace count overflow")?;
+        shared.controller.max_groups = shared
+            .controller
+            .max_groups
+            .checked_mul(declarations.len())
+            .context("managed group count overflow")?;
         let mut log = ReplicaLogOptions::new(
             native.data_dir.join("raft"),
             id,
@@ -657,14 +721,21 @@ impl Operator {
             node_directory: Some(RaftNodeDirectoryOptions::default()),
             managed: Some(RaftManagedHostOptions {
                 authorization,
-                namespaces: vec![declaration.clone()],
+                namespaces: declarations.clone(),
             }),
             ..Default::default()
         };
-        if declaration.namespace.image_storage == RaftImageStorage::Extents {
+        if declarations
+            .iter()
+            .any(|declaration| declaration.namespace.image_storage == RaftImageStorage::Extents)
+        {
             host.extents = Some(Default::default());
         }
-        let byte_capacity = host.images.max_bytes
+        let bytes_per_group = host.images.max_bytes;
+        let reserved_bytes = bytes_per_group
+            .checked_mul(u64::try_from(declarations.len())?)
+            .context("managed namespace placement capacity overflow")?;
+        let byte_capacity = reserved_bytes
             + if index == standby::INDEX {
                 repair::STANDBY_DURABLE_HEADROOM
             } else {
@@ -676,7 +747,7 @@ impl Operator {
             zone: format!("process-{index}"),
             group_capacity: u32::try_from(host.max_groups)?,
             byte_capacity,
-            bytes_per_group: host.images.max_bytes,
+            bytes_per_group,
             leader_capacity: u32::try_from(host.max_groups)?,
             draining: false,
         });
@@ -692,11 +763,14 @@ impl Operator {
                     transport: TransportOptions::default(),
                 },
                 catalog: catalog_options(),
-                namespaces: vec![RaftNamespaceConfig {
-                    namespace: declaration.namespace,
-                    class: declaration.class,
-                    initialize: None,
-                }],
+                namespaces: declarations
+                    .into_iter()
+                    .map(|declaration| RaftNamespaceConfig {
+                        namespace: declaration.namespace,
+                        class: declaration.class,
+                        initialize: None,
+                    })
+                    .collect(),
                 groups: vec![],
                 peers,
                 query_origins: vec![],
@@ -923,6 +997,16 @@ async fn provision_group_metadata(
     for index in 0..3 {
         admit_capacity(cli, service, root, index).await?;
     }
+    provision_group_metadata_admitted(cli, root, history, 30).await
+}
+
+async fn provision_group_metadata_admitted(
+    cli: &OperatorCli,
+    root: &Path,
+    history: GroupHistory,
+    tag: u8,
+) -> Result<()> {
+    ensure!(tag <= u8::MAX - 4, "first-group fixture identity overflow");
     let namespace = hex::encode(history.namespace.bytes());
     let observed: RaftFleetFirstGroupStandby = serde_json::from_value(
         cli.call(&["first-group", "standby", &namespace], OWNER)
@@ -934,14 +1018,17 @@ async fn provision_group_metadata(
     let plan = first_group_plan(
         &cli.catalog,
         RaftManagedFirstGroupRequest {
-            reservation: request(30, cli.revision().await?),
+            reservation: FleetRequestIdentity {
+                operation: [if tag == 30 { 70 } else { tag }; 16],
+                ..request(tag, cli.revision().await?)
+            },
             standby,
-            publication: ProposalId::new([32; 16])?,
+            publication: ProposalId::new([tag + 2; 16])?,
             group: CellGroupBirthSpec {
                 history,
                 range: CellRange::all(),
                 epoch: RouteEpoch::new(1)?,
-                creation: ProposalId::new([33; 16])?,
+                creation: ProposalId::new([tag + 3; 16])?,
                 voters: (0..3)
                     .map(|index| {
                         Ok(InitialMember {
@@ -954,21 +1041,25 @@ async fn provision_group_metadata(
             },
         },
     )?;
-    let file = "first-group-setup.json";
-    let plan_path = root.join(file);
+    let file = if tag == 30 {
+        "first-group-setup.json".into()
+    } else {
+        format!("first-group-setup-{tag}.json")
+    };
+    let plan_path = root.join(&file);
     let path = plan_path.to_str().context("UTF-8 first group setup path")?;
     let setup = serde_json::json!({
         "reservation": plan,
         "publication": {
-            "request_id": hex::encode([31; 16]),
+            "request_id": hex::encode([tag + 1; 16]),
             "expected_revision": plan.expected_revision + 1,
         },
         "archive": {
-            "request_id": hex::encode([34; 16]),
+            "request_id": hex::encode([tag + 4; 16]),
             "expected_revision": plan.expected_revision + 2,
         },
     });
-    persist(root, file, &serde_json::to_vec(&setup)?)?;
+    persist(root, &file, &serde_json::to_vec(&setup)?)?;
     let applied = cli
         .call(&["first-group", "apply", &namespace, "--plan", path], OWNER)
         .await?
@@ -1042,7 +1133,8 @@ async fn admit_capacity(
                 OWNER,
             )
             .await?
-            .success()?,
+            .success()
+            .with_context(|| format!("capacity {verb} for node {index} at revision {revision}"))?,
         )?;
         ensure!(admission.admission.admitted_state == state);
     }

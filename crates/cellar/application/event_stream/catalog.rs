@@ -307,6 +307,18 @@ pub(super) fn configuration_status_read(db: &Storage, caller: &Authority) -> Res
     status(&row)
 }
 
+/// A private activation wait never returns intermediate state as a successful
+/// read. Authorization precedes the retryable refusal; a settled selection still
+/// needs the query dispatcher's independent minimum-durability proof.
+pub(super) fn configuration_ready_read(db: &Storage, caller: &Authority) -> Result<Value> {
+    caller.require_provisioning()?;
+    let current = configuration_status_read(db, caller)?;
+    if matches!(current["state"].as_str(), Some("creating" | "updating")) {
+        return Err(crate::raft::completion::RuntimeError::NotReady.into());
+    }
+    Ok(current)
+}
+
 /// Join only the exact deployment intent already committed by the catalog
 /// initializer. This observes current authorization and lifecycle, rather than
 /// replaying a historical receipt as proof that the resource is ready.

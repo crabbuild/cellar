@@ -202,10 +202,21 @@ impl Response {
         BodyError::Consumed.into()
     }
 
+    fn check_body_turn(&self, context: &Context) -> Result<()> {
+        context.check_binding_turn()?;
+        if context.raft_storage.is_some() {
+            anyhow::ensure!(
+                !matches!(self.body, Body::Stream(_)) && self.head.websocket.is_none(),
+                super::consensus::CommandFailure::UnsupportedCapability
+            );
+        }
+        Ok(())
+    }
+
     /// Successful stream drains materialize bytes, retaining the existing
     /// adapter's repeatable reads. A failed or interrupted drain stays claimed.
     async fn consume(&mut self, context: &Context) -> Result<Vec<u8>> {
-        context.check_turn()?;
+        self.check_body_turn(context)?;
         self.used = true;
         match &mut self.body {
             Body::None => Ok(Vec::new()),
@@ -278,7 +289,7 @@ impl Response {
     }
 
     pub fn into_http(mut self, context: &Context) -> Result<HttpResponse> {
-        context.check_turn()?;
+        self.check_body_turn(context)?;
         if let Some(headers) = self.header_list.as_ref() {
             self.head.headers = headers.response_wire();
         }
@@ -420,7 +431,7 @@ impl super::Request {
 
     /// Transfer this request's body to an owned reader in its original turn.
     pub fn into_body_reader(self, context: &Context) -> Result<BodyReader> {
-        context.check_turn()?;
+        context.check_binding_turn()?;
         let response = match self.body {
             crate::engine_api::RequestBody::Bytes(bytes) => {
                 Response::new(200, bytes.to_vec(), self.headers)

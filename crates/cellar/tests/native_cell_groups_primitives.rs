@@ -28,8 +28,56 @@ pub mod catalog_fault;
 mod activations;
 #[path = "support/cell_group_alarms.rs"]
 mod alarms;
+#[path = "support/cell_group_binding_enrollment.rs"]
+mod binding_enrollment;
+#[path = "support/cell_group_binding_profile.rs"]
+mod binding_profile;
+#[path = "support/cell_group_binding_reads.rs"]
+mod binding_reads;
 #[path = "support/cell_group_binding_recovery.rs"]
 mod binding_recovery;
+#[path = "support/cell_group_live_binding_recovery.rs"]
+mod live_binding_recovery;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_materialized_binding_recovers_without_host_restart() -> Result<()> {
+    live_binding_recovery::qualify(false, false, live_binding_recovery::Cut::Checkpoint).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_extent_binding_recovers_without_host_restart() -> Result<()> {
+    live_binding_recovery::qualify(true, false, live_binding_recovery::Cut::Checkpoint).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_materialized_refused_binding_seals_unused_sequence() -> Result<()> {
+    live_binding_recovery::qualify(false, false, live_binding_recovery::Cut::Unused).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_extent_refused_binding_seals_unused_sequence() -> Result<()> {
+    live_binding_recovery::qualify(true, false, live_binding_recovery::Cut::Unused).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_live_materialized_binding_recovery_and_unused_sequence() -> Result<()> {
+    live_binding_recovery::qualify_rustfs(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_live_extent_binding_recovery_and_unused_sequence() -> Result<()> {
+    live_binding_recovery::qualify_rustfs(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only; requires its own isolated real RustFS campaign"]
+async fn rustfs_trace_extent_binding_recovery() -> Result<()> {
+    live_binding_recovery::trace_rustfs(true).await
+}
+#[path = "support/cell_group_binding_writer.rs"]
+mod binding_writer;
 #[path = "support/cell_group_bindings.rs"]
 mod bindings;
 #[path = "support/blob_contract.rs"]
@@ -56,6 +104,78 @@ mod erase;
 mod event_streams;
 #[path = "support/cell_group_events.rs"]
 mod events;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
+    binding_writer::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
+    binding_writer::qualify(true).await
+}
+#[path = "support/cell_group_fetch_ingress.rs"]
+mod fetch_ingress;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_stateless_cell_fetch_uses_shared_group_ingress() -> Result<()> {
+    fetch_ingress::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_stateless_cell_fetch_uses_shared_group_ingress() -> Result<()> {
+    fetch_ingress::qualify(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_native_stateless_cell_fetch_uses_shared_group_ingress() -> Result<()> {
+    fetch_ingress::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_axum_stateless_cell_fetch_uses_shared_group_ingress() -> Result<()> {
+    fetch_ingress::qualify(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_stateless_enrollment_timeout_retains_creation_identity() -> Result<()> {
+    fetch_ingress::qualify_enrollment(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_stateless_enrollment_timeout_retains_creation_identity() -> Result<()> {
+    fetch_ingress::qualify_enrollment(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_native_stateless_enrollment_timeout_retains_creation_identity() -> Result<()> {
+    fetch_ingress::qualify_enrollment(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_axum_stateless_enrollment_timeout_retains_creation_identity() -> Result<()> {
+    fetch_ingress::qualify_enrollment(true, true).await
+}
+
+#[path = "support/cell_group_fetch.rs"]
+mod fetch_bindings;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cell_fetch_retains_http_response_and_child_identity() -> Result<()> {
+    fetch_bindings::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_ordinary_cell_fetch_retains_http_response_and_child_identity() -> Result<()> {
+    fetch_bindings::qualify(true).await
+}
+
 #[path = "support/cell_group_filesystem.rs"]
 mod filesystem;
 #[path = "support/cell_group_initial_read.rs"]
@@ -66,6 +186,19 @@ mod interleaving;
 mod kv_bindings;
 #[path = "support/kv_contract.rs"]
 mod kv_contract;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_revision_conditions_cannot_cross_cell_histories() -> Result<()> {
+    kv_bindings::revision_scope(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_kv_revision_conditions_cannot_cross_cell_histories() -> Result<()> {
+    kv_bindings::revision_scope(true).await
+}
+#[path = "support/cell_group_fenced_maintenance.rs"]
+mod fenced_maintenance;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
@@ -77,10 +210,220 @@ mod named_service;
 mod names;
 #[path = "support/cell_group_primitives_perf.rs"]
 mod primitives_perf;
+#[path = "support/cell_group_provider_bindings.rs"]
+mod provider_bindings;
+#[path = "support/cell_group_provider_supervision.rs"]
+mod provider_supervision;
 #[path = "support/cell_group_queue.rs"]
 mod queues;
+#[path = "support/cell_group_resume_progress.rs"]
+mod resume_progress;
 #[path = "support/cell_group_rpc_progress.rs"]
 mod rpc_progress;
+
+#[path = "support/cell_group_checkpoint_admission.rs"]
+mod checkpoint_admission;
+
+#[path = "support/cell_group_s3_foreground.rs"]
+mod s3_foreground;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn s3_invocations_coalesce_intermediate_background_archives() -> Result<()> {
+    for rooted in [false, true] {
+        for expire in [false, true] {
+            Box::pin(s3_foreground::qualify(rooted, false, expire)).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_s3_invocations_coalesce_intermediate_background_archives() -> Result<()> {
+    for rooted in [false, true] {
+        for expire in [false, true] {
+            Box::pin(s3_foreground::qualify(rooted, true, expire)).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admitted_s3_checkpoint_waits_for_held_output_capacity() -> Result<()> {
+    for rooted in [false, true] {
+        for end in [
+            checkpoint_admission::End::Release,
+            checkpoint_admission::End::Deadline,
+            checkpoint_admission::End::Cancel,
+            checkpoint_admission::End::Close,
+        ] {
+            Box::pin(checkpoint_admission::qualify(rooted, false, end))
+                .await
+                .with_context(|| format!("checkpoint admission extents={rooted} end={end:?}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_extent_checkpoint_cancellation_releases_admission() -> Result<()> {
+    Box::pin(checkpoint_admission::qualify(
+        true,
+        true,
+        checkpoint_admission::End::Cancel,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_admitted_s3_checkpoint_waits_for_held_output_capacity() -> Result<()> {
+    for rooted in [false, true] {
+        for end in [
+            checkpoint_admission::End::Release,
+            checkpoint_admission::End::Deadline,
+            checkpoint_admission::End::Cancel,
+            checkpoint_admission::End::Close,
+        ] {
+            Box::pin(checkpoint_admission::qualify(rooted, true, end))
+                .await
+                .with_context(|| {
+                    format!("RustFS checkpoint admission extents={rooted} end={end:?}")
+                })?;
+        }
+    }
+    Ok(())
+}
+
+#[path = "support/cell_group_public_receipt.rs"]
+mod public_receipt;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_final_materialized_receipt_uses_frozen_writer() -> Result<()> {
+    public_receipt::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_final_extent_receipt_uses_frozen_writer() -> Result<()> {
+    public_receipt::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_public_final_materialized_receipt_uses_frozen_writer() -> Result<()> {
+    public_receipt::qualify(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_public_final_extent_receipt_uses_frozen_writer() -> Result<()> {
+    public_receipt::qualify(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
+    for rooted in [false, true] {
+        for checkpoint in [false, true] {
+            rpc_progress::private_preparation(
+                rooted,
+                Arc::new(catalog_fault::Store::default()),
+                checkpoint,
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
+    for rooted in [false, true] {
+        for checkpoint in [false, true] {
+            let backend = rustfs::store(
+                if checkpoint {
+                    "private-checkpoint-progress"
+                } else {
+                    "private-final-progress"
+                },
+                rooted,
+            )?;
+            rpc_progress::private_preparation(
+                rooted,
+                Arc::new(catalog_fault::Store::around(backend)),
+                checkpoint,
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registered_image_preparation_releases_the_single_sql_worker() -> Result<()> {
+    for rooted in [false, true] {
+        rpc_progress::registered_preparation(rooted, Arc::new(catalog_fault::Store::default()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_registered_image_preparation_releases_the_single_sql_worker() -> Result<()> {
+    for rooted in [false, true] {
+        rpc_progress::registered_preparation(
+            rooted,
+            Arc::new(catalog_fault::Store::around(rustfs::store(
+                "registered-image-progress",
+                rooted,
+            )?)),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_private_preparation_keeps_physical_custody_until_close_joins() -> Result<()> {
+    for rooted in [false, true] {
+        for checkpoint in [false, true] {
+            rpc_progress::cancelled_preparation(
+                rooted,
+                Arc::new(catalog_fault::Store::default()),
+                checkpoint,
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_cancelled_private_preparation_keeps_physical_custody_until_close_joins(
+) -> Result<()> {
+    for rooted in [false, true] {
+        for checkpoint in [false, true] {
+            let backend = rustfs::store(
+                if checkpoint {
+                    "cancelled-checkpoint-progress"
+                } else {
+                    "cancelled-final-progress"
+                },
+                rooted,
+            )?;
+            rpc_progress::cancelled_preparation(
+                rooted,
+                Arc::new(catalog_fault::Store::around(backend)),
+                checkpoint,
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 #[path = "support/cell_group_sql_bindings.rs"]
@@ -102,6 +445,18 @@ fn event_stream_registration_requires_resolved_host_owned_declarations() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_event_activation_uses_locators_but_requires_current_quorum() -> Result<()> {
+    Box::pin(event_streams::qualify_retained_metadata(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_retained_event_activation_uses_locators_but_requires_current_quorum() -> Result<()>
+{
+    Box::pin(event_streams::qualify_retained_metadata(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn clean_initial_queries_reuse_quorum_source_proof() -> Result<()> {
     Box::pin(initial_reads::qualify(false)).await
 }
@@ -112,6 +467,42 @@ async fn rustfs_clean_initial_queries_reuse_quorum_source_proof() -> Result<()> 
     Box::pin(initial_reads::qualify(true)).await
 }
 
+#[path = "support/cell_group_s3_read_source.rs"]
+mod s3_read_source;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn s3_read_sources_reuse_only_verified_unchanged_checkpoints() -> Result<()> {
+    Box::pin(s3_read_source::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_read_sources_reuse_only_verified_unchanged_checkpoints() -> Result<()> {
+    Box::pin(s3_read_source::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only; enables archive and source-read phase tracing"]
+async fn trace_s3_read_source_settlement() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::group_archive=debug,cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug")
+        .with_test_writer()
+        .try_init();
+    Box::pin(s3_read_source::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "directed ownership diagnostic; does not qualify the full read-source case"]
+async fn s3_read_source_eviction_releases_the_one_slot_bank() -> Result<()> {
+    Box::pin(s3_read_source::qualify_eviction(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "directed ownership diagnostic; requires isolated local RustFS"]
+async fn rustfs_s3_read_source_eviction_releases_the_one_slot_bank() -> Result<()> {
+    Box::pin(s3_read_source::qualify_eviction(true)).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
@@ -119,6 +510,17 @@ async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
+    Box::pin(events::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: complete EventStream case with target publication phases"]
+async fn trace_event_stream_target_publication() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=trace,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::sql_publish=trace,cellar::raft::cell_groups::controller::effects=debug")
+        .with_test_writer()
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("trace subscriber: {error}"))?;
     Box::pin(events::qualify(false)).await
 }
 
@@ -160,6 +562,17 @@ async fn rustfs_event_streams_preserve_independent_target_s3_minimum() -> Result
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_axum_event_streams_preserve_independent_target_s3_minimum() -> Result<()> {
     Box::pin(events::qualify_target_s3(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fresh_catalog_activation_joins_enrollment_without_ingress_command() -> Result<()> {
+    Box::pin(events::qualify_enrollment(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_fresh_catalog_activation_joins_enrollment_without_ingress_command() -> Result<()> {
+    Box::pin(events::qualify_enrollment(true)).await
 }
 
 #[test]
@@ -302,6 +715,17 @@ async fn rustfs_workflow_results_survive_s3_replacement_and_park_wake() -> Resul
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_axum_workflow_results_survive_s3_replacement_and_park_wake() -> Result<()> {
     workflows::lifecycle(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removed_voter_name_discovery_restores_routing_after_restart() -> Result<()> {
+    workflows::removed_lookup(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_removed_voter_name_discovery_restores_routing_after_restart() -> Result<()> {
+    workflows::removed_lookup(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1956,6 +2380,34 @@ async fn ordinary_cell_rpcs_interleave_between_proven_roots() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ready_cell_work_passes_a_blocked_same_cell_resume() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(resume_progress::run(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("resume progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ready_cell_work_passes_a_blocked_same_cell_resume() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "resume-progress",
+            rooted,
+        )?));
+        Box::pin(resume_progress::run(rooted, store))
+            .await
+            .with_context(|| format!("RustFS resume progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(rpc_progress::run(
@@ -1964,6 +2416,65 @@ async fn proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Re
         ))
         .await
         .with_context(|| format!("RPC progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn new_rpc_preparation_overlaps_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(rpc_progress::preparation(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("RPC preparation progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_sql_worker_prepares_during_materialized_group_apply() -> Result<()> {
+    Box::pin(rpc_progress::preparation_one_worker(
+        false,
+        Arc::new(catalog_fault::Store::default()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_sql_worker_prepares_during_extent_group_apply() -> Result<()> {
+    Box::pin(rpc_progress::preparation_one_worker(
+        true,
+        Arc::new(catalog_fault::Store::default()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_one_sql_worker_prepares_during_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "one-worker-apply-progress",
+            rooted,
+        )?));
+        Box::pin(rpc_progress::preparation_one_worker(rooted, store)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_new_rpc_preparation_overlaps_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "rpc-preparation-progress",
+            rooted,
+        )?));
+        Box::pin(rpc_progress::preparation(rooted, store))
+            .await
+            .with_context(|| format!("RustFS RPC preparation progress extents={rooted}"))?;
     }
     Ok(())
 }
@@ -2048,6 +2559,28 @@ async fn ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn existing_named_binding_joins_before_enrollment_admission() -> Result<()> {
+    Box::pin(binding_enrollment::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_existing_named_binding_joins_before_enrollment_admission() -> Result<()> {
+    Box::pin(binding_enrollment::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn binding_receipt_bookkeeping_reuses_proven_quorum_reads() -> Result<()> {
+    Box::pin(binding_reads::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_binding_receipt_bookkeeping_reuses_proven_quorum_reads() -> Result<()> {
+    Box::pin(binding_reads::qualify(true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2164,10 +2697,163 @@ async fn ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
     Box::pin(bindings::qualify(false)).await
 }
 
+#[test]
+fn provider_binding_declarations_are_bounded_and_schema_bound() -> Result<()> {
+    provider_bindings::declarations()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_binding_journals_use_shared_quorum() -> Result<()> {
+    provider_bindings::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_execution_claims_fence_restarted_owners() -> Result<()> {
+    provider_bindings::qualify_execution_fencing(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS and an explicitly owned Docker socket/image"]
+async fn rustfs_docker_provider_execution_claims_stop_old_processes() -> Result<()> {
+    provider_bindings::qualify_execution_fencing(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_journals_keep_checkpoint_and_caller_input_limits_separate() -> Result<()> {
+    provider_bindings::qualify_small_input().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_provider_binding_journals_use_shared_quorum() -> Result<()> {
+    provider_bindings::qualify(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_effects_reuse_only_unchanged_invocation_checkpoints() -> Result<()> {
+    provider_bindings::qualify_checkpoint_proof(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_provider_effects_reuse_only_unchanged_invocation_checkpoints() -> Result<()> {
+    provider_bindings::qualify_checkpoint_proof(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_supervision_recovers_without_application_requests() -> Result<()> {
+    provider_supervision::qualify(false).await
+}
+
+#[test]
+fn fenced_maintenance_registration_binds_the_namespace_contract() -> Result<()> {
+    fenced_maintenance::contracts()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fenced_provider_maintenance_recovers_without_application_requests() -> Result<()> {
+    fenced_maintenance::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only: materialized S3 fenced maintenance settlement"]
+async fn trace_fenced_maintenance_s3_settlement() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
+        .with_ansi(false)
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("initialize fenced maintenance diagnostic: {error}"))?;
+    fenced_maintenance::trace(false, false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only: extent S3 fenced maintenance read settlement"]
+async fn trace_extent_fenced_maintenance_s3_settlement() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
+        .with_ansi(false)
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("initialize extent maintenance diagnostic: {error}"))?;
+    fenced_maintenance::trace(true, false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only: real RustFS/Docker materialized S3 Create settlement"]
+async fn trace_rustfs_docker_fenced_maintenance_s3_settlement() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
+        .with_ansi(false)
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("initialize real provider maintenance diagnostic: {error}"))?;
+    fenced_maintenance::trace(false, true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS and an explicitly owned Docker socket/image"]
+async fn rustfs_docker_fenced_maintenance_recovers_without_application_requests() -> Result<()> {
+    fenced_maintenance::qualify(true, true).await
+}
+
+#[test]
+fn provider_supervision_policies_bind_the_namespace_contract() -> Result<()> {
+    provider_supervision::contracts()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only: unchanged provider supervision with settlement tracing"]
+async fn trace_provider_supervision_command_settlement() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
+        .with_test_writer()
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("initialize supervision diagnostic logging: {error}"))?;
+    provider_supervision::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS; diagnostic settlement tracing only"]
+async fn trace_rustfs_provider_supervision_command_settlement() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::cell_reconciliation=trace,cellar::raft::sql_publish=trace,cellar::raft::execution_readiness=debug,cellar::raft::resource_read=debug,cellar::raft::provider_qualification=debug")
+        .with_test_writer()
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("initialize supervision diagnostic logging: {error}"))?;
+    provider_supervision::qualify(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_provider_supervision_recovers_without_application_requests() -> Result<()> {
+    provider_supervision::qualify(true).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
     Box::pin(bindings::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: complete RustFS named-binding case with proof phases"]
+async fn rustfs_trace_named_binding_publication() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::sql_publish=trace,cellar::raft::group_archive=debug,cellar::raft::cell_groups::controller::effects=debug")
+        .with_test_writer()
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("trace subscriber: {error}"))?;
+    Box::pin(bindings::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: requires owned RustFS and the stack-sampling driver"]
+async fn rustfs_profile_materialized_named_bindings() -> Result<()> {
+    Box::pin(binding_profile::run(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: requires owned RustFS and the stack-sampling driver"]
+async fn rustfs_profile_extent_named_bindings() -> Result<()> {
+    Box::pin(binding_profile::run(true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2204,8 +2890,47 @@ async fn warm_kv_payloads_preserve_source_proof_and_cold_enrollment() -> Result<
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS and the matching frozen CLI"]
+async fn rustfs_cli_publishes_maximum_kv_value_with_original_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_cli_publication()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk() -> Result<()> {
     Box::pin(kv_bindings::qualify_streaming()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_payload_reads_resume_after_outage_and_retained_restart() -> Result<()> {
+    Box::pin(kv_bindings::qualify_payload_recovery(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_stream_intake_obeys_its_original_operation_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_stream_deadline(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn primitive_operator_upload_obeys_the_original_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_ingress_deadline(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_primitive_operator_upload_obeys_the_original_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_ingress_deadline(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_kv_stream_intake_obeys_its_original_operation_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_stream_deadline(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_kv_payload_reads_resume_after_outage_and_retained_restart() -> Result<()> {
+    Box::pin(kv_bindings::qualify_payload_recovery(true, false)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2413,4 +3138,120 @@ async fn completed_checkpoints_advance_ready_reply_bridges() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn prepared_checkpoints_replicate_before_unrelated_queued_sql() -> Result<()> {
     Box::pin(checkpoint_submit::qualify()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_extent_load_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_extent_load(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_extent_load_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_extent_load(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sdk_queue_metrics_preserve_target_versions_and_independent_minimums() -> Result<()> {
+    Box::pin(queues::qualify_sdk_metadata(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_sdk_queue_metrics_preserve_target_versions_and_independent_minimums() -> Result<()>
+{
+    Box::pin(queues::qualify_sdk_metadata(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_axum_sdk_queue_metrics_preserve_target_versions_and_independent_minimums(
+) -> Result<()> {
+    Box::pin(queues::qualify_sdk_metadata(true, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cold_queue_operator_reads_use_enrollment_without_an_ingress_command() -> Result<()> {
+    Box::pin(queues::qualify_cold_metadata(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_cold_queue_operator_reads_use_enrollment_without_an_ingress_command() -> Result<()>
+{
+    Box::pin(queues::qualify_cold_metadata(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_operator_reads_preserve_versions_and_require_quorum() -> Result<()> {
+    Box::pin(queues::qualify_metadata_reads(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_operator_reads_preserve_versions_and_require_quorum() -> Result<()> {
+    Box::pin(queues::qualify_metadata_reads(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_operator_reads_require_selected_s3_coverage_after_bare_enrollment() -> Result<()> {
+    Box::pin(queues::qualify_metadata_s3(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_operator_reads_require_selected_s3_coverage_after_bare_enrollment(
+) -> Result<()> {
+    Box::pin(queues::qualify_metadata_s3(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn committed_event_ack_survives_interrupted_quorum_parent() -> Result<()> {
+    event_streams::qualify_ack_recovery(false, Durability::Quorum).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn committed_event_ack_survives_interrupted_s3_parent() -> Result<()> {
+    event_streams::qualify_ack_recovery(false, Durability::S3).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_committed_event_ack_survives_interrupted_quorum_parent() -> Result<()> {
+    event_streams::qualify_ack_recovery(true, Durability::Quorum).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_committed_event_ack_survives_interrupted_s3_parent() -> Result<()> {
+    event_streams::qualify_ack_recovery(true, Durability::S3).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic only; exact extent/S3 checkpoint recovery, not the full gate"]
+async fn rustfs_trace_interrupted_s3_binding_settlement() -> Result<()> {
+    live_binding_recovery::trace_checkpoint_s3().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn binding_settlement_recovers_after_lost_s3_output() -> Result<()> {
+    live_binding_recovery::lost_settlement(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_binding_settlement_recovers_after_lost_s3_output() -> Result<()> {
+    live_binding_recovery::lost_settlement(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_sessions_retain_existing_fenced_lifecycle_admission() -> Result<()> {
+    fenced_maintenance::qualify_sessions(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS and an explicitly owned Docker socket/image"]
+async fn rustfs_docker_provider_sessions_retain_existing_fenced_lifecycle_admission() -> Result<()>
+{
+    fenced_maintenance::qualify_sessions(true, true).await
 }

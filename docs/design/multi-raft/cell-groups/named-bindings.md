@@ -30,6 +30,35 @@ A cross-class target must have exactly one matching namespace; missing and
 ambiguous targets refuse startup. The current class uses its source namespace.
 Binding dispatch has no Fleet or weaker-durability fallback.
 
+Initial and retained groups can start one ordinary election when a strong read,
+private execution/enrollment request or active mutation probe arrives before a
+leader is known. Only the exact unvoted genesis cut selects its minimum voter;
+retained startup uses an existing vote for a current or outgoing voter.
+The actor rechecks its current term and vote before spending the attachment
+hint; a newer vote for another candidate invalidates it even before a leader
+is known. Applied local metadata supplies a destination hint, never leader or
+execution authority.
+PreVote, durable votes, current membership, quorum and applied readiness still
+decide admission. Stale advisory refreshes and parked groups cannot spend this
+hint; wake retains its separate fresh-quorum barrier.
+
+An initial namespace authorization denial uses an authenticated, empty transport
+reply after the bounded request body is verified. Its kind, channel exporter,
+route, purpose, sequence and request tag are bound by the response MAC. It
+preserves `TransportError::Refused`; opaque read disconnections remain
+`Unavailable`. The denial supplies no mutation disposition and never clears an
+earlier unknown outcome. This response-header change is an internal format-1
+hard cutover requiring matching binaries, with no legacy reader.
+
+## Primitive operator request budgets
+
+Peer-authenticated `/runtime/` primitive operators share the receiver's original
+operation deadline across request-body collection and subsequent staging and
+dispatch. An incomplete upload expires with the fixed RPC deadline response and
+closes its HTTP connection, releasing the pending body before authentication or
+adapter execution. Completing an upload does not refresh the remaining budget.
+Submitted mutations retain their existing receipt and uncertain-outcome rules.
+
 ## SQL database bindings
 
 Shared native cells may declare `sql_bindings`, obtain a database with
@@ -85,6 +114,18 @@ including a lost reply after commit, must not replay the mutation with a new
 identity. Axum applications keep this operator protocol on the private node
 listener and use `CellarService` for public SDK ingress.
 
+A stateless native invocation may retain one sequence candidate from its last
+verified successful command receipt. The fixed-size candidate binds the exact
+logical history and schema, expires at that call's original monotonic deadline
+and is consumed before submission. It owns no receipt, image or execution
+capability. Replenishment happens after successful deadline/cancellation
+selection. Every command still obtains its own current admission and required
+durability proof; a collision still needs a fresh quorum observation of a
+different immutable fingerprint. Missing, pruned and matching receipts never
+prove an unknown mutation cannot commit. This candidate is shared across methods
+of the same cell; it is neither a sequence reservation nor a read-consistency
+cache. Cold selection and contending first calls retain their ordinary protocol.
+
 Operator calls reuse the bounded per-database stream, nonce validation and
 original absolute deadline below. The SQL service schema digest changes for this
 contract; provision fresh compatible SQL namespaces and matching voter binaries.
@@ -99,8 +140,8 @@ without SQL payloads. See the [qualification record](progress.md#cg-17-authentic
 SQL calls from Raft cells use the durable binding protocol below, including the
 target namespace's independent minimum durability, original caller deadline,
 interrupted-call recovery and private sequence retirement. Queries use durable
-commands too; a SQL binding query does not use the stale-query default. Sessions
-retain the existing primary bookmark behavior.
+commands too, with the target namespace minimum. Sessions retain the existing
+primary bookmark behavior.
 
 The service runs each request in an owned savepoint inside its Raft command.
 Batch, exec and migration failures roll back their partial changes before the
@@ -117,15 +158,67 @@ recovery and release gates. The current scoped S3-source and public SQL/KV
 qualification is recorded in the
 [latest checkpoint](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
 
+SQL failures retain their existing `family`, `message`, display and serialized
+wire fields. Within Rust, `std::error::Error::source` also retains the original
+owned dispatch failure. Inspect that chain for `sdk::CellBindingCallError` after
+command submission or `sdk::CellBindingEnrollmentError` before a command exists.
+Keep the exact child command or creation identity, target history, independent
+minimum and ambiguity when reconciling. A timeout or lost reply never permits
+reissuing the SQL as a fresh call or replaying a whole source callback. Cloning
+the SQL error retains its local cause; serializing its message does not transport
+or authenticate that typed provenance.
+Construct SQL errors with `Error::new`, `Error::from_message` or
+`Error::from_error`; the owned cause is private, so existing struct literals
+must use a constructor.
+
 ## Stateless SQL ownership boundary
 
-Stateless native calls have no source cell transaction. Name lookup, one creation
-attempt and one independently durable SQL command share the original absolute
-node/caller deadline. When another first creator wins, reconciliation waits for
-the committed canonical name without repeating enrollment or SQL. After business
-submission, the selected history, input and command identity remain fixed.
-Cancellation or timeout does not establish non-commit, and a new application
-request is a separate mutation rather than an automatic retry.
+Stateless native calls have no source cell transaction. Creation, any required
+fresh name reconciliation and the independently durable command share the
+original absolute node/caller deadline. After business submission, the selected
+history, input and command identity remain fixed. Cancellation or timeout does
+not establish non-commit; a new application request is a separate mutation.
+
+Unhinted stateless SQL, RPC and buffered Fetch submit their original candidate
+and creation ID to the existing atomic enrollment authority first. The server
+checks current route, leader/applied readiness, compiled schema, grants and
+foreign creation records before running initialization. A name absence read is
+not admission authority. Retained local history remains a locator only.
+
+After an enrollment failure, adopting a committed name still requires a fresh
+quorum selection. An absent name never proves a pending creation cannot commit.
+Only a typed, unambiguous pre-entry Runtime refusal (Overloaded, NotReady,
+NotFound or NotLeader) permits retrying that same candidate and creation under
+the original deadline; entered, execution-refused and ambiguous calls are not
+resubmitted on absence. Original cancellation and target minimum proofs remain.
+
+The authenticated enrollment reply binds the original request and creation ID,
+including its route, purpose, history and requested minimum. It carries the
+receiver's entry disposition and specified runtime causes instead of flattening
+a verified pre-entry refusal to generic unavailability. Invalid flags, unknown
+codes, truncation, trailing bytes and foreign creations are rejected. A matching
+non-entry reply settles only that send; uncertainty from an earlier send remains
+sticky. Lost, malformed or unauthenticated replies remain ambiguous. No refusal
+supplies serving or durability authority. This is an internal format-1 RPC hard
+cutover; mixed enrollment-reply formats have no compatibility reader.
+
+Before a business command identity exists, an interrupted pending creation
+returns `sdk::CellBindingEnrollmentError` with its original candidate history,
+creation proposal, independent minimum durability, ambiguity and typed cause.
+Reconcile only that exact creation at that minimum. This error does not identify
+an admitted business command or authorize replay of business input. Once a
+business command exists, `sdk::CellBindingCallError` keeps its existing
+command/history/ambiguity contract. It aliases the existing `cells::CallError`.
+
+If fresh name reconciliation fails after enrollment, the error retains both
+causes. Its local context downcasts to
+`sdk::CellBindingEnrollmentReconciliationError`; `resolution` contains the typed
+lookup failure, and the original typed enrollment cause remains in the outer
+error's context chain. Quorum loss during discovery therefore cannot disappear
+behind an earlier creation conflict. This context never changes the original
+creation identity, minimum or ambiguity and never permits another mutation.
+Only the original enrollment disposition can establish non-entry. Serialized
+error text does not transport or authenticate these local typed causes.
 
 Stateless SQL uses one reserved client stream per database history. A fresh
 128-bit nonce in the owned request envelope distinguishes independent calls even
@@ -146,10 +239,11 @@ attempt keeps the same nonce, input, target history, expiry and absolute deadlin
 A proven competing request permits a new sequence, not a retry of an unknown
 mutation. Partial committed receipts also fix their request fingerprint.
 
-Only the reserved SQL service's native RPC contracts admit the nonce envelope
-with the fixed stream identity. Ordinary clients and classes cannot use it. The
-SQL service schema digest changes; use fresh compatible SQL namespaces and
-matching voters for this prototype hard cutover. Format markers remain at 1.
+Only host-compiled native ingress contracts admit the nonce envelope with the
+fixed stream identity, including the SQL service and declared native RPC/Fetch
+classes. Ordinary clients cannot manufacture this authority. Use fresh compatible
+namespaces and matching voters for this prototype hard cutover; format markers
+remain at 1.
 
 The adapter uses normal outbound RPC admission and dense request normalization,
 plus the existing Raft control budget. The SDK ticket transfers with the pending
@@ -188,6 +282,22 @@ and command identity cannot change, including when its outcome becomes unknown.
 The target checks its current incarnation and independent minimum durability.
 Every live lookup, enrollment, proof, retry and dispatch consumes the original
 monotonic request deadline.
+
+A pure query after an S3 checkpoint may reuse that exact source only while its
+physical archive verification remains live. This is a separate typed capability,
+not the clean Quorum watermark or a published-index sample. It binds the complete
+archive route and cell version; each read captures real verification custody and
+checks current group birth, the continuation fence and the original deadline.
+
+The verification is idle and evictable in both checkpoint and tail banks. A
+following S3 operation can reclaim its one-slot workspace; a later source read
+then takes the ordinary checkpoint path. Its S3 request/result reservation is
+released before dependent I/O. A parked callback can restore the read baseline
+only for the same route and exact committed cell version. A newer source image,
+private data/schema writes, new checkpoint, cursor or local-state restriction
+requires fresh proof. Protected binding completion does not refresh an S3
+baseline. Unproven S3 sources, mutations and final parent output retain their
+independent proof requirements.
 
 After the source proof, framework-owned enrollment, lookup and child command
 I/O may progress while the source SQLite writer stays parked. Before selecting
@@ -319,8 +429,9 @@ original target minimum. Source and target response admission are released befor
 loopback work needs the same SQL/archive slot.
 
 A final source command settles only the claimed metadata digest and exact lane
-serial at the original source minimum. It removes the obligation and preserves
-the parent outcome as unknown. A self-call rereads the private system allocator
+serial at the original source minimum. It releases that lane, discards the
+expired business argument bytes and retains bounded confirmation metadata;
+the parent outcome stays unknown. A self-call rereads the private system allocator
 before settlement. The allocator reads only its fixed-size counter through the
 existing SQL query owner, under a linearizable barrier and exact route/history.
 It takes no command-byte reservation and decodes no pending effect payloads.
@@ -335,6 +446,43 @@ it never resumes an arbitrary Rust callback. The retained-restart binding gate
 passes all eight native/RustFS configurations at `25d81992`; see the
 [current checkpoint](progress.md#cg-17-binding-deadlines-and-archive-tails).
 Full primitive-family and combined recovery qualification remain open.
+
+## Settlement output confirmation
+
+Quorum commitment of private settlement can precede its S3 acknowledgement.
+The settled row therefore enters confirmation-only phase 5, retaining the exact
+maintenance command, retry horizon, effective minimum and settlement input
+identity. This phase cannot enroll a target, invoke a business callback or create
+another claim. Its lane is already logically settled, as for a completed ordinary
+child; business-state erasure may proceed. Manifest summaries still count the
+remaining physical confirmation work, so it cannot silently become idle or park.
+
+The shared scheduler rediscovers the row after a lost response or retained
+restart. One receipt-only read per ordinary bounded turn must prove that exact
+command at its original effective Quorum/S3 minimum. Absence, expired floors,
+wrong identity, weaker proof or changed authority cannot confirm it. The receipt
+lookup is private; ordinary command discovery and public receipt APIs continue
+to refuse system contracts. Other groups retain their scheduling opportunity;
+there is no long retry loop or per-cell background task.
+
+The row pins its exact maintenance receipt against pruning until confirmation.
+After actual proof, private confirmation GC removes only that row and never
+releases a lane reused by a later call. Dropping the proof releases response
+admission before GC needs the same SQL/archive capacity. Confirmation preserves
+normal namespace minima, original business ambiguity and stop/term/route fences.
+The historical settlement counter records observed proof, including when a later
+physical-GC response is lost; it grants no serving authority.
+
+This is an internal hard cutover: the source binding schema and compiled private
+contract now include confirmation ownership. Matching binaries and fresh
+compatible namespaces are required. Markers remain 1, without legacy readers,
+automatic migration or deletion of older data. See [current progress](progress.md)
+for executed qualification. At `5b3cd177e`, all eleven fixed RustFS settlement
+functions and 34 image/minimum/fault configurations pass on Linux/ext4, including
+native/Axum original-budget completion and live/retained interrupted Ack. The
+three voters share one three-CPU/four-GiB container; independent-voter faults,
+load and complete primitive families remain separate gates. Earlier macOS
+parent-deadline and activation failures remain recorded; CG-17 stays open.
 
 ## SQL writer and maintenance progress
 
@@ -366,6 +514,14 @@ first newly waiting S3 proof initiates one immediate attempt; subsequent waiters
 share its work and bounded schedule. Requests keep their original deadlines.
 This scheduling interval is not a disaster-recovery RPO or response-time promise.
 Quorum acknowledgements remain independent of asynchronous archival.
+
+Payload storage failures, admission contention, deadlines and uncertain CAS
+confirmation keep the existing journaled publication retryable. Retrying
+preserves full dependency verification before coverage can authorize publication
+or output, including the existing rules for reusing a live verified prefix.
+Missing, corrupt, retired or wrongly scoped payloads stop the archive lane and
+remain visible in its status. Background recovery preserves the foreground
+request's original deadline, identity and output-proof requirements.
 
 Followers may acquire an older published prefix while later local entries are
 unarchived. Its route, complete physical closure and local term/index match must

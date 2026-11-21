@@ -43,6 +43,9 @@ use std::{
 const SECRET: &str = "fixture-secret-raft-cli";
 
 fn child(root: PathBuf, mode: String) -> Result<()> {
+    if mode == "provision-primitives" {
+        return managed::primitives::child(root, &mode);
+    }
     if mode == "provision-cron" || mode.starts_with("cron-") {
         return managed::cron::child(root, &mode);
     }
@@ -381,6 +384,7 @@ impl Ingress {
 struct Process {
     child: Child,
     voter: Option<docker::Voter>,
+    primitive_boot: Option<String>,
     log: PathBuf,
     diagnostics: PathBuf,
 }
@@ -442,6 +446,22 @@ impl Process {
                 std::env::var("CELLAR_RAFT_CRON_MINIMUM")?,
             );
         }
+        let primitive_boot = if managed::primitives::enabled() {
+            // PIDs belong to different namespaces in Docker. A fresh token
+            // proves that a rendezvous marker belongs to this exact launch.
+            let mut token = [0; 16];
+            getrandom::fill(&mut token)
+                .map_err(|error| anyhow::anyhow!("primitive launch identity: {error}"))?;
+            let token = hex::encode(token);
+            cmd.env(managed::primitives::ENABLED, "1").env(
+                managed::primitives::MINIMUM,
+                std::env::var(managed::primitives::MINIMUM)?,
+            );
+            cmd.env(managed::primitives::BOOT_TOKEN, &token);
+            Some(token)
+        } else {
+            None
+        };
         if let Some(cli) = std::env::var_os("CELLAR_RAFT_OPERATOR_CLI") {
             cmd.env("CELLAR_RAFT_OPERATOR_CLI", cli);
         }
@@ -464,6 +484,7 @@ impl Process {
         Ok(Self {
             child,
             voter,
+            primitive_boot,
             log,
             diagnostics,
         })
@@ -1093,7 +1114,9 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?
         .block_on(async {
-            if std::env::var_os("CELLAR_RAFT_CRON_PROCESS_GATE").is_some() {
+            if managed::primitives::enabled() {
+                managed::primitives::qualify().await
+            } else if std::env::var_os("CELLAR_RAFT_CRON_PROCESS_GATE").is_some() {
                 managed::cron::qualify().await
             } else {
                 qualify().await

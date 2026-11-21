@@ -8,6 +8,11 @@ use std::collections::BTreeMap;
 #[path = "cell_group_archive_intents.rs"]
 mod archive_intents;
 pub(super) use archive_intents::persist_archive_intent;
+#[path = "cell_group_startup_mutation.rs"]
+mod startup_mutation;
+pub(super) use startup_mutation::{
+    initial_private_election, retained_private_election, startup_vote_change,
+};
 
 #[path = "raft_catalog_fault.rs"]
 #[allow(dead_code)]
@@ -939,6 +944,8 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
 
 #[path = "cell_group_sql.rs"]
 mod sql;
+pub(super) use sql::commit_metadata_publication;
+pub(super) use sql::foreign_commit_ticket;
 #[allow(unused_imports)]
 pub(super) use sql::unproved_s3_responses;
 pub(super) use sql::{
@@ -954,21 +961,23 @@ pub(super) use sql::{
 };
 #[allow(unused_imports)]
 pub(super) use sql::{
-    archive_controller_publish_store, archive_controller_reconcile_store,
-    archive_controller_reservation_recovery,
+    archive_controller_payload_outage, archive_controller_publish_store,
+    archive_controller_reconcile_store, archive_controller_reservation_recovery,
+    archive_reservation_retries_from_durable_intent, archive_retirement_joins_next_intent,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
     enrollment_output_during_apply, follower_acquires_published_prefix,
-    follower_bootstraps_first_prefix, full_backend_outage, output_during_apply,
+    follower_bootstraps_first_prefix, full_backend_outage, output_during_apply, output_progress,
     peer_connection_idle, retirement_coalesces_next_archive_intent, s3_commands, s3_deadline,
-    s3_enrollment, s3_enrollment_deadline, s3_idle_observation_reuses_verification,
-    s3_late_receipt_uses_completed_verification, s3_missing_sibling, s3_namespace_minimum,
-    s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
-    s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
-    s3_remote_receipt_reconciliation, s3_remote_slow_delivery, s3_replays_from_peer_archive,
-    s3_response_precedes_hold_retirement,
+    s3_enrollment, s3_enrollment_deadline,
+    s3_foreground_receipt_precedes_queued_background_archive,
+    s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
+    s3_missing_sibling, s3_namespace_minimum, s3_newer_receipt_bypasses_inflight_maintenance,
+    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
+    s3_remote_deadlines, s3_remote_outputs, s3_remote_receipt_reconciliation,
+    s3_remote_slow_delivery, s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
 };
 pub(super) use sql::{
     background_admission, capacity_terminal_refusals, capacity_wait_shutdown,
@@ -1047,17 +1056,20 @@ pub(super) async fn bounded_queued_submissions(rooted: bool) -> Result<()> {
 }
 
 pub(super) use sql::{
-    coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable, query_lifecycle,
-    recent_source_reads,
+    change_reads, coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable,
+    query_lifecycle, recent_source_reads,
 };
 
 pub(super) use sql::apply_images;
+pub(super) use sql::committed_apply_reuses_verified_preview;
 pub(super) use sql::pipeline_unrelated_mutation;
+pub(super) use sql::{owned_image_recheck_guards, verified_preparation_handoff, PreparationCase};
 
 pub(super) use sql::{apply_cancellation, apply_failure};
 
 pub(super) use sql::recover_apply;
 
+pub(super) use sql::disposable_directory;
 pub(super) use sql::registered_commands;
 
 pub(super) use sql::registered_queries;
@@ -1151,4 +1163,6 @@ pub(super) use sql::{host_many_cells, host_query_shutdown, host_registration_and
 
 pub(super) use sql::controller_routed_queries;
 
+pub(super) use sql::automatic_queries_finish_catalog_refresh;
+pub(super) use sql::automatic_queries_keep_first_progress;
 pub(super) use sql::automatic_queries_leave_blocked_local;

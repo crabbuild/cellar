@@ -4,14 +4,15 @@
 
 mod admission;
 pub(crate) use admission::SqlCapacityWait;
-mod progress;
+pub(super) mod progress;
 mod rpc_cache;
 mod rpc_commit;
 pub(super) use rpc_cache::RpcCache;
 pub(crate) use rpc_commit::RpcCommitContext;
 mod apply;
-pub(in crate::raft::host_sql) use apply::ApplyRequest;
+mod preparation;
 pub use apply::CellGroupPreparedApply;
+pub(in crate::raft::host_sql) use apply::{ApplyRequest, ApplyTasks};
 mod query;
 pub(crate) use query::{ReadRetention, RegisteredQuery};
 mod worker;
@@ -19,7 +20,7 @@ mod worker;
 mod workspace_tests;
 pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 
-use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker};
+use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker, WorkerReservation};
 use crate::application::consensus::CommandAdmission;
 use crate::raft::cell_groups::{
     cell_image_history_digest, CellEnrollmentAuthority, CellEnrollmentState,
@@ -47,6 +48,7 @@ pub(super) use worker::{Cells, Request};
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct CellSqlLimits {
+    /// Fixed SQL owners; physical apply shares the independent node admission bank.
     pub workers: usize,
     pub queue_per_worker: usize,
     pub max_pending_cells: usize,
@@ -417,6 +419,8 @@ pub struct CellSqlUsage {
     pub running_workers: usize,
     pub worker_capacity: usize,
     pub queued_or_running: usize,
+    /// Reserved progress lanes, retained through queued and physical apply.
+    /// The independent apply bank counts individual retained operations.
     pub completion_reservations: usize,
 }
 
@@ -624,6 +628,14 @@ impl CellGroupSqlPool {
         self.inner.admission.writer_progress()
     }
 
+    pub(crate) fn note_writer_wait(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<impl Send + Sync, ExecutionError> {
+        self.admit()?;
+        self.inner.admission.note_writer_wait(cell)
+    }
+
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
         let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;
@@ -668,17 +680,19 @@ impl CellGroupSqlPool {
             let queued = worker
                 .performance
                 .timer(crate::raft::performance::Operation::SqlQueue);
-            let slot = match progress::reserve(&worker.completion_slots, || {
-                worker
-                    .slots
-                    .clone()
-                    .try_acquire_owned()
-                    .map_err(|error| match error {
-                        tokio::sync::TryAcquireError::Closed => unavailable(),
-                        tokio::sync::TryAcquireError::NoPermits => overloaded(),
-                    })
-            })
-            .await
+            let (lane, queue) = match worker
+                .completion_slots
+                .acquire_queued(|| {
+                    worker
+                        .slots
+                        .clone()
+                        .try_acquire_owned()
+                        .map_err(|error| match error {
+                            tokio::sync::TryAcquireError::Closed => unavailable(),
+                            tokio::sync::TryAcquireError::NoPermits => overloaded(),
+                        })
+                })
+                .await
             {
                 Ok(slot) => slot,
                 Err(error) => {
@@ -686,7 +700,16 @@ impl CellGroupSqlPool {
                     return Err(error);
                 }
             };
-            self.enqueue(worker, cell, action, slot, queued)?
+            self.enqueue(
+                worker,
+                cell,
+                action,
+                WorkerReservation::Progress {
+                    _lane: lane,
+                    _queue: queue,
+                },
+                queued,
+            )?
         } else {
             self.send_ordinary(cell, action)?
         };
@@ -711,20 +734,23 @@ impl CellGroupSqlPool {
         self.admit()?;
         let worker = self.cell_worker(&cell)?;
         worker.domain.mono_ms().map_err(|_| unavailable())?;
-        let slot = worker
-            .slots
-            .clone()
-            .try_acquire_owned()
-            .map_err(|error| match error {
-                tokio::sync::TryAcquireError::Closed => unavailable(),
-                tokio::sync::TryAcquireError::NoPermits => {
-                    worker.performance.increment(
-                        crate::raft::performance::Counter::SqlWorkerAdmissionRefusals,
-                        1,
-                    );
-                    overloaded()
-                }
-            })?;
+        let slot = if action.progress_priority() {
+            let (lane, queue) = worker.completion_slots.acquire()?;
+            WorkerReservation::Progress {
+                _lane: lane,
+                _queue: queue,
+            }
+        } else {
+            let permit = worker
+                .slots
+                .clone()
+                .try_acquire_owned()
+                .map_err(|error| match error {
+                    tokio::sync::TryAcquireError::Closed => unavailable(),
+                    tokio::sync::TryAcquireError::NoPermits => overloaded(),
+                })?;
+            WorkerReservation::Ordinary { _permit: permit }
+        };
         let queued = worker
             .performance
             .timer(crate::raft::performance::Operation::SqlQueue);
@@ -736,7 +762,7 @@ impl CellGroupSqlPool {
         worker: &Worker,
         cell: CellHistory,
         action: worker::Action,
-        slot: tokio::sync::OwnedSemaphorePermit,
+        slot: WorkerReservation,
         queued: crate::raft::performance::Timer,
     ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
         self.admit()?;
@@ -1025,11 +1051,19 @@ impl CellGroupSqlPool {
             CellSqlStageMode::InvokeBefore(deadline),
             worker::Callback::Registered {
                 class,
+                input,
+                admission,
                 commits: Some(commits),
-                ..
             },
         ) = (mode, &callback)
         {
+            let maintenance =
+                crate::application::consensus::native_work::is_provider_reconciliation(
+                    *admission,
+                    class.name(),
+                    &attempt.request.operation,
+                    input,
+                );
             if class.is_cell_rpc(&attempt.request.operation) {
                 let fence = authority.activation_fence();
                 let domain = self.inner.workers[0].domain.clone();
@@ -1037,12 +1071,21 @@ impl CellGroupSqlPool {
                     .sleep_until(deadline)
                     .map_err(|_| self.stage_failure(unavailable(), true))?;
                 let waiting = async {
-                    let reserved = self
-                        .inner
-                        .admission
-                        .reserve_queued(&cell, group, bytes)
-                        .await
-                        .map_err(|failure| self.stage_reservation_failure(failure))?;
+                    let reserved = if maintenance {
+                        // Background cleanup cannot make a foreground lifecycle
+                        // owner park merely to wait for that same guard. A
+                        // pre-enqueue refusal leaves its installation untouched.
+                        self.inner
+                            .admission
+                            .reserve_stage(&cell, group, bytes)
+                            .map_err(|failure| self.stage_reservation_failure(failure))?
+                    } else {
+                        self.inner
+                            .admission
+                            .reserve_queued(&cell, group, bytes)
+                            .await
+                            .map_err(|failure| self.stage_reservation_failure(failure))?
+                    };
                     self.admit()
                         .map_err(|error| self.stage_failure(error, true))?;
                     // The old writer may have proven several roots while this

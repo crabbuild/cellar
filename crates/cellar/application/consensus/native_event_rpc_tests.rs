@@ -124,6 +124,76 @@ fn configuration_probe_refuses_other_methods_authority_and_truncated_headers() -
     Ok(())
 }
 
+#[test]
+fn broker_receipt_genesis_requires_exact_provisioning_wire_before_creation() -> Result<()> {
+    use super::super::native_event_query::broker_genesis;
+    use base64::Engine as _;
+
+    let definition = definition();
+    let scope = event_stream::cell_scope(&definition.resource)?;
+    let name = event_stream::cell_name(&definition.resource)?;
+    let caller = event_stream::Authority::deployment("shop", &definition)?;
+    let body = serde_json::json!({
+        "operation": event_stream::raft::operation("shop", &definition)?,
+        "definition": base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&definition)?),
+    });
+    let wire = |method: &str, caller: event_stream::Authority, body: serde_json::Value| {
+        encode(
+            &scope,
+            Some(&name),
+            method,
+            Authority::Event(caller),
+            &RpcData::Json(serde_json::json!([body]).to_string()),
+            256 << 10,
+        )
+    };
+    let input = wire("__streamConfigureReceipt", caller.clone(), body.clone())?;
+    assert!(broker_genesis(&scope, &input)?);
+    for end in [0, 8, input.len() - 1] {
+        assert!(broker_genesis(&scope, &input[..end]).is_err());
+    }
+    let ordinary: event_stream::Authority = serde_json::from_value(serde_json::json!({
+        "resource":definition.resource,"principal":"shop","grant":"owner","action":"Configure",
+    }))?;
+    assert!(broker_genesis(
+        &scope,
+        &wire("__streamConfigureReceipt", ordinary.clone(), body.clone())?
+    )
+    .is_err());
+    for invalid in [
+        serde_json::json!({}),
+        serde_json::json!({"operation":"a".repeat(32), "definition":body["definition"]}),
+        serde_json::json!({"operation":body["operation"], "definition":"!invalid"}),
+        serde_json::json!({"operation":body["operation"], "definition":"x".repeat(128 << 10)}),
+    ] {
+        assert!(broker_genesis(
+            &scope,
+            &wire("__streamConfigureReceipt", caller.clone(), invalid)?
+        )
+        .is_err());
+    }
+    let mut other = definition.clone();
+    other.resource.id = "00000000000000000000000000000002".into();
+    let foreign = serde_json::json!({
+        "operation":event_stream::raft::operation("shop", &other)?,
+        "definition":base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&other)?),
+    });
+    assert!(broker_genesis(
+        &scope,
+        &wire("__streamConfigureReceipt", caller.clone(), foreign)?
+    )
+    .is_err());
+    for method in ["__streamResolve", "__streamRead"] {
+        assert!(!broker_genesis(
+            &scope,
+            &wire(method, ordinary.clone(), body.clone())?
+        )?);
+    }
+    let command = wire("__streamConfigure", caller, body)?;
+    assert!(!broker_genesis(&scope, &command)?);
+    Ok(())
+}
+
 #[tokio::test]
 async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result<()> {
     use cellar_logic::{
@@ -168,6 +238,43 @@ async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result
             )?;
             assert_eq!(observed["state"], "creating");
             assert_eq!(observed["operation"], body["operation"]);
+            let ready = |caller: event_stream::Authority| {
+                event_stream::metadata::read(
+                    &storage, cell.cell.as_str(),
+                    super::super::native_event_query::CATALOG_READY,
+                    &Authority::Event(caller), &serde_json::json!({}), usize::MAX,
+                )
+            };
+            let pending = ready(caller.clone()).unwrap_err();
+            assert!(matches!(pending.downcast_ref::<crate::raft::completion::RuntimeError>(),
+                Some(crate::raft::completion::RuntimeError::NotReady)));
+            assert_eq!(event_stream::metadata::read(
+                &storage, cell.cell.as_str(), "__catalogStatus",
+                &Authority::Event(caller.clone()), &serde_json::json!({}), usize::MAX,
+            )?["state"], "creating", "ordinary status must retain its successful pending response");
+            let mut foreign = caller.clone();
+            foreign.principal = "another-application".into();
+            let refused = ready(foreign).unwrap_err();
+            assert_eq!(refused.downcast_ref::<event_stream::DeliveryError>().unwrap().code,
+                event_stream::ErrorCode::Forbidden, "authorization must precede pending retry");
+            let ordinary: event_stream::Authority = serde_json::from_value(serde_json::json!({
+                "resource":definition.resource,"principal":"shop","grant":"owner","action":"Configure",
+            }))?;
+            let refused = ready(ordinary).unwrap_err();
+            assert_eq!(refused.downcast_ref::<event_stream::DeliveryError>().unwrap().code,
+                event_stream::ErrorCode::Forbidden, "ordinary grants cannot mint activation waits");
+            let args = crate::application::encode_rpc(
+                &cellar_native::clone::StructuredValue::from_json(serde_json::json!([body.clone()]))?,
+            )?;
+            let wire = encode_ingress(
+                cell.cell.as_str(), Some(&event_stream::catalog_name(&definition.resource)?),
+                "__catalogConfigure", Authority::Event(caller.clone()), &args, usize::MAX, [5;16],
+            )?;
+            let compiled = class.event_enrollments.as_ref().unwrap()
+                .get(&(cell.cell.as_str().to_owned(), definition.resource.id.clone())).unwrap();
+            let (_, fingerprint) = super::super::native_event_enrollment::fingerprint(cell.cell.as_str(), &wire)?;
+            assert_eq!(compiled.pending(fingerprint).unwrap(), observed,
+                "compiled acceptance must describe the actual initializer's state");
             let work = storage.work_installation(cellar_logic::work::Reason::ResourceReconciliation)?.unwrap();
             assert_eq!(work.at_ms, 1234);
             Ok(work)
@@ -175,6 +282,112 @@ async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result
         database.transaction(crate::storage::CommandInputs {now_unix_millis:2234, ..inputs}, |tx| {
             class.invoke_initializer(&cell, tx)?;
             assert_eq!(tx.storage()?.work_installation(cellar_logic::work::Reason::ResourceReconciliation)?, Some(work));
+            Ok(())
+        })?;
+        database.transaction(inputs, |tx| {
+            let storage = tx.storage()?;
+            storage.system_sql("UPDATE __sys_event_catalog SET definition=pending_definition,accepted_revision=desired_revision,pending_definition=NULL,pending_authority=NULL,desired_revision=NULL,lifecycle='active' WHERE id=?", &[definition.resource.id.clone().into()])?;
+            let ready = || event_stream::metadata::read(
+                &storage, cell.cell.as_str(), super::super::native_event_query::CATALOG_READY,
+                &Authority::Event(caller.clone()), &serde_json::json!({}), usize::MAX,
+            );
+            let current = ready()?;
+            assert_eq!(current["state"], "active");
+            assert_eq!(current["resource"], definition.resource.id);
+            assert_eq!(current["accepted_revision"], "1");
+            use sha2::{Digest, Sha256};
+            assert_eq!(current["accepted_digest"], hex::encode(Sha256::digest(serde_json::to_vec(&definition)?)));
+            storage.system_sql("UPDATE __sys_event_catalog SET lifecycle='updating' WHERE id=?", &[definition.resource.id.clone().into()])?;
+            assert!(matches!(ready().unwrap_err().downcast_ref::<crate::raft::completion::RuntimeError>(),
+                Some(crate::raft::completion::RuntimeError::NotReady)));
+            for state in ["retiring", "deleted"] {
+                storage.system_sql("UPDATE __sys_event_catalog SET lifecycle=? WHERE id=?", &[state.into(), definition.resource.id.clone().into()])?;
+                assert_eq!(ready()?["state"], state, "terminal lifecycle must not be retried as pending");
+            }
+            let mut revoked = definition.clone();
+            revoked.grants[0].administer = false;
+            storage.system_sql("UPDATE __sys_event_catalog SET definition=?,lifecycle='updating' WHERE id=?", &[serde_json::to_string(&revoked)?.into(), definition.resource.id.clone().into()])?;
+            let refused = ready().unwrap_err();
+            assert_eq!(refused.downcast_ref::<event_stream::DeliveryError>().unwrap().code,
+                event_stream::ErrorCode::Forbidden, "a pending update must still enforce current revocation");
+            Ok(())
+        })?;
+        Ok(())
+    }).await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn event_stream_enrollment_installs_declared_state_and_subscriptions_atomically() -> Result<()>
+{
+    use crate::application::storage::SqlValue;
+    use cellar_logic::{
+        cell_group::{CellHistory, CellId},
+        consensus::{ClusterId, IncarnationId, NamespaceId},
+    };
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let mut definition = definition();
+        definition.retention = event_stream::Retention::Required;
+        definition.subscriptions.push(event_stream::SubscriptionDefinition {
+            name: "projection".into(),
+            start: event_stream::Start::Earliest,
+            required: true,
+        });
+        definition.validate()?;
+        let cell = CellHistory {
+            cluster: ClusterId::new([1; 16])?,
+            namespace: NamespaceId::new([2; 16])?,
+            cell: CellId::new(event_stream::cell_scope(&definition.resource)?)?,
+            incarnation: IncarnationId::new([3; 16])?,
+        };
+        let options = super::super::NativeCellConfiguration::default().options("shop");
+        let configuration = super::super::AdmittedCellConfiguration::from_options(&options)?;
+        let class = super::super::native_services::event_service(
+            &configuration, std::slice::from_ref(&definition), false,
+        )?;
+        let root = tempfile::tempdir()?;
+        let mut database = crate::storage::CommandDatabase::open(
+            &root.path().join("stream.sqlite"), None, 4 << 20,
+        )?;
+        let inputs = crate::storage::CommandInputs {now_unix_millis:1234, random:[4;32]};
+        let rejected: Result<()> = database.transaction(inputs, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            anyhow::bail!("creation did not commit")
+        });
+        assert!(rejected.is_err());
+        assert_eq!(database.framework().query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name IN ('__sys_stream','__sys_stream_subscriptions','__sys_work','__sys_raft_native_work')", [], |r| r.get::<_, u64>(0),
+        )?, 0);
+        let initial = database.transaction(inputs, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            let storage = tx.storage()?;
+            anyhow::ensure!(
+                storage.system_sql("SELECT 1 FROM sqlite_schema WHERE name='__sys_stream'", &[])?.len() == 1,
+                "broker enrollment did not install its declared stream before callback entry",
+            );
+            let row = storage.system_sql("SELECT * FROM __sys_stream WHERE singleton=1", &[])?.remove(0);
+            assert_eq!(row.get("definition"), Some(&SqlValue::Text(serde_json::to_string(&definition)?)));
+            assert_eq!(row.get("lifecycle"), Some(&SqlValue::Text("active".into())));
+            assert_eq!(row.get("logical_ms"), Some(&SqlValue::Integer(1234)));
+            assert_eq!(row.get("next_offset"), Some(&SqlValue::Integer(1)));
+            assert_eq!(row.get("config_operation"), Some(&SqlValue::Text(event_stream::raft::operation("shop", &definition)?)));
+            assert_eq!(row.get("config_principal"), Some(&SqlValue::Text("shop".into())));
+            assert_eq!(row.get("config_grant"), Some(&SqlValue::Text("owner".into())));
+            let subscriptions = storage.system_sql("SELECT * FROM __sys_stream_subscriptions", &[])?;
+            assert_eq!(subscriptions.len(), 1);
+            assert_eq!(subscriptions[0].get("name"), Some(&SqlValue::Text("projection".into())));
+            assert_eq!(subscriptions[0].get("checkpoint"), Some(&SqlValue::Integer(0)));
+            Ok((row, subscriptions))
+        })?;
+        database.transaction(crate::storage::CommandInputs {now_unix_millis:2234, ..inputs}, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            let storage = tx.storage()?;
+            let row = storage.system_sql("SELECT * FROM __sys_stream WHERE singleton=1", &[])?.remove(0);
+            assert_eq!(row, initial.0, "re-entry changed the configured stream or clock");
+            assert_eq!(storage.system_sql("SELECT * FROM __sys_stream_subscriptions", &[])?, initial.1,
+                "re-entry changed subscription identities or generations");
             Ok(())
         })?;
         Ok(())
@@ -352,9 +565,11 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
     use super::super::native_event_query::is_metadata;
     for method in [
         "__catalogStatus",
+        super::super::native_event_query::CATALOG_READY,
         "__catalogConfigureReceipt",
         "__catalogResolveName",
         "__catalogResolve",
+        "__streamConfigureReceipt",
         "__streamResolve",
         "__streamRead",
         "__streamSubscriptionStatus",
@@ -367,6 +582,7 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
         "__catalogRetire",
         "__streamConfigure",
         "__streamNext",
+        "__streamNextResolved",
         "__streamAck",
         "__streamRetry",
         "__streamExtend",
@@ -376,6 +592,29 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
     ] {
         assert!(!is_metadata(method), "{method}");
     }
+}
+
+#[test]
+fn configuration_missing_target_excludes_proof_and_authorization_failures() {
+    use super::super::native_event_query::configuration_target_missing;
+    use crate::raft::{cell_groups::CellDispatchError, completion::RuntimeError};
+    assert!(configuration_target_missing(&RuntimeError::NotFound.into()));
+    assert!(configuration_target_missing(
+        &CellDispatchError::Runtime(RuntimeError::NotFound).into()
+    ));
+    for error in [
+        RuntimeError::NotReady,
+        RuntimeError::Overloaded,
+        RuntimeError::DeadlineExceeded,
+        RuntimeError::Closed,
+    ] {
+        assert!(!configuration_target_missing(
+            &CellDispatchError::Runtime(error).into()
+        ));
+    }
+    assert!(!configuration_target_missing(&anyhow::anyhow!(
+        "missing name"
+    )));
 }
 
 #[test]

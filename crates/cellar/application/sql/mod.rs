@@ -29,9 +29,8 @@ use wire::{js_string, params, truthy};
 
 type Result<T> = std::result::Result<T, Error>;
 
-fn error(error: impl std::fmt::Display) -> Error {
-    // Keep an RPC's underlying refusal when query/admission context wraps it.
-    Error::from_message(format!("{error:#}"))
+fn error(error: impl Into<anyhow::Error>) -> Error {
+    Error::from_error(error.into())
 }
 
 #[cfg(test)]

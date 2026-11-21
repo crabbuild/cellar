@@ -37,12 +37,26 @@ identities, files, cached images and persistent storage live together in
 [`src/extent/`](src/extent/mod.rs), with the node inventory in `store/`.
 Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
+`GenerationStore::recheck_owned` rereads a materialized image completely while
+reusing the file and directory barriers completed by that exact open inventory.
+Only the live local prepared-apply handoff uses this optimization. Read or sync
+failures invalidate the observation; subsequent reuse must sync again. Cold
+adoption and independent `GenerationPin::verify_and_sync` retain both barriers.
+Root publication, archive proof and consensus authority remain separate.
+
 `GenerationStore::pin_prepared` reopens an exactly identified materialized image
 for a preparation retry. It verifies cold image bytes and persistence barriers,
 preserves the existing host retention flag, and refuses missing or mismatched
 images. Its pin prevents reclamation while borrowed; it supplies no apply,
 publication or serving authority. The caller must obtain the expected state from
 its committed input and publish the resulting complete manifest separately.
+
+`GenerationReceive` independently checks the incoming anonymous spool without
+syncing it. The spool is never adopted or renamed into an immutable image. A new
+destination is copied, independently checked and synced with its directory;
+reusing an existing destination still rereads it and completes both barriers.
+Cancellation or spool loss cannot produce a pin, and a failed destination
+barrier still refuses the receive.
 
 `RootView::read_extent` supplies one complete dependency to an admitted blocking
 transfer owner. The caller reserves its at-most-4-MiB output. It refuses objects

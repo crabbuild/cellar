@@ -74,16 +74,13 @@ impl CellGroupApplyImages {
         &self,
         request: ImageApply<'_>,
         verify_existing: bool,
-        prepared: Option<&crate::raft::execution::PreparedCellImage>,
+        prepared_image: Option<&crate::raft::execution::CellPreparedImage>,
     ) -> Result<EnrollmentImage, ExecutionError> {
         let limits = match self {
             Self::Materialized { images, .. } => images.apply_limits(),
             Self::Extents { limits, .. } => *limits,
         };
-        let reusable = (!verify_existing)
-            .then_some(prepared)
-            .flatten()
-            .and_then(|prepared| prepared.image(limits));
+        let prepared_image = prepared_image.and_then(|image| image.image(limits));
         let ImageApply {
             cell,
             sequence,
@@ -157,21 +154,22 @@ impl CellGroupApplyImages {
                     segments,
                 };
                 let id = image_id(cell, sequence, update.result)?;
-                let known = match reusable {
-                    Some(CellImagePin::Materialized(pin))
-                        if images.owns(pin)
-                            && pin.id() == id
-                            && pin.state() == update.result
-                            && base.is_none_or(|base| images.owns(base)) =>
-                    {
-                        Some(pin)
-                    }
+                let local = match prepared_image {
+                    Some(CellImagePin::Materialized(pin)) if images.owns(pin) => Some(pin),
                     _ => None,
                 };
-                if let Some(pin) = known {
-                    // A completed private seal cannot override a later
-                    // uncertain inventory mutation or poisoned owner.
-                    images.usage().map_err(storage)?;
+                if let Some(pin) = local {
+                    if pin.id() != id || pin.state() != update.result {
+                        return Err(ExecutionError::Invalid(
+                            "prepared materialized image result",
+                        ));
+                    }
+                    // The ticket binds the exact already replayed input. Read
+                    // the complete destination again so a warm pin never hides
+                    // missing or corrupt bytes. This exact inventory already
+                    // completed the immutable image's persistence barriers;
+                    // root publication retains its separate mandatory sync.
+                    images.recheck_owned(pin).map_err(storage)?;
                     CellImagePin::Materialized(pin.clone())
                 } else if verify_existing {
                     CellImagePin::Materialized(
@@ -192,8 +190,10 @@ impl CellGroupApplyImages {
                             pin
                         }
                         Err(cellar_ltx::generation::GenerationError::Exists) => {
-                            // Only the exact live capability above proves that
-                            // these input bytes have already been replayed.
+                            // A leader may already hold the independently
+                            // prepared preview under this exact image name.
+                            // Still replay this committed entry's supplied LTX;
+                            // a cached destination alone is not delta proof.
                             images
                                 .prepare_verified(id, base, &update)
                                 .map_err(storage)?
@@ -246,35 +246,38 @@ impl CellGroupApplyImages {
                         .map_err(storage)?,
                     segments,
                 };
-                let known = match reusable {
-                    Some(CellImagePin::Extents(pin))
-                        if images.owns_image(pin)
-                            && pin.reference() == update.result
-                            && pin.manifest().binding() == update.binding
-                            && pin.manifest().geometry() == update.geometry
-                            && base.is_none_or(|base| images.owns_image(base)) =>
-                    {
-                        if images.has_current_image_seal(pin).map_err(storage)? {
-                            Some(pin)
-                        } else {
-                            None
-                        }
-                    }
+                let local = match prepared_image {
+                    Some(CellImagePin::Extents(pin)) if images.owns_image(pin) => Some(pin),
                     _ => None,
                 };
-                if let Some(pin) = known {
-                    CellImagePin::Extents(pin.clone())
+                let prepared = if let Some(pin) = local {
+                    if pin.reference() != update.result
+                        || pin.manifest().binding() != update.binding
+                        || pin.manifest().geometry() != update.geometry
+                    {
+                        return Err(ExecutionError::Invalid("prepared extent image result"));
+                    }
+                    // Recheck actual root and extent bytes on this same live
+                    // inventory. The original input proof supplies the exact
+                    // delta relation, never current serving/commit authority.
+                    images
+                        .seal_image_root(
+                            pin.manifest().clone(),
+                            &mut vec![0; EXTENT_BYTES as usize],
+                        )
+                        .map_err(storage)?
                 } else {
-                    let prepared = images
+                    images
                         .prepare_transient_image_root(
                             base,
                             &update,
                             limits,
                             &mut vec![0; EXTENT_BYTES as usize],
                         )
-                        .map_err(storage)?;
-                    CellImagePin::Extents(Arc::new(prepared.image))
-                }
+                        .map_err(storage)?
+                        .image
+                };
+                CellImagePin::Extents(Arc::new(prepared))
             }
             _ => return Err(ExecutionError::Invalid("apply image representation")),
         };

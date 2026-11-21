@@ -244,6 +244,12 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
+    fn shares_catalog(&self, owner: &str, caller: &str) -> bool {
+        // rpc selects exactly these two backends. A Raft catalog proof cannot
+        // authorize adoption through an independently routed Fleet catalog.
+        self.shared.contains(owner) == self.shared.contains(caller)
+    }
+
     fn configuration_known(
         &self,
         principal: &str,
@@ -256,6 +262,57 @@ impl event_stream::activation::Host for ActivationHost {
             .as_ref()
             .context("shared event activation owner")?
             .event_configuration_known(authority)
+    }
+
+    fn prepare_broker(
+        &self,
+        principal: &str,
+        definition: &event_stream::Definition,
+    ) -> crate::application::HandlerFuture<bool> {
+        if self.shared.contains(principal) {
+            let preparation = self
+                .owner
+                .as_ref()
+                .expect("shared activation retains its owner")
+                .prepare_event_broker(principal, definition, self.deadline);
+            Box::pin(async move {
+                preparation.await?;
+                Ok(true)
+            })
+        } else {
+            Box::pin(async { Ok(false) })
+        }
+    }
+
+    fn configuration_status(
+        &self,
+        principal: &str,
+        authority: event_stream::Authority,
+        scope: String,
+        name: String,
+        after: Option<crate::raft::version::CellVersionToken>,
+    ) -> crate::application::HandlerFuture<event_stream::activation::ConfigurationStatus> {
+        if self.shared.contains(principal) {
+            self.owner
+                .as_ref()
+                .expect("shared activation retains its owner")
+                .event_configuration_status(authority, scope, name, after, self.deadline)
+        } else {
+            let read = self.rpc(
+                principal,
+                authority.into(),
+                scope,
+                name,
+                "__catalogStatus",
+                serde_json::json!([{}]),
+            );
+            Box::pin(async move {
+                Ok(event_stream::activation::ConfigurationStatus {
+                    value: read.await?,
+                    after: None,
+                })
+            })
+        }
     }
 
     fn rpc(

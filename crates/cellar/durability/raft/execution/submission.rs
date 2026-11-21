@@ -27,7 +27,7 @@ struct Submission {
 #[derive(Clone)]
 pub struct CellPreparedCommand {
     log_reservation: Option<Arc<crate::raft::cell_groups::log_retention::LogReservation>>,
-    image: Option<Weak<super::PreparedCellImage>>,
+    prepared_image: Weak<super::CellPreparedImage>,
     bytes: Arc<Vec<u8>>,
     proposal: ProposalId,
     term: Term,
@@ -58,7 +58,7 @@ impl CellPreparedCommand {
     ) -> Self {
         Self {
             log_reservation: None,
-            image: None,
+            prepared_image: Weak::new(),
             bytes: Arc::new(bytes),
             proposal,
             term,
@@ -78,13 +78,13 @@ impl CellPreparedCommand {
         self
     }
 
-    pub(super) fn with_image(mut self, image: &Arc<super::PreparedCellImage>) -> Self {
-        self.image = Some(Arc::downgrade(image));
+    pub(super) fn with_prepared_image(mut self, image: &Arc<super::CellPreparedImage>) -> Self {
+        self.prepared_image = Arc::downgrade(image);
         self
     }
 
-    pub(crate) fn prepared_image(&self) -> Option<Weak<super::PreparedCellImage>> {
-        self.image.clone()
+    pub(crate) fn prepared_image(&self) -> Weak<super::CellPreparedImage> {
+        self.prepared_image.clone()
     }
 
     pub(crate) fn log_reservation(

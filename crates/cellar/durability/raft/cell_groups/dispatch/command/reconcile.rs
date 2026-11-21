@@ -76,6 +76,7 @@ impl CellCommandInvocation {
                 (&self.request).into(),
                 &self.session,
                 attempt,
+                self.admission_kind.is_system(),
             );
             let result = match member {
                 Some(member) => execution
