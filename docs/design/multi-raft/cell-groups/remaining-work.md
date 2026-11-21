@@ -117,6 +117,23 @@ source and complete the API/lifecycle matrix. See the
 [current checkpoint](progress.md#current-integration-checkpoint) for sources,
 counts, failed controls and scope. Selected recovery passes do not close CG-17.
 
+### Main Queue backport audit
+
+These source-pinned records are historical. Use the current checkpoint for the
+latest binding/provider results and remaining priorities.
+
+The [2026-11-19 Queue audit](progress.md#cg-17-queue-transfer-payload-identity)
+finds and implements complete-payload binding for retained DLQ transfer receipts.
+Previously changed bytes could reuse the old acknowledgement after redrive had
+removed the message. The receiver now preflights the complete batch and returns
+known conflicts as Quorum/S3-protected RPC errors; capacity/storage/proof failures
+retain their existing failure semantics. Runtime `3500e49c5` passes all three
+scoped real-RustFS cases and six native/Axum image configurations, including
+retained restart and the existing lost-S3-reply fault case. The older standalone
+campaign remains failed. Public backport `9667e6e14` requires the corresponding
+shared-runtime integration for that qualification. This internal schema cutover
+requires fresh Queue roots and matching Raft namespaces.
+
 ### Previous archive and public-path results
 
 Runtime `85901c941` adds two bounded checkpoint creates with exact GET
