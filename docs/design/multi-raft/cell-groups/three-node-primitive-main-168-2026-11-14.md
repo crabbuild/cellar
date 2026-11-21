@@ -4,6 +4,10 @@
 
 Purpose: Record native checks and constrained SQL/KV/Queue comparisons after main #168, with failures and source bindings.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 Origin/main `50b927d9` (#168) is integrated by merge `a16bbdc6`; the measured
 source is published as `c5444fd2` on PR 167. The merged revision remains
 **unqualified**: eight native primitive controls fail and ten of twelve local
@@ -261,9 +265,9 @@ private config/credential files are excluded.
    and the existing missing historical evidence remain open. No OPT/CG gate is
    promoted by this diagnostic.
 
-[Machine-readable observations](three-node-primitive-main-168-2026-11-14.json) retain the complete planned
+Machine-readable observations retain the complete planned
 matrix, individual windows, same-owner counter deltas and resource outcomes.
-[Compressed raw evidence](three-node-primitive-main-168-2026-11-14.raw.json.gz) retain all 93 windows and raw
+Compressed raw evidence retain all 93 windows and raw
 latency samples/errors, native logs/records, owner observations, node/store logs,
 source/build bindings and host activity. Rates and integer-rank percentiles are
 independently recomputed; failed and unmeasured entries retain their statuses.

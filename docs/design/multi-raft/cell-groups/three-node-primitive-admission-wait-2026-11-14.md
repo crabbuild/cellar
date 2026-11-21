@@ -4,6 +4,10 @@
 
 Purpose: Received pre-enqueue capacity waits, focused regressions and retained SQL/KV/Queue deadline and lease failures.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 The bounded admission change passes its focused native regressions, but all
 three SQL/KV/Queue runtime cases still fail. Nine of 20 planned timed windows
 verify, three fail and eight remain unmeasured. Seven of 12 warmups verify and
@@ -128,10 +132,10 @@ explicit. Source/engine guards pass, all controller/driver handles are reaped,
 and the original RustFS service is restored under its unchanged identity and
 limits with readiness HTTP 200.
 
-[Machine-readable observations](three-node-primitive-admission-wait-2026-11-14.json)
+Machine-readable observations
 retain the complete matrix, per-node deltas where available, missing-node errors,
 resource peaks and window percentiles.
-[Compressed raw evidence](three-node-primitive-admission-wait-2026-11-14.raw.json.gz)
+Compressed raw evidence
 retains all 19 emitted windows, raw latency samples, original errors/identities,
 owner snapshots, KV lease logs, source inputs/patch/new test modules and host
 activity. Window accounting, source hashes and percentiles are independently

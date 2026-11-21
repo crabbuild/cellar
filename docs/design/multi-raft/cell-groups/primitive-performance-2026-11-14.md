@@ -4,6 +4,10 @@
 
 Purpose: Partial verified windows, resource observations and all six failed RustFS/Colima primitive-image cases.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 The real RustFS/Colima experiment failed qualification in all six primitive/image
 cases. Nine of 40 planned timed windows completed for 30 seconds with zero request
 errors and successful value/message verification. Seven timed windows failed;
@@ -14,7 +18,7 @@ These results show working API paths and unresolved sustained-load failures.
 They do not establish stable throughput, an SLA, a speedup, independent-node
 capacity or completion of the broader CG/OPT qualification gates.
 
-The [machine-readable observations](primitive-performance-2026-11-14.json) retain every
+The machine-readable observations retain every
 window's raw microsecond latency samples, errors, verification result, source
 identity, executable identity and resource summaries. Failed and incomplete
 windows remain in that artifact.

@@ -4,7 +4,11 @@
 
 Purpose: Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.
 
-The latest [private cleanup qualification](private-cleanup-qualification-2026-11-21.json)
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
+The latest private cleanup qualification
 qualifies code `1840466d4`, including main `5ae2b21f`. SQLite/capture close on
 their SQL owner; physical workspace removal and parent sync use the existing
 execution domain. Frozen receipts, activation, writer/byte admission and progress
@@ -28,7 +32,7 @@ budget. Later traced and ordinary KV passes leave its intermittent failure open.
 These controls qualify scheduling and custody boundaries; workload gains and
 complete-prefix recovery remain unproven.
 
-The [Queue domain-retention follow-up](queue-domain-retention-qualification-2026-11-21.json)
+The Queue domain-retention follow-up
 passes unchanged long-callback and operator controls in both image modes and
 verifies all six domain joins before export. Its fresh C4 tests still fail with
 **eight explicitly ambiguous producer deadlines**. Gated profiles identify engine,
@@ -37,7 +41,7 @@ and cannot establish an exclusive cause or workload gain. Production inputs and
 the original load body are unchanged. The retained **18 node disks and six
 synthetic exports** have independently verified closed copies.
 
-The [C4 lifecycle diagnostic](queue-c4-lifecycle-diagnostic-2026-11-21.json)
+The C4 lifecycle diagnostic
 passes one unsampled materialized exact drain while rooted sampled/unsampled
 controls retain **seven ambiguous producer deadlines**. Their controllers, SQL
 workers and domains close only after the workload boundary. Premature shutdown
@@ -60,9 +64,9 @@ remains unqualified. The read-only witness at
 unchanged **6 GiB reserve**. Original identity/configuration/resources/start match,
 with zero restarts and no case admitted; a fresh three-node resource witness
 remains open. No resource/storage changes are made. Full OPT/CG/recovery/SDK/release
-acceptance remains open. Earlier [checkpoint proof](checkpoint-proof-progress-qualification-2026-11-21.json),
-[phase observations](checkpoint-observations-qualification-2026-11-21.json) and
-[main-integration evidence](queue-transfer-claims-qualification-2026-11-21.json)
+acceptance remains open. Earlier checkpoint proof,
+phase observations and
+main-integration evidence
 retain their source-specific scope.
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
@@ -106,7 +110,7 @@ transaction or retained read snapshot. Writable access invalidates reuse. Later
 images use immutable inspection. Receipt validation, before/after authority
 checks, logical-writer release, retirement and S3 output gates remain unchanged;
 no result cache, worker, bank or deadline is added. Main `2f083f14` remains included.
-See the [qualification record](captured-receipt-reuse-qualification-2026-11-20.json).
+See the qualification record.
 
 At compiler inputs `2e0ae209`, byte-identical native RF3 tests pass in both image
 modes while the corresponding unchanged runtime waits on an injected immutable
@@ -166,7 +170,7 @@ unique Queue cell, command ID, normalized-input digest and offered batch.
 Temporary inputs `76318ae0` and `dad293ff` are retained privately; they were
 removed and inputs restored to `9748e402` before the qualification-only cleanup
 reporting change below. Runtime code still includes main `2f083f14`. See the
-[source-bound ingress record](queue-ingress-diagnostic-2026-11-20.json).
+source-bound ingress record.
 
 The unchanged fixture has a **3,000-ms stateless RPC operation deadline** and a
 separate **5,000-ms callback deadline**. Earlier generic five-second descriptions
@@ -232,7 +236,7 @@ The qualified production inputs remain `9748e402`; temporary instrumentation
 their originals, closed copies, source, executable and logs were independently
 verified. The fetched main remains `2f083f14`. This adds diagnosis, not a
 production change or a Queue repair. See the
-[source-bound diagnostic record](queue-critical-path-diagnostic-2026-11-20.json).
+source-bound diagnostic record.
 
 Rooted and materialized C4 both fail, retaining **six ambiguous deadline producer
 errors**. All **1,541 trace events** parse with timestamps. Queue identity is
@@ -305,7 +309,7 @@ library: **1,268 passed / 0 failed / 2 existing ignores**.
 Full execution: **234 passed / 0 failed / 2 existing ignores**.
 Strict all-feature/all-target Clippy and repository checks pass.
 The original sixteen application selections report **12 passed / 4 failed**;
-see the [source-bound record](checkpoint-submission-qualification-2026-11-20.json)
+see the source-bound record
 for every stage and artifact/profile hash.
 
 All four Queue load selections still fail. Rooted and materialized C4 fail
@@ -383,7 +387,7 @@ objects, including successful fault controls: **31 snapshots / 22,463 objects /
 nontransactional diagnostics. Earlier failed SQL/Queue synthetic backends were
 not exported; those histories remain incomplete backend evidence despite retained
 node media, raw identities/logs and verified copies. No history is reset or
-mutation reissued. See the [source-bound record](append-replication-qualification-2026-11-20.json).
+mutation reissued. See the source-bound record.
 
 Remaining priorities:
 
@@ -441,7 +445,7 @@ original bytes and verified node/copy manifests remain retained. All probes are
 removed and exact published compiler inputs restored. Next investigate measured
 same-cell writer/persistence/finalization work while preserving every proof;
 missed-wake and retry-policy changes lack supporting evidence. See the
-[diagnostic record](queue-writer-diagnostics-2026-11-20.json).
+diagnostic record.
 
 Full library **1,266 passed / 2 existing ignores**, including three independent
 effect/alarm/KV-capability guards. The fifteen selected native cases are **9
@@ -465,7 +469,7 @@ identities and logs stay private; no failed history is reset or mutation reissue
 The rebuilt library artifact/profile are byte-identical to the full-library pass.
 Strict/repository checks and **344 performance guards / 1 existing skip** pass;
 Clippy retains its explicit dead-code warning override. See the
-[source-bound qualification](owned-callback-discovery-qualification-2026-11-20.json).
+source-bound qualification.
 
 Remaining priorities:
 
@@ -523,7 +527,7 @@ two returned ambiguous IDs and six original node directories. Its **200 files /
 2,735,810 bytes** and the failed original cohort's **1,890 files / 44,266,324 bytes**
 match verified closed copies. Freshly rebuilt byte-identical library executable
 and profile preserve the full-library result. See the
-[source-bound qualification](inline-kv-read-qualification-2026-11-19.json).
+source-bound qualification.
 
 Remaining priorities:
 
@@ -592,7 +596,7 @@ candidate requiring cold initialization, TTL/revision and external-value proof
 preservation. These are distinct unresolved failures, not causal repairs.
 All probes are removed and exact published compiler inputs restored. The three
 cohorts retain verified failed-run media and closed copies. See the
-[diagnostic record](kv-progress-diagnostics-2026-11-19.json); instrumented timing
+diagnostic record; instrumented timing
 and overlapping background counters do not qualify an end-to-end speedup.
 
 Eight initial strict/repository checks pass. The ninth, the 44-case plan suite,
@@ -628,7 +632,7 @@ Remaining priorities:
    Queue batch eight and reversed repetitions.
 
 Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See
-the [source-bound record](retained-log-cache-qualification-2026-11-19.json) for
+the source-bound record for
 source/profile/executable/log bindings, original failures, isolated controls,
 retained media and environment limits.
 
@@ -688,7 +692,7 @@ Remaining priorities:
    identity/resources and zero restarts. No performance case is admitted.
 
 Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
-See [source-bound qualification](retired-voter-drain-qualification-2026-11-19.json)
+See source-bound qualification
 for exact source/executable/profile/log hashes, intermittent controls, retained
 media, reuse and environment limits.
 
@@ -747,7 +751,7 @@ Remaining priorities:
    and zero restarts. No performance case is admitted.
 
 Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
-See [source-bound qualification](import-completion-qualification-2026-11-19.json)
+See source-bound qualification
 for exact source/executable/profile/log bindings, failed attempts, reuse and
 native/environment limits.
 
@@ -804,7 +808,7 @@ against the unchanged 6 GiB reserve. No original Colima performance case is
 admitted. Keep three original 1-vCPU/2-GiB nodes, RF3/three groups/shared RustFS,
 Quorum/Quorum+S3/Fleet/Bucket, C1/4/16, 256-byte values, Queue batch eight and
 reversed repetitions. Complete OPT-01–08 and remaining CG/SDK/release/performance
-gates remain open. See [source-bound qualification](checkpoint-reply-qualification-2026-11-19.json)
+gates remain open. See source-bound qualification
 for exact inputs, separate executable/profile/log hashes, setup exclusions and
 retention/reuse limits.
 
@@ -816,7 +820,7 @@ The same real RF3 regression fails before the change: two signed reads advance a
 
 **Combined application qualification remains FAILED.** The focused shared application selection has **6 passed / 5 failed**. The full library has **1,261 passed / 2 existing ignores**; the full native Queue target passes. The original batch claim/lease proof-sharing case passes. Controls: SQL PASSED, KV PASSED, RPC continuation PASSED. Current failed cases are `ordinary_queue_callbacks_use_shared_quorum`, `queue_load_preserves_acknowledged_messages`, `materialized_queue_four_in_flight_preserves_acknowledged_messages`, `rooted_queue_four_in_flight_preserves_acknowledged_messages`, `queue_four_in_flight_preserves_acknowledged_messages`. Queue producer failures reach their first target attempt with only 844–2,462 ms remaining; the ordinary Queue failure is an ambiguous source-command deadline in rooted mode. These observations locate progress gaps without establishing a causal bottleneck or speedup. Failed identities and available fixtures remain retained and verified against closed copies.
 
-All nine strict/repository checks pass at this compiler-input digest. The prior `7562115bb` full managed/disaster selection retains three failed recovery gates: extents S3 seed failover settlement, extents fresh outbox-lane settlement, and materialized pending recovery forming a fresh quorum. Those full targets were not rerun here. Current-source hosted SDK/release acceptance remains required. See the [source-bound qualification](queue-operator-read-qualification-2026-11-19.json) for exact profiles, executable/log hashes, excluded build attempts, source binding and scope.
+All nine strict/repository checks pass at this compiler-input digest. The prior `7562115bb` full managed/disaster selection retains three failed recovery gates: extents S3 seed failover settlement, extents fresh outbox-lane settlement, and materialized pending recovery forming a fresh quorum. Those full targets were not rerun here. Current-source hosted SDK/release acceptance remains required. See the source-bound qualification for exact profiles, executable/log hashes, excluded build attempts, source binding and scope.
 
 Remaining priorities, in order:
 
@@ -836,7 +840,7 @@ The same real-node regression fails with the duplicate-address refusal under the
 
 **Combined owning qualification remains FAILED.** The full managed target has **37 passed / 1 failed / 15 explicit RustFS ignores**. The full disaster target has **11 passed / 2 failed / 8 explicit RustFS ignores**. Complete-closure recovery passes all four parent/child and materialized/extents combinations, with no duplicate-address refusal in the disaster log. Remaining failures are extents S3 seed failover settlement (`[Seeding, Joint]`), extents fresh outbox-lane settlement, and materialized pending recovery forming a fresh quorum. Available failed disks and snapshots are retained and verified against closed copies. These observations do not establish a causal regression comparison.
 
-All nine strict/repository checks pass. The rebuilt library executable and profile are byte-identical to the prior 1,261-pass / 2-ignore run; that result is reused explicitly, rather than reported as a new full-library run. On published predecessor `f82283053`, hosted complete-closure recovery still fails the duplicate-address guard (12 passed / 1 failed / 8 ignored). Corrected-source hosted SDK acceptance remains required. See the [source-bound qualification](peer-port-qualification-2026-11-19.json).
+All nine strict/repository checks pass. The rebuilt library executable and profile are byte-identical to the prior 1,261-pass / 2-ignore run; that result is reused explicitly, rather than reported as a new full-library run. On published predecessor `f82283053`, hosted complete-closure recovery still fails the duplicate-address guard (12 passed / 1 failed / 8 ignored). Corrected-source hosted SDK acceptance remains required. See the source-bound qualification.
 
 Remaining priorities, in order:
 
@@ -854,7 +858,7 @@ Compiler inputs `2a7231be5eee34670d16c063fe2ce68ffe030f3a4a1d2cdb3e9e5903b22413d
 
 The byte-identical bundled-SQLite regression fails on the original SQL at 512 messages (8,831 VM callbacks versus 129 when empty), then passes with the schema-only change. Missing-stats rebuilding and subsequent delete/purge trigger metrics pass before and after. The exact linked SQLite 3.53.2 kernel uses 69,759 versus 122 VM steps at 4,096 messages, and 170,127 versus 122 at 10,000. These are initializer work counts, with no command throughput or latency-percentile claim.
 
-Current-source validation passes the full library (**1,261 passed / 2 existing ignores**), full native broker (**1 passed**) and original SQL/KV/RPC continuation controls in both image modes. **Combined application qualification remains FAILED:** ordinary shared-Raft Queue callbacks, batch proof sharing, C2, independent materialized/rooted C4 and combined C4 all fail. The C2/C4 producer failures reach their original peak two/four concurrency; final acknowledged-message/completion oracles remain unpassed. First-target budgets are 2,625 ms for C2, 1,627 ms for materialized C4 and 1,168 ms for rooted C4. These observations do not establish a causal regression or repair. All nine strict/repository checks pass, including all-feature/all-target Clippy and native-only facade compilation. See the [source-bound record](queue-schema-qualification-2026-11-19.json) for exact source/profile/executable/log hashes, the invalid initial selector setup and verified retained failures.
+Current-source validation passes the full library (**1,261 passed / 2 existing ignores**), full native broker (**1 passed**) and original SQL/KV/RPC continuation controls in both image modes. **Combined application qualification remains FAILED:** ordinary shared-Raft Queue callbacks, batch proof sharing, C2, independent materialized/rooted C4 and combined C4 all fail. The C2/C4 producer failures reach their original peak two/four concurrency; final acknowledged-message/completion oracles remain unpassed. First-target budgets are 2,625 ms for C2, 1,627 ms for materialized C4 and 1,168 ms for rooted C4. These observations do not establish a causal regression or repair. All nine strict/repository checks pass, including all-feature/all-target Clippy and native-only facade compilation. See the source-bound record for exact source/profile/executable/log hashes, the invalid initial selector setup and verified retained failures.
 
 The hosted original serial disaster target passes **13 cases / 8 explicit RustFS ignores** on preceding diagnostic commit `6783ed04`, compiler inputs `e92708ce`. The broader SDK native 3.14 job on that same source fails `disaster_retry_and_old_token_refusal` and `transition_disaster_selects_complete_closure` (11 passed / 2 failed / 8 ignored). Both failure sections identify **duplicate peer address** as the provisioning refusal. The rejected condition is now known; the collision origin and repair remain unproven. These preceding-source results do not qualify this Queue candidate. Full SDK and earlier archive-cleanup acceptance remain open.
 
@@ -873,9 +877,9 @@ Implementation `6a6878dd` includes `origin/main` `2f083f14` and retains one fina
 
 The same byte-identical native RF3 regression fails before the change: the first conflict creates three materialized private preparations or one rooted workspace. The candidate rejects two conflicts with zero private preparations in both modes, preserves exact duplicate result/version and constructor/cache counts, physically inspects an older ID after a newer commit, and executes the following valid write once. This proves avoided work; it does not measure throughput or latency. Current compiler inputs `1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a14085` pass the full library (**1,259 passed / 2 existing ignores**), full activation lifecycle, full effects (**10 passed / 1 existing ignore**), eleven selected execution controls, ordinary KV and all four published/unpublished recovery image combinations. The native selection totals are **26 passed / 6 failed / 1 existing ignore**; combined application qualification remains **FAILED**.
 
-The six failed cases are ordinary SQL (materialized concurrent first-use ambiguous deadline), RPC continuation (materialized source final-completion ambiguous deadline), ordinary Queue (rooted ambiguous deadline), original C2 Queue (deadline elapsed), materialized C4 Queue (producer deadline) and rooted C4 Queue (pre-load queue-emptying deadline; load oracle unrun). The materialized C4 first target attempt has only 718 ms left; the rooted setup attempt has 2,408 ms left. These observations identify progress costs at different phases, not incorrect acknowledgements or a causal consensus-algorithm regression. The independent parent/candidate/candidate/parent RPC comparison passes all four runs with identical build profiles; it does not erase or explain the original broader-run failure. The hosted provisioning refusal remains undiagnosed despite the local recovery pass. The other hosted native job fails an archive-seed cleanup ownership/byte assertion; that managed target was not rerun in this selection. Python ABI/SDK and filesystem release jobs pass on the published parent; Rust aggregate jobs remain red because of their native prerequisites. All nine strict/repository checks pass, and all 24 reviewed source anchors remain byte-identical. See the [source-bound cache qualification](cached-conflict-qualification-2026-11-18.json) for source/profile/executable/log hashes, failed setup controls and retained-filesystem verification.
+The six failed cases are ordinary SQL (materialized concurrent first-use ambiguous deadline), RPC continuation (materialized source final-completion ambiguous deadline), ordinary Queue (rooted ambiguous deadline), original C2 Queue (deadline elapsed), materialized C4 Queue (producer deadline) and rooted C4 Queue (pre-load queue-emptying deadline; load oracle unrun). The materialized C4 first target attempt has only 718 ms left; the rooted setup attempt has 2,408 ms left. These observations identify progress costs at different phases, not incorrect acknowledgements or a causal consensus-algorithm regression. The independent parent/candidate/candidate/parent RPC comparison passes all four runs with identical build profiles; it does not erase or explain the original broader-run failure. The hosted provisioning refusal remains undiagnosed despite the local recovery pass. The other hosted native job fails an archive-seed cleanup ownership/byte assertion; that managed target was not rerun in this selection. Python ABI/SDK and filesystem release jobs pass on the published parent; Rust aggregate jobs remain red because of their native prerequisites. All nine strict/repository checks pass, and all 24 reviewed source anchors remain byte-identical. See the source-bound cache qualification for source/profile/executable/log hashes, failed setup controls and retained-filesystem verification.
 
-Follow-up `95e95a35e` distinguishes the provisioning configuration guards with static reason-specific `Invalid` messages. Every original predicate, evaluation order, admission bank and typed refusal remains. The five owning native provisioning controls pass in both image modes. All-feature library Clippy, native-only facade compilation and all seven repository checks pass; this qualifies the diagnostic change only. Temporary SQL phase probes pass twice, while one archive probe fails replacement reconciliation and another passes. These results do not explain the original SQL deadline or hosted cleanup assertion. The hosted `607ca35b` disaster target again fails retained-voter provisioning (12 passed / 1 failed / 8 ignored); its exact guard remains unknown until the diagnostic source runs. See the [provisioning diagnostic record](provisioning-diagnostic-qualification-2026-11-19.json) for source and validation boundaries.
+Follow-up `95e95a35e` distinguishes the provisioning configuration guards with static reason-specific `Invalid` messages. Every original predicate, evaluation order, admission bank and typed refusal remains. The five owning native provisioning controls pass in both image modes. All-feature library Clippy, native-only facade compilation and all seven repository checks pass; this qualifies the diagnostic change only. Temporary SQL phase probes pass twice, while one archive probe fails replacement reconciliation and another passes. These results do not explain the original SQL deadline or hosted cleanup assertion. The hosted `607ca35b` disaster target again fails retained-voter provisioning (12 passed / 1 failed / 8 ignored); its exact guard remains unknown until the diagnostic source runs. See the provisioning diagnostic record for source and validation boundaries.
 
 Completion priorities remain:
 
@@ -903,7 +907,7 @@ Priorities remain:
 3. **Capacity and lifecycle:** qualify physical reclamation with retained owners, once-only credits, reserve-aware movement and the remaining recovery/SDK cases.
 4. **Original constrained comparison:** rerun SQL/KV/Queue across Quorum, Quorum+S3, Fleet and Bucket at the requested topology and resource limits. The read-only original RustFS observation at 2026-11-18T21:53:35.836264+00:00 still finds **0 available bytes**, below the unchanged **6 GiB** reserve, so no comparison is admitted.
 
-Full OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See the [source-bound qualification](rooted-apply-profile-qualification-2026-11-18.json) for source, executable/profile/log hashes, failed controls and retained-filesystem scope.
+Full OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See the source-bound qualification for source, executable/profile/log hashes, failed controls and retained-filesystem scope.
 
 ### Separate S3 output and mutation readiness
 
@@ -925,7 +929,7 @@ The initial rooted concurrent SQL ingress failure records zero S3 coverage/outpu
 
 The read-only original RustFS observation at 2026-11-18T19:58:09.774810+00:00 finds 0 available bytes, below the unchanged 6 GiB reserve. Original identity/limits and the inspection pair are stable, with zero restarts. No constrained comparison is admitted.
 
-The original Queue C2/C4 failures on source391b remain open; those minimum-Quorum load cases were not rerun for this S3-only output fix. The published-parent disaster/token recovery failure still requires diagnosis, and local S3 success does not close hosted SDK acceptance. Remaining priorities are original-deadline Queue progress, recovery/SDK faults, actual extent-profile propagation, measured batching/fairness, physical reclamation/once-only credit and reserve-aware movement, then the full original constrained comparison. Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open. No throughput or latency gain is claimed. See the [source-bound S3 fence record](s3-output-fence-qualification-2026-11-18.json).
+The original Queue C2/C4 failures on source391b remain open; those minimum-Quorum load cases were not rerun for this S3-only output fix. The published-parent disaster/token recovery failure still requires diagnosis, and local S3 success does not close hosted SDK acceptance. Remaining priorities are original-deadline Queue progress, recovery/SDK faults, actual extent-profile propagation, measured batching/fairness, physical reclamation/once-only credit and reserve-aware movement, then the full original constrained comparison. Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open. No throughput or latency gain is claimed. See the source-bound S3 fence record.
 
 ### Disposable close checkpoint work and current priorities
 
@@ -941,7 +945,7 @@ Completion priorities, in order:
 4. **P1: Sustainable capacity.** Prove physical shared-segment deletion and once-only capacity credit, then repeated reserve-aware split/move/merge with retained readers, snapshots and uncertain work.
 5. **P2: Combined release and comparison.** Complete authority/partition/wake/recovery, SDK/daemon/feature-mode gates and the source-matched SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket C1/4/16 matrix on the original three 1-vCPU/2-GiB Colima nodes, RF3/three groups/shared RustFS, 256-byte payloads, Queue batch eight and reversed repetitions.
 
-The latest read-only original RustFS observation still fails the unchanged 6 GiB free-space reserve; no constrained comparison is admitted. All OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See the [source-bound close qualification](disposable-close-qualification-2026-11-18.json) for exact sources, artifacts/profiles, all outcomes, retention limits and capacity evidence.
+The latest read-only original RustFS observation still fails the unchanged 6 GiB free-space reserve; no constrained comparison is admitted. All OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See the source-bound close qualification for exact sources, artifacts/profiles, all outcomes, retention limits and capacity evidence.
 
 ### Exact live-image reuse and incoming-voter fencing
 
@@ -993,7 +997,7 @@ Ordinary Queue and batch-proof sharing, ordinary/Axum SQL, Axum KV,
 fragmented KV, ordinary JSON RPC and both selected SQL recovery cases pass.
 A failed ordinary KV negative-provider case returns an ambiguous deadline
 rather than the required unavailable-payload error; later configurations
-inside that test are unrun. See the [source-bound record](prepared-image-and-incoming-voter-qualification-2026-11-18.json) for every
+inside that test are unrun. See the source-bound record for every
 selection, artifact/profile, failed earlier cohort and retained manifest.
 The earlier failed membership-crash TempDir auto-cleaned before capture:
 its disk state is unavailable, while logs/source/executable and remaining
@@ -1035,7 +1039,7 @@ the write-only and refined write-plus-checkpoint-read outage experiments. The
 refined outage records actual denied reads/writes in both failed runs. Pausing
 archive I/O therefore does not resolve the deadline; in-flight work remains a
 limit of this control. All temporary probe code is removed. See the
-[source-bound Queue record](queue-image-progress-qualification-2026-11-18.json)
+source-bound Queue record
 for source/executable/profile identities, every outcome and retained manifests.
 
 The read-only original RustFS check at 2026-11-18T09:42:09.811621+00:00 finds
@@ -1066,7 +1070,7 @@ and green on the candidate with identical fixture and profile. It commits an
 initialization and command, checks every replica's version/witness and exact
 value through engine-bound readers, and joins the owners. Only three production
 files differ in that comparison. The earlier absent-applier-map fixture panic,
-its stopped qualification and all failed data remain explicit in the [source-bound scratch record](cell-scratch-sync-qualification-2026-11-18.json).
+its stopped qualification and all failed data remain explicit in the source-bound scratch record.
 
 Selected owning qualification is **FAILED**: 37/38 Rust selections
 and 9/9 Clippy/repository checks pass. Failed selections: `queue_four_in_flight_preserves_acknowledged_messages`.
@@ -1108,7 +1112,7 @@ Owning-boundary qualification is **FAILED**. Full native execution:
 The selected public RPC/SQL/KV/Queue/recovery and S3 controls report
 16/19 passed. Interrupted SQL recovery reports
 5/8 configurations passed; its full matrix remains an acceptance requirement.
-The [current record](rpc-pending-settlement-qualification-2026-11-17.json)
+The current record
 contains every result, failed cohort, executable, profile and retained manifest.
 
 The initial `e0d61c1b` broad campaign stopped at forbidden direct Tokio selector
@@ -1126,7 +1130,7 @@ repair of failed broad runs. Ordinary Queue ABBA is failed / failed / failed / p
 both candidate runs fail and one parent run fails, leaving the deadline cause open.
 The one-configuration SQL diagnostic does not
 replace the failed eight-configuration matrix. The
-[previous settlement record](pending-command-settlement-qualification-2026-11-17.json)
+previous settlement record
 retains earlier ownership/SQL failures and passing ABBA controls at `6c280bdd`.
 
 Published parent `8393e1ea` passes the hosted disaster diagnostic. Typed RPC
@@ -1148,7 +1152,7 @@ At that checkpoint, failed selected public cases: `ordinary_queue_callbacks_use_
 The parent `b08df720` origin-denial checkpoint separately passes 23 public routing
 cases with 13 explicit RustFS ignores. Its authenticated denial preserves command
 ambiguity and current leader advice; see the
-[origin-denial record](command-origin-refusal-qualification-2026-11-17.json).
+origin-denial record.
 Those routing results are not a new current-source full routing run. Parent
 `504dd25b` also has terminal hosted SDK and Node failures. All these native
 RF3/TLS checks use in-memory object stores; they do not qualify constrained RustFS
@@ -1187,9 +1191,9 @@ executable reports 1,247 passes, one failure and two existing ignores: truncated
 read-refusal input retains node/peer receive credit past the original three-second
 observation bound. Published and candidate isolated controls both pass; neither
 explains or closes that full-run failure. See the
-[command-admission record](command-admission-qualification-2026-11-17.json).
+command-admission record.
 
-The latest [native batching checkpoint](prepared-submission-batching-qualification-2026-11-16.json)
+The latest native batching checkpoint
 at compiler input `816bcded` passes core, execution, storage, archive/controller,
 eight selected public SQL/KV/Queue cases, strict affected-target Clippy and the
 full 26-test measuring tool. Both image forms reduce leader proposal persists
@@ -1208,7 +1212,7 @@ dependency correction passes that consumer's build and strict Clippy check.
 The seal phase-capture follow-up has passing exact privacy/CLI controls, an
 earlier eleven-pass native suite and a later ten-pass/one-failure suite at
 `transition capture-source`. See the
-[source-specific record](seal-observations-qualification-2026-11-16.json).
+source-specific record.
 The source-acquire repair passes five owning controls; its earlier full native
 sweep retains a separate ambiguous command deadline. The combined seal-admission
 candidate now passes the 1,240-test all-features library and thirteen-test native
@@ -1263,9 +1267,9 @@ The next priorities are:
    the JavaScript package and example jobs pass. The combined Rust SDK gates
    also fail at their requirement that both qualification campaigns succeed.
    Preserve the earlier failures and original mutation
-   identities in the [lease](lease-readback-qualification-2026-11-16.json),
-   [seal](seal-observations-qualification-2026-11-16.json) and
-   [transition](transition-progress-qualification-2026-11-16.json) records.
+   identities in the lease,
+   seal and
+   transition records.
    Local passes do not establish a causal repair of these hosted failures.
    Keep original deadlines, fencing, exact receipt reconciliation and recovery
    refusal behavior while resolving each owning boundary.
@@ -1277,7 +1281,7 @@ The next priorities are:
    attempt with 2,034 ms remaining. Both failures retain their original
    identities and disks. Strict all-target and recovery-consumer Clippy pass;
    the full native disaster runtime target remains unrun on this source.
-   See the [scoped refusal and runtime record](read-refusal-qualification-2026-11-17.json).
+   See the scoped refusal and runtime record.
 2. **Continue measured worker and physical-lifetime optimization.** Proposal
    collection is one stage. Profile ordered apply/image publication, producer
    cleanup and transport batching under unchanged banks; qualify actual prepared
@@ -1300,7 +1304,7 @@ The next priorities are:
    with eight explicit RustFS ignores on this source. Final all-feature/all-target
    strict Clippy passes. Complete hosted qualification and retain the separate
    older Linux failures. See the
-   [peer-query checkpoint](peer-query-progress-qualification-2026-11-17.json).
+   peer-query checkpoint.
    Complete RL-07 with archive outage, bulk transfer, sustained hot/cold load
    and contention across peers at the physical socket ceiling before accepting
    the full fairness or OPT-06 package.
@@ -1332,24 +1336,24 @@ That scoped pass does not replace the older full matrix.
 The subsequent native enrollment-polling candidate `a8b26ff9` passes its execution,
 archive-controller and three selected RustFS controls, while the separate rooted-128
 diagnostic still exhausts its original enrollment budget. Its
-[source-specific record](enrollment-resolution-qualification-2026-11-16.json)
+source-specific record
 does not establish a constrained-node throughput/latency gain.
 
 SQL now has an explicit `prepare_read_only` path through fresh quorum selection
 and a pinned image, preserving the writable API and source-write proofs. The
 benchmark uses it for SQL point reads. Its
-[component qualification](sql-readonly-qualification-2026-11-16.json) does not
+component qualification does not
 replace the constrained matrix or close the remaining enrollment, lease-progress
 and release gates.
 
 The private SQL workspace constructor also omits creation syncs through a
 separate disposable API. Full reservations and synced physical deletion remain;
 the original durable constructor and image/Raft/S3 barriers are unchanged. Its
-[qualification](scratch-workspace-qualification-2026-11-16.json) records the exact
+qualification records the exact
 avoided-work oracle and broader limits. Repeated passing native enrollment runs
 do not erase the earlier timeout or establish a constrained-node speedup.
 
-The [archive retirement checkpoint](archive-retirement-qualification-2026-11-16.json)
+The archive retirement checkpoint
 at compiler input `2ac6b776` avoids a standalone journal replacement while keeping
 the next exact intent's durable barriers. Its owning regression passes native
 and original RustFS repeats in both image forms. Broader qualification remains
@@ -1373,7 +1377,7 @@ through exact existing payload-pin/adoption identities and fresh proof checks;
 keep missing/corrupt data and failed journal barriers terminal. The three local
 native container-capacity passes do not reproduce its separate hosted failure.
 
-The subsequent [generic payload-I/O repair](payload-archive-retry-qualification-2026-11-16.json)
+The subsequent generic payload-I/O repair
 at compiler input `b32cb4bc` keeps that archive owner retryable under its original
 exact journal intent and requires fresh byte verification. Missing/corrupt
 payloads and journal failures remain terminal. The unchanged owning fixture
@@ -1384,7 +1388,7 @@ invocations pass, including two independent Axum KV invocations. Historical
 failed owners remain failed at their own source cuts. Broader payload
 deadline/backpressure, crash and release coverage remains required.
 
-The subsequent [payload admission repair](payload-archive-pressure-qualification-2026-11-16.json)
+The subsequent payload admission repair
 at compiler input `8fb09d7f` also preserves archive progress on typed `Overloaded`.
 An actual held foreground GET forces shared admission pressure; repeated failures
 retain the original exact journal intent without coverage. Joining that GET then
@@ -1415,7 +1419,7 @@ The latter error reproduces locally and is repaired at tooling input `0ebbf597`:
 19 owning tests pass, and the exact CI guard command runs 343 tests with one skip
 and no failures. Complete historical evidence schemas remain explicit; current
 phase samples require every current counter. The
-[metric qualification](metric-vocabulary-qualification-2026-11-16.json) changes
+metric qualification changes
 no Rust runtime inputs. Fresh hosted CI, disaster authorization and container
 capacity qualification remain open; the local guard repair does not establish
 release readiness.
@@ -1423,7 +1427,7 @@ release readiness.
 Native fitting-credit progress is now qualified at `1ac2cced`: the actual reused
 archive registry receives the publication's private payload hint while keeping
 the original shared bank and namespace capabilities. The
-[source-specific record](payload-capacity-wake-qualification-2026-11-16.json)
+source-specific record
 turns four original S3 deadline failures into four passing two-command invocations
 with identical final oracle bytes, real reader joins, exact receipts and fresh
 selected-cut byte verification. Background/expired physical-capacity controls,
@@ -1446,7 +1450,7 @@ undeclared `crate::object_clients` module. These current failures need separate
 repairs; a native payload-wake pass does not replace them.
 
 The frontend module gap is locally repaired at input `dbef0707`; the
-[qualification](python-fleet-clients-qualification-2026-11-16.json) preserves the
+qualification preserves the
 same two-error compiler control, passing example check, actual cross-runtime
 client-factory test, complete embedded-Python test-target compilation and strict
 example Clippy. Only `tools/python/fleet.rs` wiring changes after the native
@@ -1454,7 +1458,7 @@ runtime qualification. Full Python adapter runtime/3.14t execution and fresh
 hosted CI remain required; the native disaster and Typed RPC lease failures are
 separate unresolved boundaries.
 
-The [periodic purge qualification](periodic-purge-qualification-2026-11-16.json)
+The periodic purge qualification
 removes two reproduced periodic file-sync calls per owning test invocation while
 preserving actual durable writes, explicit purge and eligible deletion/recovery.
 Final input `9b684f00` passes storage 23, core 1,233, controller 46 and strict

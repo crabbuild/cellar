@@ -4,6 +4,10 @@
 
 Purpose: Define immutable payload publication, ordinary KV transport and recovery boundaries.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 `NamespaceCatalog::cell_payloads` binds a `CellGroupPayloadStore` to the actual
 Raft namespace backend and prefix. Nodes share one `CellGroupPayloadPool` across
 their namespaces. This is a data capability: it does not enroll a cell, grant
@@ -215,6 +219,6 @@ completion does not grant catalog admission or serving authority.
 
 The real-engine regression holds sync to reject premature visibility and wake,
 observes admission at the reply-wake boundary, and checks exact inactive mapping,
-joined close and retained reopen. See [qualification](import-completion-qualification-2026-11-19.json)
+joined close and retained reopen. See qualification
 and [remaining priorities](remaining-work.md#import-completion-and-current-priorities)
 for the empty unmanaged test scope and open RF3/release/performance gates.

@@ -4,6 +4,10 @@
 
 Purpose: Generation-fenced callback discovery and ordinary Queue delivery through shared-group quorum.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 This CG17-04/06 implementation reuses the existing cell-group private SQL owner,
 checkpoint receipts, command admission and shared effect scheduler. Queue does
 not create a Raft group, timer or background task for each broker or message.
@@ -49,7 +53,7 @@ authority and changes no claim, generation/attempt, quorum, archive or ownership
 proof. A matched RF3/three-group regression reduces three extra queries over three
 discovery turns to zero, holds the same delivery, then drains exactly two messages
 in both image modes. Original sustained Queue load/deadline gates remain open;
-see the [source-bound qualification](owned-callback-discovery-qualification-2026-11-20.json).
+see the source-bound qualification.
 
 
 Queue wake hints preserve an earlier unclaimed installation across producer
@@ -398,5 +402,5 @@ result. The broader candidate still fails ordinary Queue, C2 and C4 delivery/
 drain cases. No throughput or latency gain is qualified.
 
 See [current priorities](remaining-work.md#checkpoint-reply-progress-and-current-priorities)
-and [source-bound qualification](checkpoint-reply-qualification-2026-11-19.json)
+and source-bound qualification
 for source/executable bindings, outcomes and the unchanged performance gates.

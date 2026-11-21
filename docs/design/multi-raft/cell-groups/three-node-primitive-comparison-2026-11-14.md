@@ -4,11 +4,15 @@
 
 Purpose: Separate 1-vCPU/2-GiB nodes, RustFS, 62 verified windows and retained Raft/Fleet Queue failures in the initial disk profile.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 The requested local comparison ran all 12 workload/durability cases on three separate **1-vCPU, 2-GiB node containers** with shared RustFS. 5 cases completed their full matrix; 7 failed. Of 120 planned timed windows, 62 verified, 1 failed and 57 were not reached after earlier failures. Of 72 warmups, 35 verified, 6 failed and 31 were not reached.
 
 These are measured public SDK operations, including SQL/KV value readback and Queue callback/body/settlement verification. Failed and incomplete cases do not establish stable capacity. There is no production readiness or OPT/CG gate acceptance from this experiment.
 
-The [readable observations](three-node-primitive-comparison-2026-11-14.json) contain every window summary, exact environment/source identities, terminal process states and resource summaries. The [lossless raw observations](three-node-primitive-comparison-2026-11-14.raw.json.gz) additionally contain every attempted and successful microsecond latency sample. Decompress with Python `gzip` or `gzip -dc`; the readable artifact records its SHA-256. Raw logs, full cgroup samples and all stopped data volumes remain in the checkout-owned qualification directory.
+The readable observations contain every window summary, exact environment/source identities, terminal process states and resource summaries. The lossless raw observations additionally contain every attempted and successful microsecond latency sample. Decompress with Python `gzip` or `gzip -dc`; the readable artifact records its SHA-256. Raw logs, full cgroup samples and all stopped data volumes remain in the checkout-owned qualification directory.
 
 ## Environment and acknowledgement contracts
 

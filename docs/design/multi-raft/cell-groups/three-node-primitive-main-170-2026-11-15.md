@@ -4,6 +4,10 @@
 
 Purpose: Record the complete constrained four-mode primitive matrix, failed correctness boundaries and descriptive passing results.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 Frozen production source `b72a0075` contains main `16c45b26` and matches public commit
 `1d663425` at compiler-input digest `362f78db`. Image `70b02055` rebuilds the owning
 libraries and both node binaries. The later foreground-only capacity-cadence fix is not
@@ -99,8 +103,8 @@ node construction creates a dedicated lease client. This is a configuration gap 
 independently; no pool change or causal attribution is included here. Full primitive,
 recovery, crash/movement, authority, feature-mode and OPT/CG acceptance remain open.
 
-See the [assessment](three-node-primitive-main-170-2026-11-15.json) and [compressed raw
-capsule](three-node-primitive-main-170-2026-11-15.raw.json.gz). The capsule retains
+See the assessment and compressed raw
+capsule. The capsule retains
 windows, latency samples, phase/resource snapshots and terminal metadata. It excludes
 runtime configuration, environment responses, private keys and raw node/store log text.
 Both artifacts pass scanning against 41 actual private representations with zero
@@ -142,8 +146,8 @@ first postcheck fails before any cache mutation because Docker refuses the
 `--verbose`/`--format` flag combination; its empty comparison remains retained.
 This launcher correction changes no framework or workload bytes.
 
-See the [SQL assessment](three-node-primitive-main-170-2026-11-15.cadence-sql.json)
-and [compressed raw capsule](three-node-primitive-main-170-2026-11-15.cadence-sql.raw.json.gz).
+See the SQL assessment
+and compressed raw capsule.
 They exclude configuration, environments, private keys and raw node/store logs;
 eight actual private representations scan with zero matches. Existing twelve-case
 failures retain their original source. The VM remains 160 GiB throughout

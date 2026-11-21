@@ -4,6 +4,10 @@
 
 Purpose: Retain the complete frozen main-based control/candidate comparison and its failing correctness boundaries.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 **Result: FAILED. No isolated throughput or latency improvement is established.** The candidate completes five of twelve API/mode cases. The control completes one of three quorum cases. None of the three APIs has two complete passing quorum cases for an optimization ratio.
 
 Compiler/runtime source is `95244b42e679fa81bda0f00cbb59e55a89e3236a` (manifest `f8917ffe8b6760a04dfeb93b128988ac467315cb386fd3f1ff5c4e913391867e`), including main `0e925f6b` (#171/#172). The control reverses only the nine-file image-publication directory-barrier change `97b805f3`; its manifest is `354f48f25c264f23456f9862ee53a5870aec3aa0eed8f22abfd546474f3c7559`. Compiler profiles and load-client bytes match. Both images use locked Rust 1.98.1, size-optimized `lab`, thin LTO and line-table symbols.
@@ -75,6 +79,6 @@ A host process snapshot observes Cargo/Rust compiler activity during candidate t
 
 All 75 measured containers stop; no OOM or restart is observed. Failed volumes and container identities remain retained. The original RustFS identity, limits and data are preserved and readiness returns HTTP 200. One Colima VM supplies one physical failure domain; this does not qualify cloud S3, partitions, all-voter disk loss or sustained production capacity.
 
-[Machine assessment](three-node-primitive-main-172-2026-11-14.json) and [raw capsule](three-node-primitive-main-172-2026-11-14.raw.json.gz) retain source manifests/patches, all original window and load-log data, resources, failure snapshots and native log hashes. Runtime credentials/configuration and node/store log text are excluded; actual generated credentials are checked against the emitted capsule.
+Machine assessment and raw capsule retain source manifests/patches, all original window and load-log data, resources, failure snapshots and native log hashes. Runtime credentials/configuration and node/store log text are excluded; actual generated credentials are checked against the emitted capsule.
 
 Full OPT-01–08, CG-17 and release acceptance remain open. See the [prioritized gaps](optimization-progress.md#priorities-for-completing-the-optimization).

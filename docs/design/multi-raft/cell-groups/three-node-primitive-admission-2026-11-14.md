@@ -4,6 +4,10 @@
 
 Purpose: SQL group admission observations and distinct SQL/KV/Queue deadlines under unchanged constrained resources.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 The instrumented SQL/KV/Queue probe fails all three cases. Three of 20 planned
 30-second operation windows verify, one fails and 16 remain unmeasured. Two of
 12 warmups verify, two fail and eight remain unmeasured. Eight emitted windows
@@ -60,10 +64,10 @@ RustFS service is restored under its unchanged identity and resource limits,
 with readiness HTTP 200. Host-load observations are retained; this shared Colima
 VM does not establish isolated performance or independent failure domains.
 
-[Machine-readable observations](three-node-primitive-admission-2026-11-14.json)
+Machine-readable observations
 include the planned matrix, raw-file hashes, per-node counter/operation deltas,
 window percentiles and kernel resource observations.
-[Compressed raw evidence](three-node-primitive-admission-2026-11-14.raw.json.gz)
+Compressed raw evidence
 retains complete owner snapshots, attempted/successful latency samples, original
 errors, source inputs/patch and host activity. All eight emitted windows are
 checked against retained logs and recomputed percentiles. Measurements stay

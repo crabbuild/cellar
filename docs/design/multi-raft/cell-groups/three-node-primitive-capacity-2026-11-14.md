@@ -4,11 +4,15 @@
 
 Purpose: Corrected Raft disk profile, matched Fleet/bucket baselines, throughput/tails and remaining overload/deadline/lease gaps.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 The corrected disk profile measured all six Raft workload/durability cases on three independent **1-vCPU, 2-GiB nodes** with shared local RustFS. 0 of six Raft cases completed their full matrix. Of 60 planned timed Raft windows, 21 verified, 3 failed and 36 were not reached.
 
 The comparison below uses these Raft observations and the Fleet/bucket baselines from the [initial experiment](three-node-primitive-comparison-2026-11-14.md). Across the selected 12 cases, 5 completed their matrix; 75 of 120 timed windows verified, 4 failed and 41 were not reached. Partial verified windows remain observations, not stable capacity or a completed matrix.
 
-The [readable follow-up observations](three-node-primitive-capacity-2026-11-14.json) identify every selected source/run, complete window summary, physical topology and resource observation. The [lossless raw follow-up](three-node-primitive-capacity-2026-11-14.raw.json.gz) contains every attempted/successful microsecond latency sample and error from this Raft run. The initial report links its separate raw baseline dataset. No failed observation is replaced or qualified by the follow-up.
+The readable follow-up observations identify every selected source/run, complete window summary, physical topology and resource observation. The lossless raw follow-up contains every attempted/successful microsecond latency sample and error from this Raft run. The initial report links its separate raw baseline dataset. No failed observation is replaced or qualified by the follow-up.
 
 ## Matched workload and explicit disk change
 

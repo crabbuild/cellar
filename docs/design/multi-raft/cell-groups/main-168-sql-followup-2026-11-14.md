@@ -4,6 +4,10 @@
 
 Purpose: Record SQL recovery reruns and constrained sync profiling with retained failures and unchanged durability proofs.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 A fresh fetch still selects origin/main `50b927d9` (#168), already integrated
 by `a16bbdc6`. PR 167 head before this addendum is `63feacd6`. Its compiler
 inputs remain manifest `b417c200`; the immutable Linux image is `630bbfa5`.
@@ -104,9 +108,9 @@ original RustFS is restored under its exact prior identity and limits and
 returns readiness HTTP 200. No production source is changed. The missing
 historical CG-01 record and broader OPT/CG qualification gaps remain open.
 
-The [machine-readable summary](main-168-sql-followup-2026-11-14.json) binds source,
+The machine-readable summary binds source,
 images, executable hashes, timings, limits and trace counts. The
-[compressed raw evidence](main-168-sql-followup-2026-11-14.raw.json.gz) retains all
+compressed raw evidence retains all
 six emitted windows, samples/errors, available owner observations, cgroups,
 complete traces, native diagnostic logs/patches and exact profiler scripts.
 Actual generated credential values are checked absent before publication.

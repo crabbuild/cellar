@@ -6,6 +6,10 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 ## Current private workspace cleanup
 
 Code `1840466d4` includes main `5ae2b21f` and moves settled private-workspace
@@ -14,7 +18,7 @@ close on their original SQL thread. The SQL owner retains the frozen settlement,
 activation, writer lease, bytes and progress lane through physical join; retiring
 work still consumes the original admission capacity. Receipt/fence and S3/output
 checks, cache timestamps, deadlines and worker limits remain unchanged. See the
-[source-bound qualification](private-cleanup-qualification-2026-11-21.json).
+source-bound qualification.
 
 The original four-mode cleanup control improves from **zero to four passes**:
 unrelated fresh linearizable queries advance on the single SQL worker while
@@ -49,7 +53,7 @@ gates remain open. No throughput or latency gain is qualified.
 
 ## C4 window and lifecycle diagnosis
 
-The [current diagnostic record](queue-c4-lifecycle-diagnostic-2026-11-21.json)
+The current diagnostic record
 restores production inputs `040479d8` byte-exact after all temporary lifecycle
 observations close and are independently verified. The unsampled materialized
 C4 control passes the original **528-message / 528-unique-ID** assertions.
@@ -72,7 +76,7 @@ original constrained comparison remain open.
 
 ## Queue diagnostic closure
 
-The [Queue domain-retention follow-up](queue-domain-retention-qualification-2026-11-21.json)
+The Queue domain-retention follow-up
 joins the shared fixture domain before exporting concrete synthetic memory,
 including known startup/setup error paths. The original load body and all
 production/library inputs remain unchanged. Long-callback and operator
@@ -98,7 +102,7 @@ The original SQL owner still adopts producer custody, rechecks the frozen receip
 and activation fence, and performs required S3/freshness/output checks before
 continuation. No worker, admission bank, timeout or retry policy changes. Handoff
 now includes proof waiting; the observations overlap and cannot be added as one
-request cost. See the [source-bound qualification](checkpoint-proof-progress-qualification-2026-11-21.json).
+request cost. See the source-bound qualification.
 
 The byte-identical owning native control improves from four failing progress
 predicates to **four passes**, covering both image modes and Quorum/S3. It holds
@@ -143,7 +147,7 @@ captured preparation/producer completion, retained submission, return to the SQL
 owner, and exact applied or newer-term reconciliation waiting. Cancellation
 records abandonment while entered physical work remains owned through joining.
 The handoff observation ends on the owner's first poll, before custody adoption
-or acknowledgement. The [source-bound record](checkpoint-observations-qualification-2026-11-21.json)
+or acknowledgement. The source-bound record
 retains the exact boundaries and limits; this change supplies observations rather
 than a Queue progress repair.
 
@@ -177,7 +181,7 @@ SQL owner retains SQLite, its continuation, writer and byte admission. Entered
 I/O returns and joins before custody releases. Lost waiters keep the same
 captured submission unless a positive pre-submission seal permits cancellation;
 exact applied receipts and required S3 proofs still gate replies and continuation.
-See the [source-bound qualification](checkpoint-handoff-qualification-2026-11-21.json).
+See the source-bound qualification.
 
 The unchanged checkpoint fixture now passes all four image/durability modes
 while unrelated SQL is held; its baseline fails all four progress predicates.
@@ -227,7 +231,7 @@ SQL error contracts, both owning error regressions, strict all-feature/all-targe
 Clippy and repository checks. The earlier native failures remain open. These
 host-native fixtures use actual TLS/disks and retained synthetic object stores;
 the original constrained Colima/RustFS comparison remains unqualified. Full OPT,
-CG, SDK and release acceptance remain open. The [qualification record](queue-transfer-claims-qualification-2026-11-21.json)
+CG, SDK and release acceptance remain open. The qualification record
 keeps exact source, profile, result and retention scopes.
 
 ## Retained event metadata history
@@ -357,7 +361,7 @@ Both native image modes pass the matched read-dependency tests, the full library
 and execution suites, and original SDK proof/fencing controls. Combined primitive
 qualification still fails Queue load, rooted large-KV and ordinary Queue callback
 controls. Earlier/candidate artifact controls retain their distinct failure
-boundaries. See the [scoped record](captured-receipt-reuse-qualification-2026-11-20.json)
+boundaries. See the scoped record
 and [current priorities](remaining-work.md#captured-receipt-image-reuse); this
 checkpoint closes no complete OPT package or constrained performance gate.
 
@@ -410,7 +414,7 @@ attempt with 2,034 ms remaining. Original identities and failed data remain
 retained. Strict all-feature/all-target Clippy, the default recovery consumer,
 format, layout, dependency, documentation and 44 plan checks pass. The current
 native disaster runtime target was not reached after the routing failure.
-See the [scoped record](read-refusal-qualification-2026-11-17.json).
+See the scoped record.
 This repair establishes no constrained throughput
 or latency-percentile gain and closes no complete OPT or CG gate.
 
@@ -465,7 +469,7 @@ recovery error. This does not establish a repair of the older Linux failure.
 The final all-feature/all-target strict Clippy check also passes on `439494ee`.
 Source/executable hashes,
 invalid earlier fixtures, genuine matched controls and private-retention audits
-are recorded in the [qualification record](peer-query-progress-qualification-2026-11-17.json).
+are recorded in the qualification record.
 
 This is host-native SQL/control/peer-lane evidence. Complete RL-07 still requires
 archive outages, bulk transfer, sustained hot/cold traffic and contention across
@@ -506,7 +510,7 @@ harness temporary path exceeds macOS `SUN_LEN`. The identical frozen executable
 passes the same serial command after only shortening that unique temporary
 prefix on the same workspace volume. Both runs remain recorded; no runtime
 deadline, assertion, worker or resource limit changes.
-The [qualification record](lease-readback-qualification-2026-11-16.json) pins
+The qualification record pins
 final identical fixtures, compiler/executable/profile hashes, earlier fixture
 failures, the initial observer-domain failure and private retention audits.
 
@@ -541,7 +545,7 @@ split-then-merge replay fails at `transition capture-source` with
 `unavailable / unknown`; all six post-failure physical probes succeed. This is
 an unresolved failure, not a cause established by those later samples. Final
 fixture cleanup also joins the server when plan creation fails. The
-[qualification record](seal-observations-qualification-2026-11-16.json) pins each
+qualification record pins each
 source, executable, failed build/check, final focused checks and retained data.
 No original failed attempt is promoted by a later pass.
 
@@ -589,7 +593,7 @@ bodies remain byte-identical to the original controls. The full 1,240-test
 library and both exact native scenarios pass again, and the freshly resolved
 native executable is byte-identical to the thirteen-pass full-target artifact.
 Strict all-features/all-target Clippy passes for Cellar and the shared recovery
-consumer. The [qualification record](transition-progress-qualification-2026-11-16.json)
+consumer. The qualification record
 retains the failed builds/lint check, every source and executable identity,
 before/after controls, private data verification and the inherited native-artifact
 proof. The earlier ambiguous-command failure remains a separate open observation.
@@ -636,7 +640,7 @@ neither result qualifies constrained voters or the ignored RustFS scenarios.
 Strict all-feature/all-target and default recovery-consumer Clippy, formatting,
 layout and native dependency checks pass. Closed retained fixtures are verified
 twice and their copies verified. See the
-[source-specific record](receive-cancellation-qualification-2026-11-17.json).
+source-specific record.
 
 Next priorities remain original-ID positive receipt reconciliation after unknown
 remote writes, Queue preparation/publication deadlines and physical fairness,
@@ -683,7 +687,7 @@ wide timing variation. These passes do not attribute a sequential enrollment
 latency repair to proposal batching or erase earlier source-specific failures.
 Strict affected-target Clippy, formatting/layout, dependency, documentation and
 all 44 design checks pass. The
-[qualification record](prepared-submission-batching-qualification-2026-11-16.json)
+qualification record
 pins source inputs, unchanged fixtures, executable/profile hashes, earlier build
 failures and copied, verified data from 43 retained fixture directories.
 
@@ -731,7 +735,7 @@ erase their original voter/cache roots, with no pre-erasure backup.
 Affected-target Clippy, formatting/layout, native dependencies and all 44 design
 checks pass. The reviewed baseline changes only the CI anchor among 24 anchors;
 runtime baseline and task/profile acceptance remain unchanged. The
-[qualification record](transition-diagnostics-qualification-2026-11-16.json)
+qualification record
 retains exact source/executable/profile hashes, earlier preflight failure,
 separate intentional erasures and private retention audits. A fresh read-only
 backend check still finds zero available bytes against the unchanged 6 GiB
@@ -753,7 +757,7 @@ failure or prove a causal runtime repair.
 The test now retains its original directory on every exit. All 100 stores are
 kept in place and copied privately with twice-verified byte manifests; all 2,136
 packaged files are independently verified unchanged after execution. The
-[Node qualification](node-delivery-qualification-2026-11-16.json) pins source,
+Node qualification pins source,
 SDK/npm/generated inputs, executable/profile hashes, every invocation, retained
 data and the three successful hosted jobs. Affected-target Clippy, Rust format
 and layout, dependencies, workflow YAML and all 44 design checks pass.
@@ -772,7 +776,7 @@ before any job or test starts. Actionlint 1.7.12 independently reproduces both
 invalid job-level `runner.temp` expressions. The correction creates fixture
 paths during setup and exports target/temp paths through `GITHUB_ENV`; Rust,
 profile, business budgets, test selection and artifact allowlist remain unchanged.
-The [workflow validation follow-up](disaster-workflow-validation-2026-11-16.json)
+The workflow validation follow-up
 retains that failed run and source hashes plus the passing corrected lint.
 Runtime execution remains unqualified at this checkpoint.
 
@@ -784,7 +788,7 @@ refuses cold targets without enrollment, and keeps writable prepared statements
 on their original path. Read-only `first()` and result refusals can stop early;
 writable `INSERT ... RETURNING` still drains completely. The primitive benchmark
 selects the new API for its SQL point reads. See the
-[SQL read qualification](sql-readonly-qualification-2026-11-16.json) for compiler
+SQL read qualification for compiler
 inputs, native/SDK/Axum/backend coverage, failed controls and test limits.
 This does not establish an end-to-end speedup or close an OPT/CG release gate.
 The original constrained SQL/KV/Queue matrix and rooted-128 enrollment gap remain
@@ -798,7 +802,7 @@ deletion still requires its original parent sync before refund. The durable
 workspace API retains its child and parent creation barriers. Private scratch
 supplies no recovery authority: independently persisted images, committed Raft
 state and required S3 proof still gate acknowledgement. See the
-[workspace qualification](scratch-workspace-qualification-2026-11-16.json) for
+workspace qualification for
 source-specific coverage, failed controls and the original-budget enrollment
 observations. This does not close the constrained performance or OPT/CG gates.
 
@@ -818,7 +822,7 @@ journal replacement before the change and zero afterward, twice per image form.
 The same four checks pass against the original shared RustFS. This avoids one
 complete journal store on an eligible advance; it does not establish a hardware
 flush count or an end-to-end throughput/latency gain. See the
-[archive retirement qualification](archive-retirement-qualification-2026-11-16.json)
+archive retirement qualification
 for frozen inputs, unchanged fixture bytes, failed controls and retained data.
 
 At compiler input `2ac6b776`, the core library (1,232 passes), execution (208),
@@ -862,7 +866,7 @@ and passes with identical fixture bytes afterward. Two actual denied reads
 preserve the same serialized Reserve intent and grant no coverage; restoring
 the original bytes then produces independently verified exact-cut coverage.
 
-The [payload archive retry qualification](payload-archive-retry-qualification-2026-11-16.json)
+The payload archive retry qualification
 records the seven-line production change, initial fixture capability refusal,
 valid red controls and retained data. Native qualification passes and joins:
 core 1,232, controller 41, archive 40, execution 208, ordinary SQL and immutable
@@ -885,7 +889,7 @@ without coverage. Joining the original GET then permits fresh byte verification
 and independently verified exact-cut coverage. Only the focused test reduces
 operation capacity from two to one; production limits and deadlines are unchanged.
 
-The [pressure qualification](payload-archive-pressure-qualification-2026-11-16.json)
+The pressure qualification
 retains exact inputs, executable identities, failed controls and fixture disks.
 Final-source controller qualification passes 43 tests, strict library/controller
 Clippy and repository checks. The preceding `c7fd8ee6` source has identical
@@ -913,7 +917,7 @@ complete counter inventory, and mixed windows, missing/unknown metrics and
 impossible samples still refuse. The exact hosted `CellCommandS3Coverage` guard
 error reproduces locally before the repair. All 19 owning tests pass afterward;
 the full CI performance-guard command runs 343 tests with one skip and no failures.
-See the [metric vocabulary qualification](metric-vocabulary-qualification-2026-11-16.json).
+See the metric vocabulary qualification.
 Only Python evidence tooling/tests change from runtime input `8fb09d7f`. This
 does not qualify new throughput/latency results or repair the separate native
 disaster authorization, container capacity or full release gates.
@@ -926,7 +930,7 @@ and background publication receives the default no-capture state. The hint grant
 no reservation or proof. Payload byte and ownership admission preserve the same
 ceilings, deadlines, request identities, callback and durability contracts.
 
-The [payload capacity wake qualification](payload-capacity-wake-qualification-2026-11-16.json)
+The payload capacity wake qualification
 retains a final identical-fixture comparison: four original S3 requests expire
 before the change, twice per image form, while all four invocations pass after it.
 Each passing invocation completes two successive intended S3 commands, checks
@@ -972,7 +976,7 @@ native executables. The identical owning example check reports two `E0433`
 errors before the three-line wiring repair and passes afterward. Its existing
 real HTTP cross-runtime factory test passes from the Python example executable;
 all `cellar-python` embed test targets compile, and example Clippy/repository
-checks pass. See the [frontend qualification](python-fleet-clients-qualification-2026-11-16.json).
+checks pass. See the frontend qualification.
 No runtime-library, factory, dependency, quota or deadline changes follow native
 input `1ac2cced`. This local Python 3.14.6 GIL build/control does not qualify full
 adapter runtime or free-threaded ABI execution; fresh hosted CI and the separate
@@ -985,7 +989,7 @@ later durable write rearms the check. Managed scheduling already uses the same
 predicate; eligible purge, explicit purge, shutdown and settlement retain their
 barriers. Production intervals, thresholds, banks and deadlines are unchanged.
 
-The [periodic purge qualification](periodic-purge-qualification-2026-11-16.json)
+The periodic purge qualification
 records two identical-oracle failures before the change and two passes afterward.
 Each invocation previously adds one idle periodic sync and another after a real
 durable write; both periodic syncs become zero. The application write and explicit
@@ -1242,7 +1246,7 @@ executes three of the archive target's declared backend ignores separately;
 other ignored cases retain their unrun scope. All owners join, inputs remain
 unchanged and the original RustFS identity/limits/readiness are preserved.
 
-The [qualification record](checkpoint-object-window-qualification-2026-11-15.json)
+The qualification record
 retains source/command/log hashes and actual footers, including the prior serial
 failures and the initial candidate type-inference failure. Source `8f674406`
 builds Linux image `0ccf1de9` with all inputs verified and the same locked
@@ -1314,7 +1318,7 @@ backend ignores; other ignored cases retain their unrun scope. Native dependency
 and documentation checks pass. All owners join, inputs remain unchanged and
 original RustFS identity/limits/readiness are preserved.
 
-The [qualification record](empty-tail-recovery-qualification-2026-11-15.json)
+The qualification record
 retains exact profiles, source/executable/log hashes, footers and read counters.
 The earlier Clippy duplicate-helper rejection also remains recorded; the shared
 harness export replaces the duplicate inclusion without a lint suppression.
@@ -5642,8 +5646,8 @@ and packing. The old Queue performance helper converts into main's `Minimums`
 contract. Opt-in lease tracing adds no deadline, resource or retry permission.
 
 The [updated-main report](three-node-primitive-main-168-2026-11-14.md),
-[observations](three-node-primitive-main-168-2026-11-14.json) and
-[raw evidence](three-node-primitive-main-168-2026-11-14.raw.json.gz) retain the
+observations and
+raw evidence retain the
 complete re-verification. Compilation/strict Clippy, format/layout (2,306 Rust
 files), native dependencies and Python/documentation checks pass. There are 109
 distinct libtest passes, while the complete primitive target fails eight cases
@@ -5691,8 +5695,8 @@ profiling priorities; original failures and every OPT/CG gate remain unchanged.
 
 Source `95244b42` includes main `0e925f6b`; its frozen compiler manifest is
 `f8917ffe` (3,413 inputs). The [complete report](three-node-primitive-main-172-2026-11-14.md),
-[assessment](three-node-primitive-main-172-2026-11-14.json) and
-[raw capsule](three-node-primitive-main-172-2026-11-14.raw.json.gz) retain all
+assessment and
+raw capsule retain all
 attempted windows, including failures. The control reverses only `97b805f3`'s
 nine LTX image-publication files. Both images use matching locked Rust 1.98.1
 profiles and load bytes under the original three 1-vCPU/2-GiB node limits.
@@ -5815,7 +5819,7 @@ The complete default suites pass 1,229 library, 33 archive-controller and 40
 archive tests, with 2/30/10 existing ignores respectively. Nine selected real
 RustFS cases pass both images; unselected ignores stay open. The matching Linux
 image 70b02055 rebuilds both owning libraries and both binaries with the same
-locked lab profile/client. See the [qualification record](capacity-wake-qualification-2026-11-15.json).
+locked lab profile/client. See the qualification record.
 
 The new constrained matrix is running. KV+S3 passes all 18 windows with zero
 errors. Queue+S3 fails its first C16 enqueue with five unconfirmed errors; all
@@ -5863,7 +5867,7 @@ with 2/30/10 existing ignores respectively. Four capacity units and seven
 focused controller controls repeat subsets of those suites. Strict all-target
 Cellar Clippy, format/layout and native-dependency checks pass. Nine selected
 real-RustFS cases pass both image forms on the same executables; unselected
-ignores remain open. See the [source-specific qualification](capacity-cadence-qualification-2026-11-16.json).
+ignores remain open. See the source-specific qualification.
 The matching Linux image and scoped SQL result are recorded below. The remaining
 current-source APIs and complete constrained matrix remain unqualified.
 
@@ -5924,7 +5928,7 @@ Two unchanged exact repeats subsequently pass in 61.57 and 134.39 seconds
 including setup, commands, follower reads and cleanup. These are not enrollment
 durations, and neither pass explains the earlier timeout.
 
-The [source-specific lease-client record](lease-client-qualification-2026-11-16.json)
+The source-specific lease-client record
 retains before/after hashes, full-suite failures and exact-repeat outcomes.
 The earlier 1,304-test library/archive and nine RustFS passes remain scoped to
 the cadence candidate's source. No matching Linux image or new container
@@ -5971,7 +5975,7 @@ next call; no completed call exceeds two seconds. Its temporary timing markers
 are removed. These observations do not isolate an end-to-end speedup or close
 the cumulative enrollment latency gap.
 
-The [source-specific record](enrollment-resolution-qualification-2026-11-16.json)
+The source-specific record
 retains before/after hashes, counters, default-suite failure and real-backend
 scope. Formatting/layout and native dependency checks pass. The design tests
 first pass 43 cases and reject a stale catalog anchor; after reviewing the
@@ -6017,7 +6021,7 @@ file changes afterward, and Cargo verifies the library executable is byte-identi
 All seven attempts retain their closed fixtures; originals are verified twice
 and copies are verified after closure.
 
-The [qualification record](command-admission-qualification-2026-11-17.json)
+The qualification record
 keeps these failures, hashes, profiles and scopes explicit. The selected
 member-replacement pass does not establish a causal repair of its earlier
 full-run original-ID failure. Queue warmup/four-in-flight deadlines, read-credit
@@ -6059,7 +6063,7 @@ domain's fair select macro. Cargo verifies the final library and execution
 artifacts byte-identical to the passed sweep and ten native controls; the changed
 S3 case passes again. Production artifact bytes remain unchanged across the S3
 fixture revisions. See the
-[source-specific record](receipt-reconciliation-qualification-2026-11-17.json).
+source-specific record.
 
 These are host-native RF3/TLS cases with in-memory object-store adapters, rather
 than the constrained RustFS profile. Persistent fixture disks, logs, source and
@@ -6109,7 +6113,7 @@ Production and routing artifacts are byte-identical across that test-only
 correction. Both unsuccessful attempts and their exact sources remain recorded.
 Closed persistent fixture originals are verified twice and copied files are
 verified; in-memory store contents are not exported. See the
-[source-specific qualification record](command-origin-refusal-qualification-2026-11-17.json).
+source-specific qualification record.
 
 These host-native RF3/TLS fixtures include six-data-node/ingress routing cases
 and a one-SQL-worker fairness case; they do not qualify the requested restricted
@@ -6205,7 +6209,7 @@ and Node package delivery exceeds its original 250-ms handler budget. Passing
 focused diagnostics do not settle these broader failures. These are parent
 results, not qualification of this candidate.
 
-See the [source-specific record](cell-sql-pipeline-qualification-2026-11-17.json)
+See the source-specific record
 for exact artifacts, cohorts, failures and scope. Native elapsed times are not
 constrained throughput or latency percentiles. The unchanged original RustFS
 volume reports 13,623,296 free bytes (about 13 MiB), below its unchanged
@@ -6235,8 +6239,8 @@ fragmented KV, Queue proof sharing and the interrupted SQL recovery matrix pass.
 Full library: 1,253 passed / 0 failed / 2 existing ignores. All eight selected
 native S3 controls pass, including the previously unstable deadline control; this establishes no
 causal repair or stable full S3 acceptance. See the
-[pending settlement record](pending-command-settlement-qualification-2026-11-17.json) for every check,
-profile and failed control. Earlier [pipeline evidence](cell-sql-pipeline-qualification-2026-11-17.json)
+pending settlement record for every check,
+profile and failed control. Earlier pipeline evidence
 remains historical evidence at its own source, not current-source qualification.
 
 Frozen baseline/candidate runs in ABBA order pass both the response-deadline
@@ -6263,7 +6267,7 @@ modes with identical fixtures. The current source corrects two fixture selector
 calls with production inputs unchanged and rechecks all sixteen focused cases.
 Four final-RPC observations use one reconciliation and no Resume, followed by
 exact output and duplicate replay without another callback. Stale observations
-remain uncached. See the [source-bound record](rpc-pending-settlement-qualification-2026-11-17.json)
+remain uncached. See the source-bound record
 for current/historical results, exact executable reuse and failed-fixture retention.
 
 Owning qualification is **FAILED**. Native execution:
@@ -6294,7 +6298,7 @@ and green on the candidate with identical fixture and profile. It commits an
 initialization and command, checks every replica's version/witness and exact
 value through engine-bound readers, and joins the owners. Only three production
 files differ in that comparison. The earlier absent-applier-map fixture panic,
-its stopped qualification and all failed data remain explicit in the [source-bound scratch record](cell-scratch-sync-qualification-2026-11-18.json).
+its stopped qualification and all failed data remain explicit in the source-bound scratch record.
 
 Selected owning qualification is **FAILED**: 37/38 Rust selections
 and 9/9 Clippy/repository checks pass. Failed selections: `queue_four_in_flight_preserves_acknowledged_messages`.
@@ -6337,7 +6341,7 @@ the write-only and refined write-plus-checkpoint-read outage experiments. The
 refined outage records actual denied reads/writes in both failed runs. Pausing
 archive I/O therefore does not resolve the deadline; in-flight work remains a
 limit of this control. All temporary probe code is removed. See the
-[source-bound Queue record](queue-image-progress-qualification-2026-11-18.json)
+source-bound Queue record
 for source/executable/profile identities, every outcome and retained manifests.
 
 The read-only original RustFS check at 2026-11-18T09:42:09.811621+00:00 finds
@@ -6404,7 +6408,7 @@ Ordinary Queue and batch-proof sharing, ordinary/Axum SQL, Axum KV,
 fragmented KV, ordinary JSON RPC and both selected SQL recovery cases pass.
 A failed ordinary KV negative-provider case returns an ambiguous deadline
 rather than the required unavailable-payload error; later configurations
-inside that test are unrun. See the [source-bound record](prepared-image-and-incoming-voter-qualification-2026-11-18.json) for every
+inside that test are unrun. See the source-bound record for every
 selection, artifact/profile, failed earlier cohort and retained manifest.
 The earlier failed membership-crash TempDir auto-cleaned before capture:
 its disk state is unavailable, while logs/source/executable and remaining
@@ -6436,7 +6440,7 @@ Completion priorities, in order:
 4. **P1: Sustainable capacity.** Prove physical shared-segment deletion and once-only capacity credit, then repeated reserve-aware split/move/merge with retained readers, snapshots and uncertain work.
 5. **P2: Combined release and comparison.** Complete authority/partition/wake/recovery, SDK/daemon/feature-mode gates and the source-matched SQL/KV/Queue Quorum/Quorum+S3/Fleet/Bucket C1/4/16 matrix on the original three 1-vCPU/2-GiB Colima nodes, RF3/three groups/shared RustFS, 256-byte payloads, Queue batch eight and reversed repetitions.
 
-The latest read-only original RustFS observation still fails the unchanged 6 GiB free-space reserve; no constrained comparison is admitted. All OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See the [source-bound close qualification](disposable-close-qualification-2026-11-18.json) for exact sources, artifacts/profiles, all outcomes, retention limits and capacity evidence.
+The latest read-only original RustFS observation still fails the unchanged 6 GiB free-space reserve; no constrained comparison is admitted. All OPT-01–08 and remaining CG/SDK/release/performance gates stay open. See the source-bound close qualification for exact sources, artifacts/profiles, all outcomes, retention limits and capacity evidence.
 
 ## Separate S3 output and mutation readiness
 
@@ -6458,7 +6462,7 @@ The initial rooted concurrent SQL ingress failure records zero S3 coverage/outpu
 
 The read-only original RustFS observation at 2026-11-18T19:58:09.774810+00:00 finds 0 available bytes, below the unchanged 6 GiB reserve. Original identity/limits and the inspection pair are stable, with zero restarts. No constrained comparison is admitted.
 
-The original Queue C2/C4 failures on source391b remain open; those minimum-Quorum load cases were not rerun for this S3-only output fix. The published-parent disaster/token recovery failure still requires diagnosis, and local S3 success does not close hosted SDK acceptance. Remaining priorities are original-deadline Queue progress, recovery/SDK faults, actual extent-profile propagation, measured batching/fairness, physical reclamation/once-only credit and reserve-aware movement, then the full original constrained comparison. Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open. No throughput or latency gain is claimed. See the [source-bound S3 fence record](s3-output-fence-qualification-2026-11-18.json).
+The original Queue C2/C4 failures on source391b remain open; those minimum-Quorum load cases were not rerun for this S3-only output fix. The published-parent disaster/token recovery failure still requires diagnosis, and local S3 success does not close hosted SDK acceptance. Remaining priorities are original-deadline Queue progress, recovery/SDK faults, actual extent-profile propagation, measured batching/fairness, physical reclamation/once-only credit and reserve-aware movement, then the full original constrained comparison. Complete OPT-01–08 and remaining CG/SDK/release/performance gates stay open. No throughput or latency gain is claimed. See the source-bound S3 fence record.
 
 ## Configured rooted preview profile checkpoint — 2026-11-18
 
@@ -6466,7 +6470,7 @@ Implementation `070e6abe`, compiler inputs `321cde1a365fac246e0796b98c390e8b6234
 
 The full library passes 1,259 cases with two existing ignores. Native qualification has 27 passed, one failed and one existing ignore: S3/effects, eleven execution controls, three RPC controls, ordinary KV/Queue and disaster retry/old-token refusal pass; ordinary SQL fails on deadlines. The original nine strict/repository checks pass after reviewing the changed SQL pool anchor and rerunning all 44 plan tests. The initial source-drift rejection remains recorded. An additional full plan CLI validation still fails on missing historical CG-01 evidence; that gate remains open. Current Queue success does not waive the older C2/C4 failures. Recovery diagnostics have independent custody; the earlier hosted failure did not reproduce and its underlying cause remains unqualified.
 
-The original RustFS capacity guard still fails at 0 available bytes. No constrained comparison or throughput/latency gain is qualified. Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open. See [current priorities](remaining-work.md#configured-rooted-previews-and-current-priorities) and the [source-bound record](rooted-apply-profile-qualification-2026-11-18.json).
+The original RustFS capacity guard still fails at 0 available bytes. No constrained comparison or throughput/latency gain is qualified. Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open. See [current priorities](remaining-work.md#configured-rooted-previews-and-current-priorities) and the source-bound record.
 
 
 ## Cached committed RPC conflict rejection — 2026-11-18
@@ -6479,7 +6483,7 @@ At compiler inputs `1e9199b4ae9e00076242ba003748c362047c9220e8a6b61a348eaec362a1
 
 The six failed gates are ordinary SQL, RPC continuation, ordinary Queue, C2 Queue and both independent C4 Queue cases. Materialized SQL and RPC final completion reach ambiguous deadlines; ordinary Queue fails rooted. C2 ends with deadline elapsed. Materialized C4 reaches its first target attempt with only 718 ms left; rooted C4 fails pre-load emptying with 2,408 ms left, leaving its load oracle unrun. The retained parent/candidate/candidate/parent RPC comparison passes all four independent runs and does not explain or erase the original broad failure. On the published parent, hosted native jobs separately fail retained-voter provisioning and an archive-seed cleanup ownership/byte assertion. Local recovery passing does not repair those hosted failures.
 
-The read-only original RustFS observation finds 757,760 available bytes against the unchanged 6-GiB reserve, with stable identity/resources and zero restarts. No constrained comparison is admitted. No throughput/latency gain, complete OPT-01–08 package or remaining CG/SDK/release gate is accepted. See [qualification evidence](cached-conflict-qualification-2026-11-18.json) and [current priorities](remaining-work.md#cached-committed-rpc-conflicts-and-current-priorities).
+The read-only original RustFS observation finds 757,760 available bytes against the unchanged 6-GiB reserve, with stable identity/resources and zero restarts. No constrained comparison is admitted. No throughput/latency gain, complete OPT-01–08 package or remaining CG/SDK/release gate is accepted. See qualification evidence and [current priorities](remaining-work.md#cached-committed-rpc-conflicts-and-current-priorities).
 
 
 ## Provisioning refusal diagnosis — 2026-11-19
@@ -6488,7 +6492,7 @@ Implementation `95e95a35e`, compiler inputs `e92708cebc8ecc202211301c1ea1bf0cb98
 
 The hosted `607ca35b` disaster sequence again fails retained-voter provisioning in materialized PublishedChildren (12 passed / 1 failed / 8 ignored). Its exact guard remains unknown until the diagnostic source runs. Two temporary SQL phase probes pass; archive cleanup probes produce one failure during replacement reconciliation and one pass. None explains the original SQL deadline or hosted cleanup assertion. Original assertions, budgets and failed data remain; all temporary instrumentation is restored byte-exactly.
 
-The read-only original RustFS check at 2026-11-19T01:33:45.303616+00:00 finds zero available bytes, below the unchanged 6-GiB reserve, with stable identity/resources and zero restarts. No constrained comparison or throughput/latency gain is qualified. Full OPT-01–08, application, SDK, release and performance gates remain open. See the [scoped diagnostic record](provisioning-diagnostic-qualification-2026-11-19.json) and [current priorities](remaining-work.md#cached-committed-rpc-conflicts-and-current-priorities).
+The read-only original RustFS check at 2026-11-19T01:33:45.303616+00:00 finds zero available bytes, below the unchanged 6-GiB reserve, with stable identity/resources and zero restarts. No constrained comparison or throughput/latency gain is qualified. Full OPT-01–08, application, SDK, release and performance gates remain open. See the scoped diagnostic record and [current priorities](remaining-work.md#cached-committed-rpc-conflicts-and-current-priorities).
 
 
 ## Queue schema reopen work — 2026-11-19
@@ -6499,7 +6503,7 @@ The same regression source/profile fails on original SQL and passes with only th
 
 The candidate passes the full library (1,261 passed / 2 existing ignores), full native broker and SQL/KV/RPC continuation controls in both image modes. All six selected shared-Raft Queue cases fail: ordinary callbacks, batch proof sharing, C2, materialized/rooted C4 and combined C4. Their original concurrency, deadlines, producer/consumer oracles and failed data remain. Combined application qualification is FAILED. All nine strict/repository checks pass, including all-feature/all-target Clippy and native-only facade compilation.
 
-The preceding diagnostic source `e92708ce` at `6783ed04` passes the hosted original serial disaster sequence (13 passed / 8 explicit RustFS ignores). Its broader SDK native 3.14 job fails two disaster cases (11 passed / 2 failed / 8 ignored); both failure sections report duplicate peer address. The rejected condition is now identified, while its origin and repair remain unproven. This is not hosted qualification of the Queue candidate. The read-only original RustFS observation at 2026-11-19T03:03:20.790083+00:00 remains zero available bytes below the unchanged 6-GiB reserve, with stable identity/resources and zero restarts. No constrained throughput/latency comparison is admitted. Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open. See [qualification](queue-schema-qualification-2026-11-19.json) and [current priorities](remaining-work.md#queue-schema-reopen-work-and-current-priorities).
+The preceding diagnostic source `e92708ce` at `6783ed04` passes the hosted original serial disaster sequence (13 passed / 8 explicit RustFS ignores). Its broader SDK native 3.14 job fails two disaster cases (11 passed / 2 failed / 8 ignored); both failure sections report duplicate peer address. The rejected condition is now identified, while its origin and repair remain unproven. This is not hosted qualification of the Queue candidate. The read-only original RustFS observation at 2026-11-19T03:03:20.790083+00:00 remains zero available bytes below the unchanged 6-GiB reserve, with stable identity/resources and zero restarts. No constrained throughput/latency comparison is admitted. Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open. See qualification and [current priorities](remaining-work.md#queue-schema-reopen-work-and-current-priorities).
 
 ## Retained peer port ownership in managed fixtures — 2026-11-19
 
@@ -6509,7 +6513,7 @@ Five original provisioning controls pass, including the exact typed duplicate-ad
 
 The library executable/profile are byte-identical to the prior full 1,261-pass / 2-ignore run, which is explicitly reused. All nine strict/repository checks pass. Published predecessor `f82283053` independently fails hosted complete-closure recovery with the duplicate-address refusal (12 passed / 1 failed / 8 ignored). Corrected-source hosted acceptance and all broader failure gates remain open.
 
-Queue's six original-deadline failures on production checkpoint `f82283053` remain unclosed. Next work is request-phase image/persistence/ingress diagnosis and recovery progress, followed by measured batching/fairness, remaining routing/read partitions, physical reclamation/once-only credit, reserve-aware movement and full combined release. The original read-only RustFS observation at 2026-11-19T04:28:57.081176+00:00 still finds zero available bytes below its unchanged 6-GiB reserve, with stable identity/resources and zero restarts. No original constrained comparison or throughput/latency gain is qualified. Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open. See [qualification](peer-port-qualification-2026-11-19.json) and [current priorities](remaining-work.md#retained-peer-endpoints-and-current-priorities).
+Queue's six original-deadline failures on production checkpoint `f82283053` remain unclosed. Next work is request-phase image/persistence/ingress diagnosis and recovery progress, followed by measured batching/fairness, remaining routing/read partitions, physical reclamation/once-only credit, reserve-aware movement and full combined release. The original read-only RustFS observation at 2026-11-19T04:28:57.081176+00:00 still finds zero available bytes below its unchanged 6-GiB reserve, with stable identity/resources and zero restarts. No original constrained comparison or throughput/latency gain is qualified. Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open. See qualification and [current priorities](remaining-work.md#retained-peer-endpoints-and-current-priorities).
 
 ## Signed Queue operator reads — 2026-11-19
 
@@ -6519,7 +6523,7 @@ The same real RF3 regression fails before the change: two signed reads advance a
 
 **Combined application qualification remains FAILED.** The focused shared application selection has **6 passed / 5 failed**. The full library has **1,261 passed / 2 existing ignores**; the full native Queue target passes. The original batch claim/lease proof-sharing case passes. Controls: SQL PASSED, KV PASSED, RPC continuation PASSED. Current failed cases are `ordinary_queue_callbacks_use_shared_quorum`, `queue_load_preserves_acknowledged_messages`, `materialized_queue_four_in_flight_preserves_acknowledged_messages`, `rooted_queue_four_in_flight_preserves_acknowledged_messages`, `queue_four_in_flight_preserves_acknowledged_messages`. Queue producer failures reach their first target attempt with only 844–2,462 ms remaining; the ordinary Queue failure is an ambiguous source-command deadline in rooted mode. These observations locate progress gaps without establishing a causal bottleneck or speedup. Failed identities and available fixtures remain retained and verified against closed copies.
 
-All nine strict/repository checks pass at this compiler-input digest. The prior `7562115bb` full managed/disaster selection retains three failed recovery gates: extents S3 seed failover settlement, extents fresh outbox-lane settlement, and materialized pending recovery forming a fresh quorum. Those full targets were not rerun here. Current-source hosted SDK/release acceptance remains required. See the [source-bound qualification](queue-operator-read-qualification-2026-11-19.json) for exact profiles, executable/log hashes, excluded build attempts, source binding and scope.
+All nine strict/repository checks pass at this compiler-input digest. The prior `7562115bb` full managed/disaster selection retains three failed recovery gates: extents S3 seed failover settlement, extents fresh outbox-lane settlement, and materialized pending recovery forming a fresh quorum. Those full targets were not rerun here. Current-source hosted SDK/release acceptance remains required. See the source-bound qualification for exact profiles, executable/log hashes, excluded build attempts, source binding and scope.
 
 Remaining priorities, in order:
 
@@ -6584,7 +6588,7 @@ against the unchanged 6 GiB reserve. No original Colima performance case is
 admitted. Keep three original 1-vCPU/2-GiB nodes, RF3/three groups/shared RustFS,
 Quorum/Quorum+S3/Fleet/Bucket, C1/4/16, 256-byte values, Queue batch eight and
 reversed repetitions. Complete OPT-01–08 and remaining CG/SDK/release/performance
-gates remain open. See [source-bound qualification](checkpoint-reply-qualification-2026-11-19.json)
+gates remain open. See source-bound qualification
 for exact inputs, separate executable/profile/log hashes, setup exclusions and
 retention/reuse limits.
 
@@ -6643,7 +6647,7 @@ Remaining priorities:
    and zero restarts. No performance case is admitted.
 
 Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
-See [source-bound qualification](import-completion-qualification-2026-11-19.json)
+See source-bound qualification
 for exact source/executable/profile/log bindings, failed attempts, reuse and
 native/environment limits.
 
@@ -6703,6 +6707,6 @@ Remaining priorities:
    identity/resources and zero restarts. No performance case is admitted.
 
 Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
-See [source-bound qualification](retired-voter-drain-qualification-2026-11-19.json)
+See source-bound qualification
 for exact source/executable/profile/log hashes, intermittent controls, retained
 media, reuse and environment limits.

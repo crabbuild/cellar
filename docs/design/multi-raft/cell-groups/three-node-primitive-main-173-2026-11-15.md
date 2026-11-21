@@ -4,6 +4,10 @@
 
 Purpose: Record the refreshed constrained SQL/KV/Queue comparison, complete verification ledgers and remaining progress failures.
 
+Machine-readable qualification and benchmark outputs are retained separately.
+Keep generated run outputs outside this documentation tree; the prose summaries
+preserve their source, scope and unresolved failures.
+
 **Result: FAILED. No isolated throughput or latency improvement is established.** Nine of twelve candidate cases pass. KV+S3, Queue+S3 and bucket Queue fail; the quorum control passes SQL/KV and fails Queue. SQL/KV have complete passing matched quorum pairs; Queue does not.
 
 The source cut is `69654995d602d7e33bd8f0d1590574a5cd67a1b6`, including main `189edd9a` (#173 Blob providers and retained-payload recovery). Candidate manifest is `803d1d85640e31861c9beac6f7ede5eb36a72fd27a57cfff8af0adf95a7baf00`; control manifest is `67e4310de43e72eb614eb261bccd3be0e1acda5d460fbe46fc56688f0ec534ae`. The control reverses only `97b805f3`'s nine LTX image-publication inputs, with inverse patch SHA-256 `cd60a5972c519a7d92e688e4286a3c797c004ac7706d2a797edeb43717e03bb3`.
@@ -95,7 +99,7 @@ A broader host snapshot at **2026-11-15 12:38:57 UTC** observes another checkout
 
 All 75 full-run participant containers stop without observed OOM or restart. Failed disks and containers remain retained. All comparison owners join; frozen inputs and engine identity remain unchanged. The original RustFS identity, limits and mounts are restored, with independently confirmed HTTP 200 readiness. One Colima VM supplies one physical failure domain; cloud S3, partitions, crash recovery, all-voter disk loss and sustained capacity remain separate gates.
 
-[Machine assessment](three-node-primitive-main-173-2026-11-15.json) and [raw capsule](three-node-primitive-main-173-2026-11-15.raw.json.gz) retain complete emitted samples/ledgers, resource curves, topology/performance observations, terminal states, build equivalence, both smokes and failure diagnostics. Capsule: 22,483,380 bytes, SHA-256 `8b81524d454b97552651646fb609c8f4506a59f121b8c49511723639460a2b68`. Runtime configuration, environment dumps, private keys and node/store log text are excluded. Thirteen actual runtime credential/private-key representations are checked privately against the emitted data.
+Machine assessment and raw capsule retain complete emitted samples/ledgers, resource curves, topology/performance observations, terminal states, build equivalence, both smokes and failure diagnostics. Capsule: 22,483,380 bytes, SHA-256 `8b81524d454b97552651646fb609c8f4506a59f121b8c49511723639460a2b68`. Runtime configuration, environment dumps, private keys and node/store log text are excluded. Thirteen actual runtime credential/private-key representations are checked privately against the emitted data.
 
 Next priorities are the original-bound S3 and bucket Queue progress failures, controlled profiling of image preparation/sync and public read integration, then remaining authority, physical reclamation/once-only credit, placement/fairness and lifecycle/crash gates. No complete OPT-01–08, CG-17 or release acceptance is claimed. See the [prioritized gaps](optimization-progress.md#priorities-for-completing-the-optimization).
 
@@ -162,8 +166,8 @@ identity gap: all 32 extra IDs/bodies match four of its ten uncertain batches.
 Eight acknowledged IDs remain unobserved at the original drain bound, and 48
 uncertain message IDs are unobserved. Its durability/drain failure remains open.
 
-The [phase assessment](three-node-primitive-main-173-2026-11-15.command-phases.json)
-and [raw phase capsule](three-node-primitive-main-173-2026-11-15.command-phases.raw.json.gz)
+The phase assessment
+and raw phase capsule
 retain full windows, ledgers, phase/resource observations, terminal states,
 source/build manifests and the preceding failed KV reproduction. Runtime
 configuration, environments, private keys and node/store log text are excluded;
@@ -177,7 +181,7 @@ replace serialized checkpoint object I/O with two ordered futures inside the
 existing reservation. The source-matched build verifies all 3,426 inputs,
 rebuilds both owning libraries and binaries, and retains the baseline's locked
 Rust 1.98.1 lab profile and byte-identical load client. The
-[native qualification record](checkpoint-object-window-qualification-2026-11-15.json)
+native qualification record
 retains the failing-before overlap regressions, complete default archive target
 (38 passed, ten explicit ignores), three S3 controls and six selected real
 RustFS controls. Those passes establish bounded overlap and scoped correctness.
@@ -234,8 +238,8 @@ checks pass, and original RustFS identity, limits, mounts and HTTP 200 readiness
 are restored and independently checked. One Colima VM remains one physical
 failure domain.
 
-The [window assessment](three-node-primitive-main-173-2026-11-15.checkpoint-window.json)
-and [raw window capsule](three-node-primitive-main-173-2026-11-15.checkpoint-window.raw.json.gz)
+The window assessment
+and raw window capsule
 retain all emitted windows, identity/body ledgers, full phase histograms,
 resource curves, source/build manifests and terminal/restoration evidence.
 The capsule is 807,657 bytes, SHA-256
@@ -276,8 +280,8 @@ overlap command metrics and are not additive request budgets. The largest
 completed launch-to-settled interval is 1.75 seconds. There is no failing request
 in this trace to attribute to a particular stage.
 
-The [stage assessment](three-node-primitive-main-173-2026-11-15.archive-stages.json)
-and [raw stage capsule](three-node-primitive-main-173-2026-11-15.archive-stages.raw.json.gz)
+The stage assessment
+and raw stage capsule
 retain parsed events, full windows, aggregate metrics/resources and joined
 source/build/cleanup evidence. The capsule is 692,604 bytes, SHA-256
 `aa4ae9965c4e0c441b8aa8710ff5ec32601381c70ef2c4039b51945f1ace21aa`.
@@ -322,7 +326,7 @@ recovery/GC. Three of the archive target's declared backend ignores are executed
 separately; other ignored cases remain unrun. All owners join, input hashes stay
 unchanged and original RustFS identity/limits/readiness remain intact.
 
-The [qualification record](empty-tail-recovery-qualification-2026-11-15.json)
+The qualification record
 retains actual profiles, source/executable/log hashes, footers and counters.
 It also retains the duplicate-helper Clippy rejection, the failed initial
 checkpoint-only control (38 other archive cases and three S3 controls passed),
@@ -386,8 +390,8 @@ and the original RustFS identity, mounts, limits and HTTP 200 readiness are
 restored. Every case starts above the unchanged six-GiB free-disk preflight
 reserve; no workload resource or admission limit changes.
 
-The [assessment](three-node-primitive-main-173-2026-11-15.empty-tail.json) and
-[raw capsule](three-node-primitive-main-173-2026-11-15.empty-tail.raw.json.gz)
+The assessment and
+raw capsule
 retain failed/partial windows, phase histograms, resource samples, exact Queue
 identity reconciliation and role-bound terminal evidence. Runtime configuration,
 environments, private keys and raw node/store log text are excluded; a scan of
@@ -427,8 +431,8 @@ waiters and unclassified attempts prevent that observation from proving every
 request succeeded. Fair-queue delay, proof retirement, retry reasons and exact
 request-to-coverage linkage remain unresolved; no deadline or proof is relaxed.
 
-The [diagnostic assessment](three-node-primitive-main-173-2026-11-15.lease-diagnostics.json)
-and [raw derived events](three-node-primitive-main-173-2026-11-15.lease-diagnostics.raw.json.gz)
+The diagnostic assessment
+and raw derived events
 retain both failures, all emitted windows, phase/resource evidence and numeric
 lease/archive events. Four init/node log filters per run are verified. Raw
 node/store log text and runtime secrets are excluded; eleven actual private
@@ -466,8 +470,8 @@ cleanly, with no lease-expiry/panic marker. Owners join, source/engine identitie
 remain unchanged, and exact original RustFS identity/limits/mounts return with
 HTTP 200 readiness. Host qualification activity remains a timing confound.
 
-The [assessment](three-node-primitive-main-173-2026-11-15.untraced-repeat.json)
-and [raw capsule](three-node-primitive-main-173-2026-11-15.untraced-repeat.raw.json.gz)
+The assessment
+and raw capsule
 retain all emitted windows and reconciliation. Runtime configuration, environment
 responses, private keys and raw node/store log text are excluded; 23 actual
 private representations yield zero matches.
