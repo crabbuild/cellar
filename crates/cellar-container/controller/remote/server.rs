@@ -167,7 +167,7 @@ async fn dispatch(
             ExecutionController::execute(&controller, claim, operation, payload).await?,
         ),
         Action::Reconcile { original } => {
-            Value::Outcome(ExecutionController::reconcile(&controller, claim, original).await?)
+            Value::Outcome(ExecutionController::reconcile(&controller, claim, *original).await?)
         }
         Action::Pending => Value::Pending(ExecutionController::pending(&controller, claim).await?),
         Action::Lifecycle { kind } => {

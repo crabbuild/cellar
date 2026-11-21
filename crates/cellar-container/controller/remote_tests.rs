@@ -273,6 +273,21 @@ async fn tls_authorization_and_controller_pins_precede_backend_entry() -> Result
     };
     let identity = controller.identity();
     let current = claim(&identity, 2, 1)?;
+    let foreign = Credentials::new()?;
+    let mut foreign_client = foreign.client(false)?;
+    foreign_client.server_roots = tls.roots()?;
+    foreign_client.server_certificate_sha256 = Sha256::digest(tls.server.as_ref()).into();
+    let untrusted = RemoteController::new(
+        domain.clone(),
+        options,
+        identity.clone(),
+        controller.options().limits,
+        foreign_client,
+    )?;
+    failure(
+        untrusted.activate(current.clone()).await.unwrap_err(),
+        ExecutionControllerFailure::UnknownOperation,
+    );
     let other = RemoteController::new(
         domain.clone(),
         options,
@@ -304,6 +319,19 @@ async fn tls_authorization_and_controller_pins_precede_backend_entry() -> Result
         options,
         wrong_identity,
         controller.options().limits,
+        tls.client(false)?,
+    )?;
+    failure(
+        wrong.activate(current.clone()).await.unwrap_err(),
+        ExecutionControllerFailure::ConflictingRequest,
+    );
+    let mut wrong_limits = controller.options().limits;
+    wrong_limits.max_cells += 1;
+    let wrong = RemoteController::new(
+        domain.clone(),
+        options,
+        identity.clone(),
+        wrong_limits,
         tls.client(false)?,
     )?;
     failure(
@@ -525,6 +553,94 @@ async fn tls_lost_reply_reconciles_after_listener_and_controller_restart_without
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tls_client_bounds_observations_and_reserves_fencing_capacity() -> Result<()> {
+    let domain = domain();
+    let root = tempfile::tempdir()?;
+    let backend = Arc::new(Backend::default());
+    let controller = ExecutionController::create(
+        domain.clone(),
+        ExecutionControllerOptions {
+            directory: root.path().join("controller"),
+            controller_id: [0; 16],
+            backend: backend.identity(),
+            limits: ExecutionControllerLimits::default(),
+        },
+        backend.clone(),
+        [42; 32],
+    )
+    .await?;
+    let tls = Credentials::new()?;
+    let server =
+        ControllerServer::bind(domain.clone(), controller.clone(), options(), tls.server()?)
+            .await?;
+    let client = RemoteController::new(
+        domain.clone(),
+        RemoteOptions {
+            address: server.address(),
+            max_connections: 2,
+            ..options()
+        },
+        controller.identity(),
+        controller.options().limits,
+        tls.client(false)?,
+    )?;
+    let current = claim(&controller.identity(), 2, 1)?;
+    client.clone().activate(current.clone()).await?;
+    let expires = operation(&domain, 12, b"observation")
+        .await?
+        .expires_unix_ms;
+    let request = ExecutionOperation::new(
+        [12; 16],
+        ExecutionOperationKind::Inspect,
+        b"observation",
+        expires,
+    )?;
+    backend.hold.store(true, Ordering::Release);
+    let held = {
+        let client = client.clone();
+        let current = current.clone();
+        let request = request.clone();
+        domain.spawn(async move {
+            client
+                .execute(current, request, b"observation".to_vec())
+                .await
+        })?
+    };
+    domain
+        .run(async {
+            cellar::asyncrt::timeout(Duration::from_secs(2), backend.entered.notified()).await
+        })
+        .await??;
+    let second = ExecutionOperation::new(
+        [13; 16],
+        ExecutionOperationKind::Inspect,
+        b"observation",
+        expires,
+    )?;
+    failure(
+        client
+            .clone()
+            .execute(current, second, b"observation".to_vec())
+            .await
+            .unwrap_err(),
+        ExecutionControllerFailure::Busy,
+    );
+    client
+        .activate(claim(&controller.identity(), 2, 2)?)
+        .await?;
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    assert_eq!(backend.fences.load(Ordering::Acquire), 2);
+    server.shutdown().await?;
+    failure(
+        held.await?.unwrap_err(),
+        ExecutionControllerFailure::UnknownOperation,
+    );
+    controller.shutdown().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tls_malformed_and_oversized_frames_refuse_before_backend_entry_and_shutdown_joins(
 ) -> Result<()> {
     let domain = domain();
@@ -547,12 +663,18 @@ async fn tls_malformed_and_oversized_frames_refuse_before_backend_entry_and_shut
         ControllerServer::bind(domain.clone(), controller.clone(), options(), tls.server()?)
             .await?;
     let address = server.address();
+    let mut forbidden = serde_json::to_value(wire::Request {
+        format: 1,
+        identity: controller.identity(),
+        limits: controller.options().limits,
+        claim: claim(&controller.identity(), 2, 1)?,
+        action: wire::Action::Pending,
+    })?;
+    forbidden["action"] = serde_json::json!({"method":"recover_history"});
+    let forbidden = serde_json::to_vec(&forbidden)?;
     domain
         .run(async {
-            for payload in [
-                None,
-                Some(br#"{"format":1,"action":{"method":"recover_history"}}"#.as_slice()),
-            ] {
+            for payload in [None, Some(forbidden.as_slice())] {
                 let (connector, name, _) = tls.client(false)?.build()?;
                 let mut stream = connector
                     .connect(name, tokio::net::TcpStream::connect(address).await?)

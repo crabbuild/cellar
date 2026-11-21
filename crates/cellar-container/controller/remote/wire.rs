@@ -24,7 +24,7 @@ pub(super) enum Action {
         payload: Vec<u8>,
     },
     Reconcile {
-        original: ExecutionPendingOperation,
+        original: Box<ExecutionPendingOperation>,
     },
     Pending,
     Lifecycle {

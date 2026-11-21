@@ -14,6 +14,7 @@ use rustls::pki_types::ServerName;
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 use tokio::net::TcpStream;
+use tokio::sync::Semaphore;
 
 /// Trusted host endpoint for one exact controller. Construction performs no I/O;
 /// identities come from deployment configuration, never an unauthenticated
@@ -26,6 +27,8 @@ pub struct RemoteController {
     connector: tokio_rustls::TlsConnector,
     name: ServerName<'static>,
     pin: [u8; 32],
+    capacity: Semaphore,
+    observations: Semaphore,
 }
 
 impl RemoteController {
@@ -50,10 +53,31 @@ impl RemoteController {
             connector,
             name,
             pin,
+            capacity: Semaphore::new(options.max_connections),
+            observations: Semaphore::new(options.max_connections - 1),
         }))
     }
 
     async fn call(&self, claim: ExecutionClaim, action: Action) -> Result<Value> {
+        ensure!(
+            !self.domain.is_closed(),
+            ExecutionControllerFailure::Unavailable
+        );
+        let _observation = if matches!(&action, Action::Execute {operation, ..}
+            if matches!(operation.kind, ExecutionOperationKind::Read | ExecutionOperationKind::Inspect))
+        {
+            Some(
+                self.observations
+                    .try_acquire()
+                    .map_err(|_| ExecutionControllerFailure::Busy)?,
+            )
+        } else {
+            None
+        };
+        let _connection = self
+            .capacity
+            .try_acquire()
+            .map_err(|_| ExecutionControllerFailure::Busy)?;
         let result = self
             .domain
             .run(async {
@@ -150,7 +174,15 @@ impl ControllerEndpoint for RemoteController {
         original: ExecutionPendingOperation,
     ) -> HandlerFuture<ExecutionOutcome> {
         Box::pin(async move {
-            match self.call(claim, Action::Reconcile { original }).await? {
+            match self
+                .call(
+                    claim,
+                    Action::Reconcile {
+                        original: Box::new(original),
+                    },
+                )
+                .await?
+            {
                 Value::Outcome(value) => Ok(value),
                 _ => Err(ExecutionControllerFailure::UnknownOperation.into()),
             }

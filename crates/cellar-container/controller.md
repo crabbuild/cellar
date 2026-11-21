@@ -45,6 +45,11 @@ retains the original claim, operation ID, digest and expiry. Ordinary hosts have
 no remote recovery-history or shutdown method. Recovery administration and its
 infrastructure fencing authority remain separately owned.
 
+The client also bounds active connections and reserves a slot from Read/Inspect
+observations for lifecycle control. Local capacity exhaustion refuses before
+network entry. Backend mutation debt still requires explicit reconciliation;
+spare transport capacity does not authorize new execution.
+
 The listener and client run in supplied execution domains. Listener shutdown
 stops admission, cancels and joins connections, and leaves the controller journal
 owned by its caller. Reopen the exact controller store after listener/process
