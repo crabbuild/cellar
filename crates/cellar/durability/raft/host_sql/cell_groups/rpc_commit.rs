@@ -206,38 +206,52 @@ pub(super) async fn wait_checkpoint_proof(
     expected: CellVersion,
     fence: crate::raft::cell_groups::CellActivationFence,
 ) -> Result<CheckpointProof, ExecutionError> {
-    let term = prepared.term();
-    loop {
-        match runtime
-            .reconciliation_authority(prepared.group(), expected.history.clone())
-            .await
-        {
-            Ok(proof) if proof.term() > term => {
-                return Ok(CheckpointProof::Reconcile(Box::new(proof)))
-            }
-            Ok(proof) if proof.term() == term && proof.cell().version == expected => {
-                // This invocation retains its writer and its original ready
-                // barrier. Only its exact applied checkpoint can advance that
-                // authority; later apply work for another cell cannot revoke
-                // it. Reconciliation alone still grants no execution, and a
-                // changed leader/route/image must fail the original fence.
-                match fence.resume_authority(&proof) {
-                    Ok(execution) => {
-                        return Ok(CheckpointProof::Current(
-                            Box::new(execution),
-                            Box::new(proof),
-                        ));
+    let performance = runtime.log().performance().clone();
+    performance
+        .measure(
+            crate::raft::performance::Operation::CellCheckpointProof,
+            async move {
+                let term = prepared.term();
+                loop {
+                    match runtime
+                        .reconciliation_authority(prepared.group(), expected.history.clone())
+                        .await
+                    {
+                        Ok(proof) if proof.term() > term => {
+                            return Ok(CheckpointProof::Reconcile(Box::new(proof)))
+                        }
+                        Ok(proof) if proof.term() == term && proof.cell().version == expected => {
+                            // This invocation retains its writer and its original ready
+                            // barrier. Only its exact applied checkpoint can advance that
+                            // authority; later apply work for another cell cannot revoke
+                            // it. Reconciliation alone still grants no execution, and a
+                            // changed leader/route/image must fail the original fence.
+                            match fence.resume_authority(&proof) {
+                                Ok(execution) => {
+                                    return Ok(CheckpointProof::Current(
+                                        Box::new(execution),
+                                        Box::new(proof),
+                                    ));
+                                }
+                                Err(RuntimeError::NotReady) => (),
+                                Err(error) => {
+                                    return Err(crate::raft::execution::authority_failure(error))
+                                }
+                            }
+                        }
+                        Ok(_)
+                        | Err(
+                            RuntimeError::NotReady
+                            | RuntimeError::NotLeader
+                            | RuntimeError::Overloaded,
+                        ) => {}
+                        Err(error) => return Err(crate::raft::execution::authority_failure(error)),
                     }
-                    Err(RuntimeError::NotReady) => (),
-                    Err(error) => return Err(crate::raft::execution::authority_failure(error)),
+                    pause(&domain).await?;
                 }
-            }
-            Ok(_)
-            | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {}
-            Err(error) => return Err(crate::raft::execution::authority_failure(error)),
-        }
-        pause(&domain).await?;
-    }
+            },
+        )
+        .await
 }
 
 async fn pause(domain: &crate::asyncrt::DomainToken) -> Result<(), ExecutionError> {

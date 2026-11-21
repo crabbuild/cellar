@@ -18,6 +18,7 @@ struct Work {
     producer: Option<CellCheckpointPrepared>,
     completing: Option<crate::asyncrt::TaskHandle<Result<CellCheckpointPrepared, ExecutionError>>>,
     completion_input: Arc<Mutex<Option<(CellPrivatePrepared, CellCheckpointGrant)>>>,
+    handoff: Option<crate::raft::performance::Timer>,
 }
 
 // Constructed before spawning: even an unpolled or rejected future returns its
@@ -65,6 +66,7 @@ impl CheckpointTask {
                 producer: None,
                 completing: None,
                 completion_input: Arc::new(Mutex::new(None)),
+                handoff: None,
             })),
             slot: returned.clone(),
         };
@@ -76,48 +78,67 @@ impl CheckpointTask {
         };
         let token = domain.clone();
         let check = Arc::new(check);
+        let performance = commits.runtime.log().performance().clone();
         let task =
             domain.spawn_detached("cell checkpoint preparation and submission", async move {
                 let work = guard.work.as_mut().expect("checkpoint work");
-                check()?;
-                let image = poll_fn(|cx| work.preparation.poll(cx, false)).await?;
-                // Authority checking/retirement remains in the owning blocking
-                // domain too. A queued closure borrows custody from this slot, so
-                // rejection before entry cannot drop an image on the async thread.
-                *work.completion_input.lock().unwrap() = Some((image, grant));
-                let input = work.completion_input.clone();
-                let checking = check.clone();
-                work.completing = Some(
-                    token
-                        .blocking(move || {
-                            let (image, grant) =
-                                input.lock().unwrap().take().ok_or_else(unavailable)?;
-                            grant.complete(image.checked(checking())?)
-                        })
-                        .map_err(|_| unavailable())?,
-                );
-                let result = work
-                    .completing
-                    .as_mut()
-                    .expect("checkpoint completion")
-                    .await;
-                work.completing = None;
-                work.producer = Some(result.map_err(crate::raft::execution::storage)??);
+                let preparing =
+                    performance.timer(crate::raft::performance::Operation::CellCheckpointPrepare);
+                let prepared = async {
+                    check()?;
+                    let image = poll_fn(|cx| work.preparation.poll(cx, false)).await?;
+                    // Authority checking/retirement remains in the owning blocking
+                    // domain too. A queued closure borrows custody from this slot, so
+                    // rejection before entry cannot drop an image on the async thread.
+                    *work.completion_input.lock().unwrap() = Some((image, grant));
+                    let input = work.completion_input.clone();
+                    let checking = check.clone();
+                    work.completing = Some(
+                        token
+                            .blocking(move || {
+                                let (image, grant) =
+                                    input.lock().unwrap().take().ok_or_else(unavailable)?;
+                                grant.complete(image.checked(checking())?)
+                            })
+                            .map_err(|_| unavailable())?,
+                    );
+                    let result = work
+                        .completing
+                        .as_mut()
+                        .expect("checkpoint completion")
+                        .await;
+                    work.completing = None;
+                    work.producer = Some(result.map_err(crate::raft::execution::storage)??);
+                    Ok::<(), ExecutionError>(())
+                }
+                .await;
+                preparing.finish(prepared.is_ok());
+                prepared?;
                 let command = work
                     .producer
                     .as_ref()
                     .expect("checkpoint producer")
                     .command()
                     .clone();
-                submit_checkpoint(
-                    &commits.runtime,
-                    &token,
-                    &command,
-                    retained,
-                    Some(commits.deadline),
-                    || check(),
-                )
-                .await
+                let outcome = performance
+                    .measure(
+                        crate::raft::performance::Operation::CellCheckpointSubmit,
+                        submit_checkpoint(
+                            &commits.runtime,
+                            &token,
+                            &command,
+                            retained,
+                            Some(commits.deadline),
+                            || check(),
+                        ),
+                    )
+                    .await;
+                // Only observe the return of completed submission work. The
+                // original SQL owner still has to adopt custody and prove apply.
+                work.handoff = Some(
+                    performance.timer(crate::raft::performance::Operation::CellCheckpointHandoff),
+                );
+                outcome
             });
         // A rejected spawn drops its future/return guard synchronously. The
         // owner exists already so physical custody is joined on that path too.
@@ -140,6 +161,9 @@ impl CheckpointTask {
             self.work = self.returned.lock().unwrap().take();
         }
         if let Some(work) = &mut self.work {
+            if let Some(handoff) = work.handoff.take() {
+                handoff.finish(true);
+            }
             match work.preparation.poll_join(cx) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(error)) => self.outcome = Some(Err(error)),

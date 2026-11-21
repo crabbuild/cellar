@@ -148,6 +148,10 @@ async fn measured_futures_distinguish_failure_from_cancellation() -> anyhow::Res
         Operation::CellCommandPrepare,
         Operation::CellCommandSubmit,
         Operation::CellCommandSettle,
+        Operation::CellCheckpointPrepare,
+        Operation::CellCheckpointSubmit,
+        Operation::CellCheckpointHandoff,
+        Operation::CellCheckpointProof,
     ] {
         let result = registry
             .measure(operation, async { Err::<(), _>("refused") })

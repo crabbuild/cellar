@@ -192,7 +192,7 @@ Group detail remains separate through explicitly enabled SDK inspection and auth
 - `RaftCells.performance()` returns bounded cumulative observations from one host startup or standalone engine open.
 - `GET /peer/raft/metrics?generation=<generation>&view=performance` exports the same observation through existing generation-bound peer authentication; append `&format=json` for typed JSON.
 - The default resource view remains unchanged.
-- The performance view has 20 counters and 23 operations with 16 duration buckets, producing 551 Prometheus samples independent of cell/peer population.
+- The performance view has a fixed operation/counter vocabulary and duration buckets, so scrape size is independent of cell/peer population.
 - Registry storage and scrape work are fixed; no group enumeration, callback or I/O is used.
 
 - Each operation has started, succeeded, failed and abandoned counters, plus a microsecond duration histogram and unavailable-timing count.
@@ -201,6 +201,9 @@ Group detail remains separate through explicitly enabled SDK inspection and auth
 - Physical SQL/engine timers stay with their worker when an async waiter cancels.
 - File-sync timers surround the actual engine filesystem `sync_all`, excluding lock acquisition; directory sync is separate.
 - SQL stage, prepare, publish, query, archive capture and other actions have separate histograms.
+- RPC checkpoint phases separate captured image preparation and producer completion (`cell_checkpoint_prepare`), retained proposal admission (`cell_checkpoint_submit`), completion-to-SQL-owner handoff (`cell_checkpoint_handoff`), and exact applied or newer-term reconciliation waiting (`cell_checkpoint_proof`).
+- Preparation, submission and proof timers follow their observed future lifetimes. Cancellation records abandonment; entered physical work remains owned and must still join before admission or producer custody releases.
+- The handoff timer starts only after submission finishes and ends when the original SQL owner drains the returned work. Its completion describes custody polling, not successful submission, application or acknowledgement.
 - Outcomes describe the measured operation, not a command acknowledgement.
 - Successful dequeue is not successful execution.
 - Output-budget refusal remains a failed SQL action even if its callback produced a value.

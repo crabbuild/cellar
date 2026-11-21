@@ -93,9 +93,13 @@ pub(crate) enum Operation {
     CellCommandPrepare,
     CellCommandSubmit,
     CellCommandSettle,
+    CellCheckpointPrepare,
+    CellCheckpointSubmit,
+    CellCheckpointHandoff,
+    CellCheckpointProof,
 }
 
-const OPERATIONS: [Operation; 56] = [
+const OPERATIONS: [Operation; 60] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -152,6 +156,10 @@ const OPERATIONS: [Operation; 56] = [
     Operation::CellCommandPrepare,
     Operation::CellCommandSubmit,
     Operation::CellCommandSettle,
+    Operation::CellCheckpointPrepare,
+    Operation::CellCheckpointSubmit,
+    Operation::CellCheckpointHandoff,
+    Operation::CellCheckpointProof,
 ];
 
 impl Operation {
@@ -213,6 +221,10 @@ impl Operation {
             Self::CellCommandPrepare => "cell_command_prepare",
             Self::CellCommandSubmit => "cell_command_submit",
             Self::CellCommandSettle => "cell_command_settle",
+            Self::CellCheckpointPrepare => "cell_checkpoint_prepare",
+            Self::CellCheckpointSubmit => "cell_checkpoint_submit",
+            Self::CellCheckpointHandoff => "cell_checkpoint_handoff",
+            Self::CellCheckpointProof => "cell_checkpoint_proof",
         }
     }
 }
