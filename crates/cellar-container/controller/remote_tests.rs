@@ -553,7 +553,7 @@ async fn tls_lost_reply_reconciles_after_listener_and_controller_restart_without
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn tls_client_bounds_observations_and_reserves_fencing_capacity() -> Result<()> {
+async fn tls_client_and_listener_reserve_fencing_capacity_across_hosts() -> Result<()> {
     let domain = domain();
     let root = tempfile::tempdir()?;
     let backend = Arc::new(Backend::default());
@@ -570,9 +570,16 @@ async fn tls_client_bounds_observations_and_reserves_fencing_capacity() -> Resul
     )
     .await?;
     let tls = Credentials::new()?;
-    let server =
-        ControllerServer::bind(domain.clone(), controller.clone(), options(), tls.server()?)
-            .await?;
+    let server = ControllerServer::bind(
+        domain.clone(),
+        controller.clone(),
+        RemoteOptions {
+            max_connections: 2,
+            ..options()
+        },
+        tls.server()?,
+    )
+    .await?;
     let client = RemoteController::new(
         domain.clone(),
         RemoteOptions {
@@ -620,16 +627,35 @@ async fn tls_client_bounds_observations_and_reserves_fencing_capacity() -> Resul
     failure(
         client
             .clone()
-            .execute(current, second, b"observation".to_vec())
+            .execute(current.clone(), second, b"observation".to_vec())
             .await
             .unwrap_err(),
         ExecutionControllerFailure::Busy,
     );
-    client
-        .activate(claim(&controller.identity(), 2, 2)?)
-        .await?;
-    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
-    assert_eq!(backend.fences.load(Ordering::Acquire), 2);
+    // A second trusted host has its own local reservation. The listener must
+    // bound their combined observations before they can occupy its last slot.
+    let other = RemoteController::new(
+        domain.clone(),
+        RemoteOptions {
+            address: server.address(),
+            max_connections: 2,
+            ..options()
+        },
+        controller.identity(),
+        controller.options().limits,
+        tls.client(false)?,
+    )?;
+    let third = ExecutionOperation::new(
+        [14; 16],
+        ExecutionOperationKind::Inspect,
+        b"observation",
+        expires,
+    )?;
+    let remote_capacity = other
+        .clone()
+        .execute(current, third, b"observation".to_vec())
+        .await;
+    let fenced = other.activate(claim(&controller.identity(), 2, 2)?).await;
     server.shutdown().await?;
     failure(
         held.await?.unwrap_err(),
@@ -637,6 +663,13 @@ async fn tls_client_bounds_observations_and_reserves_fencing_capacity() -> Resul
     );
     controller.shutdown().await?;
     domain.shutdown().await;
+    failure(
+        remote_capacity.unwrap_err(),
+        ExecutionControllerFailure::Busy,
+    );
+    fenced?;
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    assert_eq!(backend.fences.load(Ordering::Acquire), 2);
     Ok(())
 }
 
