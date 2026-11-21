@@ -59,6 +59,12 @@ from durable outcomes already found. Read/Inspect observations are excluded so
 a held read cannot block lifecycle control. Recovery does not publish the old
 call's result as the result of a newer application command.
 
+An inspection batches controller pending-receipt lookup, original reconciliation
+and Running observation inside one admitted I/O closure. Each controller call
+still checks the same immutable execution claim. The closure parks the writer
+and rechecks the original invocation before publication; it cannot use SQLite.
+Physical create/delete/data requests retain their separate required proofs.
+
 Supervision captures its fencing authority when registered. If an embedding
 reopens an in-process controller independently, rebuild that registration or use
 a host-owned endpoint forwarder for both sessions and fencing. Replacing only

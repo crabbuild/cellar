@@ -326,7 +326,9 @@ impl ControllerProvider {
             ));
         }
         let mut grant = self.fence(context, journal, Some(lifecycle)).await?;
-        self.reconcile_mutations(context, &grant).await?;
+        if current.record.resource_id.is_none() || current.record.intent == BindingIntent::Deleted {
+            self.reconcile_mutations(context, &grant).await?;
+        }
         if current.record.resource_id.is_none() {
             match self.recover_create(context, &grant).await? {
                 Some(reply) => {
@@ -370,9 +372,7 @@ impl ControllerProvider {
                 Some(current.record.generation),
             ));
         }
-        let reply = self
-            .call(context, &grant, Operation::Running, json!({}), None)
-            .await?;
+        let reply = self.observe(context, &grant).await?;
         let running = reply
             .value
             .as_bool()
@@ -414,7 +414,11 @@ impl FencedMaintenanceBackend for ControllerProvider {
             if action == MaintenanceAction::Delete {
                 return self.delete(&context, &journal, grant, true).await;
             }
-            self.reconcile_mutations(&context, &grant).await?;
+            if expected.record.resource_id.is_none()
+                || expected.record.intent == BindingIntent::Deleted
+            {
+                self.reconcile_mutations(&context, &grant).await?;
+            }
             if expected.record.resource_id.is_none() {
                 match self.recover_create(&context, &grant).await? {
                     Some(reply) => {
@@ -442,8 +446,7 @@ impl FencedMaintenanceBackend for ControllerProvider {
                     }
                 }
             } else {
-                self.call(&context, &grant, Operation::Running, json!({}), None)
-                    .await?;
+                self.observe(&context, &grant).await?;
             }
             Ok(())
         })

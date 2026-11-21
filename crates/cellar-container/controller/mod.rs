@@ -104,17 +104,12 @@ impl ControllerProvider {
             .await
     }
 
-    async fn reconcile_mutations(&self, context: &Context, grant: &ExecutionGrant) -> Result<()> {
-        let controller = self.controller.clone();
-        let pending = grant
-            .dispatch(context, move |claim| async move {
-                controller.pending(claim).await
-            })
-            .await?;
-        for original in pending {
+    async fn reconcile_pending(
+        controller: Arc<ExecutionController>,
+        claim: ExecutionClaim,
+    ) -> Result<()> {
+        for original in controller.pending(claim.clone()).await? {
             match original.operation.kind {
-                // Observations may still be held by another invocation. They
-                // cannot block lifecycle control or require mutation recovery.
                 ExecutionOperationKind::Read | ExecutionOperationKind::Inspect => {}
                 ExecutionOperationKind::Create
                 | ExecutionOperationKind::Execute
@@ -122,15 +117,58 @@ impl ControllerProvider {
                 | ExecutionOperationKind::Delete
                 | ExecutionOperationKind::Signal
                 | ExecutionOperationKind::Configure => {
-                    // Lookup only: preserve the original history, ID, payload
-                    // and deadline. Unknown remains debt and refuses progress;
-                    // no recovery call may resubmit the mutation. Completed
-                    // results stay in the controller, not this newer callback.
-                    self.reconcile_original(context, grant, original).await?;
+                    // Observe the original receipt only. Unknown remains debt;
+                    // no recovery call may resubmit a mutation or renew its ID.
+                    controller.reconcile(claim.clone(), original).await?;
                 }
             }
         }
         Ok(())
+    }
+
+    async fn reconcile_mutations(&self, context: &Context, grant: &ExecutionGrant) -> Result<()> {
+        let controller = self.controller.clone();
+        grant
+            .dispatch(context, move |claim| {
+                Self::reconcile_pending(controller, claim)
+            })
+            .await
+    }
+
+    async fn observe(&self, context: &Context, grant: &ExecutionGrant) -> Result<Reply> {
+        let bytes = serde_json::to_vec(&Request::new(Operation::Running, serde_json::json!({})))?;
+        let request = grant.next_operation(context, ExecutionOperationKind::Inspect, &bytes)?;
+        let controller = self.controller.clone();
+        let outcome = grant
+            .dispatch(context, move |claim| async move {
+                // These controller lookups share one admitted I/O closure. Each
+                // still checks the same immutable claim, and none lends SQL
+                // authority or replays provider work. Physical lifecycle/data
+                // mutations retain their own intent and output proofs.
+                Self::reconcile_pending(controller.clone(), claim.clone()).await?;
+                controller.execute(claim, request, bytes).await
+            })
+            .await?;
+        let reply = Self::reply(outcome, grant.claim(), Operation::Running)?;
+        ensure!(
+            reply.value.is_boolean(),
+            ExecutionControllerFailure::UnknownOperation
+        );
+        Ok(reply)
+    }
+
+    fn reply(
+        outcome: ExecutionOutcome,
+        claim: &ExecutionClaim,
+        operation: Operation,
+    ) -> Result<Reply> {
+        match outcome {
+            ExecutionOutcome::Completed(bytes) => Reply::decode(&bytes, claim, operation)
+                .context(ExecutionControllerFailure::UnknownOperation),
+            ExecutionOutcome::Refused | ExecutionOutcome::ExpiredBeforeSubmission => {
+                Err(OperationRefused.into())
+            }
+        }
     }
 
     async fn call(
@@ -152,13 +190,7 @@ impl ControllerProvider {
                 controller.execute(claim, request, bytes).await
             })
             .await?;
-        match result {
-            ExecutionOutcome::Completed(bytes) => Reply::decode(&bytes, grant.claim(), operation)
-                .context(ExecutionControllerFailure::UnknownOperation),
-            ExecutionOutcome::Refused | ExecutionOutcome::ExpiredBeforeSubmission => {
-                Err(OperationRefused.into())
-            }
-        }
+        Self::reply(result, grant.claim(), operation)
     }
 
     async fn execute(
