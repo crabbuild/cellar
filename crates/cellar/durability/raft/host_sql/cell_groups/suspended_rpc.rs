@@ -3,7 +3,7 @@
 //! Keep suspended RPCs on their existing worker without occupying its queue.
 
 use super::super::checkpoint_task::CheckpointTask;
-use super::super::rpc_commit::{wait_checkpoint, wait_checkpoint_proof, CheckpointProof};
+use super::super::rpc_commit::{wait_checkpoint, CheckpointProof};
 use super::*;
 use crate::raft::execution::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 use futures_util::future::BoxFuture;
@@ -141,13 +141,12 @@ impl Suspended {
         joined.and(rolled_back).and(retired)
     }
 
-    fn applying(
+    fn retry_checkpoint(
         &self,
         prepared: &crate::raft::execution::CellPreparedCommand,
         expected: &cellar_logic::cell_group::CellVersion,
         domain: &crate::asyncrt::DomainToken,
         cx: &mut Context<'_>,
-        submitted: bool,
     ) -> Result<CheckpointPhase, ExecutionError> {
         let commits = self.commits.as_ref().ok_or_else(unavailable)?;
         let fence = self
@@ -155,15 +154,7 @@ impl Suspended {
             .as_ref()
             .ok_or_else(unavailable)?
             .rpc_activation_fence();
-        let mut future: BoxFuture<'static, Result<CheckpointProof, ExecutionError>> = if submitted {
-            Box::pin(wait_checkpoint_proof(
-                commits.runtime.clone(),
-                domain.clone(),
-                prepared.clone(),
-                expected.clone(),
-                fence,
-            ))
-        } else {
+        let mut future: BoxFuture<'static, Result<CheckpointProof, ExecutionError>> =
             Box::pin(wait_checkpoint(
                 commits.runtime.clone(),
                 domain.clone(),
@@ -172,8 +163,7 @@ impl Suspended {
                 fence,
                 self.retention.bytes.clone(),
                 Some(commits.deadline),
-            ))
-        };
+            ));
         prime_submission(&mut future, cx);
         Ok(CheckpointPhase::Applying(future))
     }
@@ -189,6 +179,7 @@ impl Suspended {
         ))?;
         let executor = self.executor.as_mut().ok_or_else(unavailable)?;
         let (captured, grant) = executor.stage_rpc_checkpoint(&mut self.turn)?;
+        let fence = executor.rpc_activation_fence();
         tracing::debug!(target: "cellar::raft::checkpoint", phase = "captured",
             history = ?self.cell, at_ms = ?domain.mono_ms().ok());
         let waiter = self.reply.clone();
@@ -202,6 +193,7 @@ impl Suspended {
                 grant,
                 domain.clone(),
                 commits.clone(),
+                fence,
                 self.retention.bytes.clone(),
                 move || {
                     check_waiter(
@@ -253,12 +245,12 @@ impl Suspended {
                 }
                 let prepared = prepared.ok_or_else(unavailable)?;
                 let expected = expected.ok_or_else(unavailable)?;
-                let phase = self.applying(&prepared, &expected, domain, cx, true)?;
+                let proof = returned.proof.ok_or_else(unavailable)?;
                 SubmittedCheckpoint {
                     reply,
                     prepared,
                     expected,
-                    phase,
+                    phase: CheckpointPhase::Applying(Box::pin(std::future::ready(Ok(proof)))),
                 }
             }
         };
@@ -368,12 +360,11 @@ impl Suspended {
                     .as_ref()
                     .is_some_and(|executor| executor.rpc_checkpoint_version().is_ok())
                 {
-                    checkpoint.phase = self.applying(
+                    checkpoint.phase = self.retry_checkpoint(
                         &checkpoint.prepared,
                         &checkpoint.expected,
                         domain,
                         cx,
-                        false,
                     )?;
                     self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
                     self.ready.0.store(true, Ordering::Release);

@@ -204,6 +204,7 @@ Group detail remains separate through explicitly enabled SDK inspection and auth
 - RPC checkpoint phases separate captured image preparation and producer completion (`cell_checkpoint_prepare`), retained proposal admission (`cell_checkpoint_submit`), completion-to-SQL-owner handoff (`cell_checkpoint_handoff`), and exact applied or newer-term reconciliation waiting (`cell_checkpoint_proof`).
 - Preparation, submission and proof timers follow their observed future lifetimes. Cancellation records abandonment; entered physical work remains owned and must still join before admission or producer custody releases.
 - The handoff timer starts only after submission finishes and ends when the original SQL owner drains the returned work. Its completion describes custody polling, not successful submission, application or acknowledgement.
+- The existing checkpoint task observes proof before returning its producer. Handoff time therefore includes proof waiting; the phase durations overlap. The SQL owner still adopts custody, rechecks the proof and frozen receipt, and performs required S3/output checks before continuation or acknowledgement.
 - Outcomes describe the measured operation, not a command acknowledgement.
 - Successful dequeue is not successful execution.
 - Output-budget refusal remains a failed SQL action even if its callback produced a value.

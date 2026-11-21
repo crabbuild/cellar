@@ -86,6 +86,8 @@ mod blob_contract;
 mod blobs;
 #[path = "support/cell_group_checkpoint_polls.rs"]
 mod checkpoint_polls;
+#[path = "support/cell_group_checkpoint_proof.rs"]
+mod checkpoint_proof;
 #[path = "support/cell_group_checkpoint_submit.rs"]
 mod checkpoint_submit;
 #[path = "support/cell_group_configuration.rs"]
@@ -3138,6 +3140,11 @@ async fn completed_checkpoints_advance_ready_reply_bridges() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn prepared_checkpoints_replicate_before_unrelated_queued_sql() -> Result<()> {
     Box::pin(checkpoint_submit::qualify()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn checkpoint_proofs_advance_before_unrelated_queued_sql() -> Result<()> {
+    Box::pin(checkpoint_proof::qualify()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

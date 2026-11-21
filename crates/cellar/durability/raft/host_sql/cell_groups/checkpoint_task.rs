@@ -1,10 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Immutable checkpoint preparation and proposal admission do not need a SQL
-//! turn. Cancellation returns physical work and producer custody to that owner.
+//! Immutable checkpoint preparation, admission and proof observation do not need
+//! a SQL turn. Cancellation returns physical work and custody to that owner.
 
 use super::preparation::Preparation;
-use super::rpc_commit::submit_checkpoint;
+use super::rpc_commit::{submit_checkpoint, wait_checkpoint_proof, CheckpointProof};
 use super::*;
 use crate::raft::execution::{
     CellCheckpointGrant, CellCheckpointPrepared, CellPrivatePreparation, CellPrivatePrepared,
@@ -19,6 +19,7 @@ struct Work {
     completing: Option<crate::asyncrt::TaskHandle<Result<CellCheckpointPrepared, ExecutionError>>>,
     completion_input: Arc<Mutex<Option<(CellPrivatePrepared, CellCheckpointGrant)>>>,
     handoff: Option<crate::raft::performance::Timer>,
+    proof: Option<CheckpointProof>,
 }
 
 // Constructed before spawning: even an unpolled or rejected future returns its
@@ -43,6 +44,7 @@ pub(super) struct CheckpointTask {
 
 pub(super) struct CheckpointReturn {
     pub producer: Option<CellCheckpointPrepared>,
+    pub proof: Option<CheckpointProof>,
     pub outcome: Result<bool, ExecutionError>,
 }
 
@@ -52,6 +54,7 @@ impl CheckpointTask {
         grant: CellCheckpointGrant,
         domain: crate::asyncrt::DomainToken,
         commits: RpcCommitContext,
+        fence: crate::raft::cell_groups::CellActivationFence,
         retained: Arc<Bytes>,
         check: impl Fn() -> Result<(), ExecutionError> + Send + Sync + 'static,
     ) -> Result<Self, ExecutionError> {
@@ -67,6 +70,7 @@ impl CheckpointTask {
                 completing: None,
                 completion_input: Arc::new(Mutex::new(None)),
                 handoff: None,
+                proof: None,
             })),
             slot: returned.clone(),
         };
@@ -79,8 +83,9 @@ impl CheckpointTask {
         let token = domain.clone();
         let check = Arc::new(check);
         let performance = commits.runtime.log().performance().clone();
-        let task =
-            domain.spawn_detached("cell checkpoint preparation and submission", async move {
+        let task = domain.spawn_detached(
+            "cell checkpoint preparation, submission and proof",
+            async move {
                 let work = guard.work.as_mut().expect("checkpoint work");
                 let preparing =
                     performance.timer(crate::raft::performance::Operation::CellCheckpointPrepare);
@@ -133,13 +138,26 @@ impl CheckpointTask {
                         ),
                     )
                     .await;
-                // Only observe the return of completed submission work. The
-                // original SQL owner still has to adopt custody and prove apply.
+                // Submission-to-owner time includes proof observation. Only
+                // the original SQL owner can adopt and consume the proof.
                 work.handoff = Some(
                     performance.timer(crate::raft::performance::Operation::CellCheckpointHandoff),
                 );
+                if matches!(&outcome, Ok(true)) {
+                    let expected = work
+                        .producer
+                        .as_ref()
+                        .expect("checkpoint producer")
+                        .expected()
+                        .clone();
+                    work.proof = Some(
+                        wait_checkpoint_proof(commits.runtime, token, command, expected, fence)
+                            .await?,
+                    );
+                }
                 outcome
-            });
+            },
+        );
         // A rejected spawn drops its future/return guard synchronously. The
         // owner exists already so physical custody is joined on that path too.
         owner.task = Some(task.map_err(|_| unavailable())?);
@@ -192,8 +210,12 @@ impl CheckpointTask {
                 }
             }
         }
+        let (producer, proof) = self.work.take().map_or((None, None), |mut work| {
+            (work.producer.take(), work.proof.take())
+        });
         Poll::Ready(CheckpointReturn {
-            producer: self.work.take().and_then(|work| work.producer),
+            producer,
+            proof,
             outcome: self.outcome.take().unwrap_or_else(|| Err(unavailable())),
         })
     }
