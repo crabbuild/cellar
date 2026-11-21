@@ -43,6 +43,9 @@ struct Peer {
     lose_exec: AtomicBool,
     lost_data: Mutex<Option<ExecutionPendingOperation>>,
     recovered_data: Mutex<Option<ExecutionPendingOperation>>,
+    hide_data_receipt: AtomicBool,
+    data_lookups: AtomicUsize,
+    data_changed: Notify,
     expire_activation: AtomicBool,
 }
 
@@ -217,6 +220,12 @@ impl ExecutionControllerBackend for Peer {
                         "original provider receipt differs"
                     );
                     if self.lost_data.lock().unwrap().as_ref() == Some(&original) {
+                        let hidden = self.hide_data_receipt.load(Ordering::Acquire);
+                        self.data_lookups.fetch_add(1, Ordering::AcqRel);
+                        self.data_changed.notify_waiters();
+                        if hidden {
+                            return Ok(None);
+                        }
                         *self.recovered_data.lock().unwrap() = Some(original);
                     }
                     Ok(Some(ExecutionOutcome::Completed(receipt.bytes.clone())))
@@ -584,6 +593,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                 .store(scenario == Scenario::Interrupted, Ordering::Release);
             peer.lose_write.store(lost_write, Ordering::Release);
             peer.lose_exec.store(lost_exec, Ordering::Release);
+            peer.hide_data_receipt.store(lost_write, Ordering::Release);
             peer.expire_activation.store(expiry, Ordering::Release);
             let mut cluster = start(rooted, minimum, route.clone(), scenario).await?;
             let domain = cluster.fixtures[0].domain.clone();
@@ -611,8 +621,15 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                         // original write without constructing a business cell.
                         route.factory_refused.store(true,Ordering::Release);
                         cellar::asyncrt::timeout(Duration::from_secs(60),async {
+                            // An unavailable original receipt is not refusal:
+                            // it must block Delete and remain runnable. Releasing
+                            // lookup later must settle this same original ID.
+                            loop {let changed=peer.data_changed.notified();if peer.data_lookups.load(Ordering::Acquire)>0{break;}changed.await;}
+                            ensure!(peer.deletes.load(Ordering::Acquire)==0 && peer.resource.lock().unwrap().exists,"unknown write receipt allowed resource deletion");
+                            peer.hide_data_receipt.store(false,Ordering::Release);
                             loop {let changed=route.changed.notified();if route.retired.load(Ordering::Acquire){break;}changed.await;}
-                        }).await.context("live write cleanup did not finish")?;
+                            Ok::<_,anyhow::Error>(())
+                        }).await.context("live write cleanup did not finish")??;
                         route.factory_refused.store(false,Ordering::Release);
                     } else {
                         // Explicit reconciliation must settle the original exec,
@@ -621,6 +638,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                         call(&cluster,&history,minimum,4,"Destroy").await?;
                     }
                     ensure!(*peer.lost_data.lock().unwrap()==*peer.recovered_data.lock().unwrap(),"live controller did not reconcile the exact original data operation");
+                    ensure!(peer.data_lookups.load(Ordering::Acquire)>=if lost_write {2}else{1},"original data receipt was not observed through the selected outage");
                     ensure!(peer.writes.load(Ordering::Acquire)==if lost_write {1}else{2});
                     ensure!(peer.executions.load(Ordering::Acquire)==usize::from(lost_exec));
                     ensure!(peer.deletes.load(Ordering::Acquire)==1,"live recovery failed to retire the resource");

@@ -104,6 +104,35 @@ impl ControllerProvider {
             .await
     }
 
+    async fn reconcile_mutations(&self, context: &Context, grant: &ExecutionGrant) -> Result<()> {
+        let controller = self.controller.clone();
+        let pending = grant
+            .dispatch(context, move |claim| async move {
+                controller.pending(claim).await
+            })
+            .await?;
+        for original in pending {
+            match original.operation.kind {
+                // Observations may still be held by another invocation. They
+                // cannot block lifecycle control or require mutation recovery.
+                ExecutionOperationKind::Read | ExecutionOperationKind::Inspect => {}
+                ExecutionOperationKind::Create
+                | ExecutionOperationKind::Execute
+                | ExecutionOperationKind::Write
+                | ExecutionOperationKind::Delete
+                | ExecutionOperationKind::Signal
+                | ExecutionOperationKind::Configure => {
+                    // Lookup only: preserve the original history, ID, payload
+                    // and deadline. Unknown remains debt and refuses progress;
+                    // no recovery call may resubmit the mutation. Completed
+                    // results stay in the controller, not this newer callback.
+                    self.reconcile_original(context, grant, original).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn call(
         &self,
         context: &Context,

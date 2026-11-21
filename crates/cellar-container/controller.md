@@ -43,6 +43,16 @@ an absence check alone cannot fence a queued create. Reconciliation never
 replays an uncertain mutation. The same adapter implements fenced background
 maintenance, including cleanup when the business constructor is unavailable.
 
+Live maintenance, Reconcile and Destroy also look up every original pending
+mutation, including exec and writes, before continuing lifecycle work. They do
+not require a controller restart and never execute the original call again.
+Each lookup uses the current invocation's fence and retains the operation's
+original history, generation, ID, payload digest and deadline. An unavailable
+or unknown receipt still refuses progress; a later maintenance attempt continues
+from durable outcomes already found. Read/Inspect observations are excluded so
+a held read cannot block lifecycle control. Recovery does not publish the old
+call's result as the result of a newer application command.
+
 Supervision captures its fencing authority when registered. If an embedding
 reopens an in-process controller independently, rebuild that registration or use
 a host-owned endpoint forwarder for both sessions and fencing. Replacing only

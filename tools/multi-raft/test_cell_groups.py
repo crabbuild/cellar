@@ -292,6 +292,8 @@ class ProviderJournalCampaignTests(unittest.TestCase):
             "rustfs_controller_provider_sessions_preserve_shared_group_durability",
             "rustfs_controller_provider_recovers_without_replaying_compute",
             "rustfs_controller_provider_expiry_seals_unsubmitted_creates",
+            "rustfs_controller_provider_recovers_live_write_without_replay",
+            "rustfs_controller_provider_reconciles_live_exec_before_destroy",
         ))
         self.campaign(suite="controller-provider")
 

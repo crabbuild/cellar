@@ -242,6 +242,7 @@ impl ControllerProvider {
         mut grant: ExecutionGrant,
         durable: bool,
     ) -> Result<()> {
+        self.reconcile_mutations(context, &grant).await?;
         let mut current = journal
             .load(context)?
             .context("binding delete disappeared")?;
@@ -325,6 +326,7 @@ impl ControllerProvider {
             ));
         }
         let mut grant = self.fence(context, journal, Some(lifecycle)).await?;
+        self.reconcile_mutations(context, &grant).await?;
         if current.record.resource_id.is_none() {
             match self.recover_create(context, &grant).await? {
                 Some(reply) => {
@@ -412,6 +414,7 @@ impl FencedMaintenanceBackend for ControllerProvider {
             if action == MaintenanceAction::Delete {
                 return self.delete(&context, &journal, grant, true).await;
             }
+            self.reconcile_mutations(&context, &grant).await?;
             if expected.record.resource_id.is_none() {
                 match self.recover_create(&context, &grant).await? {
                     Some(reply) => {
