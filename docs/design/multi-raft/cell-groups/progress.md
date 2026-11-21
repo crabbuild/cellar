@@ -34,6 +34,78 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 authenticated controller endpoint
+
+Runtime `70ffb484f` adds `controller::remote::{ControllerServer,
+RemoteController}` and `ControllerProvider::from_endpoint`. Ordinary named SDK
+provider sessions can use a separately owned controller over TLS 1.3. Both peers
+verify certificates; clients also pin the server certificate, and the listener
+authorizes each client leaf for a cluster/namespace on its binding. Every request
+pins the durable controller identity and limits before dispatch. Claims remain
+trusted-host metadata, not bearer credentials or quorum certificates.
+
+The protocol preserves original operation IDs, digests and effect deadlines.
+Lost replies remain typed uncertainty; it never automatically retries a mutation.
+Recovery administration and its secret are outside the ordinary host endpoint.
+Frames, connections and request time are bounded. Both clients and the listener
+reserve capacity from Read/Inspect requests for lifecycle control. Listener
+reservations span all hosts and remain held through response delivery. Shutdown
+cancels and joins connections without replacing or resetting controller storage.
+
+A cross-host regression fails on `449ca9f20`: a second host's observation enters
+instead of returning Busy, then expires as UnknownOperation. It joins its work
+before asserting the failure. The unchanged regression passes after the global
+listener reservation, alongside the existing client reservation and fresh-fence
+checks. The red source, executable and exact failure are retained.
+
+| Scoped qualification on `70ffb484f` | Native | Real RustFS |
+| --- | ---: | ---: |
+| Container library, including authenticated protocol/restart/fencing tests | 31/31 pass | Not a provider-compute gate |
+| Ordinary remote SDK path, both images and Quorum/S3 minima | 4/4 pass | 4/4 pass |
+
+The SDK scenario creates once, writes two files, reads binary data, executes one
+buffered command, recovers a durable deletion intent and deletes once. Subsequent
+reconciliation does not repeat Delete, and an old Context cannot enter the
+provider. The library covers certificate/namespace authorization, controller and
+limit pins, original receipts after lost replies and controller restart, expired
+operation sealing, malformed/oversized frames and joined shutdown. Strict affected
+Clippy passes. Request and maintenance budgets remain five and three seconds.
+
+The broader predecessor `7253ab642` campaign remains **failed**: 24 passed,
+4 failed and 4 unrun native provider configurations; 23 passed, 3 failed and
+6 unrun real-RustFS configurations. These are eight selected tests across two
+images and two minima, distinct from the 32 formal CG-17 acceptance cases.
+Failures include S3 Create/Reconcile/Destroy command deadlines and live-write
+completion observation. No failed control was retried or its assertions weakened.
+The listener-only fix does not resolve or requalify those source-path gates.
+
+For the failed native materialized/S3 live-write case, retained images on all
+three voters show confirmed deletion at binding revision 4, no binding-intent
+or maintenance rows, and completed original Create/Write/Delete controller
+receipts. Its completion wait still expires. This distinguishes the observation
+failure from the earlier stranded deletion intent; it does not establish a
+successful original response or complete S3 recovery proof. Source checkpoint
+deadlines and durable completion observation remain priority work.
+
+Source, frozen executables, logs, failed controls and retained disks are captured
+in `CG-17-remote-controller-7253ab642-2267`,
+`CG-17-remote-reserve-red-449ca9f20-2272` and
+`CG-17-remote-controller-70ffb484f-2275`. The final primitive executable SHA-256 is
+`9f1fa24bc116d79e8690baa73677573d4f850850a85d676eef7d41b825457a94`;
+the library executable is
+`3f8ed0e74e47362155f0dcbd62836e18ca3f4c8280e9462534722924d72e2c20`.
+All three bundles have checksum-verified second copies.
+The owned lab is stopped with objects and volumes retained.
+
+Scope remains one native macOS RF3 process, a controlled in-process provider peer
+and real RustFS constrained to 1 CPU/2 GiB in a 6-CPU/12-GiB VM. Authentication is
+exercised over actual sockets; independent backend process faults, native compute
+and provider-volume recovery remain unqualified. Normal native Container/Sandbox,
+interactive execution, receipt reclamation, WebSockets and the complete primitive
+matrix remain required. CG-17 stays open at **0/32 formal cases**, and default
+cutover remains gated. Full plan validation still lacks historical CG-01 custody.
+The following checkpoints retain their own source pins and qualification limits.
+
 ### CG-17 deletion-intent recovery
 
 Production `6c3471b5b` fixes a stranded provider deletion after its source intent
@@ -62,7 +134,7 @@ and no repeated Delete when subsequently reconciling the retired generation.
 An earlier fixture control at `29d149c5c` failed onboarding before the intended
 cut; it is retained as a wrong repro rather than claimed as causal evidence.
 
-| Focused current-source gate | Native | Real RustFS |
+| Focused gate on `6c3471b5b` | Native | Real RustFS |
 | --- | ---: | ---: |
 | Maintenance + Reconcile regressions, both images and minima | 8/8 pass | 8/8 pass |
 | Original live-write, controller-restart, live-exec, basic and expiry profiles | 20/20 pass | 20/20 pass |
