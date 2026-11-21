@@ -467,6 +467,15 @@ impl FencedMaintenanceBackend for ControllerProvider {
                     && journal.load(&context)?.as_ref() == Some(&expected),
                 "maintenance generation differs"
             );
+            if expected.record.is_retired() {
+                ensure!(
+                    action == MaintenanceAction::Inspect,
+                    "retired binding is confirmation-only"
+                );
+                // A new framework invocation proves the retained observation;
+                // it never renews the old business call or executes Delete.
+                return grant.before_effect(&context).await;
+            }
             if action == MaintenanceAction::Delete
                 || expected.record.intent == BindingIntent::Deleted
             {

@@ -545,6 +545,13 @@ impl BindingJournal {
                 current.as_ref() == Some(&checkpoint),
                 "binding revision changed while awaiting durability"
             );
+            if context.raft_storage.is_some() && checkpoint.record.is_retired() {
+                crate::storage::container_maintenance::confirm_retired(
+                    journal.check(&context)?,
+                    &journal.name,
+                    &checkpoint,
+                )?;
+            }
             Ok(checkpoint)
         })
     }

@@ -52,6 +52,113 @@ fn reserve(
     )
 }
 
+fn shared_change(
+    connection: &Connection,
+    previous: Option<u64>,
+    record: BindingRecord,
+    now: i64,
+) -> anyhow::Result<crate::application::containers::BindingCheckpoint> {
+    let checkpoint = super::super::container_bindings::transaction(
+        connection,
+        "container",
+        previous,
+        1,
+        record,
+    )?;
+    changed(
+        connection,
+        RAFT_STORAGE_SCOPE,
+        "container",
+        &checkpoint.record,
+        Some(policy()),
+        now,
+    )?;
+    Ok(checkpoint)
+}
+
+#[test]
+fn shared_retirement_retains_discovery_until_exact_confirmation() -> anyhow::Result<()> {
+    let db = Connection::open_in_memory()?;
+    let initial = shared_change(&db, None, record(), 1000)?;
+    let mut record = initial.record;
+    record.intent = BindingIntent::Deleted;
+    record.observation = BindingObservation::Confirmed;
+    let retired = shared_change(&db, Some(initial.revision), record, 1200)?;
+    assert_eq!(tasks(&db)?.len(), 1);
+    assert_eq!(
+        crate::application::consensus::native_work::get(&db, "resource-reconciliation")?,
+        Some(1200)
+    );
+    check_schema(&db)?;
+    let mut stale = retired.clone();
+    stale.revision -= 1;
+    assert!(!confirm_retired_in(
+        &db,
+        RAFT_STORAGE_SCOPE,
+        "container",
+        &stale
+    )?);
+    assert_eq!(tasks(&db)?.len(), 1);
+    db.execute_batch("BEGIN")?;
+    assert!(confirm_retired_in(
+        &db,
+        RAFT_STORAGE_SCOPE,
+        "container",
+        &retired
+    )?);
+    assert!(tasks(&db)?.is_empty());
+    db.execute_batch("ROLLBACK")?;
+    assert_eq!(tasks(&db)?.len(), 1);
+    assert_eq!(
+        crate::application::consensus::native_work::get(&db, "resource-reconciliation")?,
+        Some(1200)
+    );
+    assert!(confirm_retired_in(
+        &db,
+        RAFT_STORAGE_SCOPE,
+        "container",
+        &retired
+    )?);
+    assert!(tasks(&db)?.is_empty());
+    assert_eq!(
+        crate::application::consensus::native_work::get(&db, "resource-reconciliation")?,
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn old_retirement_confirmation_cannot_erase_new_generation() -> anyhow::Result<()> {
+    let db = Connection::open_in_memory()?;
+    let initial = shared_change(&db, None, record(), 1000)?;
+    let mut closed = initial.record;
+    closed.intent = BindingIntent::Deleted;
+    closed.observation = BindingObservation::Confirmed;
+    let retired = shared_change(&db, Some(initial.revision), closed, 1200)?;
+    let mut next = record();
+    next.generation = 2;
+    next.request_id = "d".repeat(32);
+    shared_change(&db, Some(retired.revision), next, 2000)?;
+    let replacement = tasks(&db)?.remove(0);
+    assert_eq!(
+        (
+            replacement.generation,
+            replacement.created_ms,
+            replacement.expires_ms
+        ),
+        (2, 2000, 4000)
+    );
+    assert!(!confirm_retired_in(
+        &db,
+        RAFT_STORAGE_SCOPE,
+        "container",
+        &retired
+    )?);
+    assert_eq!(tasks(&db)?, vec![replacement]);
+    check_schema(&db)?;
+    Ok(())
+}
+
 #[test]
 fn reservation_idle_activity_and_completion_preserve_independent_deadlines() -> anyhow::Result<()> {
     let cells = Cells::default();

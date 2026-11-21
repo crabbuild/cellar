@@ -151,6 +151,10 @@ impl ExecutionGrant {
         domain: &[u8],
     ) -> Result<super::containers::ExecutionOperation> {
         self.check(context)?;
+        ensure!(
+            !self.claim.checkpoint.record.is_retired(),
+            super::containers::ExecutionControllerFailure::StaleClaim
+        );
         let source = crate::storage::capture_raft_dispatch()?
             .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
             .binding_source()?;
@@ -229,6 +233,10 @@ impl ExecutionGrant {
     {
         let prepared = (|| -> Result<_> {
             self.check(context)?;
+            ensure!(
+                !self.claim.checkpoint.record.is_retired(),
+                super::containers::ExecutionControllerFailure::StaleClaim
+            );
             Ok(crate::storage::capture_raft_dispatch()?
                 .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?)
         })();

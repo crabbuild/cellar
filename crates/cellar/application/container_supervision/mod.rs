@@ -123,6 +123,9 @@ pub trait FencedMaintenanceBackend: Send + Sync + 'static {
     /// provider request. After changing the journal, refresh the grant and
     /// await its effect gate before further I/O. Do not reacquire the lifecycle
     /// mutex or create compute. Lost outcomes retain their original identities.
+    /// Inspect can carry an already retired checkpoint when its original proof
+    /// response was lost. Confirm that exact observation without provider I/O;
+    /// the framework has proved it and fenced older execution before entry.
     fn maintain(
         self: std::sync::Arc<Self>,
         context: Context,

@@ -329,6 +329,24 @@ impl FencedMaintenanceBackend for Route {
     ) -> HandlerFuture<()> {
         let provider = self.selected();
         Box::pin(async move {
+            if expected.record.is_retired() {
+                let entered = Arc::new(AtomicBool::new(false));
+                let observe = entered.clone();
+                let refused = grant
+                    .dispatch(&context, move |_| async move {
+                        observe.store(true, Ordering::Release);
+                        Ok(())
+                    })
+                    .await;
+                ensure!(
+                    refused
+                        .err()
+                        .is_some_and(|error| error.downcast_ref::<ExecutionControllerFailure>()
+                            == Some(&ExecutionControllerFailure::StaleClaim))
+                        && !entered.load(Ordering::Acquire),
+                    "retired grant admitted provider I/O"
+                );
+            }
             provider
                 .maintain(context.clone(), expected, action, grant)
                 .await?;
@@ -444,18 +462,26 @@ impl Cell for Root {
                         .await?;
                 }
                 "MaintainRetirement" => {
-                    let entered = self.0.get_json("destroy-entered")?
-                        .and_then(|value| value.as_u64()).unwrap_or(0);
+                    let entered = self
+                        .0
+                        .get_json("destroy-entered")?
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or(0);
                     self.0.put_json("destroy-entered", &json!(entered + 1))?;
                     let guard = journal.lock_lifecycle(&context).await?;
                     let current = journal.load(&context)?.context("binding missing")?;
                     let mut record = current.record;
                     record.intent = BindingIntent::Deleted;
                     record.observation = BindingObservation::Pending;
-                    let expected = journal.prepare_exchange(&context, Some(current.revision), record)?;
+                    let expected =
+                        journal.prepare_exchange(&context, Some(current.revision), record)?;
                     let provider = self.1.selected();
-                    let grant = guard.fence_execution(&context, provider.authority()).await?;
-                    provider.maintain(context.clone(), expected, MaintenanceAction::Inspect, grant).await?;
+                    let grant = guard
+                        .fence_execution(&context, provider.authority())
+                        .await?;
+                    provider
+                        .maintain(context.clone(), expected, MaintenanceAction::Inspect, grant)
+                        .await?;
                 }
                 "Destroy" => {
                     session

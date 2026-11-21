@@ -109,7 +109,7 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         .load(&context)?
         .ok_or_else(|| anyhow::anyhow!("maintenance binding missing"))?;
     ensure!(
-        expected.record.generation == task.generation && !expected.record.is_retired(),
+        expected.record.generation == task.generation,
         "maintenance generation does not match binding"
     );
     let Some(claim) = tasks::claim(&scope, &task, now)? else {
@@ -123,6 +123,7 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     if context.raft_storage.is_none() {
         db.sync().await?;
     }
+    let retirement = expected.record.is_retired().then(|| expected.clone());
     let registration = context
         .container_supervision
         .as_ref()
@@ -135,7 +136,9 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         let expired = claim.deadline()? <= claim.logical_ms;
         let submitted_delete =
             deleting && expected.record.observation == BindingObservation::Pending;
-        let action = if (deleting || expired)
+        let action = if expected.record.is_retired() {
+            MaintenanceAction::Inspect
+        } else if (deleting || expired)
             && (!submitted_delete
                 || registration.backend.delete_safety() == DeleteSafety::RevalidateExactResource)
         {
@@ -203,6 +206,13 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     }
     .await;
     context.container_provider_authority()?.check(&context)?;
+    if let Some(expected) = retirement.filter(|_| result.is_ok() && context.raft_storage.is_some())
+    {
+        // The fenced entry proved this retired checkpoint and revoked older
+        // execution. Its backend only confirmed the observation; no new Delete
+        // or replayed business callback can supply this result.
+        tasks::confirm_retired(&scope, &task.binding, &expected)?;
+    }
     tasks::finish(&scope, &claim, result.is_ok())?;
     publish(&context)?;
     // The shared system turn proves task settlement and its own completion in

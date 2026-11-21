@@ -108,8 +108,8 @@ pub(super) fn check_schema(connection: &Connection) -> anyhow::Result<()> {
         let record = super::container_bindings::read(connection, &task.binding)?
             .ok_or_else(|| anyhow::anyhow!("maintenance has no retained binding"))?;
         event_schema::compatible(
-            record.record.generation == task.generation && !record.record.is_retired(),
-            "maintenance does not name a live binding generation",
+            record.record.generation == task.generation,
+            "maintenance does not name a retained binding generation",
         )?;
     }
     Ok(())
@@ -219,16 +219,24 @@ pub(super) fn changed(
     let prior = tasks(connection)?
         .into_iter()
         .find(|task| task.binding == binding);
-    if record.is_retired() {
+    if let Some(prior) = &prior {
+        anyhow::ensure!(
+            prior.generation == record.generation
+                || (scope == RAFT_STORAGE_SCOPE
+                    && prior.generation.checked_add(1) == Some(record.generation)
+                    && !record.is_retired()),
+            "maintenance generation changed without retirement"
+        );
+    }
+    if record.is_retired() && scope != RAFT_STORAGE_SCOPE {
         connection.execute(
             "DELETE FROM __sys_container_binding_maintenance WHERE binding=?1 AND generation=?2",
             rusqlite::params![binding, record.generation],
         )?;
-    } else if let Some(mut task) = prior {
-        anyhow::ensure!(
-            task.generation == record.generation,
-            "maintenance generation changed without retirement"
-        );
+    } else if let Some(mut task) = prior.filter(|task| task.generation == record.generation) {
+        // A shared checkpoint can commit retirement before its S3 proof returns.
+        // Keep this bounded obligation discoverable until the exact retired
+        // checkpoint is proven. A successor confirms it without provider work.
         task.version = task
             .version
             .checked_add(1)
@@ -239,7 +247,7 @@ pub(super) fn changed(
             task.due_ms = task.logical_ms;
         }
         save(connection, &task)?;
-    } else if let Some(policy) = policy {
+    } else if let Some(policy) = policy.filter(|_| !record.is_retired()) {
         let policy = policy.validate()?;
         let mut task = Task {
             binding: binding.into(),
@@ -257,6 +265,42 @@ pub(super) fn changed(
         save(connection, &task)?;
     }
     rearm(connection, scope)
+}
+
+fn confirm_retired_in(
+    connection: &Connection,
+    scope: &str,
+    binding: &str,
+    expected: &crate::application::containers::BindingCheckpoint,
+) -> anyhow::Result<bool> {
+    anyhow::ensure!(
+        scope == RAFT_STORAGE_SCOPE,
+        "retirement confirmation requires shared storage"
+    );
+    if !expected.record.is_retired()
+        || super::container_bindings::read(connection, binding)?.as_ref() != Some(expected)
+        || !SCHEMA.check(connection)?
+    {
+        return Ok(false);
+    }
+    let changed = connection.execute(
+        "DELETE FROM __sys_container_binding_maintenance WHERE binding=?1 AND generation=?2",
+        rusqlite::params![binding, expected.record.generation],
+    )? != 0;
+    rearm(connection, scope)?;
+    Ok(changed)
+}
+
+/// The caller owns a current proof for this exact retired checkpoint. Removal
+/// remains private until its ordinary result/checkpoint proves the cleanup.
+pub(crate) fn confirm_retired(
+    scope: &str,
+    binding: &str,
+    expected: &crate::application::containers::BindingCheckpoint,
+) -> anyhow::Result<bool> {
+    mutate(scope, |connection| {
+        confirm_retired_in(connection, scope, binding, expected)
+    })
 }
 
 pub(crate) fn list(scope: &str) -> anyhow::Result<Vec<Task>> {
