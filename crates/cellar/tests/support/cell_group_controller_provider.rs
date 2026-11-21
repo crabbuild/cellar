@@ -15,6 +15,9 @@ use std::{
     sync::{atomic::AtomicBool, RwLock},
 };
 
+#[path = "cell_group_provider_lifecycle_wait.rs"]
+mod lifecycle_wait;
+
 #[derive(Default)]
 struct Resource {
     id: String,
@@ -273,6 +276,7 @@ struct Route {
     staged: AtomicUsize,
     store: Arc<catalog_fault::Store>,
     old_context: Mutex<Option<Context>>,
+    wait: Arc<lifecycle_wait::Wait>,
 }
 
 impl Route {
@@ -338,6 +342,16 @@ impl Cell for Root {
             };
             let journal = BindingJournal::open(&context, "TOOL")?;
             match operation.as_str() {
+                "HoldLifecycle" => lifecycle_wait::hold(&context, &journal, &self.1).await?,
+                "WaitLifecycle" | "WaitDirtyLifecycle" => {
+                    lifecycle_wait::wait(
+                        &context,
+                        &journal,
+                        &self.1,
+                        operation == "WaitDirtyLifecycle",
+                    )
+                    .await?;
+                }
                 "Create" => {
                     self.0.put_json("business", &json!(17))?;
                     *self.1.old_context.lock().unwrap() = Some(context.clone());
@@ -541,6 +555,10 @@ pub async fn qualify_data_recovery(real: bool, write: bool) -> Result<()> {
     .await
 }
 
+pub async fn qualify_lifecycle_wait(real: bool, dirty: bool) -> Result<()> {
+    lifecycle_wait::qualify(real, dirty).await
+}
+
 async fn selected(real: bool, scenario: Scenario) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug")
@@ -603,6 +621,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                 staged: AtomicUsize::new(0),
                 store,
                 old_context: Mutex::new(None),
+                wait: Arc::new(lifecycle_wait::Wait::default()),
             });
             peer.lose_create
                 .store(scenario == Scenario::Interrupted, Ordering::Release);

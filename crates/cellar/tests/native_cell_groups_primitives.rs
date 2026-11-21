@@ -3152,3 +3152,25 @@ async fn rustfs_controller_provider_recovers_live_write_without_replay() -> Resu
 async fn rustfs_controller_provider_reconciles_live_exec_before_destroy() -> Result<()> {
     controller_provider::qualify_data_recovery(true, false).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_lifecycle_wait_reuses_unchanged_command_proof() -> Result<()> {
+    controller_provider::qualify_lifecycle_wait(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_lifecycle_wait_proves_dirty_work_before_parking() -> Result<()> {
+    controller_provider::qualify_lifecycle_wait(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_lifecycle_wait_reuses_unchanged_command_proof() -> Result<()> {
+    controller_provider::qualify_lifecycle_wait(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_lifecycle_wait_proves_dirty_work_before_parking() -> Result<()> {
+    controller_provider::qualify_lifecycle_wait(true, true).await
+}
