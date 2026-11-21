@@ -83,10 +83,18 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         return Ok(Output::Done);
     };
     let journal = BindingJournal::open(&context, &task.binding)?;
-    // Application lifecycle calls can still be awaiting a provider reply after
-    // publishing deletion intent. Serialize before reading or claiming work;
-    // the wait belongs to this finite native event, not a detached task.
-    let _lifecycle = journal.lock_lifecycle(&context).await?;
+    // A parked foreground command can still own this binding's lifecycle.
+    // Shared-group maintenance has not proved its private framework work claim
+    // yet: refuse without checkpointing or waiting so that the obligation is
+    // retried from committed state. Foreground calls retain their cancellable
+    // wait, and ordinary Fleet maintenance keeps its existing serialization.
+    let _lifecycle = if context.raft_storage.is_some() {
+        journal
+            .try_lock_lifecycle(&context)?
+            .ok_or(crate::application::consensus::CommandFailure::Unavailable)?
+    } else {
+        journal.lock_lifecycle(&context).await?
+    };
     if db.work_installation(Reason::ResourceReconciliation)? != Some(installation) {
         return Ok(Output::Done);
     }

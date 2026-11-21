@@ -381,6 +381,30 @@ impl BindingJournal {
         })
     }
 
+    /// Background shared-group maintenance must not publish a waiting receipt
+    /// just to wait for a foreground lifecycle owner. A refusal leaves its
+    /// private work claim uncommitted and the durable obligation discoverable.
+    pub(super) fn try_lock_lifecycle(
+        &self,
+        context: &Context,
+    ) -> Result<Option<BindingLifecycleGuard>> {
+        self.check(context)?;
+        let lock = context
+            .storage()?
+            .resources()
+            .provider_lifecycle
+            .get(&self.name)?;
+        let Ok(guard) = lock.try_lock_owned() else {
+            return Ok(None);
+        };
+        self.check(context)?;
+        Ok(Some(BindingLifecycleGuard {
+            guard: Arc::new(guard),
+            name: self.name.clone(),
+            authority: self.authority.clone(),
+        }))
+    }
+
     fn check_running_generation(&self, context: &Context, generation: u64) -> Result<()> {
         let checkpoint = self.load(context)?;
         ensure!(

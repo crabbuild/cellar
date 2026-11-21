@@ -72,6 +72,11 @@ Native/Fleet events refuse shared execution fencing before reserving a claim.
 Normal native Container/sandbox adapters, durable independent controllers and
 provider-volume recovery remain separate CG-17 requirements.
 
+Shared-group background maintenance declines a busy lifecycle slot without
+parking its writer or publishing its private work claim. The committed obligation
+remains discoverable for a later attempt. Foreground callers still wait with
+their original deadline, and ordinary Fleet maintenance retains its existing wait.
+
 ## Select a host-declared provider slot
 
 Applications can select additional providers declared by the host. `ctx.container`
