@@ -634,7 +634,7 @@ impl ExecutionController {
                     Duration::from_millis(service.journal.options.limits.operation_timeout_ms),
                     async {
                         let key = journal::logical_key(claim.history(), claim.binding());
-                        let admission = service.request_admission(&key, true).await?;
+                        let admission = service.admission(&key).await?;
                         let mut slot = service
                             .load(&admission, &key)
                             .await?
@@ -711,7 +711,7 @@ impl ExecutionController {
                     Duration::from_millis(service.journal.options.limits.operation_timeout_ms),
                     async {
                         let key = journal::logical_key(claim.history(), claim.binding());
-                        let admission = service.request_admission(&key, true).await?;
+                        let admission = service.admission(&key).await?;
                         let mut slot = service
                             .load(&admission, &key)
                             .await?
@@ -749,7 +749,7 @@ impl ExecutionController {
                     Duration::from_millis(service.journal.options.limits.operation_timeout_ms),
                     async {
                         let key = journal::logical_key(claim.history(), claim.binding());
-                        let admission = service.request_admission(&key, true).await?;
+                        let admission = service.admission(&key).await?;
                         let mut slot = service
                             .load(&admission, &key)
                             .await?

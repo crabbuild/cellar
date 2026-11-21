@@ -25,7 +25,14 @@ impl std::error::Error for OperationRefused {}
 
 fn request_id(record: &BindingRecord) -> Result<[u8; 16]> {
     let mut bytes = [0; 16];
-    for (index, pair) in record.request_id.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in record
+        .request_id
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .enumerate()
+    {
         ensure!(index < 16, "invalid binding request identity");
         bytes[index] = u8::from_str_radix(std::str::from_utf8(pair)?, 16)?;
     }
@@ -53,7 +60,9 @@ fn original_create(claim: &ExecutionClaim) -> Result<ExecutionOperation> {
     for (index, pair) in record
         .parameters_digest
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .enumerate()
     {
         digest[index] = u8::from_str_radix(std::str::from_utf8(pair)?, 16)?;

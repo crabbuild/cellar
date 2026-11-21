@@ -989,8 +989,21 @@ async fn held_observations_leave_control_capacity_and_cannot_rewind_new_receipts
             .run(async {
                 cellar::asyncrt::timeout(std::time::Duration::from_secs(1), async {
                     controller.clone().activate(current.clone()).await?;
+                    assert!(controller
+                        .lifecycle(current.clone(), ExecutionOperationKind::Delete)
+                        .await?
+                        .is_none());
                     controller
                         .execute(current.clone(), write.clone(), b"new mutation".to_vec())
+                        .await?;
+                    controller
+                        .reconcile(
+                            current.clone(),
+                            ExecutionPendingOperation {
+                                claim: current.clone(),
+                                operation: write.clone(),
+                            },
+                        )
                         .await
                 })
                 .await
