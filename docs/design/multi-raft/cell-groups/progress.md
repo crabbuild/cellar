@@ -32,6 +32,79 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 retirement confirmation and maintenance durability custody
+
+Source `57dc9e0d0` retains shared-group retirement work until the exact retired
+checkpoint has its required proof. Previously, a committed retirement could
+remove its discovery task before S3 confirmation, leaving autonomous cleanup
+unable to finish after the original request expired. Recovery now confirms that
+checkpoint without replaying business code or submitting another Create/Delete.
+The original unfinished business receipt remains uncertain.
+
+Retirement fencing is private framework authority. The controller accepts a
+retired checkpoint for confirmation only after all unknown mutators have known
+outcomes. Both SDK dispatch and the controller still reject execution under a
+retired claim. Increasing its sequence cannot reopen the same generation;
+starting a new generation remains an explicit operation.
+
+Each maintenance task retains its source minimum across that generation,
+including S3 requests in Quorum-default namespaces. Discovery carries this
+minimum into the framework command, and task claim checks it again before any
+reservation. An earlier unclaimed wake can survive a producer update: stale
+Quorum admission now refuses a task strengthened to S3 without changing it.
+The version-1 internal schema includes the retained minimum; incompatible older
+layouts refuse. This qualifies fresh matching roots, not an old-schema upgrade.
+
+| Selected qualification at `57dc9e0d0` | Result |
+| --- | --- |
+| Storage transactions, exact retirement/generation checks and scheduler units | 14/14 pass |
+| Controller protocol, unknown mutators and retired execution refusal | 18/18 pass |
+| Native public retirement and maintenance configurations | 14 pass / 0 fail / 0 unrun |
+| Real RustFS retirement and maintenance configurations | 10 pass / 0 fail / 0 unrun |
+| Container library | 35/35 pass |
+
+The new lost-S3-retirement regression passes both image modes in native and real
+RustFS runs. It uses explicit S3 requests in a Quorum-default namespace, proves
+actual refused archive writes after Delete, then observes autonomous retirement
+with one Create, one Delete and no callback replay. Original five-second requests,
+three-second maintenance attempts and 60-second recovery waits are unchanged.
+
+The broader `87febf23c` campaign remains **FAILED**: native has 28 passing, two
+failed and four unrun configurations; real RustFS has 25 passing, three failed
+and two unrun. Native materialized/S3 Delete6 and initial Create1 expire. Real
+extent/S3 maintenance Create1, materialized/S3 native Create1 and extent/S3
+replacement Read3 expire; the latter Read is before the archive fault. The
+original lost-Create recovery passes 4/4 real configurations, including the
+previously failed extent/S3 cut. The current scoped selection does not rerun all
+broader failures or accept a full primitive family.
+
+The causal regression at `7a7c9592e` fails because retirement loses autonomous
+confirmation. Intermediate `af8be472d` retains the task but the controller still
+rejects retired fence metadata; that failure is retained separately. The final
+protocol separates confirmation fencing from execution authorization. Build and
+unit-fixture failures remain in the retained records with their original status.
+
+Sources, frozen executables, raw logs and retained roots are in
+`CG-17-retirement-confirmation-57dc9e0d0-2384`,
+`CG-17-retirement-confirmation-87febf23c-2379` and the red/intermediate bundles,
+with checksum-verified second copies. The primitives executable SHA-256 is
+`d44cfd3b97ddd396eff41a0b65295b630cb901379491117342be342a95c30574`.
+Owned runtimes and the RustFS lab are stopped, with objects and volumes retained.
+
+Scope remains one native macOS RF3 host process and a controlled provider peer.
+RustFS is capped at 1 CPU/2 GiB in a 4-CPU/8-GiB VM; a separate chat's independent
+lab was running and untouched. Archive refusal is injected in the store wrapper.
+These runs do not qualify physical compute fencing, independent Linux voters,
+provider-volume disaster recovery or the complete process/fault matrix.
+
+Next close original S3 Create/Read/Delete completion latency and operation-specific
+system-sequence sealing, then integrate and qualify actual native execution and
+Sandbox ownership. Recovery-safe receipt GC, WebSockets and every remaining
+primitive/API/feature/lifecycle/recovery cell remain required. CG-17 is still
+IN_PROGRESS with no accepted full-task evidence; all 32 formal cases and default
+cutover gates remain unchanged. Historical checkpoints below keep their source
+and qualification boundaries.
+
 ### CG-17 native replacement, deadline custody and original Create sealing
 
 Source `f42fe52a2` delivers repeated native Container Start through the shared

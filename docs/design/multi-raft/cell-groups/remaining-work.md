@@ -37,52 +37,49 @@ full disaster profile remain open.
 ## Primitive delivery priority
 
 **Prioritize full CG-17 closure.** Every public primitive, provider contract and
-all 32 required cases remain in scope. Source `f42fe52a2` implements ordinary
-native Container replacement with the original Context/expiry, a combined next
-intent/claim proof, and original-ID sealing after interrupted S3 admission.
-Replacement preserves SQL while replacing ephemeral provider bytes; unknown
-Delete refuses a new generation. The new replacement and interrupted-admission
-cases pass **8/8 native and 8/8 real RustFS configurations**.
+all 32 required cases remain in scope. Source `57dc9e0d0` delivers autonomous
+retirement confirmation after lost S3 proof, confirmation-only retired fencing
+and claim-time enforcement of the task's retained durability. The new regression
+passes both image modes against native stores and real RustFS; stale Quorum
+admission cannot consume an obligation strengthened to S3.
 
-The complete selected gates remain **FAILED**: native 25 pass / 1 fail / 2 unrun,
-plus 35 library passes; real RustFS 24 pass / 2 fail / 2 unrun. The
-[current checkpoint](progress.md#cg-17-native-replacement-deadline-custody-and-original-create-sealing)
-records every failed cut, source and backup. No current pass clears an older
-failure or closes a whole primitive family.
+Current scoped public results are native 14 pass / 0 fail / 0 unrun and real RustFS
+10 pass / 0 fail / 0 unrun, with 14 storage/scheduler units, 18 controller tests and 35
+library tests passing. The broader `87febf23c` gates remain **FAILED**:
+native 28 pass / 2 fail / 4 unrun; real 25 pass / 3 fail / 2 unrun. The
+[current checkpoint](progress.md#cg-17-retirement-confirmation-and-maintenance-durability-custody)
+retains exact sources, controls and limits. These selected passes do not close a
+full primitive family or clear the broader deadline failures.
 
 The next feature deliveries are:
 
-1. Complete durable framework cleanup settlement and operation-specific sequence
-   sealing when an S3 checkpoint or response outlives its invocation. Diagnose
-   the extent/S3 autonomous-cleanup timeout and the existing materialized/S3
-   Delete6 completion deadline, including in-memory stores. Inspect committed
-   state and original receipts before changing orchestration. Preserve original
-   5-second requests, 3-second maintenance and 60-second recovery waits; never
-   replay a callback or call a late commit a successful original response.
-2. Close managed S3 startup and initial Create/Data deadline gates. Keep the
-   earlier bootstrap TransportTimeout and current maintenance Create1 failure
-   as separate controls; reducing replacement checkpoints is not their causal
-   resolution. Quorum admission must still refuse without its required proof.
-3. Finish independently fenced native compute and normal Sandbox ownership,
-   interactive exec, port/HTTP/WebSocket resources and managed provider volumes.
-   Qualify mapped stat/list/signal/monitor/inactivity behavior. A bounded execution
-   profile does not waive the remaining normal public API contracts. Network
-   fencing and metadata receipts alone cannot stop old execution.
-4. Implement origin/recovery-safe receipt GC and complete the public primitive,
-   feature, deployment, clock and lifecycle matrix. Qualify independent Linux
-   voters, real process/network/archive faults, reclamation and disk loss before
+1. Close original S3 Create/Read/Delete completion deadlines and implement
+   operation-specific framework sequence sealing. Preserve the native Delete6
+   and initial Create failures and the real initial Create/Read failures as
+   distinct controls. Recovery confirms retired metadata; it must not finalize
+   an unfinished business callback as successful or replay it. Keep original
+   5-second requests, 3-second maintenance and 60-second recovery waits.
+2. Close managed S3 startup and remaining initial Create/Data gates. Earlier
+   bootstrap TransportTimeout and macOS binding/Consume/Ack failures remain
+   separate controls. Quorum admission still refuses without its required proof.
+3. Integrate and qualify independently fenced native compute and normal Sandbox
+   ownership, interactive exec, port/HTTP/WebSocket resources and provider
+   volumes. Qualify mapped stat/list/signal/monitor/inactivity behavior. Bounded
+   exec delivery does not waive the normal public APIs or combined-source tests.
+4. Implement recovery-safe receipt GC and finish the public primitive, feature,
+   deployment, clock and lifecycle matrix. Qualify independent Linux voters,
+   real process/network/archive faults, reclamation and disk loss before
    CG-13/15/16 acceptance and the hard cutover.
 
 The [controller contract](../../../../crates/cellar-container/controller.md)
-explains attachment and replacement. File bytes retain their provider's storage
-contract. Current tests use one native RF3 process, a controlled provider peer
-and real RustFS; actual compute and volume recovery remain unqualified. Inventory
-is partial at 18 entries/352 symbols. CG-17 has no accepted evidence record or
-registered full acceptance workloads yet; the index's all-or-nothing task count
-must not be confused with the passing component tests. The implementation index
-is current; historical CG-01 custody still prevents full plan validation. Every
-oracle/dependency remains required and the whole goal stays active. Checkpoints
-below are historical.
+explains proof custody and retired fencing. File bytes retain the provider's
+storage contract. Current qualification uses one native RF3 process, a controlled
+provider peer and real RustFS; actual compute and volume recovery remain outside
+that gate. Inventory is partial at 18 entries/352 symbols. CG-17 has no accepted
+full-task evidence or registered full acceptance workloads; the generated index
+credits cases only for DONE tasks. Every oracle/dependency remains required.
+Historical CG-01 custody still prevents full plan validation. The whole goal
+stays active; checkpoints below retain their historical scope.
 
 Runtime `6836d6a6c` delivers the ordinary named-provider lifecycle handoff and
 nonwaiting shared-group background admission. The actual custom-provider Start
