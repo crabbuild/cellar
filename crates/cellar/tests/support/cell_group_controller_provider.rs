@@ -662,7 +662,8 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                 } else {
                     let data=data?;
                     ensure!(data.version.sequence.get()==receipt.version.sequence.get()+3,"unchanged execution claims must share the proven data checkpoint: before={} actual={}",receipt.version.sequence.get(),data.version.sequence.get());
-                    call(&cluster,&history,minimum,3,"Destroy").await?;
+                    let destroyed=call(&cluster,&history,minimum,3,"Destroy").await?;
+                    ensure!(destroyed.version.sequence.get()==data.version.sequence.get()+3,"public delete must retain exactly entry, delete-intent/claim and result proofs: before={} actual={}",data.version.sequence.get(),destroyed.version.sequence.get());
                 }
             }
             ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry),"create did not reach its selected admission/expiry cut");

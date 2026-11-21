@@ -65,6 +65,12 @@ still checks the same immutable execution claim. The closure parks the writer
 and rechecks the original invocation before publication; it cannot use SQLite.
 Physical create/delete/data requests retain their separate required proofs.
 
+After proving a delete intent and its claim, one admitted closure reconciles old
+mutation debt, looks up the original deletion and submits only when permitted.
+A completed deletion is never repeated. An unknown receipt blocks submission;
+a new attempt requires authoritative no-effect proof. Lookup absence uses the
+original stable deletion ID, so a late copy cannot become a second operation.
+
 Supervision captures its fencing authority when registered. If an embedding
 reopens an in-process controller independently, rebuild that registration or use
 a host-owned endpoint forwarder for both sessions and fencing. Replacing only

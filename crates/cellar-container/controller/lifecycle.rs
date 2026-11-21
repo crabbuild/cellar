@@ -235,6 +235,40 @@ impl ControllerProvider {
         Ok(reply.value)
     }
 
+    async fn delete_resource(
+        &self,
+        context: &Context,
+        grant: &ExecutionGrant,
+        stable_id: [u8; 16],
+    ) -> Result<Reply> {
+        let bytes = serde_json::to_vec(&Request::new(Operation::Destroy, json!({})))?;
+        let mut request = grant.next_operation(context, ExecutionOperationKind::Delete, &bytes)?;
+        let controller = self.controller.clone();
+        let outcome = grant
+            .dispatch(context, move |claim| async move {
+                // The deleted intent and this exact claim are already proven.
+                // Settle old debt before deciding whether submission is safe.
+                // Every call rechecks the immutable claim independently.
+                Self::reconcile_pending(controller.clone(), claim.clone()).await?;
+                match controller
+                    .lifecycle(claim.clone(), ExecutionOperationKind::Delete)
+                    .await?
+                {
+                    Some(original) => match controller.reconcile(claim.clone(), original).await? {
+                        outcome @ ExecutionOutcome::Completed(_) => return Ok(outcome),
+                        ExecutionOutcome::Refused | ExecutionOutcome::ExpiredBeforeSubmission => {
+                            // A fresh attempt is allowed only after authoritative
+                            // no-effect proof; uncertainty never selects this path.
+                        }
+                    },
+                    None => request.id = stable_id,
+                }
+                controller.execute(claim, request, bytes).await
+            })
+            .await?;
+        Self::reply(outcome, grant.claim(), Operation::Destroy)
+    }
+
     async fn delete(
         &self,
         context: &Context,
@@ -242,11 +276,11 @@ impl ControllerProvider {
         mut grant: ExecutionGrant,
         durable: bool,
     ) -> Result<()> {
-        self.reconcile_mutations(context, &grant).await?;
         let mut current = journal
             .load(context)?
             .context("binding delete disappeared")?;
         if current.record.resource_id.is_none() {
+            self.reconcile_mutations(context, &grant).await?;
             let reply = self.recover_create(context, &grant).await?;
             match reply {
                 None => return self.retire(context, journal, current, durable).await,
@@ -261,31 +295,9 @@ impl ControllerProvider {
             current = journal.prepare_exchange(context, Some(current.revision), current.record)?;
             grant = grant.refresh(context).await?;
         }
-        let reply = match self
-            .original(context, &grant, ExecutionOperationKind::Delete)
-            .await?
-        {
-            Some(original) => match self.reconcile_original(context, &grant, original).await? {
-                ExecutionOutcome::Completed(bytes) => {
-                    Reply::decode(&bytes, grant.claim(), Operation::Destroy)
-                        .context(ExecutionControllerFailure::UnknownOperation)?
-                }
-                ExecutionOutcome::Refused | ExecutionOutcome::ExpiredBeforeSubmission => {
-                    self.call(context, &grant, Operation::Destroy, json!({}), None)
-                        .await?
-                }
-            },
-            None => {
-                self.call(
-                    context,
-                    &grant,
-                    Operation::Destroy,
-                    json!({}),
-                    Some(delete_id(&current.record)?),
-                )
-                .await?
-            }
-        };
+        let reply = self
+            .delete_resource(context, &grant, delete_id(&current.record)?)
+            .await?;
         ensure!(
             reply.value.is_null(),
             ExecutionControllerFailure::UnknownOperation
