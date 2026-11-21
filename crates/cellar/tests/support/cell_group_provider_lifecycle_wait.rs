@@ -2,7 +2,6 @@
 
 //! Contention must park the writer using its exact original command proof.
 use super::*;
-use std::future::Future as _;
 
 #[derive(Default)]
 pub(super) struct Wait {
@@ -67,6 +66,7 @@ async fn contend(
     let holder = call(cluster, history, minimum, 2, "HoldLifecycle");
     tokio::pin!(holder);
     cellar::asyncrt::select_biased! {
+        "wait for lifecycle holder admission";
         result = &mut holder => anyhow::bail!("holder ended before its owned I/O: {result:?}"),
         _ = route.wait.held.notified() => (),
     }
@@ -96,6 +96,7 @@ async fn contend(
     };
     tokio::pin!(waiter);
     cellar::asyncrt::select_biased! {
+        "observe contended lifecycle admission";
         result = &mut holder => anyhow::bail!("holder ended before contended admission: {result:?}"),
         result = &mut waiter => anyhow::bail!("waiter bypassed the original lifecycle lock: {result:?}"),
         _ = route.wait.waiting.notified() => (),
