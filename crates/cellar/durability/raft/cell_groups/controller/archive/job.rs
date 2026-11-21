@@ -395,8 +395,13 @@ pub(super) async fn drive(
                 .required_prefix
                 .is_none_or(|minimum| head.marker().position().index >= minimum);
             if may_cover
-                && (!allocation_ready || head.marker().position().index >= current.position().index)
+                && (demand.required_prefix.is_some()
+                    || !allocation_ready
+                    || head.marker().position().index >= current.position().index)
             {
+                // A cell-scoped request need not archive unrelated later
+                // mutations. The prefix is only a selection bound: verify the
+                // real hold and exact requested row before serving any output.
                 let coverage = context
                     .registry
                     .verify_hold(

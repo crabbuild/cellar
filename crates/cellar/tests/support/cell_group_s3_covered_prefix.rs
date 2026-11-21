@@ -55,7 +55,9 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             h.archive.tails.usage().operations == 0,
             "physical proof survived eviction"
         );
-        h.remote.deny_generation_writes.store(true, Ordering::Release);
+        h.remote
+            .deny_generation_writes
+            .store(true, Ordering::Release);
 
         let sibling = history(&h.route, "registered-b")?;
         let sibling_call = h
@@ -177,8 +179,12 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             "uncovered target never reached the actual archive-write refusal"
         );
         drop(unavailable);
-        h.remote.deny_generation_writes.store(false, Ordering::Release);
-        let mut recovered = h.lookup(request, Duration::from_secs(5)).await
+        h.remote
+            .deny_generation_writes
+            .store(false, Ordering::Release);
+        let mut recovered = h
+            .lookup(request, Duration::from_secs(5))
+            .await
             .context("healed receipt discovery")?;
         let response = recovered
             .execute(
@@ -209,7 +215,9 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
         Ok::<_, anyhow::Error>(())
     }
     .await;
-    h.remote.deny_generation_writes.store(false, Ordering::Release);
+    h.remote
+        .deny_generation_writes
+        .store(false, Ordering::Release);
     if work.is_err() {
         h.fixture.cluster._root.disable_cleanup(true);
         eprintln!(
