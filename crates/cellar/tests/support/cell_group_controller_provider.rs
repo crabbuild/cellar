@@ -22,11 +22,16 @@ struct Resource {
     files: BTreeMap<String, Vec<u8>>,
 }
 
+struct PeerReceipt {
+    original: ExecutionPendingOperation,
+    bytes: Vec<u8>,
+}
+
 #[derive(Default)]
 struct Peer {
     active: Mutex<Option<ExecutionClaim>>,
     resource: Mutex<Resource>,
-    receipts: Mutex<BTreeMap<[u8; 16], (ExecutionPendingOperation, Vec<u8>)>>,
+    receipts: Mutex<BTreeMap<[u8; 16], PeerReceipt>>,
     creates: AtomicUsize,
     deletes: AtomicUsize,
     calls: AtomicUsize,
@@ -151,13 +156,13 @@ impl ExecutionControllerBackend for Peer {
                     .unwrap()
                     .insert(
                         operation.id,
-                        (
-                            ExecutionPendingOperation {
+                        PeerReceipt {
+                            original: ExecutionPendingOperation {
                                 claim: claim.clone(),
-                                operation: operation.clone()
+                                operation: operation.clone(),
                             },
-                            bytes.clone()
-                        )
+                            bytes: bytes.clone(),
+                        }
                     )
                     .is_none(),
                 "provider submission replayed an operation ID"
@@ -185,9 +190,12 @@ impl ExecutionControllerBackend for Peer {
             );
             let receipts = self.receipts.lock().unwrap();
             match receipts.get(&original.operation.id) {
-                Some((known, bytes)) => {
-                    ensure!(known == &original, "original provider receipt differs");
-                    Ok(Some(ExecutionOutcome::Completed(bytes.clone())))
+                Some(receipt) => {
+                    ensure!(
+                        receipt.original == original,
+                        "original provider receipt differs"
+                    );
+                    Ok(Some(ExecutionOutcome::Completed(receipt.bytes.clone())))
                 }
                 None => Ok(None),
             }
