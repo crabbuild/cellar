@@ -6,6 +6,39 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Current checkpoint phase observations
+
+Code `c9258a82a` adds four fixed observations to the existing checkpoint path:
+captured preparation/producer completion, retained submission, return to the SQL
+owner, and exact applied or newer-term reconciliation waiting. Cancellation
+records abandonment while entered physical work remains owned through joining.
+The handoff observation ends on the owner's first poll, before custody adoption
+or acknowledgement. The [source-bound record](checkpoint-observations-qualification-2026-11-21.json)
+retains the exact boundaries and limits; this change supplies observations rather
+than a Queue progress repair.
+
+The full library passes **1,360 tests / two existing ignores**, alongside the
+registry failure/cancellation controls, strict all-feature/all-target Clippy and
+repository checks. **10 of 14 native selections pass**, including ordinary
+SQL/KV/Queue in both image modes and the checkpoint, SDK, callback and archive
+controls. All four C2/C4 load selections fail with **11 explicitly ambiguous
+producer deadlines**. Materialized C2 completes the original **528-message drain /
+528 unique IDs**. Combined C4 stops at its materialized failure; its extent mode
+is not entered. All five entered load cohorts report successful three-node and
+three-host cleanup. Source, artifacts, logs, original/closed-copy fixture
+inventories and **33 synthetic memory exports** are independently verified.
+
+The failure snapshots distinguish checkpoint phases but do not establish a
+per-request breakdown or an exclusive producer bottleneck. Proof polling still
+depends on SQL-owner turns after submission returns; a separate owning progress
+control is required before changing that dependency. The original RustFS check
+at **2026-11-21T13:27:01.813617+00:00** still reports **zero available bytes** below
+the unchanged **6 GiB reserve**, with stable original identity/configuration,
+resources and start, zero restarts and no admitted cases. It is not a fresh
+three-node resource witness. The original constrained comparison and complete
+OPT/CG/recovery/SDK/release acceptance remain open. No throughput or latency gain
+is qualified.
+
 ## Current checkpoint qualification
 
 Code `5e0b9836c` retains main `5ae2b21f` and moves captured immutable checkpoint

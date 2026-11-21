@@ -4,27 +4,32 @@
 
 Purpose: Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.
 
-The latest [checkpoint qualification](checkpoint-handoff-qualification-2026-11-21.json)
-records code `5e0b9836c`, including main `5ae2b21f`. Captured checkpoint preparation
-and submission now pass the original four image/durability progress controls while
-unrelated SQL is held. Required applied receipts, archive proofs, producer custody
-and original admission/deadline rules remain. The full library passes 1,360 tests
-with two existing ignores; strict Clippy and repository checks pass.
+The latest [checkpoint observations](checkpoint-observations-qualification-2026-11-21.json)
+record code `c9258a82a`, including main `5ae2b21f`. Four fixed phases distinguish
+preparation, submission, SQL-owner handoff and proof waiting. The underlying
+[checkpoint runtime](checkpoint-handoff-qualification-2026-11-21.json) passes the
+original four image/durability progress controls while unrelated SQL is held.
+Required applied receipts, archive proofs, producer custody and original
+admission/deadline rules remain. The full library passes 1,360 tests with two
+existing ignores; strict Clippy and repository checks pass.
 
 The immediate **P0** is repeatable Queue service within the original 3,000-ms
 stateless RPC and 5,000-ms callback deadlines. **10 of 14 native selections pass**,
 including ordinary SQL/KV/Queue in both image modes. All four C2/C4 load selections
-fail with ten explicitly ambiguous producer deadlines; standalone materialized C4
-also fails. Successful drains, cleanup and terminal exports retain their exact
-scope. Profile fresh independent fixtures to separate command/apply service from
-startup and background archive work; preserve every failed/unknown command identity
-and its media. One fresh ordinary Queue pass does not establish repeatability.
+fail with 11 explicitly ambiguous producer deadlines; standalone materialized C4
+also fails, and combined C4 stops before its extent mode. Successful drains,
+cleanup and terminal exports retain their exact scope. Use the phase observations
+to test the remaining SQL-owner dependency in proof polling before selecting a
+runtime change. Keep custody, final receipt/fence rechecks and S3 gates on their
+original owners. Profile fresh independent fixtures to separate command/apply
+service from startup and archive work; preserve every failed/unknown command
+identity and its media. Ordinary Queue passes do not establish load repeatability.
 
 Before broadening execution/routing qualification, complete fixture retention for
 successful fault controls and cleanup on constructor/early-error paths. Broader
 recovery, SDK, OPT and release gates remain open. The original three-node,
 1-vCPU/2-GiB SQL/KV/Queue RustFS comparison remains unqualified: its read-only check
-at 2026-11-21T11:00:43.246451+00:00 reports zero available bytes against the unchanged
+at 2026-11-21T13:27:01.813617+00:00 reports zero available bytes against the unchanged
 6-GiB reserve. No case is admitted and no resource/storage change is made. Earlier
 [main-integration evidence](queue-transfer-claims-qualification-2026-11-21.json)
 and historical priorities below retain their source-specific scope.
