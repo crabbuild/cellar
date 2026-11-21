@@ -94,6 +94,7 @@ impl ControllerProvider {
                 // I/O boundary. Each checks the same immutable claim independently;
                 // none borrows SQL authority or resubmits provider work.
                 let original = match controller
+                    .clone()
                     .lifecycle(claim.clone(), ExecutionOperationKind::Create)
                     .await?
                 {
@@ -102,6 +103,7 @@ impl ControllerProvider {
                     // delayed submission before accepting a no-effect outcome.
                     None => {
                         controller
+                            .clone()
                             .seal_unsubmitted(claim.clone(), unsubmitted)
                             .await?
                     }
