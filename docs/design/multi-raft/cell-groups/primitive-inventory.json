@@ -776,7 +776,8 @@
         "cellar_container::controller::Request",
         "cellar_container::controller::Request::decode",
         "cellar_container::controller::Reply",
-        "cellar_container::controller::OperationRefused"
+        "cellar_container::controller::OperationRefused",
+        "cellar_container::ProviderSession::lifecycle_admission"
       ],
       "owners": [
         "crates/cellar/application/containers.rs",

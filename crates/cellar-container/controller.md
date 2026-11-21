@@ -27,6 +27,12 @@ before effects, enforce immutable resource IDs and independently fence every
 operation. This adapter supplies neither a native execution driver nor an
 authenticated network endpoint.
 
+Bounded data/control operations acquire binding admission before the SDK's
+ordinary output proof, then pass that same guard into the execution grant.
+Busy shared-group maintenance declines before publishing a competing checkpoint.
+Running/Monitor observations retain their concurrent lifecycle behavior. The
+adapter never reacquires an already held guard or borrows a newer invocation.
+
 Start proves its intent and execution claim together before provider dispatch;
 confirmation shares the final output proof. Controller I/O parks the writer and
 can reuse only the exact invocation's unchanged unfinished-receipt proof.

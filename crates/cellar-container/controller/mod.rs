@@ -211,7 +211,7 @@ impl ControllerProvider {
                         && record.record.observation == BindingObservation::Confirmed,
                     "controller resource requires lifecycle reconciliation"
                 );
-                let grant = self.fence(context, &journal, None).await?;
+                let grant = self.fence(context, &journal, lifecycle).await?;
                 let grant = if operation.is_read() {
                     grant.release_lifecycle(context)?
                 } else {
@@ -253,6 +253,10 @@ impl Provider for ControllerProvider {
 }
 
 impl ProviderSession for ControllerProvider {
+    fn lifecycle_admission(&self, operation: Operation) -> bool {
+        !operation.is_read()
+    }
+
     fn execute<'a>(
         &'a self,
         _context: &'a Context,
