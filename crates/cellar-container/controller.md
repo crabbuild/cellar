@@ -65,6 +65,19 @@ still checks the same immutable execution claim. The closure parks the writer
 and rechecks the original invocation before publication; it cannot use SQLite.
 Physical create/delete/data requests retain their separate required proofs.
 
+Contended lifecycle admission can reuse only the exact invocation's unchanged
+unfinished-receipt proof. Dirty work still checkpoints before parking, and the
+original authority is checked after the wait. Entry/read authority cannot make
+a new writer resumable. Shared maintenance proves its task claim with the
+execution fence before I/O and task settlement with the final native-work result.
+Cancellation before that first proof leaves the previous committed obligation
+available; after it, the reserved next attempt remains durable.
+
+The [current qualification](../../docs/design/multi-raft/cell-groups/progress.md#cg-17-provider-admission-proof-batching)
+retains successful proof-count regressions and unresolved S3 response deadlines.
+The combined gate remains failed; these optimizations do not establish full
+Container/Sandbox or CG-17 compatibility.
+
 After proving a delete intent and its claim, one admitted closure reconciles old
 mutation debt, looks up the original deletion and submits only when permitted.
 A completed deletion is never repeated. An unknown receipt blocks submission;

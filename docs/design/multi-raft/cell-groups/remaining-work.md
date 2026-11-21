@@ -41,35 +41,37 @@ provider fencing, WebSockets, deployment/clock changes, retention and recovery,
 remain required. The [current checkpoint](progress.md#current-integration-checkpoint)
 pins the actual results; selected passes do not close a primitive family.
 
-`b67a27218` delivers live controller receipt recovery for interrupted mutations,
-early binding admission and batched observation/deletion. The normal SDK basic
-profile preserves exactly three versions for Start, Data and Destroy. Unknown
-receipts block progress; recovery never replays the original mutation.
+Production `92afae21b` adds exact unfinished-receipt proof reuse for contended
+lifecycle waits and combines shared maintenance with its required effect/output
+proofs. All 50 owning checks pass. Of 36 native configurations, **32 pass, two
+hit their original deadlines and two remain unrun**. Fenced maintenance,
+interrupted lifecycle recovery and expiry pass all four configurations each.
 
-**50 regression checks and all 20 native configurations pass.** Real RustFS live
-write recovery passes all four configurations. Exec recovery passes materialized
-Quorum; materialized S3 completes exec and delete once, but the original Destroy
-sequence 4 misses its five-second response deadline. The two extent exec cases
-remain unrun. The combined gate is **FAILED: 5 real passes, 1 failure, 2 unrun**.
-All failed controls, disks, source and executables are retained; the owned lab is
-stopped. The earlier cold S3 startup and extent/S3 pre-effect refusal remain open.
-See [current progress](progress.md#cg-17-live-provider-mutation-recovery).
+Test-only `b26f901e2` isolates real-store catalogs by minimum. Both its native
+and real RustFS clean-wait runs pass three configurations, then extent/S3 Create
+sequence 1 misses the original five-second response deadline before contention.
+Create completed once; no background supervision is installed in that profile.
+The remaining real profiles are unrun. The earlier catalog conflict was a harness
+prefix collision and remains separately retained. The combined gate is **FAILED**;
+no default backend cutover or full primitive-family acceptance follows.
+See [current progress](progress.md#cg-17-provider-admission-proof-batching).
 
 The next feature deliveries are:
 
-1. Close the original S3 destroy-response deadline without replay, fresh IDs or
-   longer budgets. Review contended lifecycle waits, their exact unfinished
-   receipt proof reuse and writer parking. Qualify shared activation ownership
-   across suspended callbacks and same-cell version advances; preserve original
-   resources, class/role/epoch checks and refusal after ownership loss.
-2. Connect built-in native Container/sandbox and interactive APIs to the
+1. Close basic extent/S3 Create and the retained Data/Delete response deadlines.
+   Measure each original command's prepare, quorum apply, source verification,
+   archive and final-output stages before another latency change. The same
+   no-background failure occurs with memory storage and real RustFS, so do not
+   assume maintenance contention or the external store is its sole cause.
+   Reconcile original receipts; preserve IDs, required minimums and budgets.
+2. Connect built-in native Container/Sandbox and interactive APIs to the
    request-bound controller and actual fenced execution. Complete the owned
    asynchronous invocation prologue, per-operation authorization, independent
-   controller/backend faults and real provider-volume/zero-quorum recovery.
+   controller/backend faults and real provider-volume/fresh-incarnation recovery.
 3. Complete safe receipt reclamation with origin/recovery floors, WebSockets and
    every required public primitive/feature/deployment/clock/retention/lifecycle
-   ledger. Reconcile the retained cold startup and earlier Fleet/S3 failures
-   before the combined release and backend cutover gates.
+   ledger. Resolve the retained Fleet, cold-start and S3 controls before the
+   combined release and backend cutover gates.
 
 The [controller contract](../../../../crates/cellar-container/controller.md)
 explains the delivered adapter and restart ownership. Current tests use a

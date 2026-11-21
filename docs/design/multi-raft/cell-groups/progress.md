@@ -34,6 +34,87 @@ and the coordinated successor's eighteen passing Workflow configurations.
 
 ## Current integration checkpoint
 
+### CG-17 provider admission proof batching
+
+Production `92afae21b` removes redundant shared-group proof boundaries without
+changing the required durability. A contended binding lifecycle wait reuses only
+its exact invocation's unchanged unfinished receipt; dirty work still checkpoints
+before parking the writer. Entry/read authority alone cannot authorize this reuse,
+and the original authority is checked again after admission.
+
+Shared provider maintenance proves its task claim together with the execution
+fence before controller/backend I/O. Task settlement and native-work completion
+share the final system result proof. Cancellation before admission leaves the
+previous committed obligation discoverable; cancellation after admission retains
+the proven next attempt. Ordinary Fleet flushes remain. No operation ID, required
+minimum, assertion or deadline was relaxed, and uncertain effects are not replayed.
+
+The public SDK contention regression first failed at test-only `d92acabd7`:
+before version 5, the clean case expected 8 and received 9. All four dirty controls
+passed at version 9. At `92afae21b`, all eight clean/dirty configurations pass:
+clean waits finish at 8 and dirty waits at 9. This establishes the redundant
+checkpoint fix, not closure of the wider S3 response gap.
+
+| Source-pinned qualification | Result |
+| --- | --- |
+| Production `92afae21b`: controller, provider library and owning provider tests | **50 checks pass** |
+| Production `92afae21b`: nine native SDK/maintenance functions, both image modes and minimums | **32 pass, 2 deadline failures, 2 unrun configurations** |
+| Corrected test source `b26f901e2`: native clean wait | **3 pass; extent/S3 Create sequence 1 fails before contention; dirty function unrun** |
+| Corrected test source `b26f901e2`: real RustFS diagnostic | **3 pass; extent/S3 Create sequence 1 fails before contention; 24 configurations unrun** |
+| Combined gate and formal CG-17 acceptance | **FAILED; 0/32 formal cases accepted** |
+
+The two production-source native failures are materialized/S3 Data sequence 2
+before its intended lost-exec cut, and direct extent/S3 Delete sequence 3 while
+the fixture holds backend I/O. Interrupted create/delete recovery and expiry pass
+all four configurations each. Direct maintenance passes three configurations;
+fenced maintenance passes all four. Failed cases were not retried to obtain a
+passing result. Previously unrun functions were executed once in separately
+recorded continuations; the original failed aggregate is preserved.
+
+The first real-store contention driver reused a catalog prefix across minimums
+with different controller identities. Quorum passed; S3 setup correctly refused
+`PayloadConflict`. `b26f901e2` fixes only that test-prefix isolation. A source diff
+confirms production code is identical to `92afae21b`. The corrected native and
+real-store runs then both fail extent/S3 Create sequence 1 under the original
+five-second deadline, without background supervision. Create completes once in
+the controlled backend, leaving 393 ms in the native run and 725 ms in the real
+run before the response deadline. Thus neither background maintenance nor RustFS
+alone explains the remaining latency. This needs stage measurements and original
+receipt reconciliation, not another speculative proof change or longer budgets.
+
+Evidence is retained in `CG-17-lifecycle-wait-red-d92acabd7-2186`,
+`CG-17-lifecycle-wait-8eae70cb4-2189`,
+`CG-17-maintenance-batch-92afae21b-2195` and
+`CG-17-lifecycle-isolation-b26f901e2-2207`, including failed controls, source,
+executables, controller directories and voter disks. The current primitive
+executable SHA-256 is
+`c7afb7e7b3cc1125e34d60778fc8ce6d837da125668ab1b6f6227acc2f188a74`.
+The corrected real failure's controller is `.tmpN1udhR`; its three voter roots
+are `.tmp2SCsLe`, `.tmpJMURBS` and `.tmpqbR0C0`. The corresponding native controller
+is `.tmpv5SYlW`. The owned RustFS backend and VM are stopped; objects and volumes
+remain retained. The faulty-prefix control remains separate from product failures.
+The four runtime/control bundles have verified second copies on the checkout
+Workspace target: 11,120 files and 1,184,243,518 bytes, including negative runs.
+
+All runs retain five-second requests/callbacks, three-second maintenance attempts,
+sixty-second observers, ten-second accepted retention, and the original 500 ms
+expiry with 600 ms activation delay. These are one native macOS RF3 process and a
+controlled provider peer. RustFS has one CPU/2 GiB in a six-CPU/12-GiB VM. They do
+not qualify independent voters, actual native compute, authenticated remote
+execution, provider-volume recovery or the complete primitive matrix. The older
+cold-start, Fleet and S3 response controls remain retained and are not claimed
+fixed. Inventory remains partial at 18 entries/318 symbols; formal status remains
+13/17 tasks and 147/195 cases. The full design and hard cutover goal stay active.
+Formatting, layout, native dependency and documentation checks pass. All 44
+plan-validator tests pass after reviewing the one drifted effects-module anchor;
+23 other anchor files are byte-identical. The generated implementation index is
+current. No formal status, oracle, command or dependency was changed.
+
+Next deliverables are the measured extent/S3 response fix, built-in
+Container/Sandbox invocation adapters and actual fenced execution, then receipt
+GC, WebSockets and the full primitive/API/feature/recovery matrix. See
+[remaining priorities](remaining-work.md#primitive-delivery-priority).
+
 ### CG-17 live provider mutation recovery
 
 Runtime `b67a27218` adds live original-receipt recovery to controller-backed SDK
