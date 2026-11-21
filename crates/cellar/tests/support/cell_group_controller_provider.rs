@@ -552,7 +552,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
             cell.enroll(CellEnrollmentRequest{creation:ProposalId::new([247;16])?,durability:minimum},TIMEOUT).await?;
             let before=cell.query(ProposalId::new([248;16])?,&cell.contract("Version")?,vec![],QueryOptions::default()).await?;
             let create=call(&cluster,&history,minimum,1,"Create").await;
-            if recovery {let error=create.err().context("accepted create lost no reply")?;ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous));}
+            if recovery {let error=create.err().context("create unexpectedly returned a result")?;let original=bindings::options(1,minimum)?.id;ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous && error.command==original));}
             else {let receipt=create?;ensure!(receipt.version.sequence.get()==before.version.sequence.get()+3,"public provider must retain exactly entry, intent/claim and result proofs");let data=call(&cluster,&history,minimum,2,"Data").await?;ensure!(data.version.sequence.get()==receipt.version.sequence.get()+3,"unchanged execution claims must share the proven data checkpoint: before={} actual={}",receipt.version.sequence.get(),data.version.sequence.get());call(&cluster,&history,minimum,3,"Destroy").await?;}
             ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry),"create did not reach its selected admission/expiry cut");
             route.factory_refused.store(recovery,Ordering::Release);
@@ -569,7 +569,8 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
                 }).await.context("autonomous controller cleanup did not finish")?;
                 route.factory_refused.store(false,Ordering::Release);
             }
-            let observed=call(&cluster,&history,minimum,4,"Read").await?;let value:serde_json::Value=serde_json::from_slice(&observed.result)?;
+            let read_sequence=if recovery {2}else{4};
+            let observed=call(&cluster,&history,minimum,read_sequence,"Read").await?;let value:serde_json::Value=serde_json::from_slice(&observed.result)?;
             ensure!(value["record"]["intent"]=="deleted" && value["record"]["observation"]=="confirmed");
             ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry) && peer.deletes.load(Ordering::Acquire)==usize::from(!expiry),"controller recovery replayed compute");
             let old=route.old_context.lock().unwrap().clone().context("original Context missing")?;
@@ -578,7 +579,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
             ensure!(stale.is_err(),"old Context borrowed the replacement controller's grant");
             ensure!(peer.calls.load(Ordering::Acquire)==calls_before,"stale Context entered the provider");
             let leader=managed_fixture::leader(&cluster.hosts,group).await?;let source=cluster.hosts[leader].cell(history.clone())?;
-            let contract=source.contract("Run")?;let input=serde_json::to_vec("StageOutput")?;let options=bindings::options(5,minimum)?;
+            let contract=source.contract("Run")?;let input=serde_json::to_vec("StageOutput")?;let options=bindings::options(read_sequence+1,minimum)?;
             let denied_before=route.store.denied_group_archive_writes.load(Ordering::Acquire);
             let staged=source.command(&contract,input.clone(),options.clone()).await;route.store.deny_group_archive_writes.store(false,Ordering::Release);
             if minimum==Durability::S3 {let error=staged.err().context("prepared output escaped S3 minimum")?;ensure!(error.ambiguous && error.command==options.id);ensure!(route.store.denied_group_archive_writes.load(Ordering::Acquire)>denied_before,"fault refused no actual archive write");}
