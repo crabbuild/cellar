@@ -4,44 +4,46 @@
 
 Purpose: Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.
 
-The latest [checkpoint proof progress](checkpoint-proof-progress-qualification-2026-11-21.json) qualifies code `27b811cb8`,
-including main `5ae2b21f`. The existing checkpoint task observes the unchanged
-exact applied/current-fence or newer-term proof while unrelated SQL holds its
-owner. The byte-identical four-mode native control fails at baseline and passes
-with this change. The SQL owner still adopts custody and checks the frozen
-receipt, activation fence and required S3/output gates before continuation.
-Original admission, deadline, retry and worker limits remain.
+The latest [private cleanup qualification](private-cleanup-qualification-2026-11-21.json)
+qualifies code `1840466d4`, including main `5ae2b21f`. SQLite/capture close on
+their SQL owner; physical workspace removal and parent sync use the existing
+execution domain. Frozen receipts, activation, writer/byte admission and progress
+lanes remain owned through join, with original receipt/fence/S3 and capacity gates.
 
-The library passes **1,360 tests / two existing ignores**; strict Clippy and
-repository checks pass. **10 of 14 native selections pass**, including ordinary
-SQL/KV/Queue in both image modes and SDK, callback, archive and fresh-quorum
-controls. Combined qualification remains **FAILED** across all four Queue load
-selections. Materialized C2 and combined materialized C4 each drain **528 messages /
-528 unique IDs**. Rooted C2 fails its original **30-second final primary drain**
-with **504 consumer-reported completions** and no recorded producer error. The
-three C4 failures retain **ten explicitly ambiguous producer deadlines**. All six
-entered cohorts report successful three-node/three-host cleanup and complete
-available terminal media are independently verified. These observations do not
-establish data loss, durable final settlement or complete-prefix recovery.
+The original cleanup-progress control improves from **zero to four passes**.
+Eight native waiter-expiry and actual I/O-failure observations also pass across
+both image modes and Quorum/S3, preserving ambiguity, exact receipt/value checks,
+quarantine, full rooted charges and failed bytes after joined shutdown. The full
+library passes **1,365 tests / two existing ignores**; strict Clippy and repository
+checks pass. Independent verification retains **36 node disks, eight synced
+client ledgers and 12 concrete synthetic exports**. Fresh frozen-receipt controls
+and ordinary KV in both modes pass with retained media; old missing evidence and
+all earlier failures remain recorded.
 
-The immediate **P0** is repeatable Queue producer/callback service and final drain
-within the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows.
-Profile command/image work and callback lease, consumer and final settlement
-before selecting another runtime change. Proof polling no longer requires an
-extra SQL turn in the new owning control; it is not an established exclusive
-producer cause or workload speedup. Preserve every failed/unknown command and its
-media, exact receipts/fences, admission banks and S3 gates.
+**Combined qualification remains FAILED:** the unchanged runtime's broader
+candidate passes **14 of 18 native selections**. C2 passes both original
+528-message/528-unique-ID assertions; all three C4 selections fail with ambiguous
+producer deadlines. Rooted KV exceeded its original 20-second Unicode phase
+budget. Later traced and ordinary KV passes leave its intermittent failure open.
+These controls qualify scheduling and custody boundaries; workload gains and
+complete-prefix recovery remain unproven.
 
-Before broadening execution/routing qualification, complete retention for
-successful fault controls and joined cleanup on constructor/early-error paths.
-The original three-node, 1-vCPU/2-GiB SQL/KV/Queue RustFS comparison remains
-unqualified: the read-only original-store check at
-**2026-11-21T14:57:31.938706+00:00** reports **12,001,280 available bytes**, below
-the unchanged **6 GiB reserve**. Original identity/configuration/resources/start
-match, with zero restarts and no case admitted; it is not a fresh three-node
-resource witness. No resource/storage changes are made. Full OPT/CG/recovery/
-SDK/release gates remain open. Earlier [phase observations](checkpoint-observations-qualification-2026-11-21.json)
-and [main-integration evidence](queue-transfer-claims-qualification-2026-11-21.json)
+The immediate **P0** is repeatable KV service and Queue producer/callback service
+and drain within the original **3,000-ms RPC / 5,000-ms callback / 30-second drain**
+windows. Profile the remaining command/image, consumer, lease and final-settlement
+costs before selecting another runtime change. Preserve exact identities, all
+failed/unknown media, admission banks and S3 gates. General constructor panic and
+broad execution/routing cleanup/retention gates still need their own evidence.
+
+The original three-node, 1-vCPU/2-GiB, RF3/three-group SQL/KV/Queue RustFS comparison
+remains unqualified. The read-only witness at
+**2026-11-21T20:12:18.276453+00:00** reports **19,156,992 available bytes**, below the
+unchanged **6 GiB reserve**. Original identity/configuration/resources/start match,
+with zero restarts and no case admitted; a fresh three-node resource witness
+remains open. No resource/storage changes are made. Full OPT/CG/recovery/SDK/release
+acceptance remains open. Earlier [checkpoint proof](checkpoint-proof-progress-qualification-2026-11-21.json),
+[phase observations](checkpoint-observations-qualification-2026-11-21.json) and
+[main-integration evidence](queue-transfer-claims-qualification-2026-11-21.json)
 retain their source-specific scope.
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime

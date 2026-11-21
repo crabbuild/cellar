@@ -6,7 +6,48 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
-## Current checkpoint proof progress
+## Current private workspace cleanup
+
+Code `1840466d4` includes main `5ae2b21f` and moves settled private-workspace
+removal and parent sync onto the existing execution domain. SQLite and capture
+close on their original SQL thread. The SQL owner retains the frozen settlement,
+activation, writer lease, bytes and progress lane through physical join; retiring
+work still consumes the original admission capacity. Receipt/fence and S3/output
+checks, cache timestamps, deadlines and worker limits remain unchanged. See the
+[source-bound qualification](private-cleanup-qualification-2026-11-21.json).
+
+The original four-mode cleanup control improves from **zero to four passes**:
+unrelated fresh linearizable queries advance on the single SQL worker while
+actual cleanup is held. Values, exact replay, one callback and held reply/resource
+custody remain checked. Eight additional native fault observations pass across
+both image modes and Quorum/S3: original five-second waiter expiry retains the
+physical owner, and real filesystem errors retain typed ambiguity, quarantine
+and complete rooted workspace charges. Receipt-only lookup and a fresh peer
+value read verify the original mutation without resubmitting it. Shutdown joins
+the same close future; failed bytes remain intact after every node/host join.
+
+The full library passes **1,365 tests / two existing ignores**, including five
+actual-workspace custody controls. All three native selections pass, alongside
+strict all-feature/all-target Clippy and repository checks. Independent
+verification retains **36 node disks, eight synced client ledgers, 2,574 files /
+17,692,291 bytes and 12 synthetic exports / 1,455 objects / 5,684,975 bytes**.
+Fresh public frozen-receipt controls and ordinary KV in both image modes also
+pass with concrete retention. Earlier missing public-control media remains
+recorded; the temporary Unicode trace was removed before final KV validation.
+
+**Combined qualification remains FAILED.** The unchanged runtime's broader
+candidate passes **14 of 18 native selections**. C2 passes both original
+528-message/528-unique-ID assertions, while all three C4 selections retain
+ambiguous producer deadlines. Rooted KV also exceeded its original 20-second
+Unicode phase budget; subsequent passes leave that intermittent failure open.
+The latest read-only original RustFS witness at
+**2026-11-21T20:12:18.276453+00:00** reports **19,156,992 available bytes**, below
+the unchanged **6 GiB reserve**, with original identity/configuration/resources/
+start unchanged, zero restarts and zero admitted cases. A fresh three-node
+resource witness, the constrained comparison and full OPT/CG/recovery/SDK/release
+gates remain open. No throughput or latency gain is qualified.
+
+## Checkpoint proof progress
 
 Code `27b811cb8` includes main `5ae2b21f` and observes the unchanged exact applied
 or newer-term reconciliation proof on the existing admitted checkpoint task.
