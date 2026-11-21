@@ -14,13 +14,17 @@ use std::sync::Arc;
 /// a bearer credential, distributed lease or proof that a process has stopped.
 /// Authenticate the host/controller channel and enforce this claim on *every*
 /// provider request, including retained processes, sockets and file handles.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(
+    try_from = "super::container_execution_wire::Wire",
+    into = "super::container_execution_wire::Wire"
+)]
 pub struct ExecutionClaim {
-    history: CellHistory,
-    binding: String,
-    key: [u8; 32],
-    checkpoint: BindingCheckpoint,
-    claim: crate::storage::container_execution::Claim,
+    pub(super) history: CellHistory,
+    pub(super) binding: String,
+    pub(super) key: [u8; 32],
+    pub(super) checkpoint: BindingCheckpoint,
+    pub(super) claim: crate::storage::container_execution::Claim,
 }
 
 impl ExecutionClaim {
@@ -88,6 +92,42 @@ pub struct ExecutionGrant {
 impl ExecutionGrant {
     pub fn claim(&self) -> &ExecutionClaim {
         &self.claim
+    }
+
+    /// Bind a finite controller operation to this exact command and ordinal.
+    /// Reuse an ordinal only for the same operation; recovery keeps that ID.
+    /// The controller retains the first accepted deadline even if a later
+    /// receipt lookup carries a new request budget. This performs no I/O.
+    pub fn operation(
+        &self,
+        context: &Context,
+        ordinal: u64,
+        kind: super::containers::ExecutionOperationKind,
+        payload: &[u8],
+    ) -> Result<super::containers::ExecutionOperation> {
+        self.check(context)?;
+        let source = crate::storage::capture_raft_dispatch()?
+            .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
+            .binding_source()?;
+        ensure!(
+            source.history == self.claim.history,
+            "controller operation history differs"
+        );
+        let mut id = Sha256::new();
+        id.update(b"cellar-controller-invocation-operation-1");
+        id.update(self.claim.resource_key());
+        id.update(source.parent.client.bytes());
+        id.update(source.parent.sequence().to_be_bytes());
+        id.update(ordinal.to_be_bytes());
+        let id: [u8; 32] = id.finalize().into();
+        super::containers::ExecutionOperation::new(
+            id[..16].try_into()?,
+            kind,
+            payload,
+            source
+                .deadline_unix_ms
+                .ok_or(super::consensus::CommandFailure::Unavailable)?,
+        )
     }
 
     /// Reconcile a fresh claim after checkpointing a binding change, retaining

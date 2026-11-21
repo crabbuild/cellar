@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "9685b5153b15258bccb04bd47b466a68545e2d178e25f93feade7d3c083b3ecb",
-    "crates/cellar/application/mod.rs": "b2a765059fa8494fa73de9e0f177c6e4e398cb268d8bdd1be61470e31fad39a6"
+    "crates/cellar/application/mod.rs": "d089014bf0911ea1f371d25678aa8a2305b401857a3cecac13dcf2dc8d68b8a5"
   },
   "entries": [
     {
@@ -740,7 +740,31 @@
         "cellar::sdk::containers::FencedMaintenanceBackend::identity",
         "cellar::sdk::containers::FencedMaintenanceBackend::authority",
         "cellar::sdk::containers::FencedMaintenanceBackend::delete_safety",
-        "cellar::sdk::containers::FencedMaintenanceBackend::maintain"
+        "cellar::sdk::containers::FencedMaintenanceBackend::maintain",
+        "cellar::sdk::containers::ExecutionController",
+        "cellar::sdk::containers::ExecutionController::create",
+        "cellar::sdk::containers::ExecutionController::open",
+        "cellar::sdk::containers::ExecutionController::options",
+        "cellar::sdk::containers::ExecutionController::execute",
+        "cellar::sdk::containers::ExecutionController::pending",
+        "cellar::sdk::containers::ExecutionController::reconcile",
+        "cellar::sdk::containers::ExecutionController::recover_history",
+        "cellar::sdk::containers::ExecutionController::shutdown",
+        "cellar::sdk::containers::ExecutionControllerOptions",
+        "cellar::sdk::containers::ExecutionControllerLimits",
+        "cellar::sdk::containers::ExecutionControllerFailure",
+        "cellar::sdk::containers::ExecutionControllerBackend",
+        "cellar::sdk::containers::ExecutionControllerBackend::identity",
+        "cellar::sdk::containers::ExecutionControllerBackend::revoke",
+        "cellar::sdk::containers::ExecutionControllerBackend::revoke_history",
+        "cellar::sdk::containers::ExecutionControllerBackend::execute",
+        "cellar::sdk::containers::ExecutionControllerBackend::reconcile",
+        "cellar::sdk::containers::ExecutionOperation",
+        "cellar::sdk::containers::ExecutionOperation::new",
+        "cellar::sdk::containers::ExecutionOperationKind",
+        "cellar::sdk::containers::ExecutionOutcome",
+        "cellar::sdk::containers::ExecutionPendingOperation",
+        "cellar::sdk::containers::ExecutionGrant::operation"
       ],
       "owners": [
         "crates/cellar/application/containers.rs",
@@ -757,11 +781,16 @@
         "crates/cellar/storage/sqlite/container_maintenance.sql",
         "crates/cellar/application/container_execution.rs",
         "crates/cellar/storage/sqlite/container_execution.rs",
-        "crates/cellar-container/lib.rs"
+        "crates/cellar-container/lib.rs",
+        "crates/cellar/application/container_execution_wire.rs",
+        "crates/cellar/application/container_controller/mod.rs",
+        "crates/cellar/application/container_controller/values.rs",
+        "crates/cellar/application/container_controller/journal.rs"
       ],
       "schemas": [
         "Desired state, supervision and provider volumes",
-        "crates/cellar/storage/sqlite/container_execution.sql"
+        "crates/cellar/storage/sqlite/container_execution.sql",
+        "Independent controller journal: checksummed format-1 registry, per-logical-binding high-water, immutable original operation receipts and permanent incarnation revocations"
       ],
       "bindings": [
         "Real container or sandbox provider"
