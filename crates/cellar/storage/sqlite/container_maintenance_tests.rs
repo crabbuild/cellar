@@ -58,6 +58,16 @@ fn shared_change(
     record: BindingRecord,
     now: i64,
 ) -> anyhow::Result<crate::application::containers::BindingCheckpoint> {
+    shared_change_with_minimum(connection, previous, record, now, Durability::S3)
+}
+
+fn shared_change_with_minimum(
+    connection: &Connection,
+    previous: Option<u64>,
+    record: BindingRecord,
+    now: i64,
+    minimum: Durability,
+) -> anyhow::Result<crate::application::containers::BindingCheckpoint> {
     connection.execute_batch("SAVEPOINT test_shared_retirement")?;
     let result: anyhow::Result<_> = (|| {
         let checkpoint = super::super::container_bindings::transaction(
@@ -74,7 +84,7 @@ fn shared_change(
             &checkpoint.record,
             Some(policy()),
             now,
-            Durability::S3,
+            minimum,
         )?;
         Ok(checkpoint)
     })();
@@ -151,6 +161,52 @@ fn shared_retirement_retains_discovery_until_exact_confirmation() -> anyhow::Res
         crate::application::consensus::native_work::get(&db, "resource-reconciliation")?,
         None
     );
+    Ok(())
+}
+
+#[test]
+fn stale_quorum_discovery_cannot_claim_a_strengthened_s3_obligation() -> anyhow::Result<()> {
+    let db = Connection::open_in_memory()?;
+    let initial = shared_change_with_minimum(&db, None, record(), 1000, Durability::Quorum)?;
+    // Model the earlier Quorum obligation observed by the scanner. Its wake is
+    // still unclaimed when a producer strengthens the same retained generation.
+    let wake = crate::application::consensus::native_work::due(&db, 1100)?.unwrap();
+    assert_eq!(next_minimum(&db)?, Durability::Quorum);
+    db.execute_batch("BEGIN")?;
+    changed(
+        &db,
+        RAFT_STORAGE_SCOPE,
+        "container",
+        &initial.record,
+        Some(policy()),
+        1000,
+        Durability::S3,
+    )?;
+    db.execute_batch("COMMIT")?;
+    assert_eq!(
+        crate::application::consensus::native_work::due(&db, 1100)?,
+        Some(wake)
+    );
+    let task = tasks(&db)?.remove(0);
+    assert_eq!(task.minimum, Durability::S3);
+    let error = claim_in(&db, RAFT_STORAGE_SCOPE, &task, 1100, Durability::Quorum)
+        .err()
+        .expect("stale Quorum admission must refuse the S3 task");
+    assert_eq!(
+        error.downcast_ref::<crate::application::consensus::CommandFailure>(),
+        Some(&crate::application::consensus::CommandFailure::Unavailable)
+    );
+    assert_eq!(tasks(&db)?, vec![task.clone()]);
+    assert_eq!(
+        crate::application::consensus::native_work::due(&db, 1100)?,
+        Some(wake)
+    );
+    db.execute_batch("BEGIN")?;
+    let claimed = claim_in(&db, RAFT_STORAGE_SCOPE, &task, 1100, Durability::S3)?.unwrap();
+    db.execute_batch("COMMIT")?;
+    assert_eq!(claimed.minimum, Durability::S3);
+    assert_eq!(claimed.version, task.version + 1);
+    assert_eq!(next_minimum(&db)?, Durability::S3);
     Ok(())
 }
 

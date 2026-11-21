@@ -195,7 +195,9 @@ sequence; a fresh generation remains an explicit operation.
 
 The task retains its source durability minimum, including an explicit S3 request
 in a Quorum-default namespace. Discovery carries that minimum into the new
-framework command. The version-1 internal task schema includes this field;
+framework command. Task claim checks the admitted minimum again: an earlier
+unclaimed wake can survive a producer update, but stale Quorum admission cannot
+reserve its strengthened S3 obligation. The version-1 internal task schema includes this field;
 incompatible old layouts refuse instead of receiving a compatibility reader.
 
 Live maintenance, Reconcile and Destroy also look up every original pending

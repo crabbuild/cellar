@@ -382,29 +382,45 @@ pub(crate) fn recover(
 }
 
 pub(crate) fn claim(scope: &str, expected: &Task, now: i64) -> anyhow::Result<Option<Task>> {
-    mutate(scope, |c| {
-        let current = tasks(c)?
-            .into_iter()
-            .find(|task| task.binding == expected.binding);
-        if current.as_ref() != Some(expected) {
-            return Ok(None);
-        }
-        let mut task = expected.clone();
-        task.logical_ms = task.logical_ms.max(now);
-        task.version = task
-            .version
-            .checked_add(1)
-            .filter(|v| *v <= i64::MAX as u64)
-            .ok_or_else(|| anyhow::anyhow!("maintenance revision exhausted"))?;
-        task.due_ms = add(task.logical_ms, task.policy.inspect_interval_ms)?;
-        let deadline = task.deadline()?;
-        if deadline > task.logical_ms {
-            task.due_ms = task.due_ms.min(deadline);
-        }
-        save(c, &task)?;
-        rearm(c, scope)?;
-        Ok(Some(task))
-    })
+    let minimum = invocation_minimum(scope)?;
+    mutate(scope, |c| claim_in(c, scope, expected, now, minimum))
+}
+
+fn claim_in(
+    connection: &Connection,
+    scope: &str,
+    expected: &Task,
+    now: i64,
+    minimum: Durability,
+) -> anyhow::Result<Option<Task>> {
+    let current = tasks(connection)?
+        .into_iter()
+        .find(|task| task.binding == expected.binding);
+    if current.as_ref() != Some(expected) {
+        return Ok(None);
+    }
+    // Discovery may predate a producer's stronger source requirement while
+    // retaining the same unclaimed wake. Refuse before reserving work; an
+    // earlier Quorum command cannot consume the current S3 obligation.
+    ensure!(
+        scope != RAFT_STORAGE_SCOPE || minimum >= expected.minimum,
+        crate::application::consensus::CommandFailure::Unavailable
+    );
+    let mut task = expected.clone();
+    task.logical_ms = task.logical_ms.max(now);
+    task.version = task
+        .version
+        .checked_add(1)
+        .filter(|v| *v <= i64::MAX as u64)
+        .ok_or_else(|| anyhow::anyhow!("maintenance revision exhausted"))?;
+    task.due_ms = add(task.logical_ms, task.policy.inspect_interval_ms)?;
+    let deadline = task.deadline()?;
+    if deadline > task.logical_ms {
+        task.due_ms = task.due_ms.min(deadline);
+    }
+    save(connection, &task)?;
+    rearm(connection, scope)?;
+    Ok(Some(task))
 }
 
 pub(crate) fn finish(scope: &str, expected: &Task, success: bool) -> anyhow::Result<()> {
