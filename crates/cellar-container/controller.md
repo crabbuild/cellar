@@ -64,10 +64,13 @@ and wrap the application with `supervise` for autonomous reconciliation without
 request traffic. The attachment's entry reconciliation runs when an invocation
 arrives; framework maintenance remains independent of business construction.
 
-Fresh Start, bounded file read/write and Destroy have native/RustFS coverage.
+Fresh Start, bounded file read/write, Destroy and repeated Start have scoped
+native/RustFS coverage. The complete gate remains failed by completion and
+autonomous S3 cleanup deadlines; see the source-pinned
+[qualification checkpoint](../../docs/design/multi-raft/cell-groups/progress.md#cg-17-native-replacement-deadline-custody-and-original-create-sealing).
 The typed mappings for stat/list, signal, monitor and inactivity configuration
-still need owning behavior qualification. Repeated Start/replacement, interactive
-exec, port/HTTP/WebSocket sessions and native Sandbox remain unfinished.
+still need owning behavior qualification. Interactive exec, port/HTTP/WebSocket
+sessions and native Sandbox remain unfinished.
 Container file bytes retain the provider's storage contract; quorum metadata
 does not replicate those bytes or establish provider-volume recovery.
 
@@ -76,6 +79,24 @@ before application code. Later business changes require another proof before
 external work. An unbound or confirmed-retired generation needs no entry-only
 checkpoint; fresh Start combines its business writes, intent and execution claim
 before dispatch and retains a separate result proof.
+
+Repeated Start replaces a confirmed resource under the same lifecycle guard.
+Input validation, retention and generation bounds precede deletion. The old
+intent is proven before Delete. Its known result permits private retirement and
+preparation of the next intent/claim; the mandatory original Quorum/S3 gate then
+precedes Create. This matches explicit Destroy followed by Start in one callback
+and avoids an intermediate retirement checkpoint. Unknown Delete returns before
+reserving another generation. Both phases retain the same invocation and exact
+expiry, captured once rather than recomputed on later dispatch.
+
+A timeout can leave the old resource absent without its replacement. A failed S3
+gate can also leave an unsubmitted next generation committed only to quorum.
+Recovery seals that original Create ID against late submission, confirms its
+no-effect outcome and retires it before business entry. It never replays the
+multi-phase callback. Only an explicit new Start advances again. Receipt lookup,
+sealing and reconciliation share one admitted I/O boundary; each controller call
+still validates the same claim. Already submitted operations retain their exact
+original identities and expiry. These rules do not establish volume durability.
 
 ## Authenticated controller endpoint
 

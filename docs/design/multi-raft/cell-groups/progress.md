@@ -26,13 +26,99 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
-The [Queue transfer identity audit](#cg-17-queue-transfer-payload-identity) records
-the next correctness delivery and its independent qualification boundary.
-The latest [Workflow deletion checkpoint](#cg-17-workflow-committed-delete-settlement)
-records the causal fix, earlier Workflow-create/filesystem-write deadline failures
-and the coordinated successor's eighteen passing Workflow configurations.
+The [Queue transfer identity audit](#cg-17-queue-transfer-payload-identity) and
+[Workflow deletion checkpoint](#cg-17-workflow-committed-delete-settlement) retain
+their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
+
+### CG-17 native replacement, deadline custody and original Create sealing
+
+Source `f42fe52a2` delivers repeated native Container Start through the shared
+controller. Validation, retention and generation bounds precede deletion. The
+old delete intent passes the original source proof; only a known Delete outcome
+permits private retirement and preparation of the next generation. One mandatory
+Quorum/S3 gate proves the resulting intent/claim before constructing Create.
+This matches explicit Destroy then Start within one owned callback. An uncertain
+Delete never reserves another generation or replays the callback.
+
+Replacement uses four cell versions: entry reconciliation, old delete intent,
+combined next intent/claim, and result. It preserves business SQL and replaces
+ephemeral provider bytes. Both phases retain the same Context, lifecycle guard
+and exact expiry. Source `01e247f09` pins the wall deadline once when binding the
+invocation; repeated dispatch capture and later limits cannot renew it.
+
+An interrupted S3 gate can leave a quorum-committed, unsubmitted generation.
+After retained restart, the successor must seal that original Create ID against
+late submission, observe its authoritative refusal and retire it before business
+entry. Only an explicit new Start advances again. Create receipt lookup, sealing
+and reconciliation share one admitted I/O closure; every controller operation
+still checks the immutable claim independently. No SQLite authority reaches that
+closure and no uncertain Create is submitted again.
+
+| Scoped qualification at `f42fe52a2` | Native | Real RustFS |
+| --- | ---: | ---: |
+| Four-version replacement and interrupted-admission recovery/sealing | 8/8 pass | 8/8 pass |
+| Original lost-Create recovery without callback/compute replay | 4/4 pass | 3 pass / 1 fail |
+| Existing native entry and initial archive-refusal controls | 5 pass / 1 fail / 2 unrun | 8/8 pass |
+| Existing named-provider and maintenance controls | 8/8 pass | 5 pass / 1 fail / 2 unrun |
+| Container library | 35/35 pass | Not a provider-durability gate |
+
+The aggregate gates remain **FAILED**: native has 25 passing, one failed and two
+unrun configurations; real RustFS has 24 passing, two failed and two unrun.
+Native materialized/S3 Delete6 exceeds its original five-second deadline after
+physical Delete completes. Real extent/S3 lost-Create recovery does not complete
+autonomous cleanup within its original 60-second wait; the last checkpoint trace
+is Applied11 without Continued. The real maintenance control's materialized/S3
+Create1 expires before its delete-intent fault; the extent configurations are
+unrun. No assertion, request budget or maintenance budget was weakened. Lost
+responses retain typed ambiguity and their original identities.
+
+All original 2352 results remain intact. Continuation2356 executes only four
+previously unrun native/library functions; it does not rerun or clear the failed
+native case. Its passing results do not make the aggregate pass. Real2354 uses
+the same frozen executable and retains the failed native gate explicitly.
+
+Earlier `d336ed8d2` passes 28 native configurations and 35 library tests, including
+ordinary SQL/KV bindings. Its real campaign has 20 passes, three failures and five
+unrun configurations: managed S3 startup before commands, replacement4 after
+Delete, and named extent/S3 Data2. SQL/KV bindings pass both native and real image
+modes there. Their production owners are unchanged by the later controller-only
+work. The current selected passes do not establish a causal fix for the older
+startup or completion failures.
+
+The causal controls are retained: `48d872842` rejects repeated Start at command4;
+`936207921` permits it but gives Create an expiry one millisecond later than
+Delete; `a61c2f9f2` fails the unchanged four-version regression with an actual
+five-version transition. The first combined implementation `6c546cbed` fails
+compilation because endpoint methods consume their Arc; `f42fe52a2` retains that
+same endpoint through explicit clones. No unsafe ownership workaround is used.
+
+Sources, frozen executables, raw logs and retained disks are in
+`CG-17-native-replacement-d336ed8d2-2341`,
+`CG-17-native-replacement-f42fe52a2-2352` and the separately retained red/build
+controls, with checksum-verified second copies. The current primitives SHA-256 is
+`4c486e38dcf013037e471a68a1edd6ec7bf945c55665108f86d7f2c4821a7015`; the library
+SHA-256 is `cc5460d7419b1c9f50f6286108ebca4b0ebba57b1bc07a1c0b8955189e7d2624`.
+Owned runtimes and the RustFS lab are stopped; objects and volumes are retained.
+
+Scope remains one native macOS RF3 process and a controlled provider peer, with
+RustFS at 1 CPU/2 GiB in a 6-CPU/12-GiB VM. Archive faults are injected in the store
+wrapper. Actual independently fenced compute, provider-volume recovery,
+interactive exec, ports, Sandbox and the full process/fault matrix remain open.
+Quorum metadata does not replicate provider file bytes.
+
+Next finish durable framework completion recovery and safe sequence sealing when
+an S3 checkpoint outlives its invocation, then managed S3 startup and actual
+execution/Sandbox ownership. Preserve original 5-second requests, 3-second
+maintenance and 60-second recovery waits. Receipt GC, WebSockets, all primitive
+adapters and the complete lifecycle/feature/recovery matrix remain required.
+CG-17 is IN_PROGRESS with no accepted evidence record. Its 32 formal test names
+are not yet registered in the public test target; the SDK inventory remains
+partial. The generated index credits cases only for DONE tasks, not individual
+component passes. All case oracles, dependencies and stop conditions are intact;
+default cutover remains gated. Historical checkpoints below retain their own
+source and qualification boundaries.
 
 ### CG-17 native Container attachment and owned invocation entry
 
