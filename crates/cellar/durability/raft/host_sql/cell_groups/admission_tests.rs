@@ -539,7 +539,7 @@ async fn queued_writers_precede_callback_resume_and_cancel_without_refunding_phy
 
 #[tokio::test]
 #[allow(clippy::disallowed_methods)]
-async fn writer_release_wakes_waiters_without_raft_apply() -> anyhow::Result<()> {
+async fn writer_contention_and_release_retain_physical_admission() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     let log = domain
@@ -577,6 +577,7 @@ async fn writer_release_wakes_waiters_without_raft_apply() -> anyhow::Result<()>
         },
         log.claim_sql_pool()?,
         2,
+        log.performance(),
     );
     let mut progress = admission.writer_progress();
     let (mut first, first_bytes) = admission.reserve(&cell, group, 1024)?;

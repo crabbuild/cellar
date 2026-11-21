@@ -49,6 +49,12 @@ CREATE INDEX IF NOT EXISTS __sys_queue_messages_moving
          ON __sys_queue_messages (seq)
          WHERE dlq_target IS NOT NULL;
 
+-- Moving rows have no consumer lease. Raft uses leased_until as the retry
+-- boundary of an admitted transfer, retaining its original transfer identity.
+CREATE INDEX IF NOT EXISTS __sys_queue_messages_moving_due
+         ON __sys_queue_messages (COALESCE(leased_until, -9223372036854775808), seq)
+         WHERE dlq_target IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS __sys_queue_messages_lease_batch
          ON __sys_queue_messages (lease_id, visible_at, seq)
          WHERE lease_id IS NOT NULL;

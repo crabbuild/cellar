@@ -215,7 +215,7 @@ impl Broker {
         } else {
             None
         };
-        let pending=!self.exec("SELECT 1 FROM __sys_queue_messages INDEXED BY __sys_queue_messages_moving WHERE dlq_target IS NOT NULL LIMIT 1",&[])?.is_empty();
+        let pending = super::transfers::next_retry(&self.storage, at)?;
         let mut batch = if ready.is_empty() {
             None
         } else {
@@ -226,8 +226,8 @@ impl Broker {
                 number(&ready[0], "ready_at")?.saturating_add(consumer.max_batch_timeout_ms)
             })
         };
-        if pending {
-            batch = Some(batch.unwrap_or(at).min(at));
+        if let Some(pending) = pending {
+            batch = Some(batch.map_or(pending, |batch| batch.min(pending)));
         }
         let sweep = [sweep, receipts].into_iter().flatten().min();
         match policy::rearm(at, batch, visible, lease, sweep) {
@@ -473,7 +473,7 @@ impl Broker {
             for seq in &plan.delete_purged {self.exec("DELETE FROM __sys_queue_messages WHERE seq=? AND purge_on_settle=1 AND (lease_id IS NULL OR leased_until<=?)",&[(*seq).into(),at.into()])?;}
             for (seq,expiry) in &expiry {match expiry.action {
                 policy::ExpiredLeaseAction::DeletePurged=>{self.exec("DELETE FROM __sys_queue_messages WHERE seq=? AND leased_until<=?",&[(*seq).into(),at.into()])?;},
-                policy::ExpiredLeaseAction::Exhausted=>{if let Some(target)=&consumer.dead_letter_queue {self.exec("UPDATE __sys_queue_messages SET attempts=?,lease_id=NULL,leased_until=NULL,dlq_target=?,dlq_transfer_id=?,transfer_kind='dead-letter' WHERE seq=? AND leased_until<=?",&[i64::from(expiry.attempt).into(),target.clone().into(),transfers[seq].clone().into(),(*seq).into(),at.into()])?;}else{self.exec("DELETE FROM __sys_queue_messages WHERE seq=? AND leased_until<=?",&[(*seq).into(),at.into()])?;}},
+                policy::ExpiredLeaseAction::Exhausted=>{if let Some(target)=&consumer.dead_letter_queue {self.exec("UPDATE __sys_queue_messages SET attempts=?,lease_id=NULL,leased_until=?,dlq_target=?,dlq_transfer_id=?,transfer_kind='dead-letter' WHERE seq=? AND leased_until<=?",&[i64::from(expiry.attempt).into(),super::transfers::ready_at(&self.storage,at),target.clone().into(),transfers[seq].clone().into(),(*seq).into(),at.into()])?;}else{self.exec("DELETE FROM __sys_queue_messages WHERE seq=? AND leased_until<=?",&[(*seq).into(),at.into()])?;}},
                 policy::ExpiredLeaseAction::RetryAt(deadline) if deadline>at=>{self.exec("UPDATE __sys_queue_messages SET attempts=?,visible_at=?,lease_id=NULL,leased_until=NULL WHERE seq=? AND leased_until<=?",&[i64::from(expiry.attempt).into(),deadline.into(),(*seq).into(),at.into()])?;},_=>{},
             }}
             for lease in &installs {ensure!(lease.generation<=9_007_199_254_740_991,"QUEUE_ERROR: message {} exhausted its safe lease generation",lease.seq);let generation=lease.generation as i64;self.exec("UPDATE __sys_queue_messages SET lease_id=?,lease_generation=?,leased_until=?,attempts=attempts+? WHERE seq=? AND lease_generation=? AND (lease_id IS NULL OR leased_until<=?)",&[lease_id.clone().into(),generation.into(),leased_until.into(),i64::from(lease.reclaimed).into(),lease.seq.into(),(generation-1).into(),at.into()])?;}Ok(())
@@ -571,7 +571,9 @@ impl Broker {
 
     async fn drive_dlq(&self, context: &Context, limit: usize) -> Result<usize> {
         self.open()?;
-        let pending=self.exec("SELECT seq,id,body,content_type,size,dlq_target,dlq_transfer_id,transfer_kind FROM __sys_queue_messages WHERE dlq_target IS NOT NULL AND enqueued_at>? ORDER BY seq LIMIT ?",&[self.retention_cutoff(now()).into(),(limit as i64).into()])?;
+        let at = now();
+        let pending =
+            super::transfers::pending(&self.storage, self.retention_cutoff(at), at, limit)?;
         let mut groups = IndexMap::<String, Vec<&SqlRow>>::new();
         for row in &pending {
             groups
@@ -579,7 +581,26 @@ impl Broker {
                 .or_default()
                 .push(row);
         }
+        let mut delivered = 0;
         for (target, rows) in groups {
+            let rows = if self.storage.is_raft() {
+                let dispatch = crate::storage::capture_raft_dispatch()?
+                    .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?;
+                let remaining = i64::try_from(dispatch.remaining_timeout()?.as_millis())?;
+                let at = now();
+                let until = at.saturating_add(remaining).min(9_007_199_254_740_991);
+                let rows = super::transfers::claim(&self.storage, &rows, at, until)?;
+                if rows.is_empty() {
+                    continue;
+                }
+                // Persist both the claim and its retry wake in the binding's
+                // source checkpoint. A crash/lost reply can then retry the same
+                // transfer after this original deadline; no live flag owns it.
+                self.rearm(context, at, false).await?;
+                rows
+            } else {
+                rows
+            };
             let transfers=rows.iter().map(|row|Ok(json!({"transferId":text(row,"dlq_transfer_id")?,"deadLetterSource":if text(row,"transfer_kind")?=="dead-letter"{Some(self.queue.clone())}else{None},"entry":{"id":text(row,"id")?,"body":null,"contentType":text(row,"content_type")?,"size":number(row,"size")?}}))).collect::<Result<Vec<_>>>()?;
             let mut graph = StructuredValue::from_json(json!([{ "transfers":transfers }]))?;
             let body = wire::array(&graph, &graph.root)?[0].clone();
@@ -597,9 +618,10 @@ impl Broker {
                 )
                 .await?;
             decode_rpc_result(&result)?;
-            self.storage.transaction_sync(|_| {for row in &rows {self.exec("DELETE FROM __sys_queue_messages WHERE seq=? AND dlq_target=? AND dlq_transfer_id=? AND transfer_kind=?",&[number(row,"seq")?.into(),text(row,"dlq_target")?.into(),text(row,"dlq_transfer_id")?.into(),text(row,"transfer_kind")?.into()])?;}Ok(())})?;
+            super::transfers::delivered(&self.storage, &rows)?;
+            delivered += rows.len();
         }
-        Ok(pending.len())
+        Ok(delivered)
     }
 
     async fn alarm(&self, context: &Context) -> Result<()> {
@@ -775,7 +797,7 @@ impl Broker {
             if purged || !retry || (exhausted && consumer.dead_letter_queue.is_none()) {self.exec("DELETE FROM __sys_queue_messages WHERE seq=? AND lease_id=? AND lease_generation=?",&[seq.into(),lease.into(),generation.into()])?;continue;}
             let explicit=if let Some(delay)=retries.get(id.as_str()){*delay}else if retry_batch {body["retryBatch"].get("delaySeconds")}else{None};
             let explicit=explicit.filter(|value|!value.is_null()).map(|value|value.as_u64().and_then(|value|u32::try_from(value).ok()).ok_or_else(||error("Queue retry explicitSeconds is out of range"))).transpose()?;
-            if exhausted {self.exec("UPDATE __sys_queue_messages SET attempts=attempts+1,lease_id=NULL,leased_until=NULL,dlq_target=?,dlq_transfer_id=?,transfer_kind='dead-letter' WHERE seq=? AND lease_id=? AND lease_generation=?",&[consumer.dead_letter_queue.clone().unwrap().into(),uuid(4,None)?.into(),seq.into(),lease.into(),generation.into()])?;}
+            if exhausted {self.exec("UPDATE __sys_queue_messages SET attempts=attempts+1,lease_id=NULL,leased_until=?,dlq_target=?,dlq_transfer_id=?,transfer_kind='dead-letter' WHERE seq=? AND lease_id=? AND lease_generation=?",&[super::transfers::ready_at(&self.storage,at),consumer.dead_letter_queue.clone().unwrap().into(),uuid(4,None)?.into(),seq.into(),lease.into(),generation.into()])?;}
             else {self.exec("UPDATE __sys_queue_messages SET attempts=attempts+1,visible_at=?,lease_id=NULL,leased_until=NULL WHERE seq=? AND lease_id=? AND lease_generation=?",&[policy::retry_at(at,explicit,consumer.retry_delay_seconds).into(),seq.into(),lease.into(),generation.into()])?;}
         }Ok(())})?;
         if let Err(error) = self.drive_dlq(context, 100).await {
@@ -802,8 +824,14 @@ impl Broker {
         self.drive_dlq(context, 100).await?;
         let at = now();
         let rows=self.exec("SELECT seq,dead_letter_source FROM __sys_queue_messages WHERE dead_letter_source IS NOT NULL AND dlq_target IS NULL AND purge_on_settle=0 AND enqueued_at>? AND (lease_id IS NULL OR leased_until<=?) ORDER BY visible_at,seq LIMIT ?",&[self.retention_cutoff(at).into(),at.into(),limit.into()])?;
-        self.storage.transaction_sync(|_| {for row in &rows {let source=text(row,"dead_letter_source")?;self.exec("UPDATE __sys_queue_messages SET dlq_target=?,dlq_transfer_id=?,transfer_kind='redrive',lease_id=NULL,leased_until=NULL WHERE seq=? AND dead_letter_source=? AND dlq_target IS NULL AND purge_on_settle=0 AND (lease_id IS NULL OR leased_until<=?)",&[source.clone().into(),uuid(4,None)?.into(),number(row,"seq")?.into(),source.into(),at.into()])?;}Ok(())})?;
-        self.rearm(context, at, false).await?;
+        self.storage.transaction_sync(|_| {for row in &rows {let source=text(row,"dead_letter_source")?;self.exec("UPDATE __sys_queue_messages SET dlq_target=?,dlq_transfer_id=?,transfer_kind='redrive',lease_id=NULL,leased_until=? WHERE seq=? AND dead_letter_source=? AND dlq_target IS NULL AND purge_on_settle=0 AND (lease_id IS NULL OR leased_until<=?)",&[source.clone().into(),uuid(4,None)?.into(),super::transfers::ready_at(&self.storage,at),number(row,"seq")?.into(),source.into(),at.into()])?;}Ok(())})?;
+        if !self.storage.is_raft() {
+            // Fleet has already persisted the mark and needs this retry wake.
+            self.rearm(context, at, false).await?;
+        }
+        // Native dispatch arms each claim before its source checkpoint, and
+        // the final rearm below covers paths with no external I/O. An earlier
+        // immediate unclaimed wake would compete with the live transfer.
         self.drive_dlq(context, 100).await?;
         self.rearm(context, now(), false).await?;
         Ok(json!({"redriven":rows.len(),"metrics":self.metrics(now(),false)?}))

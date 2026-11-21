@@ -911,7 +911,7 @@ async fn run(
                 .store
                 .denied_group_archive_writes
                 .load(Ordering::Acquire);
-            let archive_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_group_archive_writes);
+            let archive_fault = StoreFault::enable(&cluster.fixtures[0].store.deny_group_archive_writes);
             source
                 .command(
                     &source.contract("Write")?,
@@ -947,11 +947,7 @@ async fn run(
                 .await;
             }
             archive_outage.context("archive outage did not reach the actual PUT adapter")?;
-            cluster.fixtures[0]
-                .store
-                .deny_group_archive_writes
-                .store(false, Ordering::Release);
-            drop(archive_outage);
+            drop(archive_fault);
             let stopped = cluster.nodes.split_off(1);
             managed_fixture::close_group_nodes_with_groups(stopped, &cluster.hosts[1..], 2).await?;
             cluster.hosts.truncate(1);

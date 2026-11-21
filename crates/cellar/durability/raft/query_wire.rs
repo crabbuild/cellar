@@ -53,6 +53,7 @@ const COMMAND_ORIGIN_REFUSED: &[u8] = b"CLQODN01";
 
 /// The frame MAC authenticates this request's identity and body digest before
 /// body bytes can establish a typed read refusal. It grants no write disposition.
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct ResponseBody {
     digest: [u8; 32],
     read_refusal_allowed: bool,

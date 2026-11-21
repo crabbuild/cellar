@@ -981,7 +981,9 @@ fn authenticated_transport_refusal_binds_request_channel_and_purpose() {
     }
     let result = response_head(&auth, &[3; 32], &request, &head.tag, &[], &options).unwrap();
     assert_eq!(
-        read_response(&result, &auth, &[3; 32], &request, &head.tag, &options).unwrap(),
+        read_response(&result, &auth, &[3; 32], &request, &head.tag, &options)
+            .unwrap()
+            .digest,
         <[u8; 32]>::from(Sha256::digest([]))
     );
 }

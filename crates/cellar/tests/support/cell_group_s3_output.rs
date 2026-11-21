@@ -44,7 +44,7 @@ async fn run(
     let filesystem = Arc::new(apply_faults::physical::FaultFileSystem {
         faults: faults.clone(),
     });
-    let mut h = Harness::configured_resources(
+    let h = Harness::configured_resources(
         rooted,
         store,
         2,

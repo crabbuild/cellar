@@ -226,7 +226,7 @@ impl Harness {
         if queued_background {
             limits.max_groups = 3;
         }
-        if matches!(resources, Some(Resources::SlowMaintenance)) {
+        if slow_maintenance {
             limits.retry_interval_ms = 60_000;
         }
         let (mut fixture, route, cell, _) = if let Some(Resources::Retention(retention)) = resources

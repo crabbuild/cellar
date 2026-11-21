@@ -12,6 +12,7 @@ pub(crate) mod metadata;
 pub(crate) mod read;
 mod sql;
 mod transfer;
+mod transfers;
 mod wire;
 
 #[cfg(test)]
