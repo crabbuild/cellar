@@ -37,6 +37,16 @@ and cannot establish an exclusive cause or workload gain. Production inputs and
 the original load body are unchanged. The retained **18 node disks and six
 synthetic exports** have independently verified closed copies.
 
+The [C4 lifecycle diagnostic](queue-c4-lifecycle-diagnostic-2026-11-21.json)
+passes one unsampled materialized exact drain while rooted sampled/unsampled
+controls retain **seven ambiguous producer deadlines**. Their controllers, SQL
+workers and domains close only after the workload boundary. Premature shutdown
+and sampling are unnecessary for those failures. The preceding rooted
+closure/storage failure remains unclosed; its complete media audit does not pass
+the failed cleanup gate. Temporary observations are removed byte-exact. Measure
+and reduce foreground/image/archive sync work while retaining the original
+proofs and budgets; one pass is neither repeatability nor a speedup.
+
 The immediate **P0** is repeatable KV service and Queue producer/callback service
 and drain within the original **3,000-ms RPC / 5,000-ms callback / 30-second drain**
 windows. Profile the remaining command/image, consumer, lease and final-settlement

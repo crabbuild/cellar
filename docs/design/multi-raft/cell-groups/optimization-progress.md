@@ -47,6 +47,29 @@ start unchanged, zero restarts and zero admitted cases. A fresh three-node
 resource witness, the constrained comparison and full OPT/CG/recovery/SDK/release
 gates remain open. No throughput or latency gain is qualified.
 
+## C4 window and lifecycle diagnosis
+
+The [current diagnostic record](queue-c4-lifecycle-diagnostic-2026-11-21.json)
+restores production inputs `040479d8` byte-exact after all temporary lifecycle
+observations close and are independently verified. The unsampled materialized
+C4 control passes the original **528-message / 528-unique-ID** assertions.
+Unsampled and sampled rooted controls fail with **seven explicitly ambiguous
+producer deadlines**. All observed controller, SQL and domain closures follow
+the workload boundary and join successfully. Premature shutdown and sampling
+are therefore unnecessary for this reproduced deadline failure; no runtime
+change or performance gain follows from the materialized pass.
+
+The preceding short-window cohort separately retains four materialized ambiguous
+deadlines and four rooted producer failures without explicit outcome fields.
+Its rooted snapshot shows closing controllers, and one host close returns a
+SQL-pool-join storage failure. The strict cleanup gate remains failed. A separate
+closed-media audit verifies **six disks and two exports**, retaining both the
+premature and terminal strict-verifier failures. The lifecycle follow-up verifies
+**nine disks and three exports**; its clean closure does not repair the earlier
+failure or prove complete-prefix recovery. Persistence sync work remains the
+next measured target. Full repeatability, OPT/CG/SDK/recovery/release and the
+original constrained comparison remain open.
+
 ## Queue diagnostic closure
 
 The [Queue domain-retention follow-up](queue-domain-retention-qualification-2026-11-21.json)
