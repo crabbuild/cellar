@@ -402,7 +402,7 @@ fn claim_in(
     // Discovery may predate a producer's stronger source requirement while
     // retaining the same unclaimed wake. Refuse before reserving work; an
     // earlier Quorum command cannot consume the current S3 obligation.
-    ensure!(
+    anyhow::ensure!(
         scope != RAFT_STORAGE_SCOPE || minimum >= expected.minimum,
         crate::application::consensus::CommandFailure::Unavailable
     );
