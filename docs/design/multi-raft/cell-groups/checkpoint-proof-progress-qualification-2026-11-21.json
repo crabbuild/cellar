@@ -1,0 +1,701 @@
+{
+  "format": 1,
+  "status": "SCOPED_PROOF_PROGRESS_PASSED_COMBINED_QUALIFICATION_FAILED",
+  "scope": "Checkpoint proof observation progresses on the same admitted execution-domain task while unrelated SQL occupies its original owner. Only that SQL owner adopts the unique producer, rechecks the frozen receipt/fence and consumes proofs before continuation or output. This does not establish an exclusive Queue bottleneck, benchmark gain or complete TiKV/CG/release acceptance.",
+  "base_head": "825caceef7898bdb78142408a9b7d35439ae784b",
+  "compiler_inputs_sha256": "00cc1444d9d70725cb0d5c62a4f900023075866b63794a10eb459a9f1e13d942",
+  "source_files": [
+    "crates/cellar/durability/raft/host_sql/cell_groups/checkpoint_task.rs",
+    "crates/cellar/durability/raft/host_sql/cell_groups/suspended_rpc.rs"
+  ],
+  "change": [
+    "Run unchanged exact-applied/current-fence or newer-term reconciliation after the unchanged retained submission, on its existing active task.",
+    "Return producer custody and one proof pair together; retain entered physical I/O through owner-side join on cancellation, rejected spawn or panic.",
+    "Keep SQLite, writer, byte admission, native continuation, final receipt/fence checks, S3 freshness/archive proof and output gates on their original owners.",
+    "Preserve captured identity, positive pre-submission seals, original timeouts/retry policy and resource/worker capacities; preserve the retry-only exact-submission path."
+  ],
+  "proof_control": {
+    "byte_identical_native_test_inputs": true,
+    "red_record_sha256": "837c3481881080f644dfa3e107accc725f93b4571fb3d385436f1c34a10fc977",
+    "before": [
+      {
+        "durability": "Quorum",
+        "joinedClose": true,
+        "proofObservedWhileSqlHeld": false,
+        "rooted": false,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "joinedClose": true,
+        "proofObservedWhileSqlHeld": false,
+        "rooted": false,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "Quorum",
+        "joinedClose": true,
+        "proofObservedWhileSqlHeld": false,
+        "rooted": true,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "joinedClose": true,
+        "proofObservedWhileSqlHeld": false,
+        "rooted": true,
+        "valuesAndReplayVerified": true
+      }
+    ],
+    "after": [
+      {
+        "durability": "Quorum",
+        "joinedClose": true,
+        "proofObservedWhileSqlHeld": true,
+        "rooted": false,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "joinedClose": true,
+        "proofObservedWhileSqlHeld": true,
+        "rooted": false,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "Quorum",
+        "joinedClose": true,
+        "proofObservedWhileSqlHeld": true,
+        "rooted": true,
+        "valuesAndReplayVerified": true
+      },
+      {
+        "durability": "S3",
+        "joinedClose": true,
+        "proofObservedWhileSqlHeld": true,
+        "rooted": true,
+        "valuesAndReplayVerified": true
+      }
+    ],
+    "scope": "Both image forms and Quorum/S3. One source SQL worker, original one-second progress window and original command budgets. An already admitted second invocation wakes to occupy SQL after checkpoint apply preparation and before source engine publication. Final values, no early handler continuation/acknowledgement, exact once-only replay and joined close remain asserted.",
+    "baseline_compiler_inputs_sha256": "0b334f4e123d75f474269b3b1571874b6a967634487c891c10d9c6a3339c3284",
+    "baseline_evidence": {
+      "status": "VERIFIED_FAILED",
+      "record_sha256": "837c3481881080f644dfa3e107accc725f93b4571fb3d385436f1c34a10fc977",
+      "retained_files": 1879,
+      "retained_bytes": 13037512,
+      "manifest_sha256": "7112422124c696dd24f886de21ded168d8437638fc5a3a71e1d41d6dedd38f1a",
+      "exports": 8,
+      "objects": 1073,
+      "memory_bytes": 4146514
+    }
+  },
+  "validation": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "test_profile": {
+      "locked": true,
+      "all_features": true,
+      "opt_level": 1,
+      "debug_assertions": true,
+      "overflow_checks": true,
+      "test_threads": 1
+    },
+    "library": {
+      "passed": 1360,
+      "failed": 0,
+      "existing_ignored": 2
+    },
+    "owning_controls": {
+      "performance-tests": {
+        "passed": 5,
+        "failed": 0
+      },
+      "waiter-liveness-tests": {
+        "passed": 4,
+        "failed": 0
+      },
+      "checkpoint-task-tests": {
+        "passed": 3,
+        "failed": 0
+      },
+      "domain-task-tests": {
+        "passed": 1,
+        "failed": 0
+      },
+      "submission-prime-tests": {
+        "passed": 2,
+        "failed": 0
+      }
+    },
+    "native": [
+      {
+        "case": "prepared_checkpoints_replicate_before_unrelated_queued_sql",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "completed_checkpoints_advance_ready_reply_bridges",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "ordinary_cell_sdk_dispatch_requires_source_proof",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "ordinary_sql_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "ordinary_kv_bindings_use_managed_shared_groups",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "ordinary_queue_callbacks_use_shared_quorum",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "queue_long_callbacks_preserve_progress",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "queue_operator_reads_preserve_auth_archive_and_fresh_quorum",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "case": "kv_inline_reads_require_current_archive_and_quorum",
+        "status": "PASSED",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "load_observations": [
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "observation": "completed-drain",
+        "realRustFS": false,
+        "extents": false,
+        "inFlightRequests": 2,
+        "perQueueInFlight": 1,
+        "peakInFlightRequests": 2,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2,
+        "delivered": 528,
+        "uniqueMessageIds": 528
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "observation": "producer-failure",
+        "realRustFS": false,
+        "extents": true,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "failedProducers": 4,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "observation": "producer-failure",
+        "realRustFS": false,
+        "extents": false,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "failedProducers": 3,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "observation": "completed-drain",
+        "realRustFS": false,
+        "extents": false,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2,
+        "delivered": 528,
+        "uniqueMessageIds": 528
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "observation": "producer-failure",
+        "realRustFS": false,
+        "extents": true,
+        "inFlightRequests": 4,
+        "perQueueInFlight": 2,
+        "peakInFlightRequests": 4,
+        "failedProducers": 3,
+        "ordinarySlots": 8,
+        "ordinaryBytes": 131072,
+        "callbackSlots": 2
+      }
+    ],
+    "producer_failure_observations": [
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "offered_batch_kind": "steady-load",
+        "deadline_text_present": true,
+        "explicit_ambiguity_values": [
+          "true"
+        ],
+        "offered_messages": 8
+      }
+    ],
+    "consumer_observations": [
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "extents": true,
+        "image_scope_from_fixed_wrapper_and_prior_completed_image": true,
+        "recorded_deliveries": 504,
+        "distinct_observed_delivery_ids": 504,
+        "consumer_reported_completions": 504,
+        "delivery_observations_by_synthetic_phase": {
+          "outage": 16,
+          "steady": 488
+        },
+        "completion_observations_by_synthetic_phase": {
+          "outage": 16,
+          "steady": 488
+        },
+        "scope": "Pre-close consumer observations; neither durable settlement proofs nor a final exact drain."
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "extents": true,
+        "image_scope_from_fixed_wrapper_and_prior_completed_image": true,
+        "recorded_deliveries": 72,
+        "distinct_observed_delivery_ids": 72,
+        "consumer_reported_completions": 72,
+        "delivery_observations_by_synthetic_phase": {
+          "outage": 16,
+          "steady": 56
+        },
+        "completion_observations_by_synthetic_phase": {
+          "outage": 16,
+          "steady": 56
+        },
+        "scope": "Pre-close consumer observations; neither durable settlement proofs nor a final exact drain."
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "extents": false,
+        "image_scope_from_fixed_wrapper_and_prior_completed_image": true,
+        "recorded_deliveries": 200,
+        "distinct_observed_delivery_ids": 200,
+        "consumer_reported_completions": 200,
+        "delivery_observations_by_synthetic_phase": {
+          "outage": 16,
+          "steady": 184
+        },
+        "completion_observations_by_synthetic_phase": {
+          "outage": 16,
+          "steady": 184
+        },
+        "scope": "Pre-close consumer observations; neither durable settlement proofs nor a final exact drain."
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "extents": true,
+        "image_scope_from_fixed_wrapper_and_prior_completed_image": true,
+        "recorded_deliveries": 160,
+        "distinct_observed_delivery_ids": 160,
+        "consumer_reported_completions": 160,
+        "delivery_observations_by_synthetic_phase": {
+          "outage": 16,
+          "steady": 144
+        },
+        "completion_observations_by_synthetic_phase": {
+          "outage": 16,
+          "steady": 144
+        },
+        "scope": "Pre-close consumer observations; neither durable settlement proofs nor a final exact drain."
+      }
+    ],
+    "drain_failures": [
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "extents": true,
+        "queue_kind": "primary",
+        "original_empty_wait_seconds": 30,
+        "generic_deadline_elapsed_present": true,
+        "recorded_producer_failures": 0,
+        "error_line_sha256": [
+          "b69982f642b1510ef212b178896e04f16369c35f1c1d9d8de862c5dda1155206"
+        ],
+        "scope": "The exact final drain remains failed. Observed consumer completions do not establish durable settlement, data loss or complete-prefix recovery."
+      }
+    ],
+    "queue_cleanup": [
+      {
+        "case": "ordinary_queue_callbacks_use_shared_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 1,
+        "returnedOk": true
+      },
+      {
+        "case": "ordinary_queue_callbacks_use_shared_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 1,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_long_callbacks_preserve_progress",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_long_callbacks_preserve_progress",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_load_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "rooted_queue_four_in_flight_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "materialized_queue_four_in_flight_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_four_in_flight_preserves_acknowledged_messages",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_cross_deployment_faults_preserve_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_operator_reads_preserve_auth_archive_and_fresh_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      },
+      {
+        "case": "queue_operator_reads_preserve_auth_archive_and_fresh_quorum",
+        "cleanupErrors": 0,
+        "hostCloseAttempts": 3,
+        "httpCloseAttempted": false,
+        "nodeShutdownAttempts": 3,
+        "returnedOk": true
+      }
+    ],
+    "checks": {
+      "format": "PASSED",
+      "clippy": "PASSED",
+      "layout": "PASSED",
+      "native-dependencies": "PASSED",
+      "docs": "PASSED",
+      "whitespace": "PASSED"
+    }
+  },
+  "evidence": {
+    "status": "VERIFIED_FAILED",
+    "record_sha256": "765d8b2682269ccfeb66e41a95cb0d8f0cfdd544b8ab80e7a2442face13b814e",
+    "recorded_stages": 28,
+    "planned_stages": 28,
+    "retained_files": 38712,
+    "retained_bytes": 841344275,
+    "manifest_sha256": "c2b7fb1dc2d28a14cf4d09c61139b6d23e07c4ef15b1b4bd6ace14da06f50bbd",
+    "exports": 38,
+    "objects": 22755,
+    "memory_bytes": 218358241,
+    "awake_joined": true
+  },
+  "phase_observations": {
+    "snapshots": 9,
+    "distinct_engine_sources": 9,
+    "started_in_last_snapshot_per_engine": {
+      "cell_checkpoint_prepare": 44,
+      "cell_checkpoint_submit": 44,
+      "cell_checkpoint_handoff": 44,
+      "cell_checkpoint_proof": 44
+    },
+    "scope": "Overlapping lifetime failure snapshots. In this source handoff includes proof waiting. No failure snapshots means no observed diagnostic data, not absence of checkpoint work."
+  },
+  "original_rustfs_capacity": {
+    "status": "VERIFIED_READ_ONLY_CAPACITY",
+    "observed_at_utc": "2026-11-21T14:57:31.938706+00:00",
+    "record_sha256": "f36b29e7a1126452b2f64ecfa63e3f9d6e96c38853e2e309e521db6fcf31d5c2",
+    "available_bytes": 12001280,
+    "reserve_bytes": 6442450944,
+    "capacity_guard_satisfied": false,
+    "cases_admitted": 0,
+    "original_identity_config_resources_start_verified": true,
+    "restarts": 0,
+    "scope": "Original RustFS only; not a fresh three-node resource witness. No configuration/storage/resource/restart changes."
+  },
+  "rooted_c2_last_read_observations": {
+    "status": "READ_ONLY_REDUCTION_OF_RECORDED_LAST_STRONG_READS_NOT_RECOVERY_PROOF",
+    "stage": "native-08",
+    "source_digest": "00cc1444d9d70725cb0d5c62a4f900023075866b63794a10eb459a9f1e13d942",
+    "log_sha256": "746aa7571da0b9f71992d6e6e758daf5bd8d04c62f063afc92d65d42c4a5eb34",
+    "error_line_sha256": "b69982f642b1510ef212b178896e04f16369c35f1c1d9d8de862c5dda1155206",
+    "primary_empty_wait": true,
+    "backlog_counts": [
+      "16"
+    ],
+    "peek_states": {
+      "visible": 8
+    },
+    "peek_attempts": {
+      "0": 8
+    },
+    "peek_active_lease_flags": {
+      "false": 8
+    },
+    "limits": [
+      "Only values actually present in the retained last-read Debug rendering. It is not an offline root reconstruction, complete-prefix recovery, missing-message identity attribution or exclusive failure cause.",
+      "Info and peek are independent strong reads; no atomic cross-response snapshot is claimed."
+    ],
+    "peek_delivery_attempts": {
+      "0": 8
+    },
+    "peek_lease_generations": {
+      "0": 8
+    }
+  },
+  "limits": [
+    "The compiler-input manifest covers workspace manifests and crate/vendor/example/tool inputs, not every root configuration or environment input.",
+    "Earlier07/08 fixture setup failures are preserved independently and are not used as reproduced runtime-defect evidence.",
+    "Proof-poll progress under an owning SQL hold is not a request percentile, throughput window, exclusive producer cause or full workload repeatability.",
+    "Lifetime snapshots overlap operations/startup/cleanup; failed and abandoned observations can carry durations while unfinished work has none. Handoff and proof now overlap and cannot be added as sequential costs.",
+    "Native RF3 TLS/disks use retained actual synthetic stores; the original three-node1-vCPU/2-GiB Colima/RustFS SQL/KV/Queue comparison is not executed by this qualification.",
+    "All failed/unknown histories and complete available terminal media remain retained; no failed command was reset or reissued.",
+    "Full OPT01-08 and remaining CG/recovery/SDK/release/performance gates remain open. No throughput or latency gain is claimed."
+  ],
+  "whole_goal_complete": false,
+  "code_commit": "27b811cb86626b78c6091dacdabd387f0a6f46f2",
+  "compiler_input_mapping": {
+    "status": "MAPPED_COMMITTED_SOURCE_TO_VERIFIED_COMPILER_INPUTS",
+    "tracked_inputs_mapped": 3521,
+    "ignored_inputs_unchanged_not_committed": 61,
+    "scope": "Tracked compiler inputs match committed blobs. Ignored generated inputs match captured bytes but are not committed. The manifest does not cover every root configuration or environment input."
+  },
+  "owning_regression_files": [
+    "crates/cellar/tests/native_cell_groups_primitives.rs",
+    "crates/cellar/tests/support/cell_group_checkpoint_proof.rs"
+  ]
+}

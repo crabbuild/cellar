@@ -6,7 +6,53 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
-## Current checkpoint phase observations
+## Current checkpoint proof progress
+
+Code `27b811cb8` includes main `5ae2b21f` and observes the unchanged exact applied
+or newer-term reconciliation proof on the existing admitted checkpoint task.
+The original SQL owner still adopts producer custody, rechecks the frozen receipt
+and activation fence, and performs required S3/freshness/output checks before
+continuation. No worker, admission bank, timeout or retry policy changes. Handoff
+now includes proof waiting; the observations overlap and cannot be added as one
+request cost. See the [source-bound qualification](checkpoint-proof-progress-qualification-2026-11-21.json).
+
+The byte-identical owning native control improves from four failing progress
+predicates to **four passes**, covering both image modes and Quorum/S3. It holds
+the actual single SQL worker after physical apply preparation, then releases the
+engine fence. Proof observation and follower replication advance before SQL is
+released. No early continuation/acknowledgement, exact final values, once-only
+replay and joined cleanup remain asserted. Earlier fixture setup failures remain
+retained and are excluded from the reproduced-defect evidence.
+
+The library passes **1,360 tests / two existing ignores**, the waiter/task and
+submission controls pass, and **10 of 14 native selections pass**, including
+ordinary SQL/KV/Queue in both image modes, SDK source-proof/fencing, long callbacks,
+cross-deployment faults, operator archive/fresh-quorum and KV archive/quorum reads.
+Strict all-feature/all-target Clippy for Cellar/LTX/logic and repository checks pass.
+
+Combined qualification remains **FAILED**. All four Queue load selections fail:
+materialized C2 and combined materialized C4 each complete the original
+**528-message drain / 528 unique IDs**. Rooted C2 reaches its original **30-second
+final primary drain timeout**, with **504 consumer-reported completions** and no
+recorded producer error. The three C4 failures retain **ten explicitly ambiguous
+producer deadlines**. All six entered load cohorts report successful three-node
+and three-host cleanup with zero errors. Independently verified original/copy
+inventories retain **38,712 files / 841,344,275 bytes** and **38 synthetic exports /
+22,755 objects / 218,358,241 bytes**. Consumer observations and independent last
+info/peek reads are neither durable settlement nor complete-prefix recovery proof.
+
+The next **P0** is repeatable command/callback service and final drain within the
+original 3,000-ms RPC, 5,000-ms callback and 30-second drain windows. The four-mode
+proof control and failure snapshots do not establish an exclusive Queue cause,
+request percentiles or a throughput/latency gain. Successful-fault and constructor
+cleanup/retention gaps must close before broad execution/routing qualification.
+The original RustFS read-only probe at **2026-11-21T14:57:31.938706+00:00** reports
+**12,001,280 available bytes**, below the unchanged **6 GiB reserve**. Original
+identity/configuration/resources/start match, with zero restarts and no admitted
+cases; this is not a fresh three-node resource witness. The constrained comparison
+and full OPT/CG/recovery/SDK/release acceptance remain open.
+
+## Checkpoint phase observations
 
 Code `c9258a82a` adds four fixed observations to the existing checkpoint path:
 captured preparation/producer completion, retained submission, return to the SQL
@@ -39,7 +85,7 @@ three-node resource witness. The original constrained comparison and complete
 OPT/CG/recovery/SDK/release acceptance remain open. No throughput or latency gain
 is qualified.
 
-## Current checkpoint qualification
+## Checkpoint submission qualification
 
 Code `5e0b9836c` retains main `5ae2b21f` and moves captured immutable checkpoint
 preparation and proposal admission to the existing execution domain. The original

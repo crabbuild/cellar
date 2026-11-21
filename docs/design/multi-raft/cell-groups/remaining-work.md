@@ -4,35 +4,45 @@
 
 Purpose: Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.
 
-The latest [checkpoint observations](checkpoint-observations-qualification-2026-11-21.json)
-record code `c9258a82a`, including main `5ae2b21f`. Four fixed phases distinguish
-preparation, submission, SQL-owner handoff and proof waiting. The underlying
-[checkpoint runtime](checkpoint-handoff-qualification-2026-11-21.json) passes the
-original four image/durability progress controls while unrelated SQL is held.
-Required applied receipts, archive proofs, producer custody and original
-admission/deadline rules remain. The full library passes 1,360 tests with two
-existing ignores; strict Clippy and repository checks pass.
+The latest [checkpoint proof progress](checkpoint-proof-progress-qualification-2026-11-21.json) qualifies code `27b811cb8`,
+including main `5ae2b21f`. The existing checkpoint task observes the unchanged
+exact applied/current-fence or newer-term proof while unrelated SQL holds its
+owner. The byte-identical four-mode native control fails at baseline and passes
+with this change. The SQL owner still adopts custody and checks the frozen
+receipt, activation fence and required S3/output gates before continuation.
+Original admission, deadline, retry and worker limits remain.
 
-The immediate **P0** is repeatable Queue service within the original 3,000-ms
-stateless RPC and 5,000-ms callback deadlines. **10 of 14 native selections pass**,
-including ordinary SQL/KV/Queue in both image modes. All four C2/C4 load selections
-fail with 11 explicitly ambiguous producer deadlines; standalone materialized C4
-also fails, and combined C4 stops before its extent mode. Successful drains,
-cleanup and terminal exports retain their exact scope. Use the phase observations
-to test the remaining SQL-owner dependency in proof polling before selecting a
-runtime change. Keep custody, final receipt/fence rechecks and S3 gates on their
-original owners. Profile fresh independent fixtures to separate command/apply
-service from startup and archive work; preserve every failed/unknown command
-identity and its media. Ordinary Queue passes do not establish load repeatability.
+The library passes **1,360 tests / two existing ignores**; strict Clippy and
+repository checks pass. **10 of 14 native selections pass**, including ordinary
+SQL/KV/Queue in both image modes and SDK, callback, archive and fresh-quorum
+controls. Combined qualification remains **FAILED** across all four Queue load
+selections. Materialized C2 and combined materialized C4 each drain **528 messages /
+528 unique IDs**. Rooted C2 fails its original **30-second final primary drain**
+with **504 consumer-reported completions** and no recorded producer error. The
+three C4 failures retain **ten explicitly ambiguous producer deadlines**. All six
+entered cohorts report successful three-node/three-host cleanup and complete
+available terminal media are independently verified. These observations do not
+establish data loss, durable final settlement or complete-prefix recovery.
 
-Before broadening execution/routing qualification, complete fixture retention for
-successful fault controls and cleanup on constructor/early-error paths. Broader
-recovery, SDK, OPT and release gates remain open. The original three-node,
-1-vCPU/2-GiB SQL/KV/Queue RustFS comparison remains unqualified: its read-only check
-at 2026-11-21T13:27:01.813617+00:00 reports zero available bytes against the unchanged
-6-GiB reserve. No case is admitted and no resource/storage change is made. Earlier
-[main-integration evidence](queue-transfer-claims-qualification-2026-11-21.json)
-and historical priorities below retain their source-specific scope.
+The immediate **P0** is repeatable Queue producer/callback service and final drain
+within the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows.
+Profile command/image work and callback lease, consumer and final settlement
+before selecting another runtime change. Proof polling no longer requires an
+extra SQL turn in the new owning control; it is not an established exclusive
+producer cause or workload speedup. Preserve every failed/unknown command and its
+media, exact receipts/fences, admission banks and S3 gates.
+
+Before broadening execution/routing qualification, complete retention for
+successful fault controls and joined cleanup on constructor/early-error paths.
+The original three-node, 1-vCPU/2-GiB SQL/KV/Queue RustFS comparison remains
+unqualified: the read-only original-store check at
+**2026-11-21T14:57:31.938706+00:00** reports **12,001,280 available bytes**, below
+the unchanged **6 GiB reserve**. Original identity/configuration/resources/start
+match, with zero restarts and no case admitted; it is not a fresh three-node
+resource witness. No resource/storage changes are made. Full OPT/CG/recovery/
+SDK/release gates remain open. Earlier [phase observations](checkpoint-observations-qualification-2026-11-21.json)
+and [main-integration evidence](queue-transfer-claims-qualification-2026-11-21.json)
+retain their source-specific scope.
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
 and the accepted public SQL cutover. This ordering preserves the full
