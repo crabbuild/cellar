@@ -535,7 +535,7 @@ async fn selected(real: bool, scenario: Scenario) -> Result<()> {
             let before=cell.query(ProposalId::new([248;16])?,&cell.contract("Version")?,vec![],QueryOptions::default()).await?;
             let create=call(&cluster,&history,minimum,1,"Create").await;
             if recovery {let error=create.err().context("accepted create lost no reply")?;ensure!(error.downcast_ref::<Arc<CellCommandError>>().is_some_and(|error|error.ambiguous));}
-            else {let receipt=create?;ensure!(receipt.version.sequence.get()==before.version.sequence.get()+3,"public provider must retain exactly entry, intent/claim and result proofs");call(&cluster,&history,minimum,2,"Data").await?;call(&cluster,&history,minimum,3,"Destroy").await?;}
+            else {let receipt=create?;ensure!(receipt.version.sequence.get()==before.version.sequence.get()+3,"public provider must retain exactly entry, intent/claim and result proofs");let data=call(&cluster,&history,minimum,2,"Data").await?;ensure!(data.version.sequence.get()==receipt.version.sequence.get()+3,"unchanged execution claims must share the proven data checkpoint: before={} actual={}",receipt.version.sequence.get(),data.version.sequence.get());call(&cluster,&history,minimum,3,"Destroy").await?;}
             ensure!(peer.creates.load(Ordering::Acquire)==usize::from(!expiry),"create did not reach its selected admission/expiry cut");
             route.factory_refused.store(recovery,Ordering::Release);
             let old_hosts=std::mem::take(&mut cluster.hosts);
