@@ -4,6 +4,15 @@
 
 Purpose: Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.
 
+Current main integration is recorded in the [source-bound qualification](queue-transfer-claims-qualification-2026-11-21.json).
+The immediate P0s are checkpoint preparation/submission progress before unrelated
+SQL can occupy its owner, and repeatable Queue C4 producer/callback/exact-drain
+behavior within the original deadlines. Both ordinary Queue restart repetitions
+and C2 image modes pass; the C4 and checkpoint failures remain unclosed. The narrow
+SQL error follow-up passes its full library and error-contract checks. Broader
+recovery/SDK/OPT acceptance and the original constrained RustFS comparison remain
+open. Historical checkpoint details below retain their original scope.
+
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
 and the accepted public SQL cutover. This ordering preserves the full
 CG-01–17 objective in [tasks.json](tasks.json), [design](design.md) and

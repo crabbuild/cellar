@@ -6,6 +6,25 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Current main integration
+
+Code `a24eddbe9` includes main `5ae2b21f` and the bounded native Queue transfer
+claims. The host-native RF3 campaign passes **21 of 24 primitive selections**,
+two ordinary Queue restart/callback repetitions in both image forms, and the
+original C2 exact drains. Standalone materialized C4 passes; fresh extent C4 and
+combined materialized C4 fail with six explicitly ambiguous producer deadlines.
+Checkpoint replication while unrelated SQL is held fails all four image/durability
+cases, while final values, exact receipt replay and joined close pass.
+
+The SQL error follow-up `fc0a09a91` preserves both the nested message and the typed
+local cause. It passes **1,352 library tests / two existing ignores**, five native
+SQL error contracts, both owning error regressions, strict all-feature/all-target
+Clippy and repository checks. The earlier native failures remain open. These
+host-native fixtures use actual TLS/disks and retained synthetic object stores;
+the original constrained Colima/RustFS comparison remains unqualified. Full OPT,
+CG, SDK and release acceptance remain open. The [qualification record](queue-transfer-claims-qualification-2026-11-21.json)
+keeps exact source, profile, result and retention scopes.
+
 ## Retained event metadata history
 
 Qualified runtime `0a6fb57b67` selects a present local applied enrollment after
@@ -127,7 +146,7 @@ Implementation starts from `d0c2873f` (the shared cell-group runtime merged into
 execution, archive/lifecycle ownership and persistence work. None of OPT-01
 through OPT-08 is accepted as complete by this record.
 
-The latest bounded runtime change, `4e779bd1`, reuses an exact captured producer
+An earlier bounded runtime change, `4e779bd1`, reuses an exact captured producer
 connection for receipt inspection under fresh authority and quiescence checks.
 Both native image modes pass the matched read-dependency tests, the full library
 and execution suites, and original SDK proof/fencing controls. Combined primitive
