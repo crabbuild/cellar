@@ -17,6 +17,10 @@ use cellar_logic::cell_group::{CellVersion, MutationSequence};
 mod preparation;
 pub(crate) use preparation::{CellPrivatePreparation, CellPrivatePrepared, CellStageCapture};
 
+#[path = "cell_checkpoint.rs"]
+mod checkpoint;
+pub(crate) use checkpoint::{CellCheckpointGrant, CellCheckpointPrepared};
+
 #[path = "cell_rpc.rs"]
 mod rpc;
 pub(crate) use rpc::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
@@ -87,13 +91,18 @@ enum StageAdmission {
 
 pub struct CellPrivateExecutor {
     options: Options,
-    authority: CellExecutionAuthority,
+    authority: std::sync::Arc<CellExecutionAuthority>,
     working: Option<WorkingImage>,
     pending: Option<PendingCell>,
-    preparing: Option<std::sync::Arc<()>>,
+    preparing: Option<PreparationOwner>,
     poisoned: bool,
     receipt_cursor: Option<ClientId>,
     _lock: PrivateLock,
+}
+
+enum PreparationOwner {
+    Local(std::sync::Arc<()>),
+    Checkpoint(std::sync::Arc<()>),
 }
 
 impl CellPrivateExecutor {
@@ -187,7 +196,7 @@ impl CellPrivateExecutor {
         }
         Ok(Self {
             options,
-            authority,
+            authority: std::sync::Arc::new(authority),
             working: Some(working),
             pending: None,
             preparing: None,

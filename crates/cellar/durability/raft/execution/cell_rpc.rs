@@ -347,7 +347,7 @@ impl CellPrivateExecutor {
     pub(crate) fn stage_rpc_checkpoint(
         &mut self,
         turn: &mut CellRpcTurn,
-    ) -> Result<CellPrivatePreparation, ExecutionError> {
+    ) -> Result<(CellPrivatePreparation, CellCheckpointGrant), ExecutionError> {
         self.check_rpc()?;
         let step = turn
             .step
@@ -393,7 +393,8 @@ impl CellPrivateExecutor {
             .capture_stage_input(attempt, preparation)?
             .checkpoint(step);
         turn.step = step;
-        Ok(captured)
+        let grant = self.checkpoint_grant(&captured)?;
+        Ok((captured, grant))
     }
 
     pub(crate) fn rpc_checkpoint_version(
@@ -469,7 +470,7 @@ impl CellPrivateExecutor {
         committed.check().map_err(authority_failure)?;
         self.retire_reconciled()?;
         committed.check().map_err(authority_failure)?;
-        self.authority = committed;
+        self.authority = std::sync::Arc::new(committed);
         Ok(receipt)
     }
 

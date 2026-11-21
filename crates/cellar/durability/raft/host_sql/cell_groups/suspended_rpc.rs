@@ -2,7 +2,8 @@
 
 //! Keep suspended RPCs on their existing worker without occupying its queue.
 
-use super::super::rpc_commit::{wait_checkpoint, CheckpointProof};
+use super::super::checkpoint_task::CheckpointTask;
+use super::super::rpc_commit::{wait_checkpoint, wait_checkpoint_proof, CheckpointProof};
 use super::*;
 use crate::raft::execution::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 use futures_util::future::BoxFuture;
@@ -28,6 +29,33 @@ impl Wake for Ready {
     }
 }
 
+#[derive(Clone)]
+struct RpcReply(Arc<Mutex<Option<oneshot::Sender<SqlReply>>>>);
+
+impl RpcReply {
+    fn new(reply: oneshot::Sender<SqlReply>) -> Self {
+        Self(Arc::new(Mutex::new(Some(reply))))
+    }
+
+    fn is_closed(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(oneshot::Sender::is_closed)
+    }
+
+    fn take(&self) -> Option<oneshot::Sender<SqlReply>> {
+        self.0.lock().unwrap().take()
+    }
+
+    fn send(self, result: SqlReply) {
+        if let Some(reply) = self.take() {
+            let _ = reply.send(result);
+        }
+    }
+}
+
 pub(super) struct Suspended {
     // Physical preparation joins before any callback/lease field drops.
     checkpoint: Option<Checkpoint>,
@@ -40,7 +68,7 @@ pub(super) struct Suspended {
     resuming: Option<BoxFuture<'static, Result<CellExecutionAuthority, ExecutionError>>>,
     mode: CellSqlStageMode,
     ready: Arc<Ready>,
-    reply: oneshot::Sender<SqlReply>,
+    reply: RpcReply,
     retention: StageRetention,
     commits: Option<RpcCommitContext>,
     activation: Option<RpcActivation>,
@@ -49,7 +77,7 @@ pub(super) struct Suspended {
 enum Checkpoint {
     Preparing {
         reply: oneshot::Sender<Result<(), String>>,
-        task: Preparation,
+        task: CheckpointTask,
     },
     Submitted(Box<SubmittedCheckpoint>),
 }
@@ -89,7 +117,16 @@ impl Suspended {
 
     pub(super) fn close(mut self) -> Result<(), ExecutionError> {
         let joined = match &mut self.checkpoint {
-            Some(Checkpoint::Preparing { task, .. }) => task.join(&Waker::from(self.ready.clone())),
+            Some(Checkpoint::Preparing { task, .. }) => {
+                let returned = task.join(&Waker::from(self.ready.clone()));
+                let adopted = returned.producer.map_or(Ok(()), |producer| {
+                    self.executor
+                        .as_mut()
+                        .ok_or_else(unavailable)?
+                        .adopt_checkpoint(producer)
+                });
+                adopted.and(returned.outcome.map(|_| ()))
+            }
             _ => Ok(()),
         };
         let rolled_back = match self.executor.take() {
@@ -100,7 +137,7 @@ impl Suspended {
             None => self.turn.close_parked(),
         };
         let retired = self.activation.take().map_or(Ok(()), RpcActivation::close);
-        let _ = self.reply.send(Err(unavailable()));
+        self.reply.send(Err(unavailable()));
         joined.and(rolled_back).and(retired)
     }
 
@@ -110,21 +147,33 @@ impl Suspended {
         expected: &cellar_logic::cell_group::CellVersion,
         domain: &crate::asyncrt::DomainToken,
         cx: &mut Context<'_>,
+        submitted: bool,
     ) -> Result<CheckpointPhase, ExecutionError> {
         let commits = self.commits.as_ref().ok_or_else(unavailable)?;
-        let mut future: BoxFuture<'static, Result<CheckpointProof, ExecutionError>> =
+        let fence = self
+            .executor
+            .as_ref()
+            .ok_or_else(unavailable)?
+            .rpc_activation_fence();
+        let mut future: BoxFuture<'static, Result<CheckpointProof, ExecutionError>> = if submitted {
+            Box::pin(wait_checkpoint_proof(
+                commits.runtime.clone(),
+                domain.clone(),
+                prepared.clone(),
+                expected.clone(),
+                fence,
+            ))
+        } else {
             Box::pin(wait_checkpoint(
                 commits.runtime.clone(),
                 domain.clone(),
                 prepared.clone(),
                 expected.clone(),
-                self.executor
-                    .as_ref()
-                    .ok_or_else(unavailable)?
-                    .rpc_activation_fence(),
+                fence,
                 self.retention.bytes.clone(),
                 Some(commits.deadline),
-            ));
+            ))
+        };
         prime_submission(&mut future, cx);
         Ok(CheckpointPhase::Applying(future))
     }
@@ -133,21 +182,41 @@ impl Suspended {
         &mut self,
         reply: oneshot::Sender<Result<(), String>>,
         domain: &crate::asyncrt::DomainToken,
+        stopped: Arc<AtomicBool>,
     ) -> Result<(), ExecutionError> {
         let commits = self.commits.as_ref().ok_or(ExecutionError::Refused(
             CommandFailure::UnsupportedCapability,
         ))?;
         let executor = self.executor.as_mut().ok_or_else(unavailable)?;
-        let captured = executor.stage_rpc_checkpoint(&mut self.turn)?;
+        let (captured, grant) = executor.stage_rpc_checkpoint(&mut self.turn)?;
         tracing::debug!(target: "cellar::raft::checkpoint", phase = "captured",
             history = ?self.cell, at_ms = ?domain.mono_ms().ok());
+        let waiter = self.reply.clone();
+        let mode = self.mode;
+        let activation = self.activation.as_ref().and_then(|a| a.activation.clone());
+        let clock = domain.clone();
         self.checkpoint = Some(Checkpoint::Preparing {
             reply,
-            task: Preparation::new(
+            task: CheckpointTask::new(
                 captured,
+                grant,
                 domain.clone(),
-                CellSqlStageMode::InvokeBefore(commits.deadline),
-            ),
+                commits.clone(),
+                self.retention.bytes.clone(),
+                move || {
+                    check_waiter(
+                        mode,
+                        waiter.is_closed(),
+                        clock.mono_ms().map_err(|_| unavailable())?,
+                    )?;
+                    if stopped.load(Ordering::Acquire)
+                        || activation.as_ref().is_some_and(|a| !a.live())
+                    {
+                        return Err(unavailable());
+                    }
+                    Ok(())
+                },
+            )?,
         });
         self.ready.0.store(true, Ordering::Release);
         Ok(())
@@ -157,40 +226,34 @@ impl Suspended {
         &mut self,
         cx: &mut Context<'_>,
         domain: &crate::asyncrt::DomainToken,
-        stopped: bool,
     ) -> Poll<Result<(), ExecutionError>> {
         let mut checkpoint = match self.checkpoint.take().expect("owned RPC checkpoint") {
             Checkpoint::Submitted(checkpoint) => *checkpoint,
             Checkpoint::Preparing { reply, mut task } => {
-                let image = match task.poll(cx, stopped) {
+                let returned = match task.poll(cx) {
                     Poll::Pending => {
                         self.checkpoint = Some(Checkpoint::Preparing { reply, task });
                         return Poll::Pending;
                     }
-                    Poll::Ready(result) => result?,
+                    Poll::Ready(result) => result,
                 };
-                let checked = if stopped {
-                    Err(unavailable())
-                } else {
-                    domain
-                        .mono_ms()
-                        .map_err(|_| unavailable())
-                        .and_then(|now| self.check(now))
-                };
-                let image = image.checked(checked)?;
-                let executor = self.executor.as_mut().ok_or_else(unavailable)?;
-                let CellStageOutcome::Prepared(prepared) = executor.complete_preparation(image)?
-                else {
-                    return Poll::Ready(Err(ExecutionError::Invalid(
-                        "checkpoint preparation outcome",
-                    )));
-                };
-                let expected = executor.rpc_checkpoint_version()?;
-                tracing::debug!(target: "cellar::raft::checkpoint", phase = "prepared",
-                    history = ?self.cell, sequence = expected.sequence.get(),
-                    proposal = ?prepared.proposal(), at_ms = ?domain.mono_ms().ok());
-                executor.mark_submitted(prepared.proposal())?;
-                let phase = self.applying(&prepared, &expected, domain, cx)?;
+                let producer = returned.producer;
+                let prepared = producer.as_ref().map(|p| p.command().clone());
+                let expected = producer.as_ref().map(|p| p.expected().clone());
+                // Even rejection/error returns producer custody before the
+                // original error path can close or reconcile the invocation.
+                if let Some(producer) = producer {
+                    self.executor
+                        .as_mut()
+                        .ok_or_else(unavailable)?
+                        .adopt_checkpoint(producer)?;
+                }
+                if !returned.outcome? {
+                    return Poll::Ready(Err(unavailable()));
+                }
+                let prepared = prepared.ok_or_else(unavailable)?;
+                let expected = expected.ok_or_else(unavailable)?;
+                let phase = self.applying(&prepared, &expected, domain, cx, true)?;
                 SubmittedCheckpoint {
                     reply,
                     prepared,
@@ -305,8 +368,13 @@ impl Suspended {
                     .as_ref()
                     .is_some_and(|executor| executor.rpc_checkpoint_version().is_ok())
                 {
-                    checkpoint.phase =
-                        self.applying(&checkpoint.prepared, &checkpoint.expected, domain, cx)?;
+                    checkpoint.phase = self.applying(
+                        &checkpoint.prepared,
+                        &checkpoint.expected,
+                        domain,
+                        cx,
+                        false,
+                    )?;
                     self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
                     self.ready.0.store(true, Ordering::Release);
                     return Poll::Pending;
@@ -346,7 +414,7 @@ impl Suspended {
     }
 
     fn check(&self, now: u64) -> Result<(), ExecutionError> {
-        check_waiter(self.mode, &self.reply, now)?;
+        check_waiter(self.mode, self.reply.is_closed(), now)?;
         if !self.executor.as_ref().map_or_else(
             || {
                 self.activation
@@ -366,17 +434,13 @@ impl Suspended {
     }
 }
 
-fn check_waiter(
-    mode: CellSqlStageMode,
-    reply: &oneshot::Sender<SqlReply>,
-    now: u64,
-) -> Result<(), ExecutionError> {
+fn check_waiter(mode: CellSqlStageMode, closed: bool, now: u64) -> Result<(), ExecutionError> {
     if mode.expired(now) {
         return Err(crate::raft::execution::authority_failure(
             RuntimeError::DeadlineExceeded,
         ));
     }
-    if reply.is_closed() {
+    if closed {
         return Err(unavailable());
     }
     Ok(())
@@ -410,8 +474,8 @@ impl Cells {
                 Poll::Ready(result) => result,
             };
             let staged = image.and_then(|image| {
-                let check =
-                    check_waiter(preparation.mode, &preparation.reply, now).and_then(|()| {
+                let check = check_waiter(preparation.mode, preparation.reply.is_closed(), now)
+                    .and_then(|()| {
                         if stopped.load(Ordering::Acquire)
                             || preparation
                                 .activation
@@ -473,7 +537,11 @@ impl Cells {
             if authority.cell().version.history != cell {
                 return Err(ExecutionError::Invalid("SQL cell history"));
             }
-            check_waiter(mode, &reply, domain.mono_ms().map_err(|_| unavailable())?)?;
+            check_waiter(
+                mode,
+                reply.is_closed(),
+                domain.mono_ms().map_err(|_| unavailable())?,
+            )?;
             let commits = commits.map(|context| *context);
             let max_result = options.limits().max_result_bytes;
             let mut activation = self.activations.take(&cell, &authority, &class, now)?;
@@ -523,7 +591,7 @@ impl Cells {
             let start = domain
                 .mono_ms()
                 .map_err(|_| unavailable())
-                .and_then(|now| check_waiter(mode, &reply, now))
+                .and_then(|now| check_waiter(mode, reply.is_closed(), now))
                 .and_then(|()| {
                     executor.start_rpc(
                         attempt,
@@ -583,7 +651,7 @@ impl Cells {
                             resuming: None,
                             mode,
                             ready: Arc::new(Ready(AtomicBool::new(true), self.wake.clone())),
-                            reply,
+                            reply: RpcReply::new(reply),
                             retention,
                             commits,
                             checkpoint: None,
@@ -647,7 +715,7 @@ impl Cells {
                             executor,
                             cell: rpc.cell,
                             mode: rpc.mode,
-                            reply: rpc.reply,
+                            reply: rpc.reply.take().expect("owned RPC reply"),
                             retention: rpc.retention,
                             activation: rpc.activation,
                             waker: Waker::from(rpc.ready),
@@ -682,14 +750,14 @@ impl Cells {
             }
         };
         let success = outcome.is_ok();
-        let _ = rpc.reply.send(outcome);
+        rpc.reply.send(outcome);
         success
     }
 
     pub(in crate::raft::host_sql) fn poll_suspended(
         &mut self,
         domain: &crate::asyncrt::DomainToken,
-        stopped: &AtomicBool,
+        stopped: &Arc<AtomicBool>,
         performance: &Arc<crate::raft::performance::Registry>,
     ) -> bool {
         let Ok(now) = domain.mono_ms() else {
@@ -748,7 +816,7 @@ impl Cells {
                 return true;
             }
             if rpc.checkpoint.is_some() {
-                match rpc.poll_checkpoint(&mut cx, domain, stopped.load(Ordering::Acquire)) {
+                match rpc.poll_checkpoint(&mut cx, domain) {
                     Poll::Pending => {
                         self.suspended.push_back(rpc);
                         timer.finish(true);
@@ -851,7 +919,7 @@ impl Cells {
                 let progress = if let Some(reply) = rpc.turn.take_checkpoint() {
                     // Start the owned submission before queued SQL occupies this
                     // worker; process proofs in the normal continuation turn.
-                    rpc.begin_checkpoint(reply, domain)
+                    rpc.begin_checkpoint(reply, domain, stopped.clone())
                 } else if !rpc.ready.0.load(Ordering::Acquire) || rpc.retention.lease.contended() {
                     rpc.try_park(&self.activations, now)
                 } else {
