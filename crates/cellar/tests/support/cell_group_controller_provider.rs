@@ -559,6 +559,10 @@ pub async fn qualify_lifecycle_wait(real: bool, dirty: bool) -> Result<()> {
     lifecycle_wait::qualify(real, dirty).await
 }
 
+pub async fn profile_extent_create(real: bool) -> Result<()> {
+    lifecycle_wait::profile_create(real).await
+}
+
 async fn selected(real: bool, scenario: Scenario) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug")

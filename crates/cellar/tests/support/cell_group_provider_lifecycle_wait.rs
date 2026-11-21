@@ -119,8 +119,24 @@ async fn contend(
 }
 
 pub(super) async fn qualify(real: bool, dirty: bool) -> Result<()> {
+    selected(real, dirty, false).await
+}
+
+/// Diagnostic only: the original five-second Create, without later operations.
+pub(super) async fn profile_create(real: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::checkpoint=debug,cellar::raft::resource_read=debug,cellar::raft::sql_publish=trace,cellar::raft::cell_reconciliation=trace,cellar::raft::execution_readiness=debug")
+        .with_ansi(false)
+        .try_init();
+    selected(real, false, true).await
+}
+
+async fn selected(real: bool, dirty: bool, profile: bool) -> Result<()> {
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
+            if profile && (!rooted || minimum != Durability::S3) {
+                continue;
+            }
             let peer = Arc::new(Peer::default());
             let root = tempfile::tempdir()?.keep();
             eprintln!("retained lifecycle-wait controller: {}", root.display());
@@ -152,6 +168,9 @@ pub(super) async fn qualify(real: bool, dirty: bool) -> Result<()> {
             } else {
                 catalog_fault::Store::default()
             });
+            store
+                .observe_group_archive_io
+                .store(profile, Ordering::Release);
             let route = Arc::new(Route {
                 provider: Arc::new(RwLock::new(Arc::new(ControllerProvider::new(
                     controller.clone(),
@@ -186,7 +205,19 @@ pub(super) async fn qualify(real: bool, dirty: bool) -> Result<()> {
                             TIMEOUT,
                         )
                         .await?;
-                    call(&cluster, &history, minimum, 1, "Create").await?;
+                    let started = cellar::asyncrt::mono_ms();
+                    if profile {
+                        eprintln!("provider_create_profile_start {}", json!({"client_byte":121,"sequence":1,"at_ms":started,"real":real,"extents":rooted,"minimum":format!("{minimum:?}")}));
+                    }
+                    let created = call(&cluster, &history, minimum, 1, "Create").await;
+                    if profile {
+                        eprintln!("provider_create_profile_end {}", json!({"sequence":1,"elapsed_ms":cellar::asyncrt::mono_ms().saturating_sub(started),"ok":created.is_ok(),"creates":peer.creates.load(Ordering::Acquire),"version":created.as_ref().ok().map(|r|r.version.sequence.get())}));
+                    }
+                    let created = created?;
+                    if profile {
+                        ensure!(created.durability >= minimum && peer.creates.load(Ordering::Acquire) == 1);
+                        return Ok(());
+                    }
                     let result = contend(&cluster, &history, minimum, &route, dirty).await;
                     route.wait.release.notify_one();
                     result?;
