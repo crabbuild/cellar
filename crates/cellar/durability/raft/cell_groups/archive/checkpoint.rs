@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::{objects::Object, *};
+use super::{checkpoint_packing as packing, objects::Object, *};
 use futures_util::{stream::FuturesOrdered, StreamExt};
 use std::io::Write;
 
@@ -19,9 +19,7 @@ pub(super) struct Index {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Chunk {
-    part: wire::Part,
-    offset: u64,
-    length: u64,
+    parts: Vec<packing::Fragment>,
     pub object: Object,
 }
 
@@ -40,42 +38,62 @@ impl Index {
             return Err(CellGroupArchiveError::Limit);
         }
         let mut total = 0u64;
-        let mut previous: Option<&Chunk> = None;
+        let mut count = 0usize;
+        let mut previous: Option<&packing::Fragment> = None;
         for chunk in &self.chunks {
             if chunk.object.length == 0
                 || chunk.object.length > CHUNK_BYTES as u64
-                || chunk.length == 0
-                || chunk.length > archive.limits.max_checkpoint_bytes
+                || chunk.parts.is_empty()
             {
                 return Err(CellGroupArchiveError::Limit);
             }
-            chunk
-                .offset
-                .checked_add(chunk.object.length)
-                .filter(|n| *n <= chunk.length)
-                .ok_or(CellGroupArchiveError::Invalid("chunk bounds"))?;
-            if let Some(before) = previous {
-                let before_end = before.offset + before.object.length;
-                if before_end < before.length {
-                    if chunk.part != before.part
-                        || chunk.length != before.length
-                        || chunk.offset != before_end
-                    {
-                        return Err(CellGroupArchiveError::Invalid("chunk continuity"));
-                    }
-                } else if chunk.offset != 0 {
-                    return Err(CellGroupArchiveError::Invalid("part offset"));
+            count = count
+                .checked_add(chunk.parts.len())
+                .filter(|n| *n <= archive.limits.max_chunks)
+                .ok_or(CellGroupArchiveError::Limit)?;
+            let mut object_bytes = 0u64;
+            for part in &chunk.parts {
+                if part.bytes == 0
+                    || part.bytes > CHUNK_BYTES as u64
+                    || part.length == 0
+                    || part.length > archive.limits.max_checkpoint_bytes
+                {
+                    return Err(CellGroupArchiveError::Limit);
                 }
-            } else if chunk.part != wire::Part::Header || chunk.offset != 0 {
-                return Err(CellGroupArchiveError::Invalid("first archive part"));
+                part.offset
+                    .checked_add(part.bytes)
+                    .filter(|n| *n <= part.length)
+                    .ok_or(CellGroupArchiveError::Invalid("chunk bounds"))?;
+                if let Some(before) = previous {
+                    let before_end = before.offset + before.bytes;
+                    if before_end < before.length {
+                        if part.part != before.part
+                            || part.length != before.length
+                            || part.offset != before_end
+                        {
+                            return Err(CellGroupArchiveError::Invalid("chunk continuity"));
+                        }
+                    } else if part.offset != 0 {
+                        return Err(CellGroupArchiveError::Invalid("part offset"));
+                    }
+                } else if part.part != wire::Part::Header || part.offset != 0 {
+                    return Err(CellGroupArchiveError::Invalid("first archive part"));
+                }
+                object_bytes = object_bytes
+                    .checked_add(part.bytes)
+                    .filter(|n| *n <= chunk.object.length)
+                    .ok_or(CellGroupArchiveError::Invalid("packed object bounds"))?;
+                previous = Some(part);
+            }
+            if object_bytes != chunk.object.length {
+                return Err(CellGroupArchiveError::Invalid("packed object length"));
             }
             total = total
-                .checked_add(chunk.object.length)
+                .checked_add(object_bytes)
                 .ok_or(CellGroupArchiveError::Limit)?;
-            previous = Some(chunk);
         }
         let last = previous.ok_or(CellGroupArchiveError::Invalid("empty archive"))?;
-        if total != self.bytes || last.offset + last.object.length != last.length {
+        if total != self.bytes || last.offset + last.bytes != last.length {
             return Err(CellGroupArchiveError::Invalid("incomplete archive index"));
         }
         Ok(())
@@ -132,13 +150,12 @@ impl CellGroupArchiveUpload {
                     self.registry().pending(&self.ticket()).await?;
                     self.allows_object(super::graph::Kind::Chunks, &chunk.object)?;
                     let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
-                    sink(wire::Chunk {
-                        part: chunk.part,
-                        offset: chunk.offset,
-                        length: chunk.length,
-                        bytes,
-                    })
-                    .await?;
+                    for part in packing::unpack(chunk.parts, bytes)? {
+                        // A packed object never substitutes for the live upload
+                        // hold. Preserve the original per-fragment fence.
+                        self.registry().pending(&self.ticket()).await?;
+                        sink(part).await?;
+                    }
                 }
                 self.registry().pending(&self.ticket()).await?;
                 Ok(())
@@ -180,27 +197,39 @@ impl CellGroupArchiveUpload {
             chunks: Vec::new(),
         };
         let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        let limits = self.limits;
         let producer = domain
-            .blocking(move || {
+            .blocking(move || -> Result<()> {
                 let _retained = retained;
-                source.stream(|chunk| {
-                    if chunk.bytes.len() > CHUNK_BYTES {
-                        return Err(CellGroupCheckpointError::Limit);
-                    }
-                    sender.blocking_send(wire::Chunk::copy(chunk)).map_err(|_| {
+                let mut packer =
+                    packing::Packer::new(limits.max_chunks, limits.max_checkpoint_bytes);
+                let mut emit = |packed| {
+                    sender.blocking_send(packed).map_err(|_| {
                         CellGroupCheckpointError::Sink(std::io::Error::other("archive stopped"))
                     })
-                })
+                };
+                let mut packing_limit = false;
+                let produced = source.stream(|chunk| {
+                    let result = packer.push(wire::Chunk::copy(chunk), &mut emit);
+                    packing_limit |= matches!(&result, Err(CellGroupCheckpointError::Limit));
+                    result
+                });
+                if packing_limit {
+                    return Err(CellGroupArchiveError::Limit);
+                }
+                produced?;
+                packer.finish(&mut emit)?;
+                Ok(())
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?;
         let upload: Result<()> = async {
             enum UploadEvent {
-                Source(Option<wire::Chunk>),
+                Source(Option<packing::Packed>),
                 Confirmed(Option<Result<Chunk>>),
             }
 
             // Two creates, their exact GET confirmations, transport copies,
-            // producer and one-slot channel fit the existing eight-chunk I/O
+            // producer packer and one-slot channel fit the ten-chunk I/O
             // workspace. Poll writes while waiting for more physical bytes;
             // a slow producer must not stall an already admitted upload.
             let mut writes = FuturesOrdered::new();
@@ -239,9 +268,7 @@ impl CellGroupArchiveUpload {
                         writes.push_back(async move {
                             let object = self.put("chunks", chunk.bytes, CHUNK_BYTES).await?;
                             Ok(Chunk {
-                                part: chunk.part,
-                                offset: chunk.offset,
-                                length: chunk.length,
+                                parts: chunk.parts,
                                 object,
                             })
                         });
@@ -380,21 +407,23 @@ impl CellGroupArchive {
             .checkpoint_index(domain, reference, permit.clone())
             .await?;
         let marker = index.marker;
-        let (sender, mut incoming) = tokio::sync::mpsc::channel::<wire::Chunk>(1);
+        let (sender, mut incoming) = tokio::sync::mpsc::channel::<Vec<wire::Chunk>>(1);
         let retained = permit.clone();
         let consumer = domain
             .blocking(move || {
                 let _retained = retained;
-                while let Some(chunk) = incoming.blocking_recv() {
-                    chunk.append(&mut receiver)?;
+                while let Some(chunks) = incoming.blocking_recv() {
+                    for chunk in chunks {
+                        chunk.append(&mut receiver)?;
+                    }
                 }
                 receiver.finish()
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?;
         let download: Result<()> = async {
-            // The existing eight-chunk workspace covers two GETs (including
+            // The ten-chunk workspace covers two GETs (including
             // transport copies), an ordered result, the one-slot channel and
-            // the physical consumer. FuturesOrdered bounds both in-flight and
+            // the physical consumer and unpacking copies. FuturesOrdered bounds both in-flight and
             // completed reads while preserving the validated descriptor order.
             let mut remaining = index.chunks.into_iter();
             let mut reads = FuturesOrdered::new();
@@ -407,12 +436,7 @@ impl CellGroupArchive {
                     };
                     reads.push_back(async move {
                         let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
-                        Ok(wire::Chunk {
-                            part: chunk.part,
-                            offset: chunk.offset,
-                            length: chunk.length,
-                            bytes,
-                        })
+                        packing::unpack(chunk.parts, bytes).map_err(CellGroupArchiveError::from)
                     });
                 }
                 let Some(result) = reads.next().await else {

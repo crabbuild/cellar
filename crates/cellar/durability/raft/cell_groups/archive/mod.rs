@@ -21,6 +21,7 @@ pub(crate) use execution::ControllerExecution;
 
 mod cache;
 mod checkpoint;
+mod checkpoint_packing;
 pub(in crate::raft::cell_groups) use cache::{CacheEviction, CachedCoverage};
 pub(in crate::raft::cell_groups) use publication::WeakCoverage;
 mod data_store;
@@ -113,6 +114,7 @@ pub struct CellGroupArchiveLimits {
     pub max_operations: usize,
     pub max_retained_bytes: usize,
     pub max_index_bytes: usize,
+    /// Maximum original wire fragments across all packed checkpoint objects.
     pub max_chunks: usize,
     pub max_checkpoint_bytes: u64,
     /// Deadline for a complete individual PUT or GET, including its body stream.
@@ -147,7 +149,7 @@ impl CellGroupArchiveLimits {
         self.max_index_bytes
             .checked_mul(6)
             .and_then(|n| n.checked_add(self.max_chunks.checked_mul(2048)?))
-            .and_then(|n| n.checked_add(8 * CHUNK_BYTES))
+            .and_then(|n| n.checked_add(10 * CHUNK_BYTES))
             .ok_or(CellGroupArchiveError::Limit)
     }
 }

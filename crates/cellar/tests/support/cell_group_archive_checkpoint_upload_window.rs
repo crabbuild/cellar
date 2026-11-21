@@ -38,7 +38,7 @@ fn paths(prefix: &str, encoded: &serde_json::Value, generation: u64) -> Result<V
 
 pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Result<()> {
     let (mut cluster, expected) =
-        checkpoint_fixture::populate_images(rooted, true, false, 2, 8192).await?;
+        checkpoint_fixture::populate_images(rooted, true, false, 2, 131072).await?;
     retain_archive_fixture_disks(&mut cluster);
     let store = archive_store::Store::around(backend);
     let first = new_archive(

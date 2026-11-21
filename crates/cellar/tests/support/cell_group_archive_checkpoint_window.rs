@@ -20,7 +20,7 @@ async fn entered(gate: &archive_store::ObjectIoGate) {
 
 pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Result<()> {
     let (mut cluster, expected) =
-        checkpoint_fixture::populate_images(rooted, true, false, 2, 8192).await?;
+        checkpoint_fixture::populate_images(rooted, true, false, 2, 131072).await?;
     retain_archive_fixture_disks(&mut cluster);
     let store = archive_store::Store::around(backend);
     let archive = new_archive(
@@ -234,6 +234,6 @@ pub(super) async fn packed(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resul
         .is_err());
     assert_eq!(archive.usage().operations, 0);
     assert_eq!(pool.usage().sources, 0);
-    cluster.domain.shutdown().await;
+    cluster.close().await?;
     Ok(())
 }
