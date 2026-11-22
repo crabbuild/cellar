@@ -92,6 +92,8 @@ impl ContainerAdapter for TimingAdapter {
     }
 }
 
+type CompletionKey = ([u8; 32], [u8; 16]);
+
 struct Peer {
     backend: Arc<dyn ExecutionControllerBackend>,
     retirement_cut: Option<Arc<catalog_fault::Store>>,
@@ -108,7 +110,7 @@ struct Peer {
     lookups: AtomicUsize,
     changed: Notify,
     trace: bool,
-    completed: Mutex<BTreeMap<([u8; 32], [u8; 16]), CompletedOperation>>,
+    completed: Mutex<BTreeMap<CompletionKey, CompletedOperation>>,
 }
 
 struct CompletedOperation {

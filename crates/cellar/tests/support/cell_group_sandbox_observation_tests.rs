@@ -118,7 +118,7 @@ impl Scenario {
             b"original-delete".to_vec(),
         );
         tokio::time::timeout(Duration::from_secs(1), async {
-            tokio::select! {
+            cellar::asyncrt::select! {
                 result = &mut pending => anyhow::bail!("lost reply unexpectedly returned: {result:?}"),
                 _ = self.backend.committed.notified() => Ok(()),
             }
@@ -217,7 +217,7 @@ pub(crate) async fn reconciled_first_reply_keeps_the_loss_cut() -> Result<()> {
         .clone()
         .reconcile(s.current.clone(), s.original.clone());
     tokio::time::timeout(Duration::from_secs(1),async {
-        tokio::select! {
+        cellar::asyncrt::select! {
             result=&mut pending=>anyhow::bail!("first reconciled completion escaped the lost-reply cut: {result:?}"),
             _=s.peer.wait_for_delete_cut()=>Ok(()),
         }
@@ -235,7 +235,9 @@ pub(crate) async fn reconciled_first_reply_keeps_the_loss_cut() -> Result<()> {
         "hidden original receipt escaped its cut"
     );
     s.peer.hide_delete.store(false, Ordering::Release);
-    store.deny_sandbox_parent_writes.store(false, Ordering::Release);
+    store
+        .deny_sandbox_parent_writes
+        .store(false, Ordering::Release);
     for _ in 0..3 {
         ensure!(matches!(
             s.peer
@@ -250,6 +252,9 @@ pub(crate) async fn reconciled_first_reply_keeps_the_loss_cut() -> Result<()> {
         );
     }
     ensure!(s.backend.executions.load(Ordering::Acquire) == 1);
-    ensure!(!store.deny_sandbox_parent_writes.load(Ordering::Acquire), "receipt replay rearmed the restored archive fault");
+    ensure!(
+        !store.deny_sandbox_parent_writes.load(Ordering::Acquire),
+        "receipt replay rearmed the restored archive fault"
+    );
     Ok(())
 }
