@@ -125,10 +125,25 @@ impl SandboxCatalog {
                 .id_from_name("configuration")
                 .scope();
             let (configuration, _) = registration(&context, &target)?;
-            let reserved = catalog
-                .reserve_registered(&context, &name, &binding, &digest, Some(&configuration))
-                .await?
-                .allocation;
+            let reserved = if context.raft_storage.is_some() {
+                // No reservation has escaped to application code. The owned
+                // binding gate below proves it together with the original RPC
+                // intent, at the source minimum, before any target I/O.
+                let (parent, reservation) = catalog.prepare_reservation(
+                    &context,
+                    &name,
+                    &binding,
+                    &digest,
+                    Some(&configuration),
+                )?;
+                catalog.current(&context, &parent, Some(&reservation.allocation))?;
+                reservation.allocation
+            } else {
+                catalog
+                    .reserve_registered(&context, &name, &binding, &digest, Some(&configuration))
+                    .await?
+                    .allocation
+            };
             catalog
                 .call_child(&context, &reserved, Action::Start, parameters)
                 .await?;
@@ -259,17 +274,25 @@ impl SandboxCatalog {
                 &configuration,
             )?;
             let authority = Authority::new(identity, action, native_capacity)?;
-            // The parent reservation/deletion intent was just proved. Reuse
-            // only that exact unchanged invocation checkpoint; dirty state
-            // still follows the mandatory source proof path.
-            Ok((authority, context.storage()?.confirm_checkpoint()))
+            // Shared event_rpc stages its exact binding intent and proves all
+            // source writes before constructing target I/O. An earlier flush
+            // would split that atomic input into two S3 checkpoints. Fleet
+            // dispatch retains its explicit parent checkpoint.
+            let flush = if context.raft_storage.is_some() {
+                None
+            } else {
+                Some(context.storage()?.confirm_checkpoint())
+            };
+            Ok((authority, flush))
         })();
         let catalog = self.clone();
         let context = context.clone();
         let expected = expected.clone();
         Box::pin(async move {
             let (authority, flush) = prepared?;
-            flush.await?;
+            if let Some(flush) = flush {
+                flush.await?;
+            }
             catalog.check(&context)?;
             ensure!(
                 catalog.get(&context, &expected.name)?.as_ref() == Some(&expected),

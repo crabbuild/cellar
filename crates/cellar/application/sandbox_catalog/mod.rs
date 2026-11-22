@@ -125,59 +125,9 @@ impl SandboxCatalog {
         parameters_digest: &str,
         profile: Option<&str>,
     ) -> HandlerFuture<SandboxReservation> {
-        let prepared: Result<_> = (|| {
-            let scope = self.check(context)?;
-            values::name(name)?;
-            values::name(binding)?;
-            ensure!(
-                values::hex(parameters_digest, 64),
-                "invalid sandbox parameters digest"
-            );
-            let namespace = context.namespace(binding)?;
-            let shared_profile = if context.raft_storage.is_some() {
-                Some(
-                    execution::registration(
-                        context,
-                        &namespace.id_from_name("configuration").scope(),
-                    )?
-                    .0,
-                )
-            } else {
-                None
-            };
-            if let (Some(expected), Some(current)) = (profile, shared_profile.as_deref()) {
-                ensure!(expected == current, "sandbox executor profile changed");
-            }
-            let profile = profile.or(shared_profile.as_deref());
-            let mut incarnation = [0; 16];
-            crate::asyncrt::rng("sandbox_parent_incarnation").fill_bytes(&mut incarnation);
-            let incarnation = hex::encode(incarnation);
-            let target = |name: &str| namespace.id_from_name(name).scope();
-            let (parent, reservation) = match shared::parent_history(context)? {
-                Some(history) => crate::storage::sandbox_shared::reserve(
-                    &history,
-                    crate::storage::sandbox_shared::Reservation {
-                        incarnation: &incarnation,
-                        name,
-                        binding,
-                        parameters: parameters_digest,
-                        profile,
-                    },
-                    &target,
-                )?,
-                None => store::reserve(
-                    scope,
-                    &incarnation,
-                    name,
-                    binding,
-                    parameters_digest,
-                    &target,
-                    profile,
-                )?,
-            };
-            maintenance::publish(context)?;
-            Ok((parent, reservation, context.storage()?.sync()))
-        })();
+        let prepared = self
+            .prepare_reservation(context, name, binding, parameters_digest, profile)
+            .and_then(|(parent, reservation)| Ok((parent, reservation, context.storage()?.sync())));
         let catalog = self.clone();
         let context = context.clone();
         Box::pin(async move {
@@ -186,6 +136,67 @@ impl SandboxCatalog {
             catalog.current(&context, &parent, Some(&reservation.allocation))?;
             Ok(reservation)
         })
+    }
+
+    // Only start_child may keep this reservation private: its binding input
+    // checkpoint must include both these rows and the exact child-call intent
+    // before target enrollment or execution. Public reserve still syncs.
+    fn prepare_reservation(
+        &self,
+        context: &Context,
+        name: &str,
+        binding: &str,
+        parameters_digest: &str,
+        profile: Option<&str>,
+    ) -> Result<(SandboxParent, SandboxReservation)> {
+        let scope = self.check(context)?;
+        values::name(name)?;
+        values::name(binding)?;
+        ensure!(
+            values::hex(parameters_digest, 64),
+            "invalid sandbox parameters digest"
+        );
+        let namespace = context.namespace(binding)?;
+        let shared_profile = if context.raft_storage.is_some() {
+            Some(
+                execution::registration(context, &namespace.id_from_name("configuration").scope())?
+                    .0,
+            )
+        } else {
+            None
+        };
+        if let (Some(expected), Some(current)) = (profile, shared_profile.as_deref()) {
+            ensure!(expected == current, "sandbox executor profile changed");
+        }
+        let profile = profile.or(shared_profile.as_deref());
+        let mut incarnation = [0; 16];
+        crate::asyncrt::rng("sandbox_parent_incarnation").fill_bytes(&mut incarnation);
+        let incarnation = hex::encode(incarnation);
+        let target = |name: &str| namespace.id_from_name(name).scope();
+        let (parent, reservation) = match shared::parent_history(context)? {
+            Some(history) => crate::storage::sandbox_shared::reserve(
+                &history,
+                crate::storage::sandbox_shared::Reservation {
+                    incarnation: &incarnation,
+                    name,
+                    binding,
+                    parameters: parameters_digest,
+                    profile,
+                },
+                &target,
+            )?,
+            None => store::reserve(
+                scope,
+                &incarnation,
+                name,
+                binding,
+                parameters_digest,
+                &target,
+                profile,
+            )?,
+        };
+        maintenance::publish(context)?;
+        Ok((parent, reservation))
     }
 
     /// Checkpoint a verified child acknowledgement. The host controller must
