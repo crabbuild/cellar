@@ -10,6 +10,42 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+## Queued persistence and encoded bounds
+
+The node's existing storage worker now combines an already-queued prefix of
+disjoint cell-group writes into one physical fence. Overlapping groups and
+control operations retain FIFO order. Each caller keeps its original operation
+and exact ordered group identities; payloads, retention roots and the original
+item/byte admission stay owned through physical completion, including abandoned
+waiters. Uncertain I/O closes admission without replaying the cohort.
+
+The complete encoded persistence batch, including cached metadata and the root
+record, is checked before publication or I/O. Durable metadata size also feeds
+the existing Ready estimate: a guard alone reproduced permanent retry without
+durable progress. The unchanged 3,328-byte Ready control now makes progress with
+two syncs and a largest write of 2,099 bytes. Three queued disjoint requests share
+one sync instead of three; the metadata-heavy 6,400-byte control splits into
+three fences, with a largest write of 2,628 bytes. These are storage controls,
+not end-to-end throughput or latency measurements.
+
+All three public storage controls, seven owning controls, strict Clippy and
+repository checks pass. The complete library passes **1,372 tests / two existing
+ignores**. A first native campaign passes **four of 17 selections**; all eight
+C4 Queue trials fail across both candidate and baseline. A separate fresh paired
+campaign passes **eight of eight selections**: SQL, KV and Queue in both image
+modes, plus cross-group apply, on both executables. Original deadlines and
+workloads remain unchanged. Every campaign is closed and its available media
+independently verified; later passes leave earlier failures and repeatability
+gaps open. Whole-test elapsed times do not establish request performance.
+
+The published head also has a failed full Python 3.14t RPC matrix during proof
+warmup/fencing; its root cause remains unqualified. Remaining priorities are
+repeatable service/C4 progress, complete-prefix recovery and lifecycle coverage,
+fair persistence/read/archive scheduling and physical segment reclamation, then
+the original constrained three-node Colima/RustFS comparison. The unchanged
+RustFS reserve still prevents that comparison; no overall performance gain or
+complete OPT/CG/SDK/release qualification is claimed.
+
 ## Current private workspace cleanup
 
 Code `1840466d4` includes main `5ae2b21f` and moves settled private-workspace

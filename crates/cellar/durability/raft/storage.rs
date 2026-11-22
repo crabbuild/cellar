@@ -33,6 +33,9 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
 
+#[path = "storage_batch.rs"]
+mod batch;
+
 #[path = "storage_segment_purge.rs"]
 mod segment_purge;
 pub use segment_purge::RaftSegmentPurgeReceipt;
@@ -157,7 +160,9 @@ fn initial_configuration(
     Ok(conf)
 }
 
-/// Identity-bound observation of one successfully synced batch.
+/// Identity-bound observation of one successfully synced batch. Disjoint queued
+/// requests may share a physical sequence; each receipt keeps its original
+/// operation and exact ordered group identities.
 #[derive(Clone, Debug)]
 pub struct SyncReceipt<S = GroupScope> {
     pub operation: OperationId,
@@ -199,6 +204,7 @@ struct LogHandle {
     domain: crate::asyncrt::DomainToken,
     groups: Catalog,
     pending: Arc<AtomicUsize>,
+    pending_items: Arc<AtomicUsize>,
     lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     options: ReplicaLogOptions,
     settle_periodic_purges: bool,
@@ -243,22 +249,44 @@ impl Drop for LogHandle {
 struct Permit {
     pending: Arc<AtomicUsize>,
     bytes: usize,
+    items: Arc<AtomicUsize>,
 }
 
 impl Permit {
-    fn acquire(pending: Arc<AtomicUsize>, bytes: usize, maximum: usize) -> Result<Self, LogError> {
-        pending
+    fn acquire(
+        pending: Arc<AtomicUsize>,
+        bytes: usize,
+        maximum: usize,
+        items: Arc<AtomicUsize>,
+        maximum_items: usize,
+    ) -> Result<Self, LogError> {
+        items
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current
+                    .checked_add(1)
+                    .filter(|&total| total <= maximum_items)
+            })
+            .map_err(|_| LogError::Overloaded)?;
+        let mut permit = Self {
+            pending,
+            bytes: 0,
+            items,
+        };
+        permit
+            .pending
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current.checked_add(bytes).filter(|&total| total <= maximum)
             })
             .map_err(|_| LogError::Overloaded)?;
-        Ok(Self { pending, bytes })
+        permit.bytes = bytes;
+        Ok(permit)
     }
 }
 
 impl Drop for Permit {
     fn drop(&mut self) {
         self.pending.fetch_sub(self.bytes, Ordering::AcqRel);
+        self.items.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -585,6 +613,7 @@ impl ReplicaLog {
                 domain: domain.clone(),
                 groups: groups.clone(),
                 pending: Arc::new(AtomicUsize::new(0)),
+                pending_items: Arc::new(AtomicUsize::new(0)),
                 lifecycle_cache: lifecycle_cache.clone(),
                 options: options.clone(),
                 settle_periodic_purges,
@@ -1155,6 +1184,8 @@ impl ReplicaLog {
             self.inner.pending.clone(),
             bytes,
             self.inner.options.max_pending_bytes,
+            self.inner.pending_items.clone(),
+            self.inner.options.queue_capacity + 1,
         )?;
         let (reply, wait) = oneshot::channel();
         self.inner
@@ -1554,6 +1585,8 @@ impl Worker {
     ) -> Result<GroupLog<S>, LogError> {
         cache.recovery_genesis = mapping.recovery_genesis().cloned().map(Arc::new);
         cache.seed_anchor = mapping.seed_anchor().cloned().map(Arc::new);
+        let metadata_bytes =
+            records::encode(&GroupRecord::from_cache(mapping.clone(), &cache)?)?.len();
         let log_retention = if mapping.is_cells() {
             Some(
                 self.log_retention
@@ -1587,10 +1620,16 @@ impl Worker {
             closed: self.closed.clone(),
             cache: Arc::new(RwLock::new(cache)),
             cache_revision: Arc::new(AtomicU64::new(self.root.sequence)),
+            metadata_bytes: Arc::new(AtomicUsize::new(metadata_bytes)),
         })
     }
 
     fn fence(&mut self, batch: &mut LogBatch) -> Result<u64, LogError> {
+        let root = self.prepare_fence(batch)?;
+        self.write_fenced(batch, root)
+    }
+
+    fn prepare_fence(&self, batch: &mut LogBatch) -> Result<RootRecord, LogError> {
         let sequence = self
             .root
             .sequence
@@ -1603,7 +1642,12 @@ impl Worker {
         batch
             .put(0, ROOT_KEY.to_vec(), records::encode(&root)?)
             .map_err(engine_error)?;
+        Ok(root)
+    }
+
+    fn write_fenced(&mut self, batch: &mut LogBatch, root: RootRecord) -> Result<u64, LogError> {
         self.engine.write(batch, true).map_err(engine_error)?;
+        let sequence = root.sequence;
         self.root = root;
         self.purge_pending = true;
         Ok(sequence)
@@ -1987,7 +2031,7 @@ impl Worker {
     fn persist<S: Clone>(
         &mut self,
         operation: OperationId,
-        writes: Vec<GroupWrite<S>>,
+        writes: &[GroupWrite<S>],
     ) -> Result<SyncReceipt<S>, LogError> {
         let mut unique = BTreeSet::new();
         let mut candidates = Vec::with_capacity(writes.len());
@@ -1995,7 +2039,7 @@ impl Worker {
         let mut batch = LogBatch::default();
         let mut archive_admissions = Vec::new();
         let mut log_admissions = Vec::new();
-        for write in &writes {
+        for write in writes {
             if !Arc::ptr_eq(&write.group.owner, &self.owner) || !unique.insert(write.group.key) {
                 return Err(LogError::WrongIdentity);
             }
@@ -2104,20 +2148,19 @@ impl Worker {
             batch
                 .add_entries::<EntryCodec>(write.group.key, &write.entries)
                 .map_err(engine_error)?;
+            let metadata =
+                records::encode(&GroupRecord::from_cache(persisted_mapping.clone(), &next)?)?;
+            let metadata_bytes = metadata.len();
             batch
-                .put(
-                    write.group.key,
-                    GROUP_KEY.to_vec(),
-                    records::encode(&GroupRecord::from_cache(persisted_mapping.clone(), &next)?)?,
-                )
+                .put(write.group.key, GROUP_KEY.to_vec(), metadata)
                 .map_err(engine_error)?;
-            candidates.push((persisted_mapping, next));
+            candidates.push((persisted_mapping, next, metadata_bytes));
         }
         // Retain both closures before any engine I/O. Failed preflight drops
         // unarmed reservations; once armed, an unknown outcome keeps both roots
         // and quarantines collection until recovery reconstructs the selection.
         let mut publications = Vec::new();
-        for write in &writes {
+        for write in writes {
             if let Some(prepared) = write.prepared_group_manifest() {
                 let previous = write.group.group_manifest()?;
                 publications.push(
@@ -2137,7 +2180,7 @@ impl Worker {
                 );
             }
         }
-        for write in &writes {
+        for write in writes {
             if let Some(grant) = &write.seed_grant {
                 grant.check(
                     &self.owner,
@@ -2147,19 +2190,31 @@ impl Worker {
                 grant.check_lifecycle(self.lifecycle.guard.as_ref())?;
             }
         }
+        // Incoming estimates omit cached metadata serialized on every write.
+        // Bound the complete encoded batch, including its nonempty root fence,
+        // before arming publications or entering physical I/O. An oversized
+        // cohort can then fall back to its original requests without ambiguity.
+        let root = self.prepare_fence(&mut batch)?;
+        if batch.approximate_size() > self.options.max_batch_bytes {
+            return Err(LogError::Overloaded);
+        }
         for publication in &mut publications {
             publication.arm();
         }
-        let sequence = self.fence(&mut batch)?;
+        let sequence = self.write_fenced(&mut batch, root)?;
         // No cache write lock is held during engine I/O. Readers may continue
         // to observe the previous durable prefix while a sync is stalled.
-        for (write, (mapping, next)) in writes.iter().zip(candidates) {
+        for (write, (mapping, next, metadata_bytes)) in writes.iter().zip(candidates) {
             let mut cache = write
                 .group
                 .cache
                 .write()
                 .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))?;
             *cache = next;
+            write
+                .group
+                .metadata_bytes
+                .store(metadata_bytes, Ordering::Release);
             self.mappings.insert(write.group.key, mapping);
             // Publish invalidation while still holding the cache write lock.
             // A reader observing this revision can only acquire the new cache;
@@ -2185,7 +2240,7 @@ impl Worker {
                     })?;
             }
         }
-        for write in &writes {
+        for write in writes {
             if let Some(activation) = &write.require_archive {
                 activation
                     .published(&write.group.archive_compaction)
@@ -2197,7 +2252,7 @@ impl Worker {
         self.cache_bytes = next_bytes;
         self.performance
             .increment(MeasuredCounter::PersistGroups, writes.len() as u64);
-        for write in &writes {
+        for write in writes {
             self.performance
                 .increment(MeasuredCounter::PersistEntries, write.entries.len() as u64);
             for entry in &write.entries {
@@ -2211,8 +2266,8 @@ impl Worker {
             operation,
             sequence,
             groups: writes
-                .into_iter()
-                .map(|write| write.group.identity)
+                .iter()
+                .map(|write| write.group.identity.clone())
                 .collect(),
         })
     }
@@ -2649,6 +2704,7 @@ impl Worker {
             .mono_ms()
             .map_err(|_| LogError::Closed)?
             .saturating_add(self.options.purge_interval_ms.unwrap_or(0));
+        let mut deferred = None;
         loop {
             if abort.load(Ordering::Acquire)
                 || self.closed.load(Ordering::Acquire)
@@ -2675,7 +2731,11 @@ impl Worker {
                     }
                 }
             }
-            let request = match receiver.recv_timeout(Duration::from_millis(10)) {
+            let received = match deferred.take() {
+                Some(request) => Ok(request),
+                None => receiver.recv_timeout(Duration::from_millis(10)),
+            };
+            let request = match received {
                 Ok(request) => request,
                 Err(mpsc::RecvTimeoutError::Timeout) if closing.load(Ordering::Acquire) => {
                     return self.fence(&mut LogBatch::default()).map(|_| ())
@@ -2738,15 +2798,17 @@ impl Worker {
                     fatal
                 }
                 Work::PersistCells(operation, writes, reply) => {
-                    let timer = self.performance.timer(Measured::EnginePersist);
-                    let result = self.persist(operation, writes);
-                    timer.finish(result.is_ok());
-                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
-                    if fatal.is_some() {
-                        self.closed.store(true, Ordering::Release);
-                    }
-                    let _ = reply.send(result);
-                    fatal
+                    let outcome = self.persist_cell_requests(
+                        batch::Cells {
+                            operation,
+                            writes,
+                            reply,
+                            permit: request._permit,
+                        },
+                        &receiver,
+                    );
+                    deferred = outcome.deferred;
+                    outcome.fatal
                 }
                 Work::ReclaimCells(work, lease, reply) => {
                     let result = (|| {
@@ -2767,7 +2829,8 @@ impl Worker {
                 }
                 Work::Persist(operation, writes, reply) => {
                     let timer = self.performance.timer(Measured::EnginePersist);
-                    let result = self.persist(operation, writes);
+                    let result = self.persist(operation, &writes);
+                    drop(writes);
                     timer.finish(result.is_ok());
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
