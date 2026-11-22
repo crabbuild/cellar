@@ -24,7 +24,10 @@ impl Reads {
     async fn check(&self, f: &Fixture, birth: &CellGroupBirth) -> Result<(), CatalogError> {
         fault::gate_store_read(
             &f.store,
-            format!("/groups/{}", hex::encode(birth.route().history.group.bytes())),
+            format!(
+                "/groups/{}",
+                hex::encode(birth.route().history.group.bytes())
+            ),
             self.reservation.clone(),
             fault::gate_read(
                 f.key("head").to_string(),
@@ -35,6 +38,8 @@ impl Reads {
         .await
     }
 
+    // External gate observers run outside the execution domain under test.
+    #[allow(clippy::disallowed_methods)]
     async fn entered<F>(&self, pending: &mut Pin<Box<F>>) -> Result<()>
     where
         F: Future<Output = Result<(), CatalogError>>,
@@ -49,6 +54,8 @@ impl Reads {
     }
 }
 
+// These external time bounds surround, rather than replace, the host deadline.
+#[allow(clippy::disallowed_methods)]
 pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Result<()> {
     let f = Fixture::with_store(DirectoryLimits::default(), route().schema_digest, store).await?;
     let work = async {
@@ -70,7 +77,11 @@ pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Res
                 (&reads.reservation, &reads.head)
             };
             first.resume.notify_one();
-            ensure!(tokio::time::timeout(Duration::from_millis(40), &mut pending).await.is_err());
+            ensure!(
+                tokio::time::timeout(Duration::from_millis(40), &mut pending)
+                    .await
+                    .is_err()
+            );
             last.resume.notify_one();
             pending.await?;
         }
@@ -78,15 +89,47 @@ pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Res
         // Immutable bytes are still read on every check, and corruption cannot
         // drop the already-entered fresh-selection read on the error path.
         let original = f.store.inner.get(&key).await?.bytes().await?;
-        f.store.inner.put(&key, b"changed birth".to_vec().into()).await?;
+        f.store
+            .inner
+            .put(&key, b"changed birth".to_vec().into())
+            .await?;
         let reads = Reads::new();
         let mut pending = Box::pin(reads.check(&f, &birth));
         reads.entered(&mut pending).await?;
         reads.reservation.resume.notify_one();
-        ensure!(tokio::time::timeout(Duration::from_millis(100), &mut pending).await.is_err());
+        ensure!(
+            tokio::time::timeout(Duration::from_millis(100), &mut pending)
+                .await
+                .is_err()
+        );
         reads.head.resume.notify_one();
-        ensure!(matches!(pending.await, Err(CatalogError::Corrupt("selected group birth changed"))));
+        ensure!(matches!(
+            pending.await,
+            Err(CatalogError::Corrupt("selected group birth changed"))
+        ));
         f.store.inner.put(&key, original.into()).await?;
+
+        let reservation_key = format!(
+            "groups/{}",
+            hex::encode(birth.route().history.group.bytes())
+        );
+        let reads = Reads::new();
+        let mut pending = Box::pin(fault::missing_read(
+            reservation_key,
+            reads.check(&f, &birth),
+        ));
+        reads.entered(&mut pending).await?;
+        reads.reservation.resume.notify_one();
+        ensure!(
+            tokio::time::timeout(Duration::from_millis(100), &mut pending)
+                .await
+                .is_err()
+        );
+        reads.head.resume.notify_one();
+        ensure!(matches!(
+            pending.await,
+            Err(CatalogError::Corrupt("missing group birth reservation"))
+        ));
 
         // Cancelling the owning future cancels both reads; no detached worker
         // can keep this check alive or prevent a fresh validation afterward.
@@ -94,11 +137,30 @@ pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Res
         let mut pending = Box::pin(reads.check(&f, &birth));
         reads.entered(&mut pending).await?;
         drop(pending);
-        f.run(f.directory.require_current_group_birth(&birth)).await?;
+        f.run(f.directory.require_current_group_birth(&birth))
+            .await?;
+
+        // Two entered reads share the original operation budget. Joining a
+        // stalled peer cannot reset that budget or create a background task.
+        let reads = Reads::new();
+        let mut pending = Box::pin(reads.check(&f, &birth));
+        reads.entered(&mut pending).await?;
+        ensure!(matches!(
+            tokio::time::timeout(Duration::from_secs(6), pending).await?,
+            Err(CatalogError::Unconfirmed)
+        ));
+        f.run(f.directory.require_current_group_birth(&birth))
+            .await?;
 
         let other = f.reopen().await?;
-        let (foreign, counts) = fault::count_reads(f.run(other.require_current_group_birth(&birth))).await;
-        ensure!(matches!(foreign, Err(CatalogError::Conflict("foreign group birth observation"))) && counts.is_empty());
+        let (foreign, counts) =
+            fault::count_reads(f.run(other.require_current_group_birth(&birth))).await;
+        ensure!(
+            matches!(
+                foreign,
+                Err(CatalogError::Conflict("foreign group birth observation"))
+            ) && counts.is_empty()
+        );
 
         // A fresh topology change must fence the old birth even if its records
         // also fail. Preserve selection-error precedence and join the peer.
@@ -112,16 +174,24 @@ pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Res
             &children,
         )?;
         f.run(f.directory.publish(&replacement)).await?;
-        f.store.inner.put(&key, b"changed birth".to_vec().into()).await?;
+        f.store
+            .inner
+            .put(&key, b"changed birth".to_vec().into())
+            .await?;
         let reads = Reads::new();
         let mut pending = Box::pin(reads.check(&f, &birth));
         reads.entered(&mut pending).await?;
         reads.head.resume.notify_one();
-        ensure!(tokio::time::timeout(Duration::from_millis(100), &mut pending).await.is_err());
+        ensure!(
+            tokio::time::timeout(Duration::from_millis(100), &mut pending)
+                .await
+                .is_err()
+        );
         reads.reservation.resume.notify_one();
         ensure!(matches!(pending.await, Err(CatalogError::Fenced)));
         Ok(())
-    }.await;
+    }
+    .await;
     f.domain.shutdown().await;
     work
 }
