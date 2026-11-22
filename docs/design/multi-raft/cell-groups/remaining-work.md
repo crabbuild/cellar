@@ -47,8 +47,9 @@ for exact source, failures and qualification limits.
 
 The next feature deliveries are:
 
-1. Close the extent retirement confirmation/fence correctness gate: the observed
-   retirement must be accompanied by a retired independent controller claim.
+1. Qualify the integrated retirement-fence correction: durable work now remains
+   until the independent controller acknowledges the retired checkpoint. The
+   observed retirement must be accompanied by that retired controller claim.
    Then close S3 Create/Read/Delete completion deadlines and operation-specific
    sequence sealing. Current failed Creates physically complete but miss the
    original response deadline. Preserve their uncertainty and IDs; do not replay
@@ -57,7 +58,10 @@ The next feature deliveries are:
    the source integrated with merged PR #179. The bridge includes authenticated
    parent/child dispatch, original receipt reconciliation, constructor-independent
    cleanup, idle discovery and retained strongest source minima. The corrected
-   fixture campaign is still running; earlier failed campaigns remain retained.
+   combined `a2a8eac03` campaign remains failed: normal Start refuses the
+   Fleet-only turn guard and extent/S3 Container Destroy8 misses its deadline.
+   Combined `db8e6a593` corrects the guard and retirement work; its rerun is
+   required before bridge acceptance. Earlier failed campaigns remain retained.
    See the [bridge checkpoint](progress.md#cg-17-shared-sandbox-bridge-and-physical-execution).
    Finish remaining public interactive, port/HTTP/WebSocket and provider-volume
    contracts; bounded exec alone does not accept the full family.

@@ -34,67 +34,77 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ### CG-17 shared Sandbox bridge and physical execution
 
-The bounded shared Sandbox bridge is implemented. Parent classes explicitly
-select `sandbox_catalog()`; dedicated child classes select `sandbox_execution()`
-with an independently fenced native adapter. Ordinary business RPC/fetch cannot
-enter the child. Private dispatch authenticates the original source history,
-parent nonce, allocation generation, child identity and execution policy. Both
-namespaces retain their independent Quorum/S3 proof requirements. Missing or
-changed retained history pins refuse admission before physical observations.
+The bounded shared Sandbox bridge is implemented in follow-up
+[PR #180](https://github.com/crabbuild/cellar/pull/180), based on `origin/main`
+`09cdcf423` (merged PR #179). Parent classes select `sandbox_catalog()`;
+dedicated child classes select `sandbox_execution()` with an independently
+fenced native adapter. Private dispatch authenticates source history, parent
+nonce, allocation generation, child identity and execution policy. Both
+namespaces retain independent Quorum/S3 proof requirements. Ordinary business
+ingress and changed/missing retained history authority refuse before effects.
+The child framework initializer creates an empty private image; only later
+authenticated dispatch installs parent authority.
 
-The native bridge supports start, destroy, reconcile/running, bounded buffered
-execution and file read/write/stat/list. It reuses the existing Sandbox phase
-machine and Container controller rather than introducing another consensus
-path. The physical Docker backend retains exact operation receipts independently
-of voter disks. A higher claim stops and joins the previous process namespace,
-including detached children, before activating its successor. Ambiguous mutators
-remain quarantined and are never replayed. A new incarnation requires the
-separate permanent old-host fencing authority.
+The bridge maps start, destroy, reconcile/running, bounded buffered exec and
+file read/write/stat/list through the existing Sandbox phase machine and
+Container controller. The physical Docker backend retains original receipts
+outside voter disks. A higher claim stops and joins the old process namespace,
+including detached children, before successor activation. Unknown mutators
+remain quarantined and are never replayed; a new incarnation additionally
+requires permanent old-host fencing.
 
-Cleanup runs through bounded shared framework work without constructing the
-business cell. It retains deletion identities and terminal confirmation debt
-through response loss and retained restart. Confirmation rechecks the exact
-parent revision after its mandatory source proof. Idle discovery survives an
-older work completion. The strongest requested minimum remains durable across
-the parent lifetime: a Quorum-default namespace cannot settle an explicit S3
-retirement using a stale Quorum wake. Strengthening an already confirmed
-Quorum tombstone rearms its S3 proof obligation.
+Cleanup uses bounded shared work without constructing the business cell. Exact
+terminal confirmation debt survives response loss and retained restart. The
+strongest requested minimum persists across the parent lifetime, including
+explicit S3 retirement in a Quorum-default namespace. A stale Quorum wake
+cannot consume strengthened S3 debt; strengthening a confirmed tombstone rearms
+its proof obligation. Idle discovery survives an older work completion.
 
-Qualification is still in progress; implementation alone is not a passing
-gate. The frozen `e9bf3ad61` real RustFS campaign failed: one of six exact
-functions and six of 19 configurations passed, three configurations missed
-their original deadlines, and ten Sandbox configurations refused startup
-because the new fixture inherited an insufficient event-envelope limit.
-The three new storage tests also failed before assertions because their
-in-memory fixtures lacked the required transaction. Test-only `28ff0ab32`
-corrects those setup errors while retaining all original assertions, command
-identities, provider limits and request/maintenance/recovery budgets.
-Its three storage tests pass. The frozen real RustFS gate remains **FAILED**:
-eight of 19 configurations pass (physical backend, three Container recovery
-profiles and all four Container archive-refusal profiles); extent/Quorum
-Destroy4 expires at its original five-second deadline and all ten Sandbox
-profiles refuse enrollment because an initializer is missing. No physical
-Sandbox effect runs in those failed profiles. The dedicated child framework
-initializer and omitted parent fixture initializer are corrected at
-`a2a8eac03`; the combined source must be rerun before claiming bridge
-qualification. The child initializer creates an empty private image and cannot
-install parent authority; only authenticated parent dispatch can do that. A
-custom application initializer is refused on the dedicated execution class.
+| Source-pinned check | Actual result |
+| --- | --- |
+| `28ff0ab32` shared storage invariants | 3/3 pass: history pins, exact terminal/minimum custody and idle discovery |
+| `28ff0ab32` real RustFS, six functions/19 profiles | FAILED: 8 pass, one original deadline failure, ten missing-initializer refusals |
+| `a2a8eac03` integrated-main locked build and strict affected Clippy | Pass |
+| `a2a8eac03` real RustFS, six functions/19 profiles | FAILED: 12 success markers, six Sandbox capability refusals, one original deadline failure |
+| `cf25bbff8` exact Sandbox Start diagnostic | FAILED in all four profiles before reservation; backtrace locates the Fleet-only turn guard |
+| `db8e6a593` combined guard/retirement correction | Build running; runtime unrun |
 
-The integrated source `a2a8eac03` includes `origin/main` `09cdcf423` (merged
-PR #179) and the bridge. Earlier frozen binaries do not qualify this new
-integration. Delivery commit `e374a5341` starts from that updated main and
-has the same runtime tree as `a2a8eac03`; the qualification remains pinned to
-its actual compiled source. The partial inventory has 18 entries/397 public symbols; all
-32 formal CG-17 cases and default-cutover gates remain required.
+The `a2a8eac03` gate passes physical fencing/restart, three Container recovery
+profiles and all eight Container/Sandbox archive-refusal profiles under its
+then-current assertions. Extent/S3 Container Destroy8 still exceeds its original
+five-second deadline. All four normal Sandbox profiles and both minimum-custody
+profiles refuse before physical work. The new Sandbox refusal oracle also now
+requires the exact retained Reserved generation: an early capability refusal
+must not masquerade as prepared Start/proof coverage. The earlier four Sandbox
+negative markers therefore establish no positive bridge execution qualification.
 
-Provider workspace bytes retain their own storage contract; cell metadata
-Quorum/S3 does not replicate or archive those bytes. Interactive exec,
-port/HTTP/WebSocket sessions, custom root entrypoints, Internet access,
-inactivity configuration, physical namespace erasure, receipt/tombstone GC,
-positive fresh-history/provider-volume disaster recovery, independent Linux
-voters and the full load/fault matrix remain open. Shared `request_erasure`
-refuses until its managed protocol exists. See the
+The narrow diagnostic identifies `shared::history` calling the Fleet-only
+`Context::check_turn`. Correction `db8e6a593` uses invocation-aware validation at
+all five shared-capable Sandbox boundaries and removes the temporary diagnostic
+prints. It also integrates production retirement fix `ddc3ffb9a`: metadata
+proof alone cannot clear work before the independent controller acknowledges
+its retired fence. Delivery `c25c6a5f8` has the same runtime inputs as the combined
+qualification source. All original operation IDs, proof requirements and
+5-second/3-second/60-second budgets remain unchanged.
+
+Failed roots, raw logs, frozen executables, hashes and source snapshots remain
+in `cellar-native-docker-delivery-20261121-01`, including
+`merged-28ff0ab32-rustfs-01`, `merged-a2a8eac03-rustfs-01` and
+`sandbox-start-diagnostic-cf25bbff8-01`. Actual RustFS is capped at 1 CPU/2 GiB
+in a 4-CPU/8-GiB VM. RF3 voters share one native macOS process; the Docker
+execution profile has explicit 0.25-CPU/128-MiB/64-process limits. Concurrent
+host builds remain outside those cgroups. No independent-voter or performance
+qualification is inferred.
+
+Provider workspace bytes retain a separate storage contract; metadata Quorum/S3
+does not replicate or archive them. Interactive exec, port/HTTP/WebSocket
+sessions, custom entrypoints, Internet access, inactivity configuration,
+physical namespace erasure, receipt/tombstone GC, positive fresh-history and
+provider-volume recovery, independent Linux voters and the complete
+feature/deployment/clock/load/fault matrix remain open. Shared `request_erasure`
+refuses until its managed protocol exists. The partial inventory has
+18 entries/397 public symbols. All 32 formal CG-17 cases and default-cutover
+gates remain required; no full primitive family is accepted. See the
 [bounded backend contract](../../../../crates/cellar-container/docker.md).
 
 ### CG-17 pending read recovery and covered S3 receipts
