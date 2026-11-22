@@ -8,66 +8,34 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The latest private cleanup qualification
-qualifies code `1840466d4`, including main `5ae2b21f`. SQLite/capture close on
-their SQL owner; physical workspace removal and parent sync use the existing
-execution domain. Frozen receipts, activation, writer/byte admission and progress
-lanes remain owned through join, with original receipt/fence/S3 and capacity gates.
+The current optimization PR includes main `09cdcf423` (#179). Its merged source
+passes **1,378 library tests / two existing ignores**, **13 selected native
+controls**, strict affected Clippy and repository checks, and **83 Python tooling
+tests**. These are scoped passes; complete service and release qualification
+remain open. See [the implementation ledger](optimization-progress.md#integration-with-main-179).
 
-The original cleanup-progress control improves from **zero to four passes**.
-Eight native waiter-expiry and actual I/O-failure observations also pass across
-both image modes and Quorum/S3, preserving ambiguity, exact receipt/value checks,
-quarantine, full rooted charges and failed bytes after joined shutdown. The full
-library passes **1,365 tests / two existing ignores**; strict Clippy and repository
-checks pass. Independent verification retains **36 node disks, eight synced
-client ledgers and 12 concrete synthetic exports**. Fresh frozen-receipt controls
-and ordinary KV in both modes pass with retained media; old missing evidence and
-all earlier failures remain recorded.
+Fresh unsampled C4 Queue trials on `06fe9101f` pass twice in materialized mode
+and fail twice in rooted mode. The C2 control passes materialized delivery and
+uniqueness, then fails rooted producers. A separate filesystem-observed campaign
+fails all five selections, including materialized mode. Earlier passes therefore
+do not establish repeatability or an exclusively rooted failure. Every selected
+case finishes its domain, node and host cleanup without cleanup errors; original
+failed histories and independently checked closed copies remain retained. These
+joins do not close earlier cleanup/storage failures.
 
-**Combined qualification remains FAILED:** the unchanged runtime's broader
-candidate passes **14 of 18 native selections**. C2 passes both original
-528-message/528-unique-ID assertions; all three C4 selections fail with ambiguous
-producer deadlines. Rooted KV exceeded its original 20-second Unicode phase
-budget. Later traced and ordinary KV passes leave its intermittent failure open.
-These controls qualify scheduling and custody boundaries; workload gains and
-complete-prefix recovery remain unproven.
+| Priority | Work required before acceptance |
+| --- | --- |
+| **P0: Repeatable service and recovery** | Close Queue producer/callback service and drain under the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows, SQL/KV repeatability, receipt/RPC and complete-prefix recovery/lifecycle gaps. Attribute actual request waits before choosing another optimization. |
+| **P1: Shared execution** | Reduce measured image, persistence and archive interference; prove fairness under control/election/shutdown work and routing/read partitions. Preserve exact receipts, Ready/sync ordering, admission banks and S3 coverage. |
+| **P1: Sustainable capacity and release** | Prove physical shared-segment deletion and once-only capacity credit, repeated reserve-aware movement, interrupted park/wake/recovery, and combined primitive/SDK/Axum/daemon/fault/crash acceptance. |
+| **P2: Constrained performance** | Run the original three-node, **1 vCPU / 2 GiB each**, RF3/three-group SQL/KV/Queue comparison against shared RustFS, including Quorum, Quorum+S3, Fleet and Bucket at C1/4/16 with reversed repeats. |
 
-The Queue domain-retention follow-up
-passes unchanged long-callback and operator controls in both image modes and
-verifies all six domain joins before export. Its fresh C4 tests still fail with
-**eight explicitly ambiguous producer deadlines**. Gated profiles identify engine,
-manifest page-store and archive-journal sync callers, but overlap errors/cleanup
-and cannot establish an exclusive cause or workload gain. Production inputs and
-the original load body are unchanged. The retained **18 node disks and six
-synthetic exports** have independently verified closed copies.
-
-The C4 lifecycle diagnostic
-passes one unsampled materialized exact drain while rooted sampled/unsampled
-controls retain **seven ambiguous producer deadlines**. Their controllers, SQL
-workers and domains close only after the workload boundary. Premature shutdown
-and sampling are unnecessary for those failures. The preceding rooted
-closure/storage failure remains unclosed; its complete media audit does not pass
-the failed cleanup gate. Temporary observations are removed byte-exact. Measure
-and reduce foreground/image/archive sync work while retaining the original
-proofs and budgets; one pass is neither repeatability nor a speedup.
-
-The immediate **P0** is repeatable KV service and Queue producer/callback service
-and drain within the original **3,000-ms RPC / 5,000-ms callback / 30-second drain**
-windows. Profile the remaining command/image, consumer, lease and final-settlement
-costs before selecting another runtime change. Preserve exact identities, all
-failed/unknown media, admission banks and S3 gates. General constructor panic and
-broad execution/routing cleanup/retention gates still need their own evidence.
-
-The original three-node, 1-vCPU/2-GiB, RF3/three-group SQL/KV/Queue RustFS comparison
-remains unqualified. The read-only witness at
-**2026-11-21T20:12:18.276453+00:00** reports **19,156,992 available bytes**, below the
-unchanged **6 GiB reserve**. Original identity/configuration/resources/start match,
-with zero restarts and no case admitted; a fresh three-node resource witness
-remains open. No resource/storage changes are made. Full OPT/CG/recovery/SDK/release
-acceptance remains open. Earlier checkpoint proof,
-phase observations and
-main-integration evidence
-retain their source-specific scope.
+The read-only original RustFS witness at **2026-11-22T04:42:07.185330+00:00**
+reports **29,478,912 available bytes**, below the unchanged **6 GiB reserve**.
+Identity, configuration, resources and start match, with zero restarts and no
+case admitted. A fresh three-node resource witness remains open. No resource or
+storage change is made, and no end-to-end throughput or latency gain is qualified.
+Full OPT/CG/recovery/SDK/release acceptance remains open.
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
 and the accepted public SQL cutover. This ordering preserves the full

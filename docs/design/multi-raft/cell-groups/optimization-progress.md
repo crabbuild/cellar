@@ -36,6 +36,35 @@ acceptance. The original constrained Colima/RustFS comparison has no admitted
 cases; its last reserve witness was below the unchanged 6 GiB minimum. No
 end-to-end throughput or latency gain is qualified.
 
+## Current Queue diagnostic boundary
+
+Merged source `06fe9101f` retains the original Queue load body and budgets. Fresh
+unsampled C4 trials pass twice in materialized mode and fail twice in rooted mode;
+the C2 control passes materialized delivery/uniqueness before failing rooted
+producers. A later five-selection filesystem-observed campaign fails every
+selection, including materialized mode. These observations leave service
+repeatability and the cause open; they do not establish a rooted-only regression.
+All selected domain, node and host cleanup joins finish without cleanup errors.
+
+The observer forwards every filesystem operation, including optional native
+windows, copy-on-write and streaming operations. One rooted steady-load window
+spans 26,923 ms and contains, per node, 124–186 engine file syncs, 108–112 extent
+syncs, 108–112 root syncs and 99–102 manifest syncs. The longest observed file or
+directory fence in that window is under 300 ms. These are overlapping provider
+intervals and counts, not exclusive request costs or an established cause.
+Unclassified file and directory work remains material. The macOS sampler produced
+no call graph, including on an owned sleep-process pilot; no stack attribution is
+claimed from it.
+
+Every probe process has terminated, and independent verification matches the
+retained original media to closed copies. Temporary instrumentation is removed
+byte-exact; production/compiler inputs return to the published source. No
+production optimization or performance improvement is qualified by these probes.
+The next P0 is request-level attribution of admission, image preparation,
+committed apply and settlement waits, followed by an owning regression and the
+unchanged full load oracle. The [remaining priorities](remaining-work.md) also
+retain recovery, shared-worker fairness, physical reclamation and release gates.
+
 ## Queued persistence and encoded bounds
 
 The node's existing storage worker now combines an already-queued prefix of
@@ -64,8 +93,9 @@ workloads remain unchanged. Every campaign is closed and its available media
 independently verified; later passes leave earlier failures and repeatability
 gaps open. Whole-test elapsed times do not establish request performance.
 
-The published head also has a failed full Python 3.14t RPC matrix during proof
-warmup/fencing; its root cause remains unqualified. Remaining priorities are
+The earlier published parent `34c3913f9` has a failed full Python 3.14t RPC
+matrix during proof warmup/fencing; its root cause remains unqualified. Remaining
+priorities are
 repeatable service/C4 progress, complete-prefix recovery and lifecycle coverage,
 fair persistence/read/archive scheduling and physical segment reclamation, then
 the original constrained three-node Colima/RustFS comparison. Its last RustFS

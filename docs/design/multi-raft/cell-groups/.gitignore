@@ -1,0 +1,13 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+# Retain qualification and benchmark outputs outside the documentation tree.
+*.json
+*.json.gz
+
+# Versioned inputs consumed by the qualification and documentation tooling.
+!/baseline.json
+!/primitive-coverage-requirements.json
+!/primitive-coverage.schema.json
+!/primitive-inventory.json
+!/profiles.json
+!/tasks.json
