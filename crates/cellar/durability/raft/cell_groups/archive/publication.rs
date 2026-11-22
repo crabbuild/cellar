@@ -258,7 +258,15 @@ impl CellGroupArchiveUpload {
                     self.registry().pending(&self.ticket()).await?;
                 }
                 let reference = uploaded.reference();
-                let verified = self.verify_tail(domain, tails, reference, receiver).await?;
+                // The upload pool already reserves this bounded dependency
+                // graph. Populate it from the exact indices consumed by the
+                // independent physical recovery, rather than downloading them
+                // a second time after writing the root. Failed verification
+                // cannot return a graph or a publication capability.
+                let mut graph = Graph::new(self.max_objects());
+                let verified = self
+                    .verify_tail_recorded(domain, tails, reference, receiver, Some(&mut graph))
+                    .await?;
                 // raft-rs emits these sets in hash iteration order. Compare
                 // the same validated canonical encoding used by archive replay;
                 // order alone must not refuse an independently applied cut.
@@ -277,7 +285,7 @@ impl CellGroupArchiveUpload {
                     ));
                 }
                 source.check()?;
-                let io = self.admit()?;
+                let _io = self.admit()?;
                 let root = Root {
                     domain: ROOT_DOMAIN.into(),
                     marker: source.root.marker().clone(),
@@ -296,16 +304,9 @@ impl CellGroupArchiveUpload {
                     object,
                     marker: root.marker,
                 };
-                let graph = Graph::load(
-                    self,
-                    domain,
-                    &descriptor,
-                    tails.limits,
-                    io.clone(),
-                    self.retained(),
-                    self.max_objects(),
-                )
-                .await?;
+                graph
+                    .confirm_root(self, &descriptor, verified.reference())
+                    .await?;
                 self.allows(&graph)?;
                 self.registry()
                     .pin_payloads(&verified, &descriptor, false)

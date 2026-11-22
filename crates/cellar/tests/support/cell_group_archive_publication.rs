@@ -9,9 +9,16 @@ use std::collections::BTreeMap;
 mod registry_window;
 pub(super) use registry_window::registry_reads_overlap_and_preserve_validation;
 
-pub(super) async fn dependency_reads_once(rooted: bool, remote: Arc<dyn ObjectStore>) -> Result<()> {
-    let s = Scenario::with_store(rooted, Default::default(), archive_store::Store::around(remote))
-        .await?;
+pub(super) async fn dependency_reads_once(
+    rooted: bool,
+    remote: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let s = Scenario::with_store(
+        rooted,
+        Default::default(),
+        archive_store::Store::around(remote),
+    )
+    .await?;
     let checkpoint = s.checkpoint(&s.upload).await?;
     let uploaded = s.tail(&s.upload, &checkpoint).await?;
     s.remote.object_gets.lock().unwrap().clear();
@@ -31,7 +38,9 @@ pub(super) async fn dependency_reads_once(rooted: bool, remote: Arc<dyn ObjectSt
             );
         }
         anyhow::ensure!(
-            reads.iter().any(|(path, count)| path.as_ref().contains("/roots/") && *count >= 2),
+            reads
+                .iter()
+                .any(|(path, count)| path.as_ref().contains("/roots/") && *count >= 2),
             "publication did not independently read back its new root"
         );
     }

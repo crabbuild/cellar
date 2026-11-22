@@ -396,7 +396,12 @@ impl ObjectStore for Store {
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> Result<GetResult> {
         self.gets.fetch_add(1, Ordering::AcqRel);
         if path.as_ref().contains("/generations/") {
-            *self.object_gets.lock().unwrap().entry(path.clone()).or_default() += 1;
+            *self
+                .object_gets
+                .lock()
+                .unwrap()
+                .entry(path.clone())
+                .or_default() += 1;
         }
         if !opts.head
             && path.as_ref().contains("/cell-payloads-1/")

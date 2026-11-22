@@ -61,8 +61,11 @@ async fn archive_publication_reuses_exact_verified_dependency_descriptors() -> R
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_archive_publication_reuses_exact_verified_dependency_descriptors() -> Result<()> {
     for rooted in [false, true] {
-        publication_fixture::dependency_reads_once(rooted, rustfs::store("verified-descriptors", rooted)?)
-            .await?;
+        publication_fixture::dependency_reads_once(
+            rooted,
+            rustfs::store("verified-descriptors", rooted)?,
+        )
+        .await?;
     }
     Ok(())
 }

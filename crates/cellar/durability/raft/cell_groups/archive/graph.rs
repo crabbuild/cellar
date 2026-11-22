@@ -96,6 +96,40 @@ impl Graph {
         Ok(())
     }
 
+    /// Bind the new root to descriptors from an independently recovered tail.
+    /// Reuse those exact immutable index reads, retaining fresh root readback
+    /// and the complete registry/generation checks before any publishing CAS.
+    pub async fn confirm_root(
+        &mut self,
+        archive: &CellGroupArchive,
+        descriptor: &Descriptor,
+        verified: &CellGroupArchiveTailReference,
+    ) -> Result<()> {
+        let bytes = archive.get("roots", &descriptor.object, 8192).await?;
+        let root: Root = serde_json::from_slice(&bytes)
+            .map_err(|_| CellGroupArchiveError::Invalid("archive root encoding"))?;
+        if root.domain != ROOT_DOMAIN || root.marker != descriptor.marker || &root.tail != verified
+        {
+            return Err(CellGroupArchiveError::Invalid(
+                "archive verified root binding",
+            ));
+        }
+        self.insert(
+            Kind::Roots,
+            descriptor.object.clone(),
+            descriptor.object.generation,
+        )?;
+        if self.objects.iter().any(|key| {
+            key.object.registry != descriptor.object.registry
+                || key.object.generation > descriptor.object.generation
+        }) {
+            return Err(CellGroupArchiveError::Invalid(
+                "archive dependency registry/generation",
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn load(
         archive: &CellGroupArchive,
         domain: &impl CellGroupArchiveExecution,
