@@ -191,12 +191,16 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             .lookup(request, Duration::from_secs(5))
             .await
             .context("healed receipt discovery")?;
-        let response = recovered
-            .execute(
+        let selected = recovered
+            .select(
                 &h.fixture.runtimes[0],
                 &h.fixture.appliers[&(0, h.route.history)].0,
                 h.fixture.cell_options(&h.cell).await?,
             )
+            .await
+            .context("healed target quorum receipt selection")?;
+        let response = selected
+            .response()
             .await
             .with_context(|| {
                 let status = h.controllers[0].archive_status(h.route.history).ok().flatten();
