@@ -191,14 +191,28 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             .lookup(request, Duration::from_secs(5))
             .await
             .context("healed receipt discovery")?;
-        let selected = recovered
+        let selected = match recovered
             .select(
                 &h.fixture.runtimes[0],
                 &h.fixture.appliers[&(0, h.route.history)].0,
                 h.fixture.cell_options(&h.cell).await?,
             )
             .await
-            .context("healed target quorum receipt selection")?;
+        {
+            Ok(selected) => selected,
+            Err(error) => {
+                for (node, runtime) in h.fixture.runtimes.iter().enumerate() {
+                    eprintln!(
+                        "[DEBUG-cg17-heal] node={node} status={:?} reads={:?} controller={:?} transport={:?}",
+                        tokio::time::timeout(Duration::from_secs(1), runtime.status(h.route.history)).await,
+                        runtime.usage().read_pins,
+                        h.controllers[node].usage(),
+                        h.fixture.transports[node].usage(),
+                    );
+                }
+                return Err(error).context("healed target quorum receipt selection");
+            }
+        };
         let response = selected
             .response()
             .await
