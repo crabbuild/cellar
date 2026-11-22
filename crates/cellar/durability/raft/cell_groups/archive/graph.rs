@@ -103,12 +103,15 @@ impl Graph {
         &mut self,
         archive: &CellGroupArchive,
         descriptor: &Descriptor,
-        verified: &CellGroupArchiveTailReference,
+        verified: &VerifiedCellGroupArchiveRecovery,
     ) -> Result<()> {
         let bytes = archive.get("roots", &descriptor.object, 8192).await?;
         let root: Root = serde_json::from_slice(&bytes)
             .map_err(|_| CellGroupArchiveError::Invalid("archive root encoding"))?;
-        if root.domain != ROOT_DOMAIN || root.marker != descriptor.marker || &root.tail != verified
+        if root.domain != ROOT_DOMAIN
+            || root.marker != descriptor.marker
+            || &root.marker != verified.manifest().marker()
+            || &root.tail != verified.reference()
         {
             return Err(CellGroupArchiveError::Invalid(
                 "archive verified root binding",

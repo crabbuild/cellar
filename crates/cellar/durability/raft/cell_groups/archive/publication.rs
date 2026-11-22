@@ -304,9 +304,7 @@ impl CellGroupArchiveUpload {
                     object,
                     marker: root.marker,
                 };
-                graph
-                    .confirm_root(self, &descriptor, verified.reference())
-                    .await?;
+                graph.confirm_root(self, &descriptor, &verified).await?;
                 self.allows(&graph)?;
                 self.registry()
                     .pin_payloads(&verified, &descriptor, false)

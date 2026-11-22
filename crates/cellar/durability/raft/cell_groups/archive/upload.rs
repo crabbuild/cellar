@@ -176,10 +176,6 @@ impl CellGroupArchiveUpload {
         self.0.ticket
     }
 
-    pub(super) fn retained(&self) -> Arc<Permit> {
-        self.0._reservation.clone()
-    }
-
     pub(super) fn max_objects(&self) -> usize {
         self.0.inherited.limit()
     }
