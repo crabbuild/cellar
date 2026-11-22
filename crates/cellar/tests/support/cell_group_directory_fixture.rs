@@ -17,8 +17,16 @@ impl Fixture {
     }
 
     pub(super) async fn with_schema(limits: DirectoryLimits, schema: [u8; 32]) -> Result<Self> {
-        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let store = Arc::new(fault::Store::default());
+        Self::with_store(limits, schema, store).await
+    }
+
+    pub(super) async fn with_store(
+        limits: DirectoryLimits,
+        schema: [u8; 32],
+        store: Arc<fault::Store>,
+    ) -> Result<Self> {
+        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         store.reject_listing.store(true, Ordering::Release);
         let route = route();
         let config = NamespaceConfig::new(
