@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "fb592565257b1362bfddae7d6a40ba43d4f50285",
-  "runtime_revision": "fb592565257b1362bfddae7d6a40ba43d4f50285",
-  "review_note": "Reviewed fb5925652 against b26f901e2: every source-anchor file and excerpt remains byte-identical. Reviewed pending ReadIndex retry, selected-cell covered-prefix verification, pending archive identity custody and TLS socket/security classification at their owning boundaries. Scoped checks and preserved provider deadline failures are recorded in progress.md. This review grants no primitive-family/release acceptance, oracle/deadline waiver or default-backend cutover.",
+  "source_revision": "ddc3ffb9a63a6e10dc3b0f2171e78f9eb0eed622",
+  "runtime_revision": "ddc3ffb9a63a6e10dc3b0f2171e78f9eb0eed622",
+  "review_note": "Reviewed ddc3ffb9a: all source-anchor files/excerpts and SDK inventory roots remain byte-identical. Reviewed removal of metadata-only retirement confirmation, retained autonomous work, exact framework checkpoint proof/fence and held-controller regression. Scoped native/real results and original deadline failures are in progress.md. No oracle/deadline waiver, primitive-family/release acceptance or default cutover.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {

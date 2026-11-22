@@ -32,6 +32,72 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 retirement work and independent controller fencing
+
+Runtime `ddc3ffb9a` fixes premature retirement completion. A successful SDK
+binding metadata proof previously removed the autonomous maintenance task before
+the independent controller had activated the retired fence. In the causal
+pre-fix control at `742ffd757`, the original S3 Stage request succeeds and the
+controlled backend completes Delete, but the retired controller fence never starts within
+the original 60-second wait. Retained images show retired binding revision four
+with its discovery task removed; the controller still holds revision three,
+Deleted/Pending, with no unknown operations.
+
+The SDK now retains that task. The framework confirms retirement only after
+proving the exact retired checkpoint and fencing the independent controller.
+The public regression holds that fence and requires confirmation to remain
+pending, then checks the exact retired claim and direct-controller refusal after
+release. The original Stage response must still succeed; observation of the fence
+cannot excuse its deadline failure. The earlier lost-S3-proof case retains its
+constructor refusal, original uncertain receipt and no-replay assertions.
+
+| Qualification at `ddc3ffb9a` | Result |
+| --- | --- |
+| Seven fixed native controller-provider functions | 7/7 pass; 24 configurations |
+| Same seven functions against real RustFS | 6 pass / 1 fail / 7 selected |
+| Additional ordinary native Container recovery | **Failed**: materialized/S3 Write loss cut not entered; one configuration passes and two remain unrun |
+| Additional ordinary Container recovery against RustFS | FAILED |
+| Combined native / RustFS selection | **FAILED** / **FAILED** |
+| Affected strict Clippy, canonical format, optimized build | Pass |
+| Controller-provider runner tests | 36/36 pass |
+
+The complete RustFS selection is 6 pass / 2 fail / 8 selected; failed functions: `rustfs_controller_provider_reconciles_live_exec_before_destroy`, `rustfs_native_container_uses_shared_group_fences_and_owned_invocation_entry`.
+In live Exec recovery, materialized/S3 Destroy4 expires after reconciliation;
+backend Delete starts with only 89 ms remaining and completes, but the original
+public response does not succeed. Its two extent profiles remain unrun. Ordinary
+Container recovery passes three configurations and fails extent/S3 with the
+original Write2 ambiguous DeadlineExceeded during recovery; the precise public
+call that propagates that retained error still needs tracing. No new operation
+identity or successful response is substituted for either failure.
+Individual configuration results and any failure before the intended cut remain
+in the raw logs. A failed function receives no whole-function acceptance from
+its earlier successful configurations.
+
+The separate diagnostic at `b344a8ffa` changes only request timing/error logging.
+It does not reproduce the native materialized/S3 Write failure, but extent/S3
+Destroy6 completes at the controlled backend and its public response expires at 5,002 ms.
+That diagnostic is failed and supplies no fixed-source qualification. Original
+five-second requests, three-second maintenance attempts, 60-second waits,
+operation identities, captured inputs and Quorum/S3 minima remain unchanged.
+No exclusive latency cause or performance improvement is claimed.
+
+The causal failed control, earlier failures before the target cut, passing
+controls, exact sources/executables and voter/controller roots have
+checksum-verified second copies. Current evidence is in
+`CG-17-retirement-fence-ddc3ffb9a-retirement-order-green-2470`; the causal red is
+`CG-17-retirement-fence-742ffd757-retirement-order-red-2467`.
+RustFS has 1 CPU/2 GiB inside the owned 4-CPU/8-GiB VM. Voters share one native
+macOS process and the provider is controlled. These results do not qualify actual
+compute revocation, independent Linux voters, provider-volume recovery or the
+combined Sandbox implementation in follow-up PR
+[#180](https://github.com/crabbuild/cellar/pull/180). The lab is stopped with its
+objects and volumes retained.
+
+Next close original provider completion deadlines and qualify the integrated
+physical Container/Sandbox paths, then complete public primitive drivers,
+retention/GC and the full recovery matrix. CG-17 remains IN_PROGRESS, all 32 full
+cases remain required, and no default cutover is accepted.
+
 ### CG-17 pending read recovery and covered S3 receipts
 
 Source `fb5925652` recovers a pending leader ReadIndex when its quorum heartbeat
