@@ -415,7 +415,7 @@ impl Pool {
                     // Join physical apply before retiring callbacks, image
                     // custody or the physical SQL-owner count, even on errors.
                     let applied = applying.join();
-                    let closed = shared.close();
+                    let closed = shared.close(result.is_err());
                     result.and(applied).and(closed)
                 })
                 .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;

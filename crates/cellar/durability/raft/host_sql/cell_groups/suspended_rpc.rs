@@ -71,7 +71,7 @@ impl Suspended {
         &self.cell == cell
     }
 
-    pub(super) fn close(mut self) -> Result<(), ExecutionError> {
+    pub(super) fn close(mut self, closure: Closure) -> Result<(), ExecutionError> {
         let joined = match &mut self.checkpoint {
             Some(Checkpoint::Preparing { task, .. }) => task.join(&Waker::from(self.ready.clone())),
             _ => Ok(()),
@@ -84,7 +84,7 @@ impl Suspended {
             None => self.turn.close_parked(),
         };
         let retired = self.activation.take().map_or(Ok(()), RpcActivation::close);
-        let _ = self.reply.send(Err(unavailable()));
+        closure.complete(self.reply);
         joined.and(rolled_back).and(retired)
     }
 
@@ -342,11 +342,11 @@ fn check_waiter(
 }
 
 impl Preparing {
-    pub(super) fn close(mut self) -> Result<(), ExecutionError> {
+    pub(super) fn close(mut self, closure: Closure) -> Result<(), ExecutionError> {
         let joined = self.task.join(&self.waker);
         let closed = self.executor.close();
         let retired = self.activation.take().map_or(Ok(()), RpcActivation::close);
-        let _ = self.reply.send(Err(unavailable()));
+        closure.complete(self.reply);
         joined.and(closed).and(retired)
     }
 }
@@ -763,5 +763,22 @@ impl Cells {
             return Ok(true);
         }
         Ok(false)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum Closure {
+    Graceful,
+    Failed,
+}
+
+impl Closure {
+    fn complete(self, reply: oneshot::Sender<SqlReply>) {
+        if matches!(self, Self::Graceful) {
+            let _ = reply.send(Err(unavailable()));
+        }
+        // A fatal worker did not return an ordinary Stage refusal. Drop the
+        // reply only after physical cleanup, preserving unresolved origin
+        // custody and the controller's joined node-shutdown boundary.
     }
 }
