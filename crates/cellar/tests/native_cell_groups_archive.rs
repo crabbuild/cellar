@@ -46,6 +46,28 @@ mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_publication_reuses_exact_verified_dependency_descriptors() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::dependency_reads_once(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_publication_reuses_exact_verified_dependency_descriptors() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::dependency_reads_once(rooted, rustfs::store("verified-descriptors", rooted)?)
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_registry_reads_overlap_with_joined_validation() -> Result<()> {
     for rooted in [false, true] {
         publication_fixture::registry_reads_overlap_and_preserve_validation(

@@ -76,6 +76,7 @@ pub struct Store {
     pub inner: Arc<dyn ObjectStore>,
     pub puts: AtomicUsize,
     pub gets: AtomicUsize,
+    pub object_gets: Mutex<std::collections::BTreeMap<Path, usize>>,
     pub immutable_missing_gets: AtomicUsize,
     pub immutable_creates: AtomicUsize,
     pub immutable_create_conflicts: AtomicUsize,
@@ -115,6 +116,7 @@ impl Store {
             inner,
             puts: AtomicUsize::new(0),
             gets: AtomicUsize::new(0),
+            object_gets: Mutex::new(Default::default()),
             immutable_missing_gets: AtomicUsize::new(0),
             immutable_creates: AtomicUsize::new(0),
             immutable_create_conflicts: AtomicUsize::new(0),
@@ -393,6 +395,9 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> Result<GetResult> {
         self.gets.fetch_add(1, Ordering::AcqRel);
+        if path.as_ref().contains("/generations/") {
+            *self.object_gets.lock().unwrap().entry(path.clone()).or_default() += 1;
+        }
         if !opts.head
             && path.as_ref().contains("/cell-payloads-1/")
             && !path.as_ref().contains("/ownership/")
