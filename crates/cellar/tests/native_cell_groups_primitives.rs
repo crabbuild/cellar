@@ -3166,6 +3166,17 @@ async fn rustfs_controller_retirement_confirmation_survives_lost_s3_proof() -> R
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_retirement_confirmation_waits_for_independent_fence() -> Result<()> {
+    controller_provider::qualify_retirement_order(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_retirement_confirmation_waits_for_independent_fence() -> Result<()> {
+    controller_provider::qualify_retirement_order(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_controller_provider_sessions_preserve_shared_group_durability() -> Result<()> {
     controller_provider::qualify(true, false).await
