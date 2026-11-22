@@ -11,6 +11,11 @@ remain open. CG-17 adds full public primitive compatibility as a prerequisite of
 CG-15 qualification and CG-16 cutover. Earlier component passes do not establish
 complete primitive support or qualify the final combined release.
 
+The [32 primitive acceptance cases](primitive-acceptance-cases.md) provide a
+readable reference to CG-17's full oracles. Focused tests and partial profile
+results are recorded in progress; the implementation index credits complete
+acceptance through DONE tasks.
+
 Start with [remaining work and priorities](remaining-work.md) for the MVP order
 and merge criteria. [Progress](progress.md) records source-scoped validation;
 [handoff](handoff.md) identifies the current implementation and continuation.
@@ -48,11 +53,12 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    only with verified evidence and completed dependencies. Final qualification
    repeats the full capability matrix at one release revision.
 
-Current source-scoped records live under the ignored
+The early source-scoped native records are referenced under the ignored
 `.cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/` directory, with one
 `CG-NN-record.json` per CG-01–06 task. Logs, six copied executables and all source
-hashes are retained locally and backed up on the workspace volume. A fresh
-checkout must receive the same repository-relative evidence paths, or rerun the
+hashes were backed up on the workspace volume when recorded. The current checkout
+lacks the referenced CG-01 record, and full validation rejects that custody gap.
+A fresh checkout must receive the same repository-relative evidence paths, or rerun the
 unchanged exact gates before full package validation. The separately scoped local
 Docker/RustFS record is retained under
 `.cellar/cell-groups-evidence/CG-06-docker-f8aacd05/`. Historical CG-01–05 raw

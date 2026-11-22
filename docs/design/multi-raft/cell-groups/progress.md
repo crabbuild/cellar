@@ -32,6 +32,63 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 cooperative inspection handoff candidate
+
+Candidate `9bb7ec512` lets a healthy shared-group inspection yield to a waiting
+foreground request after its original source proof and before controller/provider
+I/O. It never abandons entered I/O. Deferral retains the reserved task, source
+minimum and failure count, refreshes discovery, and cannot confirm retirement.
+Expired resources, pending transitions, retired bindings and failed maintenance
+retain required admission. The later `8e3dafe0a` changes only the new storage
+fixture: it now reserves a pending Create before confirming the same generation.
+The original invalid-fixture failure is retained; assertions are unchanged.
+
+At `8e3dafe0a`, all **18 full-crate owning tests pass**: nine lifecycle cases and
+nine container-maintenance cases. They cover late waiter handoff, cancellation,
+entered unknown I/O, expiry, retained S3 minima and successor wake discovery.
+The actual standalone lifecycle leaf also passes all nine cases. Locked optimized
+build, strict affected library/test Clippy, canonical formatting, layout and
+native dependency checks pass. The owning bundle
+`CG-17-inspection-handoff-owning-8e3dafe0a-2525` has a verified second copy.
+
+**Public qualification is FAILED: 4/10 whole functions pass.** All ten original
+functions were selected with 36 required image/minimum configurations. Passing
+functions cover 16 configurations; failed functions contain seven additional
+success markers, with later profiles sometimes unreached after a failure.
+The passing functions cover basic provider durability, retained compute recovery,
+expiry/unused-sequence sealing, and dirty lifecycle waits. Failures remain:
+
+- Materialized/S3 live Write never reaches its intended loss cut.
+- Materialized/S3 live Exec recovery exceeds 5s on Destroy4.
+- Extent retirement misses its post-Delete archive cut.
+- Materialized autonomous retirement refuses DeleteIntent as Unavailable.
+- Materialized/S3 unchanged-proof lifecycle Hold exceeds 5s.
+- Extent/S3 native Container never reaches its Write loss cut.
+
+The original identities, inputs, minima and 5s/3s/60s limits are unchanged.
+The source, exact executable, raw logs and 116 retained controller/voter roots
+are sealed in `CG-17-inspection-handoff-8e3dafe0a-2515`: 4,439 files / 245,403,212
+bytes, with a verified second copy. This scope uses a controlled provider and
+one native RF3 process with one SQL worker per voter, plus real RustFS capped at
+1 CPU/2 GiB in the owned 4-CPU/8-GiB VM. It does not qualify physical Docker,
+shared Sandbox or independent Linux voter/load faults.
+
+The unchanged independent-retirement-fence function was then compared using
+frozen parent/candidate/parent executables. Parent `d8730e797` fails twice
+(Create deadline, then DeleteIntent deadline); candidate `8e3dafe0a` passes both
+image profiles in the intervening run. This does not establish an exclusive
+candidate regression, a causal latency improvement or whole-campaign closure.
+Both compiled sources are explicit in
+`CG-17-inspection-parent-control-8e3dafe0a-2527`; all inputs, logs and roots have
+a verified second copy. Both labs are stopped and joined, with data retained.
+
+This candidate is published on `codex/cg17-s3-completion` and is not integrated
+into draft PR #180. Close the public S3 completion failures and add a deterministic
+public handoff control before integration; then qualify the combined physical
+Container/Sandbox source. Full CG-17 acceptance remains **0/32**, with the full
+[case definitions](primitive-acceptance-cases.md) and existing dependencies intact.
+The current source is based on fetched `origin/main` `09cdcf423`.
+
 ### CG-17 lifecycle admission and required cleanup
 
 Runtime `96af1bcd2` fixes a local admission race. A contended foreground
@@ -49,8 +106,12 @@ Cargo-locked optimized runtime dependencies. Full affected library/test Clippy,
 canonical formatting, layout and native dependency checks pass. Evidence:
 `CG-17-lifecycle-required-owning-96af1bcd2-2498` retains source, executable,
 results and a verified second copy. These are component results. The optimized
-public build at parent `20651c85e` predates the required-cleanup refinement;
-current-source public runtime qualification remains outstanding. Plan unit tests
+public build at parent `20651c85e` predates the required-cleanup refinement.
+The later `d8730e797` build, using production `96af1bcd2`, passes 9/10 whole
+RustFS functions: 32 configurations in passing functions and three additional
+markers in the failed live-Exec function. Its extent/S3 Destroy4 exceeds the
+original 5s deadline. That sealed baseline does not qualify the later candidate.
+Plan unit tests
 pass 44/44; contract loading, source anchors and the generated index pass. Full
 plan validation still fails on missing historical
 `CG-01-06-gates-e32115aa-02/CG-01-record.json`; this custody gap is not waived.
@@ -61,7 +122,8 @@ planned acceptance entry points defined in the target file, an empty formal
 CG-17 evidence list and a partial SDK inventory (18 entries / 352 symbols).
 Passing focused tests have not delivered the complete public API, feature,
 provider and lifecycle matrix. All exact criteria remain in [tasks.json](tasks.json)
-and `plan.py show CG-17`; this audit is separate from a raw behavioral test count.
+and `plan.py show CG-17`, with a readable [32-case reference](primitive-acceptance-cases.md);
+this audit is separate from a raw behavioral test count.
 
 Next qualify the combined admission and Sandbox work-discovery fixes against
 real RustFS with the original IDs, Quorum/S3 minima and 5s/3s/60s budgets. Close

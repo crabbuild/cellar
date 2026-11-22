@@ -36,22 +36,33 @@ full disaster profile remain open.
 
 ## Primitive delivery priority
 
-**Prioritize full CG-17 closure.** Every primitive and all 32 required cases
-remain in scope. Runtime `ddc3ffb9a` retains retirement work until the exact
-checkpoint has its required proof and the independent controller is fenced.
-Seven native controller-provider functions pass 24 configurations; their real
-RustFS selection is 6 pass / 1 fail / 7 selected. The broader native Container gate remains
-**FAILED**; the combined real selection is **FAILED**. See the
-[current checkpoint](progress.md#cg-17-retirement-work-and-independent-controller-fencing)
-for source pins, failures and limits.
+**Prioritize full CG-17 closure.** Every primitive and all
+[32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
+Candidate `8e3dafe0a` adds cooperative inspection handoff and passes all 18 owning
+tests, the optimized build and strict affected checks. Its full original public
+RustFS selection is **FAILED: 4/10 whole functions**, with 16 configurations in
+passing functions and seven partial success markers. The candidate is not in
+PR #180. The earlier parent passes 9/10 functions in its original campaign,
+but fails both runs of a later parent/candidate/parent retirement comparison;
+the candidate passes that isolated control. This does not establish whole-gate
+closure or an exclusive cause. See the
+[current checkpoint](progress.md#cg-17-cooperative-inspection-handoff-candidate)
+for exact sources, failures and verified evidence.
+
+Separately, draft PR #180's physical Container/Sandbox source has a failed
+3/6-function campaign at `a2fc2a15b`, with 13 profile success markers. It includes
+a complete extent/Quorum Sandbox path; materialized/Quorum Exec2, S3 Start1 and
+extent/S3 physical Container Destroy4 remain open. These source boundaries must
+be integrated and qualified together.
 
 The next feature deliveries are:
 
-1. Close original public provider completion deadlines and autonomous
-   reconciliation/sequence sealing. A separate diagnostic reaches backend Delete
-   but misses the original public response deadline. Preserve uncertainty,
-   original identities and inputs; do not replay business callbacks or extend the
-   5-second/3-second/60-second budgets.
+1. Close common public S3 input/output completion and lifecycle contention
+   failures. Add a deterministic public inspection-handoff control and trace the
+   failed proof/settlement boundaries before integrating the candidate. Retain
+   the required cleanup, original operation identities, uncertainty and
+   5-second/3-second/60-second budgets. The isolated retirement pass does not
+   replace the failed full campaign.
 2. Qualify the integrated actual fenced native Container and shared Sandbox
    bridge, including autonomous cleanup, retained source minima and both selected
    namespace groups. Finish interactive, port/HTTP/WebSocket and provider-volume
@@ -574,7 +585,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. `ddc3ffb9a`: seven native controller-provider functions pass 24 configurations; same real RustFS functions: 6 pass / 1 fail / 7 selected. Broader native Container remains failed; combined real selection FAILED. | Close original provider completion deadlines; qualify integrated physical Container/Sandbox; finish public drivers, GC/WebSockets and the full 32-case matrix. See the [current checkpoint](progress.md#cg-17-retirement-work-and-independent-controller-fencing). |
+| CG-17 | In progress. Candidate `8e3dafe0a`: 18 owning tests pass; real RustFS is FAILED, 4/10 whole functions. Physical Container/Sandbox has a separate failed 3/6-function source boundary. | Close original S3 completion deadlines and the deterministic public handoff gate; qualify integrated physical Container/Sandbox; finish public drivers, GC/WebSockets and the full 32-case matrix. See the [current checkpoint](progress.md#cg-17-cooperative-inspection-handoff-candidate). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 
