@@ -30,6 +30,46 @@ use std::{
 };
 use tokio::sync::Notify;
 
+// Diagnostic forwarding keeps the real adapter, request, guard and outcome.
+struct AdapterTrace(Arc<NativeContainerAdapter>);
+
+impl ContainerAdapter for AdapterTrace {
+    fn identity(&self) -> BackendIdentity {
+        self.0.identity()
+    }
+
+    fn max_body_bytes(&self) -> usize {
+        self.0.max_body_bytes()
+    }
+
+    fn supports_bounded_sandbox(&self) -> bool {
+        self.0.supports_bounded_sandbox()
+    }
+
+    fn prepare<'a>(
+        &'a self,
+        context: &'a Context,
+        request: ContainerRequest,
+        lifecycle: Option<&'a BindingLifecycleGuard>,
+    ) -> Result<PreparedContainerCall<'a>> {
+        eprintln!("sandbox_adapter_prepare");
+        let call = self
+            .0
+            .prepare(context, request, lifecycle)
+            .inspect_err(|error| {
+                eprintln!("sandbox_adapter_prepare_error {error:?}");
+            })?;
+        Ok(Box::new(move || {
+            let future = call();
+            Box::pin(async move {
+                future.await.inspect_err(|error| {
+                    eprintln!("sandbox_adapter_execute_error {error:?}");
+                })
+            })
+        }))
+    }
+}
+
 struct Peer {
     backend: Arc<DockerBackend>,
     retirement_cut: Option<Arc<catalog_fault::Store>>,
@@ -284,12 +324,12 @@ async fn start(
     controller: Arc<ExecutionController>,
     track: Arc<Track>,
 ) -> Result<ManagedCluster> {
-    let adapter = Arc::new(NativeContainerAdapter::new(
+    let adapter = Arc::new(AdapterTrace(Arc::new(NativeContainerAdapter::new(
         Arc::new(ControllerProvider::new(controller)?),
         Limits {
             max_body_bytes: 4096,
         },
-    )?);
+    )?)));
     let parent=RaftClass::new("Counter",1,[220;32])?.initializer([230;32],|_,_|Ok(()))?.json_cell_rpc("Run",[221;32])?.sandbox_catalog()?
         .query("SandboxState",[222;32],|query,_|Ok(serde_json::to_vec(&json!({"parent":query.sandbox_parent()?,"cleanup_pending":query.sandbox_cleanup_pending()?,"job":query.sandbox_allocation("job")?,"spare":query.sandbox_allocation("spare")?}))?))?;
     let child = RaftClass::new("Sandbox", 1, [223; 32])?
