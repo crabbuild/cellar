@@ -37,20 +37,23 @@ full disaster profile remain open.
 ## Primitive delivery priority
 
 **Prioritize full CG-17 closure.** Follow-up PR #180 implements bounded physical
-Docker execution and the shared Sandbox bridge on merged PR #179. The combined
-owning source passes 23 checks. Full real source `e9c9d9343` remains FAILED:
-three complete functions and 11 profile markers. Physical fencing and all eight
-archive-refusal profiles pass. The work-key correction now reaches actual
-Delete and retained recovery of one child; the live spare remains at deletion
-intent, so terminal cleanup still fails. Normal S3 Start deadlines, extent
-Quorum Spare7 and two ordinary Container deadlines also remain open.
+Docker execution and the shared Sandbox bridge on merged PR #179. Current source
+`a2fc2a15b` passes 27 owning checks, the locked public build, strict affected
+Clippy and canonical formatting. Its full real RustFS/Docker campaign remains
+FAILED: 3/6 complete functions and 13/19 profile success markers. Physical
+fencing and all eight archive-refusal profiles pass. Extent/Quorum Sandbox now
+passes the complete public execution, retained lost-Exec/Delete recovery and
+autonomous terminal cleanup oracle without business construction. Ordinary
+Container recovery passes three of four profiles.
 
-The next bounded delivery removes only the redundant entry observation before
-private framework Destroy, preserving controller reconciliation, stable IDs,
-fencing and input/output proofs. Qualify that source with the same three-slot/
-64-KiB/single-worker profile and original 5s/3s/60s budgets. Every primitive family
-and all 32 formal cases remain open. Do not credit partial profile markers as
-complete family acceptance.
+The immediate response-path gaps are materialized Quorum Sandbox Exec2, both
+Sandbox S3 Start1 profiles, and extent S3 Container `Counter:docker-b` Destroy4.
+Both explicit S3-retirement profiles stop at Start1 before their retirement
+proof oracle. Preserve original identities, minima, uncertainty and 5s/3s/60s
+budgets; fix the completion paths and rerun all six functions/19 profiles.
+Every primitive family and all 32 formal cases remain open. Do not credit
+individual profile markers as complete family acceptance. See the
+[latest bridge checkpoint](progress.md#cg-17-shared-sandbox-bridge-and-physical-execution).
 
 Earlier `fb5925652` archive/read passes and provider deadline/fence failures are
 retained in [progress](progress.md#cg-17-pending-read-recovery-and-covered-s3-receipts);
@@ -58,32 +61,17 @@ this implementation does not supersede their failed combined gate.
 
 The next feature deliveries are:
 
-1. Qualify the integrated retirement-fence correction: durable work now remains
-   until the independent controller acknowledges the retired checkpoint. The
-   observed retirement must be accompanied by that retired controller claim.
-   Then close S3 Create/Read/Delete completion deadlines and operation-specific
-   sequence sealing. Current failed Creates physically complete but miss the
-   original response deadline. Preserve their uncertainty and IDs; do not replay
-   business callbacks or extend the 5-second/3-second/60-second budgets.
-2. Qualify the implemented physical Docker backend and shared Sandbox bridge on
-   the source integrated with merged PR #179. The bridge includes authenticated
-   parent/child dispatch, original receipt reconciliation, constructor-independent
-   cleanup, idle discovery and retained strongest source minima. The corrected
-   combined `a2a8eac03` campaign remains failed: normal Start refuses the
-   Fleet-only turn guard and extent/S3 Container Destroy8 misses its deadline.
-   Combined `db8e6a593` corrects the guard and retirement work, then exposes
-   missing Sandbox range selection in the fixture. The corrected fixture now
-   provisions and restarts both groups; its scoped ten-profile rerun is required.
-   The five Container startup/deadline failures remain open separately. Earlier
-   failed campaigns remain retained.
-   See the [bridge checkpoint](progress.md#cg-17-shared-sandbox-bridge-and-physical-execution).
-   Finish remaining public interactive, port/HTTP/WebSocket and provider-volume
-   contracts; bounded exec alone does not accept the full family.
-   The corrected two-group fixture passes build/Clippy but its real scoped gate
-   remains FAILED (two refusal markers, no complete positive/floor function).
-   The private child refuses before adapter preparation; locate and correct that
-   admission guard, then rerun all six functions/19 profiles. Original Container
-   deadline and startup failures remain required controls.
+1. Close the current shared completion deadlines above, including exact S3
+   entry/result/parent confirmation. The provider already performs the failed
+   Start/Exec operations; retain their original unknown outcome and reconcile
+   original receipts without replay. Keep the independent retirement fence and
+   required cleanup admission; routine inspection must yield to foreground work.
+2. Finish the real explicit S3 retirement/minimum-custody gate in both images and
+   rerun the whole merged Container/Sandbox campaign. Retain successful extent
+   Quorum autonomous cleanup as a scoped result. Then deliver the remaining
+   public interactive, port/HTTP/WebSocket and provider-volume contracts;
+   bounded exec alone does not accept the full family. Earlier failed controls
+   remain pinned in [progress](progress.md#cg-17-shared-sandbox-bridge-and-physical-execution).
 3. Finish every ordinary Storage/SQL/KV, Queue, EventStream, Workflow, alarm/cron,
    filesystem and payload acceptance driver, including retention-aware receipt and
    payload GC. Inventory remains partial at 18 entries/397 symbols. Register real

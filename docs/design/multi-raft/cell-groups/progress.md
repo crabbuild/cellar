@@ -62,6 +62,8 @@ its proof obligation. Idle discovery survives an older work completion.
 
 | Source-pinned check | Actual result |
 | --- | --- |
+| `a2fc2a15b` latest owning tests and public build | 27/27 pass: admission (1), lifecycle (6), private events (15), Sandbox storage/gateway (4), work atomicity/capability (1); locked public build, strict affected Clippy and canonical formatting pass |
+| `a2fc2a15b` full real RustFS/Docker rerun | FAILED: 3/6 complete functions and 13/19 profile success markers; extent/Quorum Sandbox passes its entire cleanup/recovery oracle |
 | `957564fe5` combined owning tests | 23/23 pass: configured/private admission (1), lifecycle waiting/cancellation (4), existing private-event protocol (15), Sandbox storage (3) |
 | `28ff0ab32` shared storage invariants | 3/3 pass: history pins, exact terminal/minimum custody and idle discovery |
 | `28ff0ab32` real RustFS, six functions/19 profiles | FAILED: 8 pass, one original deadline failure, ten missing-initializer refusals |
@@ -74,6 +76,34 @@ its proof obligation. Idle discovery survives an older work completion.
 | `a323a13fb` configured-application namespace correction, real Start diagnostic | FAILED: all four profiles reach physical Create; materialized Quorum also reaches two Exec calls, then admission overload; three original Create deadlines remain |
 | `1a03df7d0` three-slot/foreground-admission real control | FAILED: both Quorum modes pass lost-Exec recovery, file operations and generation replacement, then autonomous Delete never enters within 60 seconds; two S3 Start deadlines remain |
 | `e9c9d9343` corrected work key plus urgent admission, full real six-function/19-profile campaign | FAILED: 3/6 complete functions and 11 configuration markers; physical fencing and all eight archive-refusal profiles pass |
+
+The latest campaign is `merged-a2fc2a15b-rustfs-03`, source unchanged and no
+own compiler or formatter running beside it. Its result remains **FAILED**:
+
+| Current-source real function | Result |
+| --- | --- |
+| Physical Docker fencing and original receipts | Pass, 1 profile |
+| Container recovery | Failed function; materialized Quorum/S3 and extent Quorum pass; extent S3 `Counter:docker-b` Destroy4 expires at 5000 ms |
+| Container source-proof/archive refusal | Pass, all 4 profiles |
+| Sandbox execution, retained recovery and autonomous cleanup | Failed function; extent Quorum passes the entire oracle; materialized Quorum Exec2 and both S3 Start1 calls expire after physical effect entry |
+| Sandbox source/target proof refusal | Pass, all 4 profiles, retaining the original Reserved generation and zero physical effects |
+| Explicit S3 retirement in a Quorum-default namespace | Failed in both images at S3 Start1; retirement and its archive cut are not reached |
+
+Nine profiles belong to the three passing functions. Four additional profile
+markers occur inside failed functions; they do not accept those functions or a
+full primitive case. The passing extent/Quorum Sandbox profile covers actual
+Create/Exec/file I/O, hidden original Exec receipt refusal, retained restart
+without replay, forged ordinary dispatch refusal, generation replacement, lost
+Delete reply/restart, and autonomous terminal cleanup with business construction
+unavailable. All three child generations are physically deleted exactly once;
+no old parent Context or retired parent can admit new work.
+
+The shared completion/S3 work is therefore not fully qualified. Fix the original
+materialized Quorum Exec and S3 Start/Destroy response paths, then rerun all six
+functions/19 profiles. Do not infer an exclusive cause or performance improvement
+from one changed profile. The original five-second request, three-second
+maintenance and sixty-second recovery budgets remain unchanged. The lab is
+stopped and joined; all failed roots and source/executable/log hashes are kept.
 
 The `a2a8eac03` gate passes physical fencing/restart, three Container recovery
 profiles and all eight Container/Sandbox archive-refusal profiles under its
@@ -158,8 +188,10 @@ authenticated dedicated framework Sandbox Destroy. The framework constructor
 needs no running snapshot; the controller's Delete already reconciles old debt,
 uses the stable deletion ID and enforces the mandatory input proof and fence.
 Ordinary constructors retain their observation. A narrow opt-in failure event
-preserves the internal cause before the public Unknown response. This source
-requires owning checks and real qualification; it is not a proven latency fix.
+preserves the internal cause before the public Unknown response. This source passes all 27 selected owning checks, its locked public build,
+strict affected Clippy and canonical formatting. The real campaign above passes
+the entire extent/Quorum Sandbox cleanup oracle but remains failed overall;
+this is not an exclusive causal or measured performance claim.
 
 All original operation IDs, proof requirements and
 5-second/3-second/60-second budgets remain unchanged.
@@ -167,7 +199,9 @@ All original operation IDs, proof requirements and
 Failed roots, raw logs, frozen executables, hashes and source snapshots remain
 in `cellar-native-docker-delivery-20261121-01`, including
 `merged-28ff0ab32-rustfs-01`, `merged-a2a8eac03-rustfs-01` and
-`sandbox-start-diagnostic-cf25bbff8-01`, plus the failed
+`sandbox-start-diagnostic-cf25bbff8-01`, plus the current
+`merged-a2fc2a15b-rustfs-03` campaign, its summary
+`merged-a2fc2a15b-rustfs-03-summary.json`, the failed
 `merged-db8e6a593-rustfs-01` campaign and
 `sandbox-namespace-a323a13fb-rustfs-01`. Actual RustFS is capped at 1 CPU/2 GiB
 in a 4-CPU/8-GiB VM. RF3 voters share one native macOS process; the Docker
