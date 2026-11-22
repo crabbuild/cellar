@@ -25,7 +25,7 @@ impl Reads {
         fault::gate_store_read(
             &f.store,
             format!(
-                "/groups/{}",
+                "groups/{}",
                 hex::encode(birth.route().history.group.bytes())
             ),
             self.reservation.clone(),
@@ -48,7 +48,7 @@ impl Reads {
             result = pending => anyhow::bail!("birth validation finished before both reads entered: {result:?}"),
             result = tokio::time::timeout(Duration::from_secs(2), async {
                 futures_util::join!(self.head.entered.notified(), self.reservation.entered.notified());
-            }) => result.context("birth validation serialized independent reads")?,
+            }) => result.context("birth validation did not enter both held reads")?,
         }
         Ok(())
     }
