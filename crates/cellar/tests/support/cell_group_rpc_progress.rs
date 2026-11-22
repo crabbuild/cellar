@@ -458,7 +458,7 @@ async fn run_mode_with_workers(
                 let closed = cellar::asyncrt::timeout(TIMEOUT, cluster.hosts[0].close()).await?.err().context("fatal capture failure lost close error")?;
                 ensure!(matches!(closed.controller.as_deref(), Some(CellGroupControllerError::Command(_))), "capture failure lost controller custody: {closed:?}");
                 let sql = cluster.hosts[0].resource_usage().sql.context("closed SQL owner")?;
-                ensure!(sql.running_workers == 0 && sql.work_reservations == 0 && sql.queue_closed, "capture failure retained SQL work: {sql:?}");
+                ensure!(sql.running_workers == 0 && sql.active_cells == 0 && sql.retained_operations == 0 && sql.retained_bytes == 0 && sql.apply_retained_operations == 0 && sql.apply_retained_bytes == 0 && sql.queued_or_running == 0 && sql.completion_reservations == 0 && sql.closing, "capture failure retained SQL work: {sql:?}");
                 expected_close = Some(closed);
                 return Ok(());
             }
