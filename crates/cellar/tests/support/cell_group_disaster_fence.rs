@@ -365,7 +365,13 @@ pub(super) async fn cancel_import(rooted: bool) -> Result<()> {
         max_files: 1,
     })?;
     let proof = s.fence(&s.cluster.directory, &s.request).await?;
-    let release = gate.arm(fault::HOLD_DEPENDENCY_SYNC);
+    // The anonymous receive spool is disposable. Hold the durable destination
+    // file, whose fsync must remain owned after cancellation, in either format.
+    let release = gate.arm(if rooted {
+        fault::HOLD_DEPENDENCY_SYNC
+    } else {
+        fault::HOLD_IMAGE_SYNC
+    });
     let mut work = Box::pin(pool.prepare(
         &s.cluster.domain,
         proof,
@@ -379,10 +385,34 @@ pub(super) async fn cancel_import(rooted: bool) -> Result<()> {
     ));
     match futures_util::future::select(entered, work.as_mut()).await {
         futures_util::future::Either::Left((result, _)) => result?,
-        futures_util::future::Either::Right(_) => {
-            anyhow::bail!("import skipped physical dependency sync")
-        }
+        futures_util::future::Either::Right((result, _)) => match result {
+            Ok(_) => anyhow::bail!("import skipped physical dependency sync"),
+            Err(error) => {
+                return Err(error).context("import refused before physical dependency sync")
+            }
+        },
     }
+    let (path, bytes) = gate
+        .dependency_cut
+        .lock()
+        .unwrap()
+        .clone()
+        .context("physical destination sync cut")?;
+    assert_eq!(
+        path.parent(),
+        Some(
+            s.cluster
+                ._root
+                .path()
+                .join("recovery-cancel")
+                .join(if rooted { "extents" } else { "images" })
+                .as_path()
+        )
+    );
+    assert!(
+        bytes > 0,
+        "cancellation gate must cover actual imported bytes"
+    );
     drop(work);
     assert_eq!(pool.usage().operations, 1);
     assert_eq!(s.receivers.usage().sources, 1);

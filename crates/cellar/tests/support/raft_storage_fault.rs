@@ -32,6 +32,7 @@ pub const HOLD_DEPENDENCY_PREFIX: u8 = 15;
 pub const HOLD_DEPENDENCY_SYNC: u8 = 16;
 pub const HOLD_FAIL_PRIVATE_CLEANUP: u8 = 17;
 pub const HOLD_SELECTED_DIRECTORY_SYNC: u8 = 18;
+pub const HOLD_IMAGE_SYNC: u8 = 19;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -233,16 +234,13 @@ impl HostFileIo for FaultFile {
     }
 
     fn sync_all(&mut self) -> io::Result<()> {
-        if self.dependency()
+        let mode = self.gate.mode.load(Ordering::Acquire);
+        if (self.dependency() && mode == HOLD_DEPENDENCY_SYNC
+            || self.image && mode == HOLD_IMAGE_SYNC)
             && self
                 .gate
                 .mode
-                .compare_exchange(
-                    HOLD_DEPENDENCY_SYNC,
-                    OFF,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
+                .compare_exchange(mode, OFF, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
         {
             self.inner.sync_all()?;

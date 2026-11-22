@@ -203,7 +203,8 @@ async fn run(
     archive_controller::published(&h.controllers[0], h.route.history, warm_index).await?;
     let gateway_store = archive_controller::archive_store::Store::around(global.clone());
     let remote = remote::Remote::start(&h, gateway(&h, gateway_store.clone()).await?).await?;
-    // Warm the receiver too. It must still perform fresh discovery after stop.
+    // A trusted warm route remains usable during archive outage. A separate
+    // cold receiver must still discover its route before admitting a mutation.
     let found = remote::command_using(
         &h,
         &remote,
@@ -217,6 +218,7 @@ async fn run(
     assert_eq!(found.result(), b"warm");
     drop(found);
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    let cold_receiver = gateway(&h, gateway_store.clone()).await?;
     let fresh_gets = gateway_store.gets.load(Ordering::SeqCst);
     let probe = ObjectPath::from("backend-probe");
     let probe_bytes = vec![29_u8; 128];
@@ -237,6 +239,27 @@ async fn run(
         failed_probe.is_err(),
         "stopped backend must refuse actual S3 I/O"
     );
+
+    let cached = remote::command_using(
+        &h,
+        &remote,
+        remote::command_request(&h, 1, b"warm", Durability::Quorum)?,
+        CellRoutingLimits {
+            timeout: Duration::from_secs(15),
+            max_attempts: 4,
+        },
+    )
+    .await?;
+    assert_eq!(cached.result(), b"warm");
+    assert_eq!(cached.durability(), Durability::Quorum);
+    drop(cached);
+    assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        gateway_store.gets.load(Ordering::SeqCst),
+        fresh_gets,
+        "trusted cached receipt retry must not depend on S3"
+    );
+    let remote = remote.rebind(&h, cold_receiver).await?;
 
     let remote_request = CellCommandRequest {
         id: CommandId::new(ClientId::new([187; 16])?, 1)?,
