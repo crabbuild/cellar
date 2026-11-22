@@ -8,30 +8,39 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 Continue on `codex/cg17-s3-completion`; open PR #180 uses
 `codex/cg17-shared-sandbox-bridge`. Both include merged main `09cdcf423`.
-Runtime `fad389bf3` also batches private Sandbox deletion/retry state with its
-binding input proof; materialized ordinary Delete verifies three source cuts.
-All 27 owning tests, three preparation tests and eight SDK provider profiles pass.
-The full expanded real RustFS/Engine run is FAILED: 4/8 functions, 12/22 profiles.
-Both physical controls, all source-proof refusal profiles and both materialized
-Container recovery profiles pass. Sandbox recovery, extent Container recovery,
-explicit S3 floors and the new Delete input/restart case remain incomplete.
-The owned lab and read-only journal observer are stopped and joined.
+Runtime `6ffd1e3d5` removes unused authenticated private Sandbox entry observations
+while retaining original-receipt reconciliation and execution fencing. First
+controller registration persists its inactive high-water directly. Shared Delete
+combines deletion/retry state with the binding input proof; both images verify
+three source cuts. All 71 focused controller/Container/core tests pass.
 
-The full recovery diagnostic `e8aa22970` joined FAILED: extent/Quorum passes its
-whole recovery/cleanup oracle; the other three profiles fail Start1 after actual
-Create completion. Evidence `CG-17-recovery-profile-e8aa22970-2609` and its
-verified backup retain the exact trace and state. Completed-return counters
-cannot establish absence of physical entry; inspect the backend journal.
+The full real RustFS/Engine run is FAILED: **5/8 functions, 16/22 profiles**.
+Both Quorum Sandbox recovery profiles, both requested-S3 cleanup-floor profiles,
+both physical controls and all source-proof refusals pass. Materialized Delete
+passes the complete input-cut/restart/restore oracle; extent fails 60s autonomous
+recovery. Both normal S3 Sandbox Start1 profiles fail. Container recovery passes
+materialized/Quorum; materialized/S3 Write2, extent/Quorum Write2 and extent/S3
+enrollment fail. The owned VM, backend and all test processes are stopped/joined.
 
-Next qualify the implementation that removes unused entry observations for
-authenticated private Sandbox exec/file/capability calls and combines first
-controller registration with inactive high-water persistence. Keep observations
-for running-state consumers and prove failed first activation across restart.
-Then close startup/completion and autonomous Delete recovery using the phase
-trace, preserving the documented terminal sync, all original
-identities, proofs and deadlines. The current new test verifies the materialized
-cut count but Create failures prevent reaching its archive fault. The pre-change
-run reaches it and fails 60s autonomous recovery. Then finish full primitive API/feature/recovery/GC coverage
+The native command selection is retained as FAILED, 26/27 during compilation;
+the exact sole readiness failure passes an unchanged quiet replay. Three
+preparation controls and four ordinary SDK profiles pass. Inspection handoff
+passes Quorum but fails `WaitInspectionLifecycle` request 2 in both S3 modes.
+Keep those failures. Evidence `CG-17-sandbox-direct-native-6ffd1e3d5-2629` and
+`CG-17-sandbox-direct-real-6ffd1e3d5-2620` has verified second copies. Six frozen
+executables and 3,052 runtime inputs are available; the successful Cargo build
+needed only a snapshot-collector repair, not recompilation.
+
+Next distinguish whether the original S3 handoff timeout occurs before lifecycle
+acquisition or after callback completion: capture existing activation/acquisition/
+inspection counters at the failed foreground response. Retained candidate image
+receipts and controller outcomes lack that timing and are not selected-image or
+no-effect proofs. Then fix the owning completion path without weakening terminal
+sync or cancelling an entered fence. Close the normal Container Write2 and
+enrollment deadlines as well. Separately trace extent restored-archive
+binding resolution and safe sequence sealing, preserving the custody floor,
+original identities and 5s/3s/60s budgets. Do not infer absence from counters or
+missing receipts. Finish full primitive API/feature/recovery/GC coverage
 and the independent-voter release gates. See the
 [current source and evidence](progress.md#cg-17-shared-delete-input-and-completion-qualification)
 and [priorities](remaining-work.md#primitive-delivery-priority). Earlier scoped

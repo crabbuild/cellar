@@ -40,43 +40,42 @@ full disaster profile remain open.
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
 [PR #180](https://github.com/crabbuild/cellar/pull/180) integrates shared
 Sandbox execution, the physical Docker backend, inspection handoff and
-accepted-apply scheduling. Runtime `fad389bf3` also combines private Sandbox
-deletion/retry state with its exact binding input proof. Materialized ordinary
-Delete now verifies three source cuts instead of four. Public transitions and
-terminal sync retain their contracts. All 27 owning tests, three preparation
-tests and both SDK controls/eight profiles pass on this source.
+accepted-apply scheduling. Runtime `6ffd1e3d5` removes unused private Sandbox
+entry observations while preserving original-receipt recovery and independent
+fencing. Initial controller registration directly persists its inactive
+high-water claim. Shared Delete combines deletion/retry state with its binding
+input proof and verifies three source cuts in both image modes. Public terminal
+sync retains its contract. All 71 focused controller/Container/core tests pass.
 
-The expanded real RustFS/Engine campaign is **FAILED, 4/8 functions,
-12/22 profiles**. Both physical controls and all source-proof refusal profiles
-pass. Container recovery passes both materialized profiles; extent Destroy4 and
-Status2 fail. Normal Sandbox recovery and the S3-floor case remain incomplete.
-The new Delete input/restart test verifies the materialized cut count, but Create
-deadlines prevent its fault phase from running. Prior pre-change testing reached
-that phase and failed autonomous recovery. Completion/startup failures now affect
-Quorum as well as S3 in this campaign. Earlier source-specific passes do not
-qualify this source.
-The separate full recovery diagnostic `e8aa22970` passes extent/Quorum's entire
-oracle; the other three profiles fail Start1 after completed physical Create.
-It is not a replacement for the fixed campaign. The next source removes unused
-entry observations for authenticated private Sandbox exec/file calls and combines
-initial controller registration with inactive high-water persistence. Its owning
-restart tests and original public gates still need to pass. Running-state
-consumers, terminal sync and independent provider fencing retain their contracts.
+The full real RustFS/Engine campaign is **FAILED, 5/8 functions,
+16/22 profiles**. Both Quorum Sandbox recovery profiles, both explicit-S3 cleanup
+floor profiles, both physical controls and all eight source-proof refusal
+profiles pass. Materialized Delete passes input refusal, retained restart and
+autonomous recovery after archive restoration; extent still fails its original
+60s recovery bound. Container recovery passes materialized/Quorum, but both Write2
+timeouts and extent/S3 enrollment remain. Normal S3 Sandbox Start1 also fails.
+The native SDK inspection-handoff control separately fails request 2 in both S3
+modes; ordinary provider sessions pass all four profiles. The compiler-concurrent
+26/27 command selection and its unchanged passing quiet readiness replay are
+both retained. Earlier passes do not replace failed current-source gates.
 See
 [progress](progress.md#cg-17-shared-delete-input-and-completion-qualification)
 for the exact failures and retained evidence.
 
 The next feature deliveries are:
 
-1. Close public startup/completion and interrupted Delete recovery under the original identities,
-   minima and 5s/3s/60s limits. Trace actual checkpoint/apply/archive/receipt waits;
+1. Close S3 foreground handoff/completion, initial Start, Container Write2 and
+   extent interrupted-Delete recovery under the original identities, minima and 5s/3s/60s limits.
+   Distinguish lifecycle acquisition from protected-output archival at the
+   original S3 handoff timeout; inspect original binding resolution and safe
+   sequence sealing after extent archive restoration. Trace checkpoint/apply/archive/receipt waits;
    stage counters include async continuation polls and are not proof of redundant
    preparation. Preserve fresh authority, source/target proofs, required cleanup
    and unknown work. Preserve the documented terminal sync. Use the complete
    recovery phase trace to distinguish checkpoint/completion delay, background
-   lifecycle interference and leadership changes. One failed Quorum Create's
-   durable physical result is observed over a second before public expiry;
-   neither that observation nor an earlier isolated pass proves a cause.
+   lifecycle interference and leadership changes. Retained terminal receipts
+   and controller outcomes do not establish when completion occurred relative
+   to the original public deadline.
 2. Pass all eight combined physical Container/Sandbox functions/22 profiles. Retain both
    selected namespaces, constructor-independent cleanup, original receipts,
    independent execution fences and explicit S3 custody floors. Complete

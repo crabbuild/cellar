@@ -34,6 +34,58 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ### CG-17 shared Delete input and completion qualification
 
+Runtime `6ffd1e3d5` removes unused entry observations from authenticated private
+Sandbox exec/file/capability calls. Running-state consumers retain observation;
+every effect still proves its original intent and uses the independent execution
+fence. The admitted submission closure reconciles original pending receipts
+before new work, without replay. Initial controller registration now persists
+its inactive high-water claim directly through the crash-safe registration
+protocol. Failed first activation cannot reset that fence after restart.
+
+The complete real RustFS/Engine campaign has joined **FAILED: 5/8 functions,
+16/22 profiles** on this source, with all original 5s/3s/60s limits and identities.
+
+| Case | Current result |
+| --- | --- |
+| Physical fencing/receipt and failed-journal shutdown | Both functions pass |
+| Public Sandbox recovery | Both Quorum image modes pass the entire exec/file, lost-reply, generation, retained-restart and autonomous-cleanup oracle; both S3 modes fail Start1 at 5s |
+| Public Container recovery | Materialized/Quorum passes; materialized/S3 Write2, extent/Quorum Write2 and extent/S3 enrollment exceed their original deadlines |
+| Container and Sandbox source-proof refusal | Both functions pass all eight profiles |
+| Explicit requested-S3 cleanup floor in a Quorum namespace | Both image modes pass, including the archive cut and autonomous proof recovery |
+| Delete input/restart recovery | Materialized passes the full input cut, retained restart and restored-archive cleanup oracle; extent verifies three cuts but fails 60s autonomous cleanup after restoration |
+
+Ordinary Delete verifies **three source cuts in both image modes**, preserving
+its public terminal sync. These results establish the passing profile behavior;
+they do not establish a single cause for the remaining latency failures.
+Completed-return counters do not prove absence of physical entry.
+
+All **71 focused tests** pass: 19 controller, 36 Container and 16 core
+lifecycle/Sandbox tests. The compiler-concurrent command selection is retained
+as FAILED, 26/27; its sole extent readiness failure passes an unchanged quiet
+replay. All three private-image preparation controls pass. The ordinary provider
+SDK control passes four profiles; inspection handoff passes both Quorum profiles
+but both S3 profiles time out at `WaitInspectionLifecycle` request 2. That failure
+remains open; the quiet readiness pass does not establish its earlier cause.
+Strict affected Clippy, the locked six-target build, canonical formatting,
+documentation, layout and native dependency checks pass.
+
+The owned VM is stopped and all processes have joined. Verified second copies
+retain the 3,052 source inputs, six frozen executables, raw results and available
+controller/voter state in `CG-17-sandbox-direct-native-6ffd1e3d5-2629` (1,710 files)
+and `CG-17-sandbox-direct-real-6ffd1e3d5-2620` (5,505 files). RF3 still shares one
+native process; real RustFS and bounded Docker execution use the owned 4-CPU,
+8-GiB VM, with RustFS limited to 1 CPU/2 GiB. Independent voter crashes, load,
+disk loss, provider-volume recovery and full primitive compatibility remain open.
+
+Next close S3 foreground handoff/completion, initial Start and Container Write2
+deadlines, then extent interrupted-Delete recovery. Preserve source/target proofs, original operation
+identities, safe sequence sealing, terminal sync and the required custody floor.
+Do not extend deadlines or infer no effect from a missing counter or receipt.
+All 32 full CG-17 acceptance cases remain required; no cutover is authorized by
+these scoped passes. The generated task index remains unchanged.
+
+### CG-17 previous Delete input and recovery diagnostic
+
 The full recovery diagnostic `e8aa22970` has now joined **FAILED, 1/4
 profiles**. Extent/Quorum passes the complete original lost-Exec, file,
 generation-replacement, lost-Delete/restart and autonomous-cleanup oracle.
@@ -42,22 +94,6 @@ deadline after actual physical Create completion. The owned VM is stopped;
 source, executable, phase trace and retained state have a verified second copy
 in `CG-17-recovery-profile-e8aa22970-2609`. This diagnostic does not replace the
 fixed eight-function acceptance campaign below.
-
-The next implementation removes entry observation only for authenticated,
-dedicated-framework Sandbox exec/file/capability calls that do not consume its
-running snapshot. Their ordinary adapter input proof, original operations and
-independent execution fence remain mandatory. Start, Inspect, running-state
-queries and unknown operations keep entry observation. Initial controller
-registration also persists its inactive high-water claim directly through the
-existing crash-safe registration protocol, avoiding a separate empty slot write.
-Backend entry still waits for registration and high-water durability. A new
-restart regression requires failed first activation to retain that high-water
-and refuse an older claim. These changes await current-source qualification;
-they do not establish a cure for the separate Start/final-response deadlines.
-The direct provider submission closure still looks up and reconciles original
-pending mutations before submitting a new operation. A controlled-controller
-regression requires unknown debt to refuse the next mutation, then recover its
-exact receipt without replaying it when that original outcome becomes available.
 
 Runtime `fad389bf3` combines private shared-Sandbox deletion intent and its
 maintenance retry claim with the exact child-call intent in the mandatory input
