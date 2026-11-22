@@ -7,6 +7,10 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
     rooted: bool,
     store: Arc<dyn ObjectStore>,
 ) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::group_archive=debug")
+        .with_test_writer()
+        .try_init();
     let mut h = Harness::configured_resources(
         rooted,
         store,
