@@ -7,48 +7,54 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 ## Current shared Sandbox and completion delivery
 
 Continue on `codex/cg17-s3-completion`; open PR #180 uses
-`codex/cg17-shared-sandbox-bridge`. Runtime `865c4064b` includes merged main
-`09cdcf423`. Healthy inspections now hand off shared lifecycle custody after the
-entered fence joins, before SQL resumption. Released guard clones cannot
-reacquire authority. Unknown results, expiry and required cleanup keep their
-existing admission rules.
+`codex/cg17-shared-sandbox-bridge`. Latest fetched main `09cdcf423` is included.
+Production `64b649bbf` adds bounded concurrent current-birth validation; qualifier
+`d578b421e` corrects only catalog test setup. Fresh selection, immutable records,
+foreign-owner refusal and original deadlines remain mandatory. The previous
+cooperative lifecycle handoff remains in place.
 
-Current gates: 12 lifecycle-module tests, strict affected Clippy, formatting and
-the locked two-target build pass. The three public native functions pass all ten
-profiles. Both RustFS inspection controls are in the canonical controller-provider
-suite and all 44 runner tests pass; the expanded nine-case campaign remains
-unqualified as a whole. The real RustFS/Engine campaign remains **FAILED, 4/10 functions**.
-Both image modes pass Delete input/restart/restored-archive cleanup. Materialized
-Quorum and S3 pass the entire public Container and Sandbox recovery profiles.
-Both physical controls and all four Sandbox source-proof refusals pass.
+Current owning gates pass all 31 native catalog tests and the complete real
+RustFS held-read/corruption/retirement/deadline oracle. Locked builds, strict
+Clippy and canonical formatting pass. The first negative control has a wrong
+path suffix and is inconclusive. The first real test reaches both overlap checks
+then fails corruption setup against the adapter's memory field. Both failures
+remain retained; the corrected full test passes without weakening assertions.
 
-Keep the failures: extent Sandbox Exec3 never reaches its intended lost-result
-cut, extent S3 Start1 times out, extent Container `docker-b Destroy4` times out,
-and cold startup/enrollment fail some Container profiles. Both explicit-S3
-cleanup-floor profiles stop at initial Create1. All six real inspection handoff
-observations pass, but both complete functions fail later extent/S3 Destroy3.
-The owned VM/backend and all runtime processes have stopped and joined.
+The integrated `f5027c3bb` public gate is still **FAILED, 4/11 functions** across
+29 planned configurations. Final primitive and Docker executables are
+byte-identical after the test-only correction; this is not a new integrated pass.
+Both physical safety functions and all eight Container/Sandbox source-proof
+refusal profiles pass. Container recovery passes both Quorum image modes; S3
+fails materialized Create1 and extent Read5. Sandbox has no complete passing
+profile: materialized Quorum ends with two Deletes and fails its exact terminal
+cleanup oracle; other profiles hit original deadlines. Do not infer replay from
+the combined oracle message or no effect from a return counter.
 
-The failed Start trace reaches parent input continuation at 1624ms, child input
-at 3125ms and physical Create completion at 4327ms, leaving 673ms before original
-expiry. Focus the next change on overlapping independent, fresh group-birth
-validations with bounded I/O; retain route, reservation and exact birth checks,
-error handling, source/target proofs and all original deadlines. Then close
-startup/enrollment and output latency. Do not infer no effect from missing
-counters or receipts, or replay uncertain operations.
+Original real handoff completes three profiles but materialized S3 Create1 fails
+before handoff. Forced overlap reaches both handoff observations then fails
+materialized S3 Destroy3. Delete-input and requested-S3 floor functions time out
+at initial Create before the intended fault. Native inspection controls pass
+six profiles; native ordinary provider extent/S3 Data2 times out after its
+explicit writes/read/exec complete. Its input continuation trails apply by
+1611ms and its last Execute has 533ms left. Inspect means the required ReadFile
+in that request; do not assign it to background work without evidence.
 
-Native evidence `CG-17-lifecycle-handoff-native-865c4064b-2651` and real evidence
-`CG-17-lifecycle-handoff-real-865c4064b-2645` retain exact source/executables/logs
-and 40/110 roots with verified second copies. Read the recorded artifact-copy
-interval; future copying must wait until runtime phases join. Earlier `6ffd`
-qualification remains an older source boundary. RF3 uses one native process;
-independent Linux voters, load, disk loss, all public primitive adapters and
-provider-volume recovery still need their complete gates.
+Next deliver S3 proof/continuation latency and exact-generation Sandbox cleanup.
+Preserve original operation/receipt identities, unknown-result custody,
+source/target proofs and 5s/3s/60s budgets. Then complete native networking,
+interactive/HTTP/WebSocket/provider-volume contracts and the other primitive
+family scenarios. Independent voters, load, physical disk loss and the full
+CG-13/15/16 gates remain required; keep the complete goal active.
 
-See the [current results](progress.md#cg-17-cooperative-inspection-and-current-source-rustfs)
-and [priorities](remaining-work.md#primitive-delivery-priority). The generated
-index and all 32 full CG-17 acceptance requirements remain unchanged. Keep the
-full end-to-end design and cutover goal active.
+Evidence bundles `CG-17-birth-window-native-f5027c3bb-2684`,
+`CG-17-birth-window-real-f5027c3bb-2678` and
+`CG-17-birth-window-catalog-d578b421e-2693` have verified second copies. They retain
+40/110 roots plus the corrected catalog oracle, exact source, executables and
+raw logs. All runtime phases joined before copies. The owned VM is stopped;
+RustFS objects/volumes are retained. RF3 still shares one native host process.
+See [current results](progress.md#cg-17-bounded-birth-validation) and
+[priorities](remaining-work.md#primitive-delivery-priority). All 32 full CG-17
+requirements and the generated task index remain unchanged.
 
 ## Previous durable controller delivery
 

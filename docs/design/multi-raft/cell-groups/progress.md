@@ -32,6 +32,71 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 bounded birth validation
+
+Production `64b649bbf` overlaps fresh directory selection with immutable
+reservation/birth validation in a fixed two-read window. Both chains join before
+returning a validation result; the original outer deadline bounds the entire
+check. Foreign observations still refuse before I/O. Recovery fencing, exact
+route/reservation/birth checks and selection-error precedence remain required.
+No authority cache, extra task, weaker minimum or longer deadline is introduced.
+
+Qualifier `d578b421e` passes **all 31 native catalog tests** and the complete new
+held-read oracle against **real RustFS**. The latter covers both gate release
+orders, changed birth bytes, a missing reservation, joined error paths, foreign
+ownership, cancellation, the five-second deadline and retired-route fencing.
+Locked builds, strict affected Clippy and canonical formatting pass. The final
+fixture correction leaves the public primitive and Docker executables
+byte-identical to the integrated `f5027c3bb` run.
+
+Retain two fixture failures: the original negative control used `/groups/...`
+against an actual `groups/...` key, making that failure inconclusive. The first
+RustFS run passed its overlap checks, then failed because corruption setup read
+`Store.inner`, which is always memory. Setup now uses the selected adapter;
+all assertions and original identities remain. Neither failed fixture is credited
+as a passing complete test or a causal old-order reproduction.
+
+The integrated `f5027c3bb` campaign remains **FAILED: 4/11 functions**, covering
+29 planned configurations. Correcting and separately rerunning the catalog
+fixture does not turn that historical campaign into a pass.
+
+| Integrated case | Result |
+| --- | --- |
+| Physical process/fence/receipt controls | Both complete functions pass |
+| Container source-proof refusal | All four profiles pass |
+| Sandbox source-proof refusal | All four profiles pass |
+| Public Container recovery | Both Quorum image modes pass; materialized S3 Create1 and extent S3 Read5 time out |
+| Public Sandbox recovery | No complete profile passes: materialized Quorum fails its terminal cleanup oracle with two Deletes; other profiles hit original deadlines |
+| Delete input/restart/restore and requested-S3 cleanup floor | Both functions stop at initial Create deadlines before their intended fault cuts |
+| Original inspection handoff | Three profiles complete; materialized S3 Create1 fails before handoff |
+| Forced checkpoint-overlap handoff | Both handoff observations pass; materialized S3 Destroy3 then times out |
+| Direct catalog oracle | First run fails corruption setup; complete corrected oracle passes separately at `d578b421e` |
+
+Native public controls at `f5027c3bb` pass both inspection functions/six profiles;
+the ordinary provider function fails extent/S3 Data2, with its other three
+profiles passing. That failed request continues its first input checkpoint
+1611ms after apply; all four explicit data operations complete, but its last
+Execute has only 533ms left on its operation deadline. The logged `Inspect` is
+the explicit ReadFile in Data2, not evidence of an extra background inspection.
+The timings guide further proof/continuation latency work without establishing
+one exclusive cause or a measured improvement from this change.
+
+Evidence `CG-17-birth-window-native-f5027c3bb-2684` retains 40 roots;
+`CG-17-birth-window-real-f5027c3bb-2678` retains 110 roots;
+`CG-17-birth-window-catalog-d578b421e-2693` retains the corrected catalog result.
+All three bundles have checksum-verified second copies. No own compilation,
+formatter or artifact copying overlapped the real campaign. The observed owned
+VM is 4 CPU/8 GiB, with RustFS limited to 1 CPU/2 GiB. RF3 remains one native
+host process. The VM and all runtime processes are stopped and joined; backend
+objects and volumes remain retained. Latest fetched main is `09cdcf423` and is
+already included.
+
+Next close S3 request/proof latency and exact-generation Sandbox cleanup, then
+complete the public primitive families and independent-voter/recovery/load gates.
+The missing features, all 32 full CG-17 cases and CG-13/15/16 remain required.
+The generated index is unchanged; no hard cutover or full-family acceptance is
+claimed. Earlier source-specific passes and failures below remain separate.
+
 ### CG-17 cooperative inspection and current-source RustFS
 
 Runtime `865c4064b` releases healthy inspection lifecycle admission at the joined
