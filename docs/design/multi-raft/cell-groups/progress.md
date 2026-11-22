@@ -32,6 +32,76 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 cooperative inspection and current-source RustFS
+
+Runtime `865c4064b` releases healthy inspection lifecycle admission at the joined
+fence I/O boundary, before its SQL continuation needs a writer. All retained
+local guards become invalid together. A deferred continuation receives no
+execution grant and only refreshes work discovery. Unknown fencing results,
+expiry and required cleanup retain their admission rules. Source/target proofs,
+original operation identities and the 5s/3s/60s limits remain unchanged.
+
+The actual lifecycle module passes **12 focused tests**, covering handoff,
+unknown-result custody and expired/required work. The failing old-order control
+is retained separately. These are direct module tests, not the complete Cellar
+unit suite. Strict
+Clippy for both libraries and both public test targets, canonical formatting and
+the locked optimized build pass. Three public native functions pass all **ten
+profiles**: ordinary provider sessions, original inspection handoff and forced
+S3-checkpoint overlap.
+Both RustFS inspection controls now belong to the canonical `controller-provider`
+suite; all 44 runner tests pass. The complete expanded nine-case controller
+campaign still requires a current-source pass.
+
+The complete current-source RustFS/Engine gate is **FAILED: 4/10 functions**.
+It runs the eight physical Container/Sandbox functions plus both inspection
+controls, covering 28 planned profiles. Configuration markers alone are not
+whole-profile success: both inspection functions emit their handoff markers and
+then fail a later Delete request.
+
+| Case | Result on `865c4064b` |
+| --- | --- |
+| Delete input/restart/restore | Both image modes pass three source cuts, the requested-S3 input refusal, retained restart and autonomous cleanup after archive restoration |
+| Physical fencing/receipts and failed-journal shutdown | Both complete functions pass |
+| Public Sandbox recovery | Materialized Quorum and S3 pass the entire exec/file, lost-reply, generation, restart and autonomous-cleanup oracle; extent Quorum misses the intended lost-Exec cut, and extent S3 Create1 times out |
+| Public Container recovery | Materialized Quorum and S3 pass; extent Quorum `docker-b Destroy4` times out, and extent S3 fails managed startup |
+| Container source-proof refusal | Both extent profiles pass; materialized Quorum fails startup and materialized S3 fails enrollment before the fault cut |
+| Sandbox source-proof refusal | All four profiles pass |
+| Requested-S3 cleanup floor in a Quorum namespace | Both initial Create1 requests time out after physical Create; the cleanup-floor fault is not reached |
+| Original and forced-overlap RustFS inspection | All six handoff observations preserve fence-before-foreground-before-inspection and autonomous discovery; both complete functions fail subsequent extent/S3 Destroy3 |
+
+The closed extent/Quorum Sandbox controller retains the second Exec as
+`submitted=false`; the backend has no corresponding operation. The intended
+lost-result cut was not reached. This is not evidence of replay. The earlier
+`6ffd1e3d5` extent Delete has an unresolved physical reservation and still-owned,
+stopped container/workspace on the original engine. Neither record permits
+inventing an outcome or replaying a mutation.
+
+One unchanged extent/S3 Start trace also fails. Its parent input checkpoint
+continues at 1624ms and child input at 3125ms; physical Create finishes at 4327ms,
+leaving **673ms** of the original budget for the remaining completion proofs.
+The trace establishes cumulative request pressure, not one exclusive cause.
+Fresh route/reservation/birth checks and the mandatory source/target output
+proofs remain required. The next implementation should overlap independent
+birth-validation reads within an explicit bounded window, then address cold
+startup/enrollment and remaining output latency. Never lower a namespace minimum
+or replace terminal proof with a completed-return counter.
+
+Evidence `CG-17-lifecycle-handoff-native-865c4064b-2651` retains both frozen
+executables, exact source, raw logs and 40 native roots. The real bundle
+`CG-17-lifecycle-handoff-real-865c4064b-2645` retains 110 roots, the failed Start
+trace and read-only journal/process observations. Both have verified second
+copies. Native artifact copying overlapped part of the physical Container
+function; its interval is recorded without attributing the failures to it.
+Future copies must wait until runtime gates join. The owned VM is stopped and
+all processes are joined. RF3 still shares one native process; real RustFS uses
+1 CPU/2 GiB and physical execution uses the owned 4-CPU/8-GiB VM.
+
+All 32 full CG-17 cases, complete interactive/port/HTTP/WebSocket/provider-volume
+contracts and independent-voter/load/disk-loss qualification remain required.
+The generated task index is unchanged; these scoped passes do not authorize
+cutover. Earlier source-specific passes and failures below remain retained.
+
 ### CG-17 shared Delete input and completion qualification
 
 Runtime `6ffd1e3d5` removes unused entry observations from authenticated private

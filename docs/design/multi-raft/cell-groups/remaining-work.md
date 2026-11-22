@@ -38,54 +38,45 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-[PR #180](https://github.com/crabbuild/cellar/pull/180) integrates shared
-Sandbox execution, the physical Docker backend, inspection handoff and
-accepted-apply scheduling. Runtime `6ffd1e3d5` removes unused private Sandbox
-entry observations while preserving original-receipt recovery and independent
-fencing. Initial controller registration directly persists its inactive
-high-water claim. Shared Delete combines deletion/retry state with its binding
-input proof and verifies three source cuts in both image modes. Public terminal
-sync retains its contract. All 71 focused controller/Container/core tests pass.
+[PR #180](https://github.com/crabbuild/cellar/pull/180) now includes cooperative
+inspection handoff at `865c4064b`: known fencing completes before local admission
+is released, guard clones are revoked together, and no execution grant escapes
+deferral. Unknown results and required cleanup keep their safeguards.
 
-The full real RustFS/Engine campaign is **FAILED, 5/8 functions,
-16/22 profiles**. Both Quorum Sandbox recovery profiles, both explicit-S3 cleanup
-floor profiles, both physical controls and all eight source-proof refusal
-profiles pass. Materialized Delete passes input refusal, retained restart and
-autonomous recovery after archive restoration; extent still fails its original
-60s recovery bound. Container recovery passes materialized/Quorum, but both Write2
-timeouts and extent/S3 enrollment remain. Normal S3 Sandbox Start1 also fails.
-The native SDK inspection-handoff control separately fails request 2 in both S3
-modes; ordinary provider sessions pass all four profiles. The compiler-concurrent
-26/27 command selection and its unchanged passing quiet readiness replay are
-both retained. Earlier passes do not replace failed current-source gates.
-See
-[progress](progress.md#cg-17-shared-delete-input-and-completion-qualification)
-for the exact failures and retained evidence.
+Current-source validation passes 12 lifecycle-module tests, strict affected
+Clippy, formatting, the locked build and three public native functions/ten
+profiles. The full real RustFS/Engine gate is **FAILED, 4/10 functions**. Both
+Delete input/restart/restore profiles and both materialized public Container and
+Sandbox recovery profiles pass. Both physical controls and all four Sandbox
+source-proof refusals pass. Extent request/startup failures, initial requested-S3
+Create timeouts and materialized Container startup/enrollment failures remain.
+All six real handoff observations pass, but their two complete functions fail a
+later extent/S3 Destroy3. Earlier source-specific passes do not replace these
+failures. See [current results](progress.md#cg-17-cooperative-inspection-and-current-source-rustfs).
 
 The next feature deliveries are:
 
-1. Close S3 foreground handoff/completion, initial Start, Container Write2 and
-   extent interrupted-Delete recovery under the original identities, minima and 5s/3s/60s limits.
-   Distinguish lifecycle acquisition from protected-output archival at the
-   original S3 handoff timeout; inspect original binding resolution and safe
-   sequence sealing after extent archive restoration. Trace checkpoint/apply/archive/receipt waits;
-   stage counters include async continuation polls and are not proof of redundant
-   preparation. Preserve fresh authority, source/target proofs, required cleanup
-   and unknown work. Preserve the documented terminal sync. Use the complete
-   recovery phase trace to distinguish checkpoint/completion delay, background
-   lifecycle interference and leadership changes. Retained terminal receipts
-   and controller outcomes do not establish when completion occurred relative
-   to the original public deadline.
-2. Pass all eight combined physical Container/Sandbox functions/22 profiles. Retain both
-   selected namespaces, constructor-independent cleanup, original receipts,
-   independent execution fences and explicit S3 custody floors. Complete
-   interactive, port/HTTP/WebSocket and provider-volume contracts.
+1. Reduce mandatory S3 admission/completion latency without dropping proofs.
+   The original failed Start trace spends 3125ms reaching child input completion;
+   physical Create finishes at 4327ms, leaving 673ms for remaining proofs. Start
+   with a bounded overlap of independent group-birth validations: retain fresh
+   route selection, reservation validation, exact birth bytes and original
+   timeout; join entered work and preserve typed failures. Use a held-read
+   regression before claiming improved critical-path behavior. Then close cold
+   startup/enrollment and public Delete/output deadlines. Keep operation-specific
+   recovery and sequence sealing; unknown provider outcomes cannot be cleared
+   from resource absence.
+2. Pass the complete physical Container/Sandbox matrix and inspection controls.
+   Keep both namespaces, constructor-independent cleanup, original receipts,
+   independent fences and explicit S3 floors. Complete interactive execution,
+   ports, HTTP/WebSocket and provider-volume contracts. Copy evidence after
+   runtime phases join; record resource limits and any concurrent work.
 3. Finish ordinary Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron,
    filesystem and payload acceptance drivers, including receipt/payload GC.
    Complete the public API and feature inventory and the fault/recovery matrix.
 4. Close CG-13 recovery, CG-15 qualification and CG-16 cutover gates. Independent
    Linux voters, physical disk loss, load and provider-volume recovery remain
-   separate from the current native RF3 and real-RustFS component profiles.
+   separate from native RF3 and real-RustFS component profiles.
 
 Earlier bootstrap, binding/Consume/Ack, provider deadlines and broader source
 failures remain distinct retained controls. Earlier fixes do not clear unrelated

@@ -77,6 +77,8 @@ SUITES = {
             "rustfs_controller_provider_reconciles_live_exec_before_destroy",
             "rustfs_controller_retirement_confirmation_survives_lost_s3_proof",
             "rustfs_controller_retirement_confirmation_waits_for_independent_fence",
+            "rustfs_controller_routine_inspection_yields_after_fencing_to_foreground",
+            "rustfs_controller_routine_inspection_yields_after_overlapping_s3_checkpoint",
         ),
         "ordinary SDK sessions backed by independently durable controller storage",
         "Both image modes and Quorum/S3 minima, original five-second requests. "
@@ -87,6 +89,8 @@ SUITES = {
         "Retirement uses explicit S3 in a Quorum-default namespace and holds its "
         "independent confirmation fence after autonomous Delete. The backend "
         "is a controlled Linux-protocol peer, not actual container execution. "
+        "Healthy inspection handoff keeps entered fencing and autonomous discovery; "
+        "the forced checkpoint-overlap case covers S3 in both image modes. "
         "Independent process crashes, authenticated transport, built-in native "
         "Container/sandbox, physical fencing and volume/zero-quorum recovery remain open.",
     ),

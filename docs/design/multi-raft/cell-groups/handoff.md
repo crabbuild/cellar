@@ -7,44 +7,48 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 ## Current shared Sandbox and completion delivery
 
 Continue on `codex/cg17-s3-completion`; open PR #180 uses
-`codex/cg17-shared-sandbox-bridge`. Both include merged main `09cdcf423`.
-Runtime `6ffd1e3d5` removes unused authenticated private Sandbox entry observations
-while retaining original-receipt reconciliation and execution fencing. First
-controller registration persists its inactive high-water directly. Shared Delete
-combines deletion/retry state with the binding input proof; both images verify
-three source cuts. All 71 focused controller/Container/core tests pass.
+`codex/cg17-shared-sandbox-bridge`. Runtime `865c4064b` includes merged main
+`09cdcf423`. Healthy inspections now hand off shared lifecycle custody after the
+entered fence joins, before SQL resumption. Released guard clones cannot
+reacquire authority. Unknown results, expiry and required cleanup keep their
+existing admission rules.
 
-The full real RustFS/Engine run is FAILED: **5/8 functions, 16/22 profiles**.
-Both Quorum Sandbox recovery profiles, both requested-S3 cleanup-floor profiles,
-both physical controls and all source-proof refusals pass. Materialized Delete
-passes the complete input-cut/restart/restore oracle; extent fails 60s autonomous
-recovery. Both normal S3 Sandbox Start1 profiles fail. Container recovery passes
-materialized/Quorum; materialized/S3 Write2, extent/Quorum Write2 and extent/S3
-enrollment fail. The owned VM, backend and all test processes are stopped/joined.
+Current gates: 12 lifecycle-module tests, strict affected Clippy, formatting and
+the locked two-target build pass. The three public native functions pass all ten
+profiles. Both RustFS inspection controls are in the canonical controller-provider
+suite and all 44 runner tests pass; the expanded nine-case campaign remains
+unqualified as a whole. The real RustFS/Engine campaign remains **FAILED, 4/10 functions**.
+Both image modes pass Delete input/restart/restored-archive cleanup. Materialized
+Quorum and S3 pass the entire public Container and Sandbox recovery profiles.
+Both physical controls and all four Sandbox source-proof refusals pass.
 
-The native command selection is retained as FAILED, 26/27 during compilation;
-the exact sole readiness failure passes an unchanged quiet replay. Three
-preparation controls and four ordinary SDK profiles pass. Inspection handoff
-passes Quorum but fails `WaitInspectionLifecycle` request 2 in both S3 modes.
-Keep those failures. Evidence `CG-17-sandbox-direct-native-6ffd1e3d5-2629` and
-`CG-17-sandbox-direct-real-6ffd1e3d5-2620` has verified second copies. Six frozen
-executables and 3,052 runtime inputs are available; the successful Cargo build
-needed only a snapshot-collector repair, not recompilation.
+Keep the failures: extent Sandbox Exec3 never reaches its intended lost-result
+cut, extent S3 Start1 times out, extent Container `docker-b Destroy4` times out,
+and cold startup/enrollment fail some Container profiles. Both explicit-S3
+cleanup-floor profiles stop at initial Create1. All six real inspection handoff
+observations pass, but both complete functions fail later extent/S3 Destroy3.
+The owned VM/backend and all runtime processes have stopped and joined.
 
-Next distinguish whether the original S3 handoff timeout occurs before lifecycle
-acquisition or after callback completion: capture existing activation/acquisition/
-inspection counters at the failed foreground response. Retained candidate image
-receipts and controller outcomes lack that timing and are not selected-image or
-no-effect proofs. Then fix the owning completion path without weakening terminal
-sync or cancelling an entered fence. Close the normal Container Write2 and
-enrollment deadlines as well. Separately trace extent restored-archive
-binding resolution and safe sequence sealing, preserving the custody floor,
-original identities and 5s/3s/60s budgets. Do not infer absence from counters or
-missing receipts. Finish full primitive API/feature/recovery/GC coverage
-and the independent-voter release gates. See the
-[current source and evidence](progress.md#cg-17-shared-delete-input-and-completion-qualification)
-and [priorities](remaining-work.md#primitive-delivery-priority). Earlier scoped
-passes do not close any of the 32 full CG-17 cases or authorize default cutover.
+The failed Start trace reaches parent input continuation at 1624ms, child input
+at 3125ms and physical Create completion at 4327ms, leaving 673ms before original
+expiry. Focus the next change on overlapping independent, fresh group-birth
+validations with bounded I/O; retain route, reservation and exact birth checks,
+error handling, source/target proofs and all original deadlines. Then close
+startup/enrollment and output latency. Do not infer no effect from missing
+counters or receipts, or replay uncertain operations.
+
+Native evidence `CG-17-lifecycle-handoff-native-865c4064b-2651` and real evidence
+`CG-17-lifecycle-handoff-real-865c4064b-2645` retain exact source/executables/logs
+and 40/110 roots with verified second copies. Read the recorded artifact-copy
+interval; future copying must wait until runtime phases join. Earlier `6ffd`
+qualification remains an older source boundary. RF3 uses one native process;
+independent Linux voters, load, disk loss, all public primitive adapters and
+provider-volume recovery still need their complete gates.
+
+See the [current results](progress.md#cg-17-cooperative-inspection-and-current-source-rustfs)
+and [priorities](remaining-work.md#primitive-delivery-priority). The generated
+index and all 32 full CG-17 acceptance requirements remain unchanged. Keep the
+full end-to-end design and cutover goal active.
 
 ## Previous durable controller delivery
 

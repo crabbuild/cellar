@@ -335,6 +335,8 @@ class ProviderJournalCampaignTests(unittest.TestCase):
             "rustfs_controller_provider_reconciles_live_exec_before_destroy",
             "rustfs_controller_retirement_confirmation_survives_lost_s3_proof",
             "rustfs_controller_retirement_confirmation_waits_for_independent_fence",
+            "rustfs_controller_routine_inspection_yields_after_fencing_to_foreground",
+            "rustfs_controller_routine_inspection_yields_after_overlapping_s3_checkpoint",
         ))
         self.campaign(suite="controller-provider")
 
