@@ -10,7 +10,10 @@ mod backend_control;
 
 const ENTRY_LIMIT: usize = 9;
 const OFFLINE_COMMANDS: u64 = 6;
-const REFUSED_COMMAND: u64 = OFFLINE_COMMANDS + 1;
+
+// One offline mutation comes from a separate remote command stream. Keep the
+// same six callback mutations and nine-entry debt ceiling, with no stream gap.
+const REFUSED_COMMAND: u64 = OFFLINE_COMMANDS;
 
 async fn gateway(
     h: &Harness,
@@ -203,8 +206,8 @@ async fn run(
     archive_controller::published(&h.controllers[0], h.route.history, warm_index).await?;
     let gateway_store = archive_controller::archive_store::Store::around(global.clone());
     let remote = remote::Remote::start(&h, gateway(&h, gateway_store.clone()).await?).await?;
-    // A trusted warm route remains usable during archive outage. A separate
-    // cold receiver must still discover its route before admitting a mutation.
+    // A trusted warm route remains usable during archive outage. An originating
+    // dispatcher without that route must still discover it before transmission.
     let found = remote::command_using(
         &h,
         &remote,
@@ -218,7 +221,7 @@ async fn run(
     assert_eq!(found.result(), b"warm");
     drop(found);
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
-    let cold_receiver = gateway(&h, gateway_store.clone()).await?;
+    let cold_origin = gateway(&h, gateway_store.clone()).await?;
     let fresh_gets = gateway_store.gets.load(Ordering::SeqCst);
     let probe = ObjectPath::from("backend-probe");
     let probe_bytes = vec![29_u8; 128];
@@ -259,7 +262,27 @@ async fn run(
         fresh_gets,
         "trusted cached receipt retry must not depend on S3"
     );
-    let remote = remote.rebind(&h, cold_receiver).await?;
+    let mut undiscovered = cold_origin
+        .command(
+            h.cell.clone(),
+            remote::command_request(&h, 1, b"warm", Durability::Quorum)?,
+            CellRoutingLimits {
+                timeout: Duration::from_secs(15),
+                max_attempts: 4,
+            },
+            None,
+        )
+        .await?;
+    let discovery = undiscovered
+        .begin()
+        .await
+        .err()
+        .context("unknown route must refuse fresh discovery during S3 outage")?;
+    assert!(!discovery.ambiguous);
+    assert!(gateway_store.gets.load(Ordering::SeqCst) > fresh_gets);
+    assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    drop(undiscovered);
+    let after_discovery = gateway_store.gets.load(Ordering::SeqCst);
 
     let remote_request = CellCommandRequest {
         id: CommandId::new(ClientId::new([187; 16])?, 1)?,
@@ -281,15 +304,18 @@ async fn run(
         )
         .await?;
     remote_invocation.begin().await?;
-    let refused = remote_invocation
+    let accepted = remote_invocation
         .execute_remote(remote.transport(), MemberId::new(1)?)
-        .await;
-    assert!(
-        refused.is_err(),
-        "remote reception requires fresh catalog discovery"
+        .await?;
+    assert_eq!(accepted.result(), b"remote-outage");
+    assert_eq!(accepted.durability(), Durability::Quorum);
+    drop(accepted);
+    assert_eq!(
+        gateway_store.gets.load(Ordering::SeqCst),
+        after_discovery,
+        "authenticated known-route reception must use replicated destination authority"
     );
-    assert!(gateway_store.gets.load(Ordering::SeqCst) > fresh_gets);
-    assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(h.calls.load(Ordering::SeqCst), 2);
 
     let pending = h
         .command(2, b"archive-wait", Durability::S3, Duration::from_secs(2))
@@ -310,7 +336,7 @@ async fn run(
             .is_err()
     );
     let mut latest = warm_index;
-    for sequence in 3..=OFFLINE_COMMANDS {
+    for sequence in 3..OFFLINE_COMMANDS {
         let response = h
             .command(
                 sequence,
@@ -550,7 +576,8 @@ async fn run(
     assert_eq!(resumed.durability(), Durability::Quorum);
     drop(resumed);
     // Preserve the same invocation, captured inputs, original deadline and
-    // attempt budget after the failed remote response.
+    // attempt budget for a receipt retry after backend restoration. Its first
+    // Quorum response already succeeded; this must not run the callback again.
     remote_invocation.retry().await?;
     let resumed = remote_invocation
         .execute_remote(remote.transport(), MemberId::new(1)?)
