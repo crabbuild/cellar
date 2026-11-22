@@ -88,11 +88,10 @@ pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Res
 
         // Immutable bytes are still read on every check, and corruption cannot
         // drop the already-entered fresh-selection read on the error path.
-        let original = f.store.inner.get(&key).await?.bytes().await?;
-        f.store
-            .inner
-            .put(&key, b"changed birth".to_vec().into())
-            .await?;
+        // Use the selected backend for fault setup too; Store.inner is only
+        // the adapter's in-memory fixture, even when its backend is real S3.
+        let original = f.store.get(&key).await?.bytes().await?;
+        f.store.put(&key, b"changed birth".to_vec().into()).await?;
         let reads = Reads::new();
         let mut pending = Box::pin(reads.check(&f, &birth));
         reads.entered(&mut pending).await?;
@@ -107,7 +106,7 @@ pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Res
             pending.await,
             Err(CatalogError::Corrupt("selected group birth changed"))
         ));
-        f.store.inner.put(&key, original.into()).await?;
+        f.store.put(&key, original.into()).await?;
 
         let reservation_key = format!(
             "groups/{}",
@@ -174,10 +173,7 @@ pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Res
             &children,
         )?;
         f.run(f.directory.publish(&replacement)).await?;
-        f.store
-            .inner
-            .put(&key, b"changed birth".to_vec().into())
-            .await?;
+        f.store.put(&key, b"changed birth".to_vec().into()).await?;
         let reads = Reads::new();
         let mut pending = Box::pin(reads.check(&f, &birth));
         reads.entered(&mut pending).await?;
