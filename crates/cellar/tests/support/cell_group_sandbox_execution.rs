@@ -92,7 +92,7 @@ impl ContainerAdapter for TimingAdapter {
 }
 
 struct Peer {
-    backend: Arc<DockerBackend>,
+    backend: Arc<dyn ExecutionControllerBackend>,
     retirement_cut: Option<Arc<catalog_fault::Store>>,
     creates: AtomicUsize,
     executes: AtomicUsize,
@@ -108,6 +108,36 @@ struct Peer {
     changed: Notify,
     trace: bool,
 }
+
+impl Peer {
+    fn new(
+        backend: Arc<dyn ExecutionControllerBackend>,
+        retirement_cut: Option<Arc<catalog_fault::Store>>,
+        trace: bool,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            backend,
+            retirement_cut,
+            creates: AtomicUsize::new(0),
+            executes: AtomicUsize::new(0),
+            writes: AtomicUsize::new(0),
+            deletes: AtomicUsize::new(0),
+            lose_exec: AtomicBool::new(false),
+            hide_exec: AtomicBool::new(false),
+            lose_delete: AtomicBool::new(false),
+            hide_delete: AtomicBool::new(false),
+            original_exec: Mutex::new(None),
+            original_delete: Mutex::new(None),
+            lookups: AtomicUsize::new(0),
+            changed: Notify::new(),
+            trace,
+        })
+    }
+}
+
+#[path = "cell_group_sandbox_observation_tests.rs"]
+mod observation_tests;
+pub(super) use observation_tests::reconciled_completion_is_counted_once;
 
 impl ExecutionControllerBackend for Peer {
     fn identity(&self) -> BackendIdentity {
@@ -599,23 +629,7 @@ async fn run(scenario: Scenario) -> Result<()> {
                 Arc::new(docker_execution::NoDisasterAuthority),
             )
             .await?;
-            let peer = Arc::new(Peer {
-                backend: backend.clone(),
-                retirement_cut: minimum_custody.then(|| store.clone()),
-                creates: AtomicUsize::new(0),
-                executes: AtomicUsize::new(0),
-                writes: AtomicUsize::new(0),
-                deletes: AtomicUsize::new(0),
-                lose_exec: AtomicBool::new(false),
-                hide_exec: AtomicBool::new(false),
-                lose_delete: AtomicBool::new(false),
-                hide_delete: AtomicBool::new(false),
-                original_exec: Mutex::new(None),
-                original_delete: Mutex::new(None),
-                lookups: AtomicUsize::new(0),
-                changed: Notify::new(),
-                trace,
-            });
+            let peer = Peer::new(backend.clone(), minimum_custody.then(|| store.clone()), trace);
             let controller = ExecutionController::create(
                 domain.clone(),
                 ExecutionControllerOptions {

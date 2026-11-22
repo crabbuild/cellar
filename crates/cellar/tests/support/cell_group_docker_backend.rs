@@ -39,7 +39,7 @@ fn payload(method: Operation, input: Value) -> Result<Vec<u8>> {
     })?)
 }
 
-fn claim(
+pub(super) fn claim(
     identity: &BackendIdentity,
     incarnation: u8,
     sequence: u64,

@@ -52,6 +52,11 @@ async fn rustfs_native_docker_refuses_execution_without_source_proof() -> anyhow
 #[path = "support/cell_group_sandbox_execution.rs"]
 mod sandbox_execution;
 
+#[tokio::test]
+async fn sandbox_completion_observer_counts_original_receipts_once() -> anyhow::Result<()> {
+    sandbox_execution::reconciled_completion_is_counted_once().await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated Linux Docker, a pinned local scaffold image and real RustFS"]
 async fn rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum() -> anyhow::Result<()> {
