@@ -61,6 +61,9 @@ struct Peer {
     data_changed: Notify,
     expire_activation: AtomicBool,
     refuse_retirement_archive: Mutex<Option<Arc<catalog_fault::Store>>>,
+    hold_retirement_fence: AtomicBool,
+    retirement_fences: AtomicUsize,
+    retirement_fence_changed: Notify,
 }
 
 impl ExecutionControllerBackend for Peer {
@@ -79,6 +82,20 @@ impl ExecutionControllerBackend for Peer {
         _unresolved: Vec<ExecutionPendingOperation>,
     ) -> HandlerFuture<()> {
         Box::pin(async move {
+            if successor
+                .as_ref()
+                .is_some_and(|claim| claim.checkpoint().record.is_retired())
+            {
+                self.retirement_fences.fetch_add(1, Ordering::AcqRel);
+                self.retirement_fence_changed.notify_waiters();
+                loop {
+                    let changed = self.retirement_fence_changed.notified();
+                    if !self.hold_retirement_fence.load(Ordering::Acquire) {
+                        break;
+                    }
+                    changed.await;
+                }
+            }
             if self.expire_activation.swap(false, Ordering::AcqRel) {
                 // Admission has already proved the intent. Cross its unchanged
                 // 500 ms retention cap before allowing provider dispatch.
