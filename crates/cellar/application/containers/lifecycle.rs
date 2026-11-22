@@ -12,6 +12,27 @@ use std::{
 };
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BackgroundAdmission {
+    Routine,
+    Required,
+}
+
+impl BackgroundAdmission {
+    pub(crate) fn for_maintenance(
+        stable_running: bool,
+        deadline_ms: i64,
+        now_ms: i64,
+        logical_ms: i64,
+    ) -> Self {
+        if stable_running && now_ms.max(logical_ms) < deadline_ms {
+            Self::Routine
+        } else {
+            Self::Required
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct LifecycleLocks {
     locks: Mutex<HashMap<Arc<str>, Entry>>,
@@ -87,7 +108,7 @@ impl LifecycleLock {
             Ok(guard) => Ok(guard),
             Err(_) => {
                 // The real mutex waiter is constructed only after the source
-                // proof. Background inspection must not reacquire in that gap.
+                // proof. Routine inspection must not reacquire in that gap.
                 // Cancellation and proof failure drop this reservation too.
                 let waiting = ForegroundWait::new(self.waiting)?;
                 let result = park(self.mutex).await;
@@ -97,110 +118,22 @@ impl LifecycleLock {
         }
     }
 
-    pub(crate) fn try_background(self) -> Option<OwnedMutexGuard<()>> {
-        if self.waiting.load(Ordering::Acquire) != 0 {
+    pub(crate) fn try_background(
+        self,
+        admission: BackgroundAdmission,
+    ) -> Option<OwnedMutexGuard<()>> {
+        if admission == BackgroundAdmission::Routine && self.waiting.load(Ordering::Acquire) != 0 {
             return None;
         }
         let guard = self.mutex.try_lock_owned().ok()?;
         // A foreground caller can register between the first check and mutex
-        // acquisition. Refuse this background turn without publishing work.
-        (self.waiting.load(Ordering::Acquire) == 0).then_some(guard)
+        // acquisition. Refuse routine inspection without publishing work;
+        // required cleanup still uses the same exclusive mutex and proof gates.
+        (admission == BackgroundAdmission::Required || self.waiting.load(Ordering::Acquire) == 0)
+            .then_some(guard)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::{future::poll_fn, task::Poll};
-    use tokio::sync::Notify;
-
-    #[tokio::test]
-    async fn background_cannot_overtake_a_foreground_proof() {
-        let locks = LifecycleLocks::default();
-        let name: Arc<str> = "TOOL".into();
-        let held = locks.get(&name, 2).unwrap().lock().await;
-        let proof = Notify::new();
-        let mut waiting = Box::pin(locks.get(&name, 2).unwrap().lock_shared(|mutex| async {
-            proof.notified().await;
-            Ok(mutex.lock_owned().await)
-        }));
-        poll_fn(|cx| {
-            assert!(waiting.as_mut().poll(cx).is_pending());
-            Poll::Ready(())
-        })
-        .await;
-        drop(held);
-        assert!(
-            locks.get(&name, 2).unwrap().try_background().is_none(),
-            "background bypassed foreground admission while its proof was pending"
-        );
-        proof.notify_one();
-        let admitted = waiting.await.unwrap();
-        assert!(locks.get(&name, 2).unwrap().try_background().is_none());
-        drop(admitted);
-        assert!(locks.get(&name, 2).unwrap().try_background().is_some());
-    }
-
-    #[tokio::test]
-    async fn cancelling_a_foreground_proof_releases_only_its_binding() {
-        let locks = LifecycleLocks::default();
-        let name: Arc<str> = "TOOL".into();
-        let other: Arc<str> = "OTHER".into();
-        let held = locks.get(&name, 2).unwrap().lock().await;
-        let mut waiting = Box::pin(locks.get(&name, 2).unwrap().lock_shared(|mutex| async {
-            std::future::pending::<()>().await;
-            Ok(mutex.lock_owned().await)
-        }));
-        poll_fn(|cx| {
-            assert!(waiting.as_mut().poll(cx).is_pending());
-            Poll::Ready(())
-        })
-        .await;
-        drop(held);
-        assert!(locks.get(&other, 2).unwrap().try_background().is_some());
-        assert!(locks.get(&name, 2).unwrap().try_background().is_none());
-        drop(waiting);
-        assert!(locks.get(&name, 2).unwrap().try_background().is_some());
-    }
-
-    #[tokio::test]
-    async fn failed_proof_and_completed_guards_release_bounded_inventory() {
-        let locks = LifecycleLocks::default();
-        let name: Arc<str> = "TOOL".into();
-        let held = locks.get(&name, 1).unwrap().lock().await;
-        let other: Arc<str> = "OTHER".into();
-        assert!(locks.get(&other, 1).is_err());
-        let result = locks
-            .get(&name, 1)
-            .unwrap()
-            .lock_shared(|_| async { Err(anyhow::anyhow!("original proof failed")) })
-            .await;
-        assert!(result.is_err());
-        drop(held);
-        assert!(locks.get(&other, 1).unwrap().try_background().is_some());
-    }
-
-    #[tokio::test]
-    async fn one_cancelled_waiter_does_not_release_another_reservation() {
-        let locks = LifecycleLocks::default();
-        let name: Arc<str> = "TOOL".into();
-        let held = locks.get(&name, 1).unwrap().lock().await;
-        let park = |mutex: Arc<AsyncMutex<()>>| async {
-            std::future::pending::<()>().await;
-            Ok(mutex.lock_owned().await)
-        };
-        let mut first = Box::pin(locks.get(&name, 1).unwrap().lock_shared(park));
-        let mut second = Box::pin(locks.get(&name, 1).unwrap().lock_shared(park));
-        poll_fn(|cx| {
-            assert!(first.as_mut().poll(cx).is_pending());
-            assert!(second.as_mut().poll(cx).is_pending());
-            Poll::Ready(())
-        })
-        .await;
-        drop(held);
-        drop(first);
-        assert!(locks.get(&name, 1).unwrap().try_background().is_none());
-        drop(second);
-        assert!(locks.get(&name, 1).unwrap().try_background().is_some());
-    }
-}
+#[path = "lifecycle_tests.rs"]
+mod tests;

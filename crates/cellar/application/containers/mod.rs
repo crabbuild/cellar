@@ -33,7 +33,7 @@ use anyhow::{anyhow, Result};
 pub use backend::{
     ContainerAdapter, ContainerFuture, ContainerReply, ContainerRequest, PreparedContainerCall,
 };
-pub(crate) use lifecycle::LifecycleLocks;
+pub(crate) use lifecycle::{BackgroundAdmission, LifecycleLocks};
 use std::{sync::Arc, time::Duration};
 pub use values::{ExecInfo, ExecOptions, ExecOutput, StartOptions};
 
