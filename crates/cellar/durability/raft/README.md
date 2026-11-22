@@ -857,6 +857,13 @@ oldest request. This scheduling adds no collection delay or admission capacity:
 queued and executing requests retain the same worker semaphore reservations,
 including when the queue moves work into its bounded local batch.
 
+Final command settlement validates the exact applied receipt on SQL, then moves
+preview retirement to the existing joined private-cleanup task. Inventory waits
+there do not occupy the SQL callback lane. The task retains the preview and
+log/image reservations; its SQL owner retains the reply, writer admission and
+completion slot until retirement and workspace cleanup finish. Failure returns
+no receipt acknowledgement. Direct private executors retain synchronous retirement.
+
 Business commands/queries and administrative operations have independent host
 admission. `max_control_requests` defaults to 16 and `max_control_bytes` to 16 MiB;
 status, repair, seed activation and leadership requests use that reservation.

@@ -36,6 +36,63 @@ acceptance. The original constrained Colima/RustFS comparison has no admitted
 cases; its last reserve witness was below the unchanged 6 GiB minimum. No
 end-to-end throughput or latency gain is qualified.
 
+## Final preview retirement
+
+Compiler inputs `98bf1829` move final command preview retirement from the SQL
+worker to its existing joined private-cleanup task. SQL still validates the exact
+committed or reconciled receipt and closes its SQLite writer. The cleanup owner
+retains the pending preview and log/image reservations; SQL retains the reply,
+writer lease, bytes, activation and completion lane until physical cleanup joins.
+Any retirement/cleanup failure withholds the acknowledgement. Direct private
+executors and intermediate RPC checkpoints retain synchronous retirement.
+
+Byte-identical native RF3 regressions hold a real serialized inventory read with
+one SQL worker. Finish and reconciliation each fail the unrelated-query progress
+window twice on the unchanged runtime and pass twice on the candidate. The
+original query and settlement are observed without cancellation/reissue. Exact
+values, proposal/position/receipt binding, withheld reply, retained logical and
+physical reservations, release and joined close are checked. Original failed
+media, exports and closed copies remain retained and independently verified.
+
+All **1,387 library tests / two existing ignores** and 25 additional selected
+publication/receipt/recovery controls pass, alongside strict affected all-feature
+Clippy. Fifteen of nineteen primitive controls pass. The broad current-candidate
+selection is **46 passed / six failed across 52 selections**; four preserved
+runtime C4 controls are counted separately. Ordinary SQL/KV/Queue and C2 fail;
+both rooted candidate C4 runs fail and both materialized candidate C4 runs pass.
+The prior C4 runtime fails both rooted runs and one of two materialized runs.
+All eight C4 cleanup joins and retained copies verify. Earlier current-source
+failures and checkpoint repeatability remain open despite individual passes.
+
+A fresh 16-case service comparison uses the same public fixtures, two repetitions
+and reversed case/runtime order. Pass counts are:
+
+| Original service case | Prior runtime (`a6f9c594`) | Candidate (`98bf1829`) |
+| --- | --- | --- |
+| SQL bindings | 1/2 | 1/2 |
+| KV bindings | 1/2 | 0/2 |
+| Queue callbacks | 0/2 | 0/2 |
+| Queue C2 load/drain | 0/2 | 0/2 |
+
+The candidate's second KV failure is a typed overload at rooted `PublicLarge`;
+earlier KV failures include ambiguous deadlines. The prior runtime's variable
+KV result does not establish candidate non-regression. One failed prior C2
+control records **536 delivery attempts / 528 unique IDs**. The initial capture
+verifier rejects this against its strict 528/528 check. That rejection and the
+count mismatch remain retained as failures; a separate audit verifies complete
+capture, joined processes and exact retained/closed-copy media, with service
+qualification still failed. The original fixture separately checks completed
+messages and unique IDs; its printed delivery count measures attempts.
+
+Retained whole-process stacks also show intermediate RPC checkpoint retirement
+waiting on inventory serialization. They identify a remaining owning boundary,
+not request timing or a causal explanation of the service failures. The next P0
+is measured target/checkpoint service and bounded-worker interference, followed
+by the routing, reclamation, recovery and combined OPT/CG/SDK/release gates in
+[remaining work](remaining-work.md). The original deadlines, admission banks,
+command identities, FIFO order and durability proofs remain unchanged. No
+end-to-end throughput or latency gain is qualified.
+
 ## Final image geometry verification
 
 Compiler inputs `a6f9c594` remove a duplicate final geometry-validation pass

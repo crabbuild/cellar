@@ -5,6 +5,7 @@
 use super::super::cleanup_task::CleanupTask;
 use super::*;
 use crate::raft::cell_groups::CellActivationFence;
+use crate::raft::execution::CellPrivateRetirement;
 use cellar_logic::cell_group::CellVersion;
 use std::task::{Context, Poll, Waker};
 
@@ -177,7 +178,7 @@ impl Retiring {
 enum Prepared {
     Pending,
     Retained,
-    Cleanup(Box<(Pending, Settlement)>),
+    Cleanup(Box<(Pending, Settlement, CellPrivateRetirement)>),
 }
 
 pub(super) struct Completion {
@@ -200,33 +201,40 @@ impl Cells {
             .pending
             .get_mut(cell)
             .ok_or(ExecutionError::Uncertain)?;
-        let settlement = match action {
+        let (settlement, retirement) = match action {
             Action::Finish(authority) => {
                 let fence = Box::new(authority.activation_fence());
-                let receipt = pending.producer.command()?.finish(*authority)?;
-                Settlement::Finished {
-                    receipt: Box::new(receipt),
-                    fence,
-                }
+                let (receipt, retirement) =
+                    pending.producer.command()?.finish_for_cleanup(*authority)?;
+                (
+                    Settlement::Finished {
+                        receipt: Box::new(receipt),
+                        fence,
+                    },
+                    retirement,
+                )
             }
             Action::Reconcile(proposal, authority) => {
                 let expected = pending.producer.command()?.prepared_final_version();
-                let resolution = match pending
+                let (resolution, retirement) = match pending
                     .producer
                     .command()?
-                    .observe_reconciliation(proposal, *authority)
+                    .reconcile_for_cleanup(proposal, *authority)
                 {
-                    Ok(CellReconciliationObservation::Resolved(resolution)) => resolution,
-                    Ok(CellReconciliationObservation::Pending) => return Ok(Prepared::Pending),
+                    Ok(Some(resolution)) => resolution,
+                    Ok(None) => return Ok(Prepared::Pending),
                     Err(ExecutionError::Uncertain) if pending.prepared.proposal() == proposal => {
                         return Ok(Prepared::Retained)
                     }
                     Err(error) => return Err(error),
                 };
-                Settlement::Reconciled {
-                    resolution,
-                    expected,
-                }
+                (
+                    Settlement::Reconciled {
+                        resolution,
+                        expected,
+                    },
+                    retirement,
+                )
             }
             _ => return Err(ExecutionError::Invalid("private cleanup dispatch")),
         };
@@ -234,7 +242,9 @@ impl Cells {
             .pending
             .remove(cell)
             .ok_or(ExecutionError::Invalid("cell producer changed"))?;
-        Ok(Prepared::Cleanup(Box::new((pending, settlement))))
+        Ok(Prepared::Cleanup(Box::new((
+            pending, settlement, retirement,
+        ))))
     }
 
     pub(super) fn start_settlement(
@@ -254,7 +264,7 @@ impl Cells {
             Ok(Prepared::Pending) => Ok(CellSqlOutcome::ReconciliationPending),
             Ok(Prepared::Retained) => Ok(CellSqlOutcome::ReconciliationRetained),
             Ok(Prepared::Cleanup(work)) => {
-                let (pending, settlement) = *work;
+                let (pending, settlement, retirement) = *work;
                 let Pending {
                     producer,
                     prepared,
@@ -263,7 +273,7 @@ impl Cells {
                     ..
                 } = pending;
                 let cleanup = match producer {
-                    Producer::Command(executor) => (*executor).close_writer(),
+                    Producer::Command(executor) => (*executor).close_writer(retirement),
                     Producer::Enrollment(executor) => (*executor)
                         .close()
                         .and(Err(ExecutionError::Invalid("command cleanup required"))),

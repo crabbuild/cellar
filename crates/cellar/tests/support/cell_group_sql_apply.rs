@@ -127,6 +127,16 @@ pub(super) async fn install(
     cell: &CellHistory,
     node: usize,
 ) -> Result<()> {
+    let pool = pool(fixture, node)?;
+    install_with_pool(fixture, cell, node, pool).await
+}
+
+pub(super) async fn install_with_pool(
+    fixture: &mut RuntimeCluster,
+    cell: &CellHistory,
+    node: usize,
+    pool: CellGroupSqlPool,
+) -> Result<()> {
     let route = fixture.cluster.birth.route().clone();
     let config = match fixture.cell_options_at(cell, node).await? {
         CellSqlOptions::Materialized(o) => CellGroupApplyImages::Materialized {
@@ -142,7 +152,6 @@ pub(super) async fn install(
             cache: o.cache,
         },
     };
-    let pool = pool(fixture, node)?;
     let voter = &mut fixture.cluster.voters[node];
     let applier = CellGroupApplier::new(
         voter.log.cell_group(&route.history)?,

@@ -8,73 +8,38 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The optimization PR includes main `09cdcf423` (#179). Its merged source
-passes **1,378 library tests / two existing ignores**, **13 selected native
-controls**, strict affected Clippy and repository checks, and **83 Python tooling
-tests**. These are scoped passes; complete service and release qualification
-remain open. See [the implementation ledger](optimization-progress.md#integration-with-main-179).
+The optimization PR includes main `09cdcf423` (#179). At compiler inputs
+`98bf1829`, final preview retirement runs on the existing joined cleanup owner,
+allowing unrelated SQL to progress while inventory I/O is held. Exact receipt
+validation stays on SQL; replies and original reservations remain held until
+cleanup joins. Both byte-identical owning regressions pass twice after failing
+twice on the prior runtime. The full library passes **1,387 tests / two existing
+ignores**, alongside 25 selected publication/receipt/recovery controls and strict
+affected Clippy. See [final preview retirement](optimization-progress.md#final-preview-retirement).
 
-The rooted workspace-opening change at compiler inputs `44ea1133` passes
-**1,387 library tests / two existing ignores**, nine owning controls and both
-managed RF3 workspace-progress regressions. **Broader native qualification remains
-failed (14 of 21 selections pass)**, including checkpoint progress and Queue
-service/startup failures. Fresh current-candidate C4 traces and uninstrumented
-controls all enter load and fail; cleanup joins and retained copies are verified.
-Observed writer admission, image preparation and settlement waits are material.
-An exact-proposal follow-up places the long unresolved checkpoint after initial
-producer failures; it does not explain their deadlines. Some Queue calls reach
-dispatcher capture with under two seconds of the original three-second budget.
-Source tracing is removed. A subsequent ingress trace finds full three-second
-budgets at source entry, substantial FIFO waits behind target commands, and
-rare, short enrollment/name work. The next P0 is reducing target SQL
-writer/image/settlement costs while retaining FIFO ordering and the independent
-checkpoint-progress repeatability gate. See the
-[workspace qualification boundary](optimization-progress.md#rooted-workspace-preparation).
-
-At compiler inputs `77f944ab`, verified applied-state observations finish during
-unrelated Raft persistence, preserving execution, initialization and park fences.
-The held-sync regression passes twice while the unchanged runtime fails twice;
-18 existing receipt/recovery/admission controls, park admission/restart and source
-sealing also pass. All **1,387 library tests / two existing ignores** pass.
-This closes one scheduling dependency, not Queue service acceptance: one fresh
-materialized C4 run drains **528 messages / 528 unique IDs**, while both rooted
-candidate and both rooted control runs fail during load. All five Queue cleanup
-joins and retained copies are independently verified. See
-[applied observations during persistence](optimization-progress.md#applied-observations-during-persistence).
-
-The image-preparation follow-up at `a6f9c594` removes a duplicate final geometry
-read while retaining each committed cut's independent verification and all
-persistence barriers. The matched 1 MiB owning fixture reads about **25% fewer
-filesystem bytes**; this is not a latency or device-I/O result. All 18
-extent-apply tests, 39 extent-store tests (one existing ignore), 1,387 host library
-tests (two existing ignores) and 18 selected native controls pass. **All five
-fresh C4 selections still fail during load**, including materialized mode; all
-cleanup joins and retained copies verify. Shared target service and checkpoint
-repeatability remain P0 work. See
-[final image geometry verification](optimization-progress.md#final-image-geometry-verification).
-
-Earlier fresh unsampled C4 Queue trials on `06fe9101f` pass twice in materialized mode
-and fail twice in rooted mode. The C2 control passes materialized delivery and
-uniqueness, then fails rooted producers. A separate filesystem-observed campaign
-fails all five selections, including materialized mode. Earlier passes therefore
-do not establish repeatability or an exclusively rooted failure. Every selected
-case finishes its domain, node and host cleanup without cleanup errors; original
-failed histories and independently checked closed copies remain retained. These
-joins do not close earlier cleanup/storage failures.
+**Service acceptance remains failed.** The broad current-candidate native
+selection passes **46 of 52**; ordinary SQL/KV/Queue, C2 and both rooted C4 cases
+fail. Two materialized C4 cases pass. Reversed paired service runs remain
+variable: SQL passes one of two on each runtime, KV one of two on the prior
+runtime and zero of two on the candidate, and Queue callbacks/C2 zero of two on
+each. The candidate's second KV failure is a typed overload. A prior C2 control
+also records 536 delivery attempts for 528 unique IDs; its strict drain-count
+mismatch remains failed. These results establish neither KV non-regression nor
+an end-to-end throughput or latency gain. Earlier failures retain their scope in
+the [implementation ledger](optimization-progress.md).
 
 | Priority | Work required before acceptance |
 | --- | --- |
-| **P0: Repeatable service and recovery** | Close Queue producer/callback service and drain under the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows, SQL/KV repeatability, receipt/RPC and complete-prefix recovery/lifecycle gaps. Reduce measured target SQL writer/image/settlement interference and lock down each change with an owning regression. Keep checkpoint-progress repeatability as a separate gate. |
-| **P1: Shared execution** | Reduce measured image, persistence and archive interference; prove fairness under control/election/shutdown work and routing/read partitions. Preserve exact receipts, Ready/sync ordering, admission banks and S3 coverage. |
+| **P0: Repeatable service and recovery** | Close SQL/KV/Queue service and drain under the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows, exact receipts and unchanged admission. Investigate remaining intermediate-checkpoint retirement and target writer/image/persistence interference with owning regressions. Keep checkpoint-progress repeatability and complete-prefix recovery as separate gates. |
+| **P1: Shared execution and routing** | Prove fair bounded SQL/apply/persistence/archive service, control/election/shutdown progress, routing/read partitions and public lost-response reconciliation across elections/splits. Preserve Ready/sync ordering, command identity, image pins and S3 proof. |
 | **P1: Sustainable capacity and release** | Prove physical shared-segment deletion and once-only capacity credit, repeated reserve-aware movement, interrupted park/wake/recovery, and combined primitive/SDK/Axum/daemon/fault/crash acceptance. |
 | **P2: Constrained performance** | Run the original three-node, **1 vCPU / 2 GiB each**, RF3/three-group SQL/KV/Queue comparison against shared RustFS, including Quorum, Quorum+S3, Fleet and Bucket at C1/4/16 with reversed repeats. |
 
-The read-only original RustFS witness at **2026-11-22T04:42:07.185330+00:00**
-reports **29,478,912 available bytes**, below the unchanged **6 GiB reserve**.
+The read-only original RustFS witness at **2026-11-22T15:25:23.264655+00:00**
+reports **zero available bytes**, below the unchanged **6 GiB reserve**.
 Identity, configuration, resources and start match, with zero restarts and no
-case admitted. A fresh three-node resource witness remains open. No resource or
-storage change is made, and no end-to-end throughput or latency gain is qualified.
-Full OPT/CG/recovery/SDK/release acceptance remains open.
+case admitted. A fresh three-node resource witness remains open. Full
+OPT/CG/recovery/SDK/release and constrained performance acceptance remain open.
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
 and the accepted public SQL cutover. This ordering preserves the full

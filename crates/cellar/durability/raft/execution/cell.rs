@@ -60,13 +60,6 @@ pub enum CellReconciliation {
     Refused(CommandFailure),
 }
 
-/// A pending observation retains the exact live producer and grants no output
-/// or non-commit authority. Only the checked immutable view may be reused.
-pub(crate) enum CellReconciliationObservation {
-    Pending,
-    Resolved(CellReconciliation),
-}
-
 struct PendingCell {
     prepared: CellPreparedCommand,
     request: CommandRequest,
@@ -107,6 +100,26 @@ pub(crate) struct CellPrivateCleanup {
     lock: Option<PrivateLock>,
     closed: Result<(), ExecutionError>,
     discard: bool,
+    retirement: Option<CellPrivateRetirement>,
+}
+
+/// Exact settlement has already been checked on SQL. Keep every preview and
+/// log/image reservation until its existing physical cleanup owner joins.
+pub(crate) struct CellPrivateRetirement {
+    images: Images,
+    pending: PendingCell,
+}
+
+impl CellPrivateRetirement {
+    fn finish(self) -> Result<(), ExecutionError> {
+        self.images
+            .retire(&self.pending._preview)
+            .map_err(storage)?;
+        self.pending
+            .prepared
+            .release_log_reservation()
+            .map_err(authority_failure)
+    }
 }
 
 impl CellPrivateCleanup {
@@ -117,6 +130,7 @@ impl CellPrivateCleanup {
             lock: None,
             closed: Ok(()),
             discard: false,
+            retirement: None,
         }
     }
 
@@ -140,6 +154,7 @@ impl CellPrivateCleanup {
             lock: Some(lock),
             closed: Ok(()),
             discard: false,
+            retirement: None,
         })
     }
 
@@ -149,8 +164,12 @@ impl CellPrivateCleanup {
             lock,
             closed,
             discard,
+            retirement,
         } = self;
         let store = options.images.root_store().cloned();
+        // Inventory serialization can wait on another cell's physical I/O.
+        // This work shares the joined cleanup task, never the SQL callback lane.
+        let retired = retirement.map_or(Ok(()), CellPrivateRetirement::finish);
         let discarded = if discard {
             options.discard_cell_scratch().map_err(storage)
         } else {
@@ -161,7 +180,7 @@ impl CellPrivateCleanup {
         drop(options);
         drop(lock);
         // Preserve close_cell's cleanup-before-close error precedence.
-        discarded.and(closed)?;
+        retired.and(discarded).and(closed)?;
         if let Some(store) = store {
             if store.usage().map_err(storage)?.quarantined {
                 return Err(storage(cellar_ltx::internal::StoreError::Quarantined));
@@ -453,6 +472,25 @@ impl CellPrivateExecutor {
         &mut self,
         committed: CellExecutionAuthority,
     ) -> Result<CellCommittedReceipt, ExecutionError> {
+        let receipt = self.committed_receipt(&committed)?;
+        self.retire_reconciled()?;
+        Ok(receipt)
+    }
+
+    /// The SQL pool keeps the response and original admission until the returned
+    /// retirement and writer cleanup have completed on their physical owner.
+    pub(crate) fn finish_for_cleanup(
+        &mut self,
+        committed: CellExecutionAuthority,
+    ) -> Result<(CellCommittedReceipt, CellPrivateRetirement), ExecutionError> {
+        let receipt = self.committed_receipt(&committed)?;
+        Ok((receipt, self.defer_retirement()?))
+    }
+
+    fn committed_receipt(
+        &self,
+        committed: &CellExecutionAuthority,
+    ) -> Result<CellCommittedReceipt, ExecutionError> {
         let pending = self
             .pending
             .as_ref()
@@ -488,25 +526,12 @@ impl CellPrivateExecutor {
                 .ok_or(ExecutionError::Invalid("committed cell receipt missing"))?
         };
         committed.check().map_err(authority_failure)?;
-        let receipt = CellCommittedReceipt {
+        Ok(CellCommittedReceipt {
             receipt,
             version: committed.cell().version.clone(),
             position: committed.cell().last_mutation,
             witness: committed.cell().witness,
-        };
-        // Only exact committed/reconciliation authority retires a private
-        // preview. Pending retains its live pin through physical settlement.
-        self.options
-            .images
-            .retire(&pending._preview)
-            .map_err(storage)?;
-        pending
-            .prepared
-            .release_log_reservation()
-            .map_err(authority_failure)?;
-        self.pending = None;
-        self.poisoned = true;
-        Ok(receipt)
+        })
     }
 
     /// Native state can survive only a receipt at this exact final image.
@@ -528,17 +553,29 @@ impl CellPrivateExecutor {
         proposal: ProposalId,
         authority: CellReconciliationAuthority,
     ) -> Result<CellReconciliation, ExecutionError> {
-        match self.observe_reconciliation(proposal, authority)? {
-            CellReconciliationObservation::Pending => Err(ExecutionError::Uncertain),
-            CellReconciliationObservation::Resolved(resolution) => Ok(resolution),
-        }
+        let Some(resolution) = self.inspect_reconciliation(proposal, authority)? else {
+            return Err(ExecutionError::Uncertain);
+        };
+        self.retire_reconciled()?;
+        Ok(resolution)
     }
 
-    pub(crate) fn observe_reconciliation(
+    pub(crate) fn reconcile_for_cleanup(
         &mut self,
         proposal: ProposalId,
         authority: CellReconciliationAuthority,
-    ) -> Result<CellReconciliationObservation, ExecutionError> {
+    ) -> Result<Option<(CellReconciliation, CellPrivateRetirement)>, ExecutionError> {
+        let Some(resolution) = self.inspect_reconciliation(proposal, authority)? else {
+            return Ok(None);
+        };
+        Ok(Some((resolution, self.defer_retirement()?)))
+    }
+
+    fn inspect_reconciliation(
+        &self,
+        proposal: ProposalId,
+        authority: CellReconciliationAuthority,
+    ) -> Result<Option<CellReconciliation>, ExecutionError> {
         let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
         if pending.prepared.proposal() != proposal
             || !self.authority.accepts_reconciliation(&authority)
@@ -672,17 +709,25 @@ impl CellPrivateExecutor {
                 if authority.term() == self.authority.term() && pending.rpc_prior_steps != 0 =>
             {
                 check()?;
-                return Ok(CellReconciliationObservation::Pending);
+                return Ok(None);
             }
             Err(error) => return Err(error),
             Ok(None) => {
                 check()?;
-                return Ok(CellReconciliationObservation::Pending);
+                return Ok(None);
             }
         };
         check()?;
-        self.retire_reconciled()?;
-        Ok(CellReconciliationObservation::Resolved(resolution))
+        Ok(Some(resolution))
+    }
+
+    fn defer_retirement(&mut self) -> Result<CellPrivateRetirement, ExecutionError> {
+        let pending = self.pending.take().ok_or(ExecutionError::Uncertain)?;
+        self.poisoned = true;
+        Ok(CellPrivateRetirement {
+            images: self.options.images.clone(),
+            pending,
+        })
     }
 
     /// The caller has established the matching applied receipt or newer-term
@@ -745,7 +790,10 @@ impl CellPrivateExecutor {
 
     /// Split only a settled writer's physical cleanup from its SQL closure.
     /// The caller retains its reply, writer lease and bytes until finish joins.
-    pub(crate) fn close_writer(mut self) -> Result<CellPrivateCleanup, ExecutionError> {
+    pub(crate) fn close_writer(
+        mut self,
+        retirement: CellPrivateRetirement,
+    ) -> Result<CellPrivateCleanup, ExecutionError> {
         if self.pending.is_some() || self.preparing.is_some() {
             self.close()?;
             return Err(ExecutionError::Invalid("unsettled private cleanup"));
@@ -759,6 +807,7 @@ impl CellPrivateExecutor {
             lock: Some(self._lock),
             closed,
             discard,
+            retirement: Some(retirement),
         })
     }
 }

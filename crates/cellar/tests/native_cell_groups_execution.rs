@@ -805,6 +805,16 @@ async fn rooted_reconciliation_reuses_captured_receipt_image() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_finish_retirement_keeps_unrelated_sql_runnable() -> Result<()> {
+    receipt_retention::retirement(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_reconciliation_retirement_keeps_unrelated_sql_runnable() -> Result<()> {
+    receipt_retention::retirement(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn enrollment_authority_loss_keeps_controller_alive() -> Result<()> {
     Box::pin(runtime_fixture::enrollment_authority_loss_keeps_controller_alive()).await
 }

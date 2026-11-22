@@ -160,14 +160,28 @@ async fn enrolled_sql_cells(
 }
 
 async fn enroll_sql_cells(
-    mut fixture: RuntimeCluster,
+    fixture: RuntimeCluster,
     rooted: bool,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    enroll_sql_cells_with_admission(fixture, rooted, filesystem, false).await
+}
+
+async fn enroll_sql_cells_with_admission(
+    mut fixture: RuntimeCluster,
+    rooted: bool,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    serialized: bool,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
     let route = fixture.cluster.birth.route().clone();
     if rooted {
+        let open = if serialized {
+            NodeExtentStore::open_serialized
+        } else {
+            NodeExtentStore::open
+        };
         for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
-            voter.extents = Some(NodeExtentStore::open(
+            voter.extents = Some(open(
                 fixture.cluster._root.path().join(format!("rooted-{n}")),
                 filesystem.clone(),
                 Default::default(),
@@ -504,6 +518,16 @@ pub(super) async fn reconcile_refusals(rooted: bool) -> Result<()> {
 
 #[path = "cell_group_sql_receipt_reuse.rs"]
 mod receipt_reuse;
+
+#[path = "cell_group_sql_retirement.rs"]
+mod retirement;
+
+pub(super) async fn preview_retirement_progress(
+    reconcile: bool,
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    Box::pin(retirement::progress(reconcile, store)).await
+}
 
 pub(super) async fn reconcile_captured_receipt(
     rooted: bool,

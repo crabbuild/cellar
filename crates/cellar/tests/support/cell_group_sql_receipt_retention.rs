@@ -28,3 +28,23 @@ pub(super) async fn reconcile(rooted: bool) -> Result<()> {
     retained?;
     Ok(())
 }
+
+pub(super) async fn retirement(reconcile: bool) -> Result<()> {
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let outcome = std::panic::AssertUnwindSafe(runtime_fixture::preview_retirement_progress(
+        reconcile,
+        store.clone(),
+    ))
+    .catch_unwind()
+    .await;
+    let retained = memory::retain(&store, "preview-retirement").await;
+    if let Err(error) = &retained {
+        eprintln!("preview-retirement memory export error: {error:#}");
+    }
+    match outcome {
+        Ok(result) => result?,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+    retained?;
+    Ok(())
+}

@@ -33,8 +33,8 @@ use crate::raft::completion::RuntimeError;
 use crate::raft::execution::{
     CellCommittedReceipt, CellEnrollmentAttempt, CellEnrollmentResolution, CellPreparedCommand,
     CellPrivateEnrollment, CellPrivateExecutor, CellProposalRejection, CellReconciliation,
-    CellReconciliationObservation, CellStageOutcome, CellSubmissionOutcome, CommandAttempt,
-    ExecutionError, ExecutionLimits, PrivateOptions, RootPrivateOptions,
+    CellStageOutcome, CellSubmissionOutcome, CommandAttempt, ExecutionError, ExecutionLimits,
+    PrivateOptions, RootPrivateOptions,
 };
 use crate::raft::runtime::Terminal;
 use crate::raft::storage::ReplicaLog;
