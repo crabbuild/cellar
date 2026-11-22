@@ -23,6 +23,96 @@ pub(crate) async fn invalidated(rooted: bool, configuration: bool) -> Result<()>
     run_scenario(rooted, Some(configuration)).await
 }
 
+/// Losing the initial quorum heartbeat must not require an unrelated write or
+/// an election tick to complete an already admitted read under its deadline.
+pub(crate) async fn lost_heartbeat(rooted: bool) -> Result<()> {
+    let (mut fixture, route, cell, _) = enrolled_sql_cells(rooted).await?;
+    let work = async {
+        let expected = selected(&mut fixture, 0, &cell, CellReadConsistency::Stale)
+            .await?
+            .cell()
+            .version
+            .clone();
+        let runtime = fixture.runtimes[0].clone();
+        let before = runtime.status(route.history).await?;
+        let barriers = count(&fixture, "cell_linearizable_read_barriers")?;
+        let until = deadline(&fixture, 5000).await?;
+        let mut read = Box::pin(runtime.read_authority(
+            route.history,
+            cell,
+            CellReadConsistency::Linearizable,
+            until,
+        ));
+        assert!(read.as_mut().now_or_never().is_none());
+        runtime.status(route.history).await?;
+        let mut contexts = std::collections::BTreeSet::new();
+        let mut dropped = 0;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while dropped < 2 {
+                assert!(read.as_mut().now_or_never().is_none());
+                fixture
+                    .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                        if message.from == 1
+                            && message.get_msg_type() == MessageType::MsgHeartbeat
+                            && !message.context.is_empty()
+                        {
+                            contexts.insert(message.context.to_vec());
+                            dropped += 1;
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .await?;
+                tokio::task::yield_now().await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        anyhow::ensure!(contexts.len() == 1, "one initial read context");
+        let authority = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(result) = read.as_mut().now_or_never() {
+                    break result;
+                }
+                fixture
+                    .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                        if message.from == 1
+                            && message.get_msg_type() == MessageType::MsgHeartbeat
+                            && !message.context.is_empty()
+                        {
+                            contexts.insert(message.context.to_vec());
+                        }
+                        true
+                    })
+                    .await?;
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?
+        .context("lost leader read heartbeat must retry under its original deadline")?;
+        anyhow::ensure!(authority.cell().version == expected);
+        anyhow::ensure!(authority.barrier().context("quorum barrier")?.term == before.term);
+        anyhow::ensure!(contexts.len() == 1, "retry changed the read identity");
+        anyhow::ensure!(count(&fixture, "cell_linearizable_read_barriers")? == barriers + 1);
+        let after = runtime.status(route.history).await?;
+        anyhow::ensure!(after.term == before.term && after.applied == before.applied);
+        anyhow::ensure!(runtime.usage().read_pins.items == 1);
+        drop(authority);
+        anyhow::ensure!(runtime.usage().read_pins.items == 0);
+        eprintln!("leader_read_retry_observations {{\"extents\":{rooted},\"dropped_heartbeats\":{dropped},\"contexts\":1,\"barriers\":1,\"request_ms\":5000}}");
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if work.is_err() {
+        fixture.cluster._root.disable_cleanup(true);
+        eprintln!("retained leader-read-retry disk: {}", fixture.cluster._root.path().display());
+    }
+    let closed = fixture.close().await;
+    work?;
+    closed
+}
+
 async fn run_scenario(rooted: bool, invalidation: Option<bool>) -> Result<()> {
     let (mut fixture, route, a, b) = enrolled_sql_cells(rooted).await?;
     let c = history(&route, "sql-c")?;
