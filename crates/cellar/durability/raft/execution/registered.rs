@@ -88,3 +88,7 @@ pub(crate) fn validate_admission(
     }
     Ok(contract)
 }
+
+#[cfg(test)]
+#[path = "registered_tests.rs"]
+mod tests;
