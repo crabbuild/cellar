@@ -125,8 +125,9 @@ fn sandbox_private_admission_authenticates_configured_application_namespace() ->
         admit(&class, CommandAdmission::Event).is_ok(),
         "configured Sandbox identity must admit"
     );
+    let foreign = configured("another-app")?;
     assert!(
-        admit(&configured("another-app")?, CommandAdmission::Event).is_err(),
+        admit(&foreign, CommandAdmission::Event).is_err(),
         "another application must not authenticate this identity"
     );
     assert!(
