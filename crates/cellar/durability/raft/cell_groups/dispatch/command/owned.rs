@@ -255,12 +255,12 @@ impl CellCommandInvocation {
             }
             Err(error) => return Err(error),
         }
-        loop {
+        let accepted = loop {
             if self.expired()? {
                 if self.cancel_unsubmitted(progress).await? {
                     return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
                 }
-                break;
+                break None;
             }
             let submitted = self.submit_at().await;
             match &submitted {
@@ -278,7 +278,7 @@ impl CellCommandInvocation {
                 }
             }
             match submitted {
-                Ok(CellCommandSubmission::Accepted(_)) => break,
+                Ok(CellCommandSubmission::Accepted(proposal)) => break Some(proposal),
                 Ok(CellCommandSubmission::Rejected) => {
                     return Err(CellDispatchError::Execution(ExecutionError::Refused(
                         CommandFailure::Overloaded,
@@ -295,7 +295,7 @@ impl CellCommandInvocation {
                 }
                 Err(CellDispatchError::Runtime(
                     RuntimeError::NotLeader | RuntimeError::StaleCompletion,
-                )) => break,
+                )) => break None,
                 Err(error) => {
                     // An untouched preparation can be sealed even if the SQL
                     // mark/submission mailbox refused. Other errors stay owned.
@@ -303,13 +303,14 @@ impl CellCommandInvocation {
                     return Err(error);
                 }
             }
-        }
+        };
         // Submission may have entered the owner despite a lost/error response.
         // Only an exact receipt or newer applied term can retire this producer.
         self.origin
             .as_mut()
             .ok_or(CellDispatchError::Invalid("missing origin"))?
             .submitted = true;
+        accepted_apply::wait(runtime, accepted.as_ref(), progress).await?;
         loop {
             match self.settle_at().await {
                 Ok(CellCommandSettlement::Committed(response)) => return Ok(response),
