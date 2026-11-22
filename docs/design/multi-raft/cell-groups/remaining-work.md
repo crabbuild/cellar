@@ -36,14 +36,23 @@ full disaster profile remain open.
 
 ## Primitive delivery priority
 
-**Prioritize full CG-17 closure.** Every primitive and all 32 required cases
-remain in scope. Source `fb5925652` delivers bounded pending-read heartbeat
-recovery, independently verified covered S3 receipts after cache eviction, and
-typed read retry after TLS socket loss. Native archive/read suites pass 32/32 and
-18/18; 13 owning gates and six units pass. Selected real RustFS functions:
-13 pass / 2 fail / 0 unrun. The combined native gate remains **FAILED** on original provider
-Create1 deadlines. See the [current checkpoint](progress.md#cg-17-pending-read-recovery-and-covered-s3-receipts)
-for exact source, failures and qualification limits.
+**Prioritize full CG-17 closure.** Follow-up PR #180 implements bounded physical
+Docker execution and the shared Sandbox bridge on merged PR #179. The combined
+owning source passes 23 checks. The three-slot real control now passes the
+business, lost-Exec recovery, file and generation paths in both Quorum image
+modes. Autonomous Delete still fails its original 60-second observer, and both
+S3 Start profiles still miss their five-second deadline. Retained images locate
+the skipped cleanup in a logical-key/private-image-key mismatch. Its correction
+and an actual Storage callback regression are committed, along with the
+configured-application namespace, independent retirement fence and urgent versus
+routine lifecycle admission changes. The Sandbox profile retains three bounded
+ordinary slots, 64 KiB and one SQL worker. Run the full corrected six-function/
+19-profile gate before accepting this bounded delivery. Full primitive families
+and all 32 cases remain open.
+
+Earlier `fb5925652` archive/read passes and provider deadline/fence failures are
+retained in [progress](progress.md#cg-17-pending-read-recovery-and-covered-s3-receipts);
+this implementation does not supersede their failed combined gate.
 
 The next feature deliveries are:
 
@@ -60,11 +69,19 @@ The next feature deliveries are:
    cleanup, idle discovery and retained strongest source minima. The corrected
    combined `a2a8eac03` campaign remains failed: normal Start refuses the
    Fleet-only turn guard and extent/S3 Container Destroy8 misses its deadline.
-   Combined `db8e6a593` corrects the guard and retirement work; its rerun is
-   required before bridge acceptance. Earlier failed campaigns remain retained.
+   Combined `db8e6a593` corrects the guard and retirement work, then exposes
+   missing Sandbox range selection in the fixture. The corrected fixture now
+   provisions and restarts both groups; its scoped ten-profile rerun is required.
+   The five Container startup/deadline failures remain open separately. Earlier
+   failed campaigns remain retained.
    See the [bridge checkpoint](progress.md#cg-17-shared-sandbox-bridge-and-physical-execution).
    Finish remaining public interactive, port/HTTP/WebSocket and provider-volume
    contracts; bounded exec alone does not accept the full family.
+   The corrected two-group fixture passes build/Clippy but its real scoped gate
+   remains FAILED (two refusal markers, no complete positive/floor function).
+   The private child refuses before adapter preparation; locate and correct that
+   admission guard, then rerun all six functions/19 profiles. Original Container
+   deadline and startup failures remain required controls.
 3. Finish every ordinary Storage/SQL/KV, Queue, EventStream, Workflow, alarm/cron,
    filesystem and payload acceptance driver, including retention-aware receipt and
    payload GC. Inventory remains partial at 18 entries/397 symbols. Register real

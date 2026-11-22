@@ -62,12 +62,17 @@ its proof obligation. Idle discovery survives an older work completion.
 
 | Source-pinned check | Actual result |
 | --- | --- |
+| `957564fe5` combined owning tests | 23/23 pass: configured/private admission (1), lifecycle waiting/cancellation (4), existing private-event protocol (15), Sandbox storage (3) |
 | `28ff0ab32` shared storage invariants | 3/3 pass: history pins, exact terminal/minimum custody and idle discovery |
 | `28ff0ab32` real RustFS, six functions/19 profiles | FAILED: 8 pass, one original deadline failure, ten missing-initializer refusals |
 | `a2a8eac03` integrated-main locked build and strict affected Clippy | Pass |
 | `a2a8eac03` real RustFS, six functions/19 profiles | FAILED: 12 success markers, six Sandbox capability refusals, one original deadline failure |
 | `cf25bbff8` exact Sandbox Start diagnostic | FAILED in all four profiles before reservation; backtrace locates the Fleet-only turn guard |
-| `db8e6a593` combined guard/retirement correction | Build running; runtime unrun |
+| `db8e6a593` combined guard/retirement correction, real RustFS | FAILED: 8 success markers, six missing-target-range profiles, five Container startup/deadline profiles |
+| Two-group fixture `9c7a908b5` / import correction `f6ac53699` | Locked build, 35 Container units and corrected strict Clippy pass; real scoped Sandbox gate FAILED (2/10 configuration markers, 0/3 complete functions) |
+| `73f112c7e` real-adapter Start diagnostic | FAILED: three child capability refusals before adapter preparation and one original S3 deadline; no physical work |
+| `a323a13fb` configured-application namespace correction, real Start diagnostic | FAILED: all four profiles reach physical Create; materialized Quorum also reaches two Exec calls, then admission overload; three original Create deadlines remain |
+| `1a03df7d0` three-slot/foreground-admission real control | FAILED: both Quorum modes pass lost-Exec recovery, file operations and generation replacement, then autonomous Delete never enters within 60 seconds; two S3 Start deadlines remain |
 
 The `a2a8eac03` gate passes physical fencing/restart, three Container recovery
 profiles and all eight Container/Sandbox archive-refusal profiles under its
@@ -84,16 +89,72 @@ all five shared-capable Sandbox boundaries and removes the temporary diagnostic
 prints. It also integrates production retirement fix `ddc3ffb9a`: metadata
 proof alone cannot clear work before the independent controller acknowledges
 its retired fence. Delivery `c25c6a5f8` has the same runtime inputs as the combined
-qualification source. All original operation IDs, proof requirements and
+qualification source. The corrected run passes the turn guard and retains its
+reservation, then fails because the generic fixture selected only the Counter
+namespace. Fixture `9c7a908b5` reuses managed named-service provisioning, grants
+and two-group retained restart/close for the Sandbox namespace. The existing
+Container campaign remains failed. The corrected fixture starts and grants both
+groups, then reaches the private child RPC. Its scoped ten-profile rerun has
+two refusal markers, no complete positive/floor function, and retains overload,
+startup and original deadline failures. A test-only forwarding probe at
+`73f112c7e` confirms that the child capability refusal occurs before the real
+Docker adapter is prepared. The temporary forwarding wrapper is removed in
+`233fefcda`; a focused private-execution debug event retains original error
+context for the next guard diagnosis. None of these scoped or diagnostic runs
+clears the failed full Container campaign.
+
+Correction `a323a13fb` (delivery `8315b90bf`) authenticates private event IDs
+with the compiled application namespace instead of an empty script name. The
+new admission regression retains configured-application, foreign-application and
+ordinary-ingress checks. The real four-profile diagnostic reaches physical
+Docker Create in all profiles and two Exec calls in materialized Quorum; the
+other three profiles miss original Start deadlines. The Quorum profile then
+correctly refuses a second-cell command because the generic two-command fixture
+is full with its interrupted parent and child. The Sandbox profile therefore
+uses three bounded ordinary slots, matching the existing binding-progress
+fixtures, while preserving its 64-KiB admission bytes and single SQL worker.
+This capacity change does not clear the historical two-slot refusal or any
+source deadline failure.
+
+The final combined source also includes foreground admission fix `67a9ccc63`
+and typed-result correction `421d12ad2`: background provider work yields while
+an original foreground proof waits, and cancellation releases only its own
+reservation. The 23 combined owning checks pass at `957564fe5`; their executable and logs
+are retained in `owning-957564fe5-01`. Only the Sandbox fixture capacity and a
+maintenance assertion spelling change after that owning source. Urgent expiry,
+deletion and interrupted-operation recovery also need a free-lock path while
+routine inspections yield; that fairness refinement and real combined
+qualification remain required. The `1a03df7d0` control passes 15 business callbacks in both Quorum image modes,
+including retained lost-Exec receipt recovery, independent-cell progress, file
+write/read/stat/list, forged authority refusal and generation replacement. It
+then fails the original autonomous Delete observer. Retained voter images show
+`__sys_work` due under the logical parent key while `__sys_raft_native_work` is
+empty: the shared callback reads work under the private-image key, skips
+maintenance and completes the wake. Correction `a3cce7803` uses the shared
+private-image key only for work bookkeeping, retains logical parent ownership,
+and adds the actual Storage callback lookup regression. Wrongly scoped
+development histories refuse validation; no migration or old-root rewriting is
+introduced. The existing undeclared Sandbox-work refusal also remains mandatory;
+the new shared reason requires the class's Sandbox catalog capability.
+
+Urgency refinement `96af1bcd2` is integrated: expiry, deletion and interrupted
+operation recovery may acquire a free lifecycle mutex; routine inspection yields
+to a pending foreground proof. Its six owning tests pass at the original source.
+The corrected combined source is rebuilding for current-source qualification.
+
+All original operation IDs, proof requirements and
 5-second/3-second/60-second budgets remain unchanged.
 
 Failed roots, raw logs, frozen executables, hashes and source snapshots remain
 in `cellar-native-docker-delivery-20261121-01`, including
 `merged-28ff0ab32-rustfs-01`, `merged-a2a8eac03-rustfs-01` and
-`sandbox-start-diagnostic-cf25bbff8-01`. Actual RustFS is capped at 1 CPU/2 GiB
+`sandbox-start-diagnostic-cf25bbff8-01`, plus the failed
+`merged-db8e6a593-rustfs-01` campaign and
+`sandbox-namespace-a323a13fb-rustfs-01`. Actual RustFS is capped at 1 CPU/2 GiB
 in a 4-CPU/8-GiB VM. RF3 voters share one native macOS process; the Docker
 execution profile has explicit 0.25-CPU/128-MiB/64-process limits. Concurrent
-host builds remain outside those cgroups. No independent-voter or performance
+host builds remain outside those cgroups. Archive cuts use the store wrapper.
+No independent-voter or performance
 qualification is inferred.
 
 Provider workspace bytes retain a separate storage contract; metadata Quorum/S3
