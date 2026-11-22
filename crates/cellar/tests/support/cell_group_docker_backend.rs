@@ -212,7 +212,7 @@ pub async fn qualify_failed_shutdown() -> Result<()> {
     // an exact-owner kill/join so qualification never leaves its process alive.
     if !fenced {
         let socket = options.socket.clone();
-        let resource = resource.clone();
+        let cleanup_resource = resource.clone();
         domain
             .run(async move {
                 let docker = cellar::docker::Docker::new(socket);
@@ -220,7 +220,7 @@ pub async fn qualify_failed_shutdown() -> Result<()> {
                     let reply = docker
                         .call_bounded(
                             "POST",
-                            &format!("/containers/{resource}/{suffix}"),
+                            &format!("/containers/{cleanup_resource}/{suffix}"),
                             None,
                             1024 * 1024,
                         )
