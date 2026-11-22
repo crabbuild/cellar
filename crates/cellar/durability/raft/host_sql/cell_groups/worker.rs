@@ -544,9 +544,9 @@ impl Cells {
 
     pub fn close(&mut self, failed: bool) -> Result<(), ExecutionError> {
         let closure = if failed {
-            super::suspended_rpc::Closure::Failed
+            rpc::Closure::Failed
         } else {
-            super::suspended_rpc::Closure::Graceful
+            rpc::Closure::Graceful
         };
         let mut result = Ok(());
         for preparing in std::mem::take(&mut self.preparing) {
