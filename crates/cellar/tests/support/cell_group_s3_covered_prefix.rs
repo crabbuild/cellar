@@ -105,7 +105,7 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
                 == archived,
             "sibling cut was archived before the fault"
         );
-        let denied = h.remote.denied_generation_writes.load(Ordering::Acquire);
+        let created = h.remote.immutable_creates.load(Ordering::Acquire);
         let mut lookup = h
             .lookup(
                 h.receipt_request(1, b"archived-cell", Durability::S3)?,
@@ -138,14 +138,15 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             "covered lookup published a newer group cut"
         );
         anyhow::ensure!(
-            h.remote.denied_generation_writes.load(Ordering::Acquire) == denied,
-            "covered lookup attempted a new archive upload"
+            h.remote.immutable_creates.load(Ordering::Acquire) == created,
+            "covered lookup created a new archive generation"
         );
         anyhow::ensure!(
             h.calls.load(Ordering::Acquire) == 2,
             "receipt lookup replayed business work"
         );
         drop((response, lookup));
+        let denied = h.remote.denied_generation_writes.load(Ordering::Acquire);
 
         // A newer mutation of the requested cell really does require a new
         // archived prefix. It cannot borrow the sibling-independent old proof.
@@ -193,7 +194,16 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
                 h.fixture.cell_options(&h.cell).await?,
             )
             .await
-            .context("healed target after archive-write refusal")?;
+            .with_context(|| {
+                let status = h.controllers[0].archive_status(h.route.history).ok().flatten();
+                format!(
+                    "healed target after archive-write refusal: status={:?}, retained_s3={}, checkpoints={}, tails={}",
+                    status.map(|s| (s.attempts, s.published.map(|m| m.position().index), s.stopped, s.error.is_some())),
+                    h.controllers[0].usage().retained_s3,
+                    h.archive.checkpoints.usage().sources,
+                    h.archive.tails.usage().operations
+                )
+            })?;
         anyhow::ensure!(response.durability() == Durability::S3);
         anyhow::ensure!(
             response.receipt().context("healed result")?.result() == b"unarchived-cell"
@@ -208,7 +218,7 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             "s3_covered_prefix_observations {}",
             serde_json::json!({
                 "extents":rooted,"evicted_physical_proof":true,"business_calls":3,
-                "original_request_budget_ms":5000,"covered_lookup_uploaded":false,
+                "original_request_budget_ms":5000,"new_archive_generation_created":false,
                 "uncovered_lookup_refused":true
             })
         );
