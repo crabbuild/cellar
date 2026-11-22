@@ -3259,6 +3259,18 @@ async fn controller_routine_inspection_yields_after_fencing_to_foreground() -> R
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_routine_inspection_yields_after_overlapping_s3_checkpoint() -> Result<()> {
+    controller_provider::qualify_inspection_archive_overlap(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_routine_inspection_yields_after_overlapping_s3_checkpoint() -> Result<()>
+{
+    controller_provider::qualify_inspection_archive_overlap(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_controller_routine_inspection_yields_after_fencing_to_foreground() -> Result<()> {
     controller_provider::qualify_inspection_handoff(true).await

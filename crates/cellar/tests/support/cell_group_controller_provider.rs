@@ -735,6 +735,10 @@ pub async fn qualify_inspection_handoff(real: bool) -> Result<()> {
     inspection::qualify(real).await
 }
 
+pub async fn qualify_inspection_archive_overlap(real: bool) -> Result<()> {
+    inspection::qualify_archive_overlap(real).await
+}
+
 pub async fn profile_extent_create(real: bool) -> Result<()> {
     lifecycle_wait::profile_create(real).await
 }

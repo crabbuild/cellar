@@ -115,6 +115,7 @@ async fn contend(
     minimum: Durability,
     route: &Arc<Route>,
     peer: &Arc<Peer>,
+    archive_overlap: bool,
 ) -> Result<()> {
     let gate = &route.wait.inspection;
     gate.armed.store(true, Ordering::Release);
@@ -138,6 +139,9 @@ async fn contend(
         gate.maintained.load(Ordering::Acquire) == 0 && gate.inspected.load(Ordering::Acquire) == 0,
         "inspection entered while activation was held"
     );
+    if archive_overlap {
+        route.store.group_archive_writes.arm();
+    }
     let foreground = call(cluster, history, minimum, 2, "WaitInspectionLifecycle");
     tokio::pin!(foreground);
     cellar::asyncrt::select_biased! {
@@ -145,10 +149,40 @@ async fn contend(
         result = &mut foreground => anyhow::bail!("foreground ended before registering behind the held framework activation: {result:?}"),
         _ = gate.waiting.notified() => (),
     }
+    if archive_overlap {
+        cellar::asyncrt::select_biased! {
+            "hold foreground source archival behind the entered framework fence";
+            result = &mut foreground => anyhow::bail!("foreground ended before its source archive was held: {result:?}"),
+            _ = route.store.group_archive_writes.entered.notified() => (),
+        }
+    }
     // The original activation must complete. A late foreground waiter cannot
     // cancel an entered fence or turn its unresolved result into no effect.
     route.factory_refused.store(true, Ordering::Release);
     gate.release.notify_one();
+    if archive_overlap {
+        // Force the actual fence result to become known while the original
+        // foreground source proof is still waiting. No artificial delay or
+        // timeout extension supplies the ordering, and no business I/O enters.
+        loop {
+            let changed = gate.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if gate.activated.load(Ordering::Acquire) != 0 {
+                break;
+            }
+            cellar::asyncrt::select_biased! {
+                "join the original fence while source archival is held";
+                result = &mut foreground => anyhow::bail!("foreground ended before the entered fence joined: {result:?}"),
+                _ = changed => (),
+            }
+        }
+        ensure!(
+            gate.acquired.load(Ordering::Acquire) == 0,
+            "foreground acquired lifecycle before its held source proof"
+        );
+        route.store.group_archive_writes.release();
+    }
     let receipt = foreground.await.with_context(|| {
         format!(
             "inspection foreground failed: activated={} acquired={} maintained={} inspected={}",
@@ -193,16 +227,27 @@ async fn contend(
             "maintenance":gate.maintained.load(Ordering::Acquire),
             "inspection":gate.inspected.load(Ordering::Acquire),
             "entered_fence_completed":true, "autonomous_successor":true,
-            "business_constructor_refused":true
+            "business_constructor_refused":true, "archive_overlap":archive_overlap
         })
     );
     Ok(())
 }
 
 pub(super) async fn qualify(real: bool) -> Result<()> {
+    qualify_inner(real, false).await
+}
+
+pub(super) async fn qualify_archive_overlap(real: bool) -> Result<()> {
+    qualify_inner(real, true).await
+}
+
+async fn qualify_inner(real: bool, archive_overlap: bool) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
+            if archive_overlap && minimum != Durability::S3 {
+                continue;
+            }
             let wait = Arc::new(lifecycle_wait::Wait::default());
             wait.inspection.enabled.store(true, Ordering::Release);
             let peer = Arc::new(Peer {
@@ -302,7 +347,16 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
                         )
                         .await?;
                     call(&cluster, &history, minimum, 1, "Create").await?;
-                    contend(&cluster, &history, rooted, minimum, &route, &peer).await?;
+                    contend(
+                        &cluster,
+                        &history,
+                        rooted,
+                        minimum,
+                        &route,
+                        &peer,
+                        archive_overlap,
+                    )
+                    .await?;
                     route.factory_refused.store(false, Ordering::Release);
                     call(&cluster, &history, minimum, 3, "Destroy").await?;
                     ensure!(
@@ -315,6 +369,7 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
                 .map_err(anyhow::Error::from)
                 .and_then(std::convert::identity);
             route.wait.inspection.release.notify_one();
+            route.store.group_archive_writes.release();
             route.factory_refused.store(false, Ordering::Release);
             let closed = managed_fixture::close_group_nodes(
                 std::mem::take(&mut cluster.nodes),
