@@ -7,7 +7,6 @@
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::consensus::*;
 use managed_fixture::{ManagedCluster, TIMEOUT};
-use std::time::Duration;
 
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
