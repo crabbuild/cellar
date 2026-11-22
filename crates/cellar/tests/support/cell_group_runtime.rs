@@ -980,8 +980,8 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
 }
 
 pub(super) use sql::{
-    change_reads, coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable, leader_read_retry,
-    query_lifecycle, recent_source_reads,
+    change_reads, coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable,
+    leader_read_retry, query_lifecycle, recent_source_reads,
 };
 
 pub(super) use sql::apply_images;

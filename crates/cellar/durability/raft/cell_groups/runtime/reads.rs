@@ -14,7 +14,7 @@ use std::{collections::BTreeMap, sync::Weak};
 const PREFIX: &[u8] = b"cellar-cell-read-1\0";
 const CELL_FORWARD_PREFIX: &[u8] = b"cellar-cell-forward-read-1\0";
 const MEMBERSHIP_PREFIX: &[u8] = b"cellar-group-membership-read-1\0";
-pub(super) const FORWARDED_RETRY_MS: u64 = 100;
+pub(super) const READ_RETRY_MS: u64 = 100;
 
 pub(in crate::raft::cell_groups) fn reserved_context(context: &[u8]) -> bool {
     context.starts_with(PREFIX)
@@ -279,8 +279,8 @@ impl Reads {
                 };
                 let retry_at = request
                     .kind
-                    .forwards_read_index()
-                    .then(|| now.saturating_add(FORWARDED_RETRY_MS));
+                    .linearizable()
+                    .then(|| now.saturating_add(READ_RETRY_MS));
                 self.pending.insert(
                     context,
                     Pending {
@@ -387,7 +387,7 @@ impl Reads {
                 let retry =
                     pending.barrier.is_none() && pending.retry_at.is_some_and(|retry| now >= retry);
                 if retry {
-                    pending.retry_at = Some(now.saturating_add(FORWARDED_RETRY_MS));
+                    pending.retry_at = Some(now.saturating_add(READ_RETRY_MS));
                     // A retransmitted context may have produced another Ready.
                     made = true;
                 }

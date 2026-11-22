@@ -501,8 +501,8 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
 mod reads;
 
 pub(crate) use reads::{
-    change_reads, coherent as coherent_reads, cohort_invalidated, cohort_reads, leader_read_retry,
-    follower_linearizable, lifecycle as query_lifecycle, recent_source_reads,
+    change_reads, coherent as coherent_reads, cohort_invalidated, cohort_reads,
+    follower_linearizable, leader_read_retry, lifecycle as query_lifecycle, recent_source_reads,
 };
 
 #[path = "cell_group_sql_apply.rs"]

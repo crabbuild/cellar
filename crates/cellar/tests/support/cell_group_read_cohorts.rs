@@ -106,7 +106,10 @@ pub(crate) async fn lost_heartbeat(rooted: bool) -> Result<()> {
     .await;
     if work.is_err() {
         fixture.cluster._root.disable_cleanup(true);
-        eprintln!("retained leader-read-retry disk: {}", fixture.cluster._root.path().display());
+        eprintln!(
+            "retained leader-read-retry disk: {}",
+            fixture.cluster._root.path().display()
+        );
     }
     let closed = fixture.close().await;
     work?;
