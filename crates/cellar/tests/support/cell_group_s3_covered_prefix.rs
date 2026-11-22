@@ -191,18 +191,6 @@ pub(crate) async fn s3_evicted_receipt_ignores_unarchived_sibling(
             .lookup(request, Duration::from_secs(5))
             .await
             .context("healed receipt discovery")?;
-        // [DEBUG-cg17-heal] Distinguish the Raft read barrier from SQL selection
-        // within the recovered invocation's unchanged original deadline.
-        let authority = h.fixture.runtimes[0]
-            .read_authority(
-                h.route.history,
-                h.cell.clone(),
-                CellReadConsistency::Linearizable,
-                recovered.attempt().context("healed attempt")?.deadline_ms(),
-            )
-            .await
-            .context("healed direct quorum authority probe")?;
-        drop(authority);
         let selected = recovered
             .select(
                 &h.fixture.runtimes[0],
