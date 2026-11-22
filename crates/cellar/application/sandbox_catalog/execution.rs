@@ -200,7 +200,21 @@ impl SandboxCatalog {
         let expected = expected.clone();
         Box::pin(async move {
             let result = async {
-                let deleting = catalog.begin_delete(&context, &expected).await?;
+                let deleting = if context.raft_storage.is_some() {
+                    // Include deletion intent and any maintenance retry claim
+                    // in the binding's original source input proof. Nothing
+                    // escapes this owned call before that gate; a lost proof
+                    // retains the same discovery and minimum durability.
+                    let (parent, allocation) = catalog.prepare_transition(
+                        &context,
+                        &expected,
+                        SandboxAllocationState::Deleting,
+                    )?;
+                    catalog.current(&context, &parent, Some(&allocation))?;
+                    allocation
+                } else {
+                    catalog.begin_delete(&context, &expected).await?
+                };
                 catalog
                     .call_child(&context, &deleting, Action::Destroy, serde_json::json!({}))
                     .await?;

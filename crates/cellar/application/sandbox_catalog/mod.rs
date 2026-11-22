@@ -235,16 +235,9 @@ impl SandboxCatalog {
         expected: &SandboxAllocation,
         state: SandboxAllocationState,
     ) -> HandlerFuture<SandboxAllocation> {
-        let prepared: Result<_> = (|| {
-            let scope = self.check(context)?;
-            expected.validate()?;
-            let (parent, allocation) = match shared::parent_history(context)? {
-                Some(h) => crate::storage::sandbox_shared::transition(&h, expected, state)?,
-                None => store::transition(scope, expected, state)?,
-            };
-            maintenance::publish(context)?;
-            Ok((parent, allocation, context.storage()?.sync()))
-        })();
+        let prepared = self
+            .prepare_transition(context, expected, state)
+            .and_then(|(parent, allocation)| Ok((parent, allocation, context.storage()?.sync())));
         let catalog = self.clone();
         let context = context.clone();
         Box::pin(async move {
@@ -253,6 +246,25 @@ impl SandboxCatalog {
             catalog.current(&context, &parent, Some(&allocation))?;
             Ok(allocation)
         })
+    }
+
+    // An owned child call may combine this private transition and its exact
+    // binding intent in the mandatory input proof. Public transitions still
+    // await sync before returning an allocation to application code.
+    fn prepare_transition(
+        &self,
+        context: &Context,
+        expected: &SandboxAllocation,
+        state: SandboxAllocationState,
+    ) -> Result<(SandboxParent, SandboxAllocation)> {
+        let scope = self.check(context)?;
+        expected.validate()?;
+        let (parent, allocation) = match shared::parent_history(context)? {
+            Some(h) => crate::storage::sandbox_shared::transition(&h, expected, state)?,
+            None => store::transition(scope, expected, state)?,
+        };
+        maintenance::publish(context)?;
+        Ok((parent, allocation))
     }
 
     /// Atomically close future reservations and expose all remaining children
