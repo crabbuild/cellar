@@ -560,8 +560,8 @@ impl ObjectStore for Store {
                 .fetch_add(1, Ordering::AcqRel);
             return Err(failure());
         }
-        // Arm only after the real backend has durably deleted its resource.
-        // The exact parent record separates its proof from the child's S3 proof.
+        // The exact parent record separates source input/terminal proof from
+        // the child's S3 proof. Tests arm this before Delete or after its effect.
         let sandbox_parent = b"\"scope\":\"Counter:sandbox-floor\"";
         if self.deny_sandbox_parent_writes.load(Ordering::Acquire)
             && path.as_ref().contains("/cell-group-archives/")

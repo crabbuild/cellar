@@ -502,18 +502,39 @@ fn unknown(error: &anyhow::Error, id: CommandId) -> Result<()> {
 }
 
 pub async fn qualify(outage: bool) -> Result<()> {
-    run(outage, false, false).await
+    run(if outage {
+        Scenario::Outage
+    } else {
+        Scenario::Recovery
+    })
+    .await
 }
 
 pub async fn qualify_minimum_custody() -> Result<()> {
-    run(false, true, false).await
+    run(Scenario::MinimumCustody).await
 }
 
 pub async fn profile_start() -> Result<()> {
-    run(false, false, true).await
+    run(Scenario::StartProfile).await
 }
 
-async fn run(outage: bool, minimum_custody: bool, profile: bool) -> Result<()> {
+pub async fn qualify_delete_input() -> Result<()> {
+    run(Scenario::DeleteInput).await
+}
+
+enum Scenario {
+    Recovery,
+    Outage,
+    MinimumCustody,
+    StartProfile,
+    DeleteInput,
+}
+
+async fn run(scenario: Scenario) -> Result<()> {
+    let outage = matches!(scenario, Scenario::Outage);
+    let minimum_custody = matches!(scenario, Scenario::MinimumCustody);
+    let profile = matches!(scenario, Scenario::StartProfile);
+    let delete_input = matches!(scenario, Scenario::DeleteInput);
     let _ = tracing_subscriber::fmt()
         .with_env_filter(if profile { "cellar::sandbox::execution=debug,cellar::raft::checkpoint=debug,cellar::raft::group_archive=debug,cellar::raft::sql_publish=trace" } else { "cellar::sandbox::execution=debug" })
         .with_test_writer()
@@ -527,6 +548,9 @@ async fn run(outage: bool, minimum_custody: bool, profile: bool) -> Result<()> {
                 continue;
             }
             if minimum_custody && minimum != Durability::S3 {
+                continue;
+            }
+            if delete_input && minimum != Durability::Quorum {
                 continue;
             }
             let store = Arc::new(catalog_fault::Store::around(rustfs::store(
@@ -646,6 +670,38 @@ async fn run(outage: bool, minimum_custody: bool, profile: bool) -> Result<()> {
                 ensure!(track.calls.load(Ordering::Acquire)==1 && store.denied_group_archive_writes.load(Ordering::Acquire)>before,"archive cut did not enter the public Sandbox callback/proof");
                 ensure!(peer.creates.load(Ordering::Acquire)==0 && peer.executes.load(Ordering::Acquire)==0 && docker_execution::physical_resources(&domain,&policy).await?==0,"Sandbox entered physical work without source/target S3 proof");
                 store.deny_group_archive_writes.store(false,Ordering::Release);
+            } else if delete_input {
+                let created=call(&cluster,&a,Durability::Quorum,1,"Create").await?;
+                let deleted=call(&cluster,&a,Durability::Quorum,2,"DestroyJob").await?;
+                let cuts=deleted.version.sequence.get()-created.version.sequence.get();
+                eprintln!("sandbox_delete_input_checkpoints {}",json!({"extents":rooted,"before":created.version.sequence.get(),"after":deleted.version.sequence.get(),"cuts":cuts,"required_cuts":3}));
+                ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.deletes.load(Ordering::Acquire)==1);
+                let floor=history("sandbox-floor")?;
+                let leader=managed_fixture::leader(&cluster.hosts,cluster.history).await?;
+                cluster.hosts[leader].cell(floor.clone())?.enroll(CellEnrollmentRequest{creation:ProposalId::new([230;16])?,durability:Durability::Quorum},TIMEOUT).await?;
+                call(&cluster,&floor,Durability::Quorum,1,"Create").await?;
+                let denied=store.denied_sandbox_parent_writes.load(Ordering::Acquire);
+                store.deny_sandbox_parent_writes.store(true,Ordering::Release);
+                let error=call(&cluster,&floor,Durability::S3,2,"DestroyJob").await.err().context("Sandbox Delete bypassed its source S3 input proof")?;
+                unknown(&error,options(2,Durability::S3)?.id)?;
+                let pending=state(&cluster,&floor,0).await?;
+                ensure!(pending["job"]["state"]=="deleting" && pending["cleanup_pending"]==true,"Delete did not retain exact cleanup debt: {pending}");
+                ensure!(store.denied_sandbox_parent_writes.load(Ordering::Acquire)>denied,"Delete input archive cut was not reached");
+                ensure!(peer.creates.load(Ordering::Acquire)==2 && peer.deletes.load(Ordering::Acquire)==1,"Delete entered before its parent input proof");
+                track.refuse.store(true,Ordering::Release);
+                let factories=track.factories.load(Ordering::Acquire);
+                named_service::restart(&mut cluster).await?;
+                ensure!(peer.deletes.load(Ordering::Acquire)==1,"retained restart downgraded original S3 Delete input");
+                store.deny_sandbox_parent_writes.store(false,Ordering::Release);
+                cellar::asyncrt::timeout(Duration::from_secs(60),async {let mut id=1;loop {
+                    let status=state(&cluster,&floor,id).await?;id+=1;
+                    if status["job"]["state"]=="deleted" && status["cleanup_pending"]==false {break;}
+                    cellar::asyncrt::sleep(Duration::from_millis(50)).await;
+                }Ok::<_,anyhow::Error>(())}).await.context("Delete did not recover autonomously after source archive restoration")??;
+                ensure!(track.factories.load(Ordering::Acquire)==factories,"Delete recovery constructed unavailable parent");
+                ensure!(peer.creates.load(Ordering::Acquire)==2 && peer.deletes.load(Ordering::Acquire)==2 && peer.executes.load(Ordering::Acquire)==0,"Delete recovery replayed or lost a physical mutation");
+                ensure!(docker_execution::physical_resources(&domain,&policy).await?==0);
+                ensure!(cuts==3,"Sandbox Delete must combine deletion intent and child-call intent before target I/O, then prove terminal metadata and its original public response; got {cuts} source cuts");
             } else if minimum_custody {
                 call(&cluster,&a,Durability::S3,1,"Create").await?;
                 let retirement=call(&cluster,&a,Durability::S3,2,"Retire").await;
@@ -720,7 +776,9 @@ async fn run(outage: bool, minimum_custody: bool, profile: bool) -> Result<()> {
                 track.refuse.store(false,Ordering::Release);ensure!(call(&cluster,&a,minimum,11,"Create").await.is_err(),"retired Sandbox parent reopened admission");
                 ensure!(peer.creates.load(Ordering::Acquire)==3);
             }
-            if minimum_custody {
+            if delete_input {
+                eprintln!("sandbox_delete_input_configuration {}",json!({"extents":rooted,"namespace_minimum":"Quorum","delete_minimum":"S3","original_request_ms":5000,"real_engine":true,"ordinary_command_slots":ORDINARY_COMMAND_SLOTS,"sql_workers":1}));
+            } else if minimum_custody {
                 eprintln!("sandbox_floor_configuration {}",json!({"extents":rooted,"minimum":"S3","namespace_minimum":"Quorum","target_minimum":"S3","original_request_ms":5000,"real_engine":true,"denied_parent_archive_writes":store.denied_sandbox_parent_writes.load(Ordering::Acquire),"ordinary_command_slots":ORDINARY_COMMAND_SLOTS,"sql_workers":1}));
             } else {
             eprintln!("sandbox_native_configuration {}",json!({"extents":rooted,"minimum":format!("{minimum:?}"),"target_minimum":if outage{"S3"}else{if minimum==Durability::S3{"S3"}else{"Quorum"}},"archive_outage":outage,"original_request_ms":5000,"real_engine":true,"business_constructor_cleanup":false,"ordinary_command_slots":ORDINARY_COMMAND_SLOTS,"sql_workers":1}));

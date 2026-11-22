@@ -62,9 +62,10 @@ SUITES = {
             "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum",
             "rustfs_native_sandboxes_refuse_unproved_parent_dispatch",
             "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum",
+            "rustfs_native_sandbox_deletion_preserves_input_proof",
         ),
         "Bounded normal native Container/Sandbox execution against an explicitly selected Linux Engine and real RustFS, including physical fencing, original receipts and source Quorum/S3 admission.",
-        "The two standalone backend cases use trusted metadata, including failed-journal shutdown; four public cases each cover both images and minima; a fifth covers explicit S3 retirement in a Quorum namespace in both images. Sandbox additionally checks authenticated parent/child dispatch, generation replacement, retained restart and terminal confirmation without business construction. RF3 shares one native process. The fixed read-only idle scaffold is not an application entrypoint. Interactive/port APIs, physical namespace erasure, independent voters, sustained load and provider-volume/fresh-history disaster recovery remain unqualified.",
+        "The two standalone backend cases use trusted metadata, including failed-journal shutdown; four public cases each cover both images and minima; two more cover explicit S3 retirement and Delete input proof in a Quorum namespace in both images. Delete must coalesce its parent input, refuse actual physical entry during a source archive cut, and recover after retained restart without business construction. Sandbox additionally checks authenticated parent/child dispatch, generation replacement, retained restart and terminal confirmation without business construction. RF3 shares one native process. The fixed read-only idle scaffold is not an application entrypoint. Interactive/port APIs, physical namespace erasure, independent voters, sustained load and provider-volume/fresh-history disaster recovery remain unqualified.",
     ),
     "controller-provider": (
         "native_cell_groups_primitives",
@@ -964,7 +965,7 @@ def main():
     try:
         if args.suite == "native-docker":
             record["docker_backend"] = docker_configuration(remote["profile"], os.environ)
-            record["planned_configurations"] = dict(zip(cases, (1, 1, 4, 4, 4, 4, 2), strict=True))
+            record["planned_configurations"] = dict(zip(cases, (1, 1, 4, 4, 4, 4, 2, 2), strict=True))
             record["limitations"] = ("Two standalone physical-backend cases and five host-native RF3 suites. "
                                      + limitations)
         bucket = remote["owner"] + "-cg-" + secrets.token_hex(4)
@@ -1104,7 +1105,7 @@ def main():
     finally:
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
-                      "rustfs_cases": (5 if args.suite == "native-docker" else len(cases)),
+                      "rustfs_cases": (len(cases) - 2 if args.suite == "native-docker" else len(cases)),
                       "image_modes_per_case": (None if args.suite == "native-docker" else
                                                0 if args.suite == "immutable-payloads" else
                                                1 if args.suite == "binding-settlement-diagnostic" else 2)}), flush=True)
