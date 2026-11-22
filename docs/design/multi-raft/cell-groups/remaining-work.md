@@ -38,39 +38,44 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-Candidate `8e3dafe0a` adds cooperative inspection handoff and passes all 18 owning
-tests, the optimized build and strict affected checks. Its full original public
-RustFS selection is **FAILED: 4/10 whole functions**, with 16 configurations in
-passing functions and seven partial success markers. The candidate is not in
-PR #180. The earlier parent passes 9/10 functions in its original campaign,
-but fails both runs of a later parent/candidate/parent retirement comparison;
-the candidate passes that isolated control. This does not establish whole-gate
-closure or an exclusive cause. See the
-[current checkpoint](progress.md#cg-17-cooperative-inspection-handoff-candidate)
-for exact sources, failures and verified evidence.
+This branch integrates the cooperative inspection handoff with draft
+[PR #180](https://github.com/crabbuild/cellar/pull/180)'s physical Docker/shared
+Sandbox bridge. The combined source still requires qualification.
 
-Separately, draft PR #180's physical Container/Sandbox source has a failed
-3/6-function campaign at `a2fc2a15b`, with 13 profile success markers. It includes
-a complete extent/Quorum Sandbox path; materialized/Quorum Exec2, S3 Start1 and
-extent/S3 physical Container Destroy4 remain open. These source boundaries must
-be integrated and qualified together.
+The handoff has a deterministic public SDK control at `4de0eade0`: all four native
+and all four real RustFS image/minimum profiles pass. Applying its identical test
+to pre-handoff production `d8730e797` (composite `1982a1520`) fails the ordering
+assertion in all four native profiles. An entered activation completes before
+foreground admission; routine inspection yields and later resumes autonomously,
+without the business constructor. This accepts the scoped correction only.
+
+The broader gates remain failed: `8e3dafe0a` passes 4/10 original completion
+functions, and physical Container/Sandbox source `a2fc2a15b` passes 3/6 functions
+with 13/19 success markers. The passing extent/Quorum Sandbox path includes
+retained lost-Exec/Delete recovery and autonomous cleanup. S3 Start1,
+materialized/Quorum Exec2 and extent/S3 physical Container Destroy4 deadlines
+remain open. Earlier source-specific passes do not qualify the integration.
+See [progress](progress.md#current-integration-checkpoint) for retained evidence.
 
 The next feature deliveries are:
 
-1. Close common public S3 input/output completion and lifecycle contention
-   failures. Add a deterministic public inspection-handoff control and trace the
-   failed proof/settlement boundaries before integrating the candidate. Retain
-   the required cleanup, original operation identities, uncertainty and
-   5-second/3-second/60-second budgets. The isolated retirement pass does not
-   replace the failed full campaign.
-2. Qualify the integrated actual fenced native Container and shared Sandbox
-   bridge, including autonomous cleanup, retained source minima and both selected
-   namespace groups. Finish interactive, port/HTTP/WebSocket and provider-volume
-   contracts; bounded exec alone does not accept the full family.
-3. Finish ordinary Storage/SQL/KV, Queue, EventStream, Workflow, alarm/cron,
-   filesystem and payload acceptance drivers, including retention-aware receipt
-   and payload GC. Inventory remains partial at 18 entries/352 symbols. Register
-   the full-case workloads and independently validate their coverage ledgers.
+1. Close common public S3 input/output completion and receipt settlement under
+   the original identities, minima and 5s/3s/60s limits. A minimal native S3
+   Create diagnostic takes 1,516 ms with only 3,649 microseconds inside logged
+   object-store bodies across nodes; measure host checkpoint, apply and proof
+   stages before changing the protocol. This is one diagnostic, not a benchmark
+   or an exclusive latency cause. Preserve required cleanup and unknown work.
+2. Run the combined completion and physical Container/Sandbox gates. Retain both
+   selected namespaces, constructor-independent cleanup, original receipts,
+   independent execution fences and explicit S3 custody floors. Complete
+   interactive, port/HTTP/WebSocket and provider-volume contracts.
+3. Finish ordinary Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron,
+   filesystem and payload acceptance drivers, including receipt/payload GC.
+   Complete the public API and feature inventory and the fault/recovery matrix.
+4. Close CG-13 recovery, CG-15 qualification and CG-16 cutover gates. Independent
+   Linux voters, physical disk loss, load and provider-volume recovery remain
+   separate from the current native RF3 and real-RustFS component profiles.
+
 4. Run the complete feature, deployment, clock and lifecycle/recovery matrix on
    independent constrained Linux voters, with real archive/process/network faults,
    reclamation and disk loss. Complete CG-13/15/16 before hard cutover.

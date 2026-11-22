@@ -16,6 +16,39 @@ enum Access {
 }
 
 impl CellGroupHost {
+    pub(crate) fn sandbox_configuration(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+    ) -> Result<String, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let key = (source.cluster, source.namespace);
+        let owner = self
+            .inner
+            .namespaces
+            .get(&key)
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if owner.class.cell_configuration_digest() != Some(configuration)
+            || !owner.class.has_sandbox_catalog()
+            || !owner.class.allows_cell_binding(scope)
+        {
+            return Err(CellDispatchError::Invalid("sandbox parent configuration"));
+        }
+        let class = scope
+            .split_once(':')
+            .ok_or(CellDispatchError::Invalid("sandbox target scope"))?
+            .0;
+        let (_, target) = select(&self.inner.namespaces, key, configuration, class)?;
+        target
+            .class
+            .sandbox_configuration()
+            .map(str::to_owned)
+            .ok_or(CellDispatchError::Invalid(
+                "sandbox target is not an execution namespace",
+            ))
+    }
+
     pub(crate) fn enrolled_event_configuration(
         &self,
         history: &CellHistory,
@@ -70,6 +103,39 @@ impl CellGroupHost {
                 RegistrationError::ContractMismatch,
             ));
         }
+        if let crate::application::consensus::native_event_rpc::Authority::Sandbox(caller) =
+            authority
+        {
+            if !caller.source.matches(source)
+                || !owner.class.has_sandbox_catalog()
+                || !owner.class.allows_cell_binding(scope)
+            {
+                return Err(CellDispatchError::Invalid("sandbox parent admission"));
+            }
+            caller
+                .target_name(scope, method)
+                .map_err(|_| CellDispatchError::Invalid("sandbox target authority"))?;
+            let class = scope
+                .split_once(':')
+                .ok_or(CellDispatchError::Invalid("sandbox target scope"))?
+                .0;
+            let (key, target) = select(
+                &self.inner.namespaces,
+                (source.cluster, source.namespace),
+                configuration,
+                class,
+            )?;
+            if target.class.sandbox_configuration() != Some(caller.configuration()) {
+                return Err(CellDispatchError::Invalid(
+                    "sandbox execution configuration",
+                ));
+            }
+            let mut selected = route(key, target, scope, method, Access::Event)?;
+            selected.history_hint = target
+                .dispatcher
+                .applied_history_hint(log, &selected.cell)?;
+            return Ok(selected);
+        }
         let mut selected =
             self.select_event_route(Some(source.cluster), scope, method, authority, log)?;
         if crate::application::consensus::native_event_query::is_metadata(method) {
@@ -120,6 +186,14 @@ impl CellGroupHost {
         authority: &crate::application::consensus::native_event_rpc::Authority,
         log: &crate::raft::storage::ReplicaLog,
     ) -> Result<Route, CellDispatchError> {
+        if matches!(
+            authority,
+            crate::application::consensus::native_event_rpc::Authority::Sandbox(_)
+        ) {
+            return Err(CellDispatchError::Invalid(
+                "sandbox requires an authenticated parent binding",
+            ));
+        }
         authority
             .target_name(scope, method)
             .map_err(|_| CellDispatchError::Invalid("event binding authority"))?;

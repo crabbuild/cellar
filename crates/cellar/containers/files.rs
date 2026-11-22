@@ -76,6 +76,109 @@ pub struct FileMetadata {
     pub link_target: Option<String>,
 }
 
+/// Bounded filesystem transport for an immutable Engine resource. The caller
+/// must separately establish ownership and fence all overlapping operations;
+/// an Engine identifier alone is never serving authority. Files stay inside the
+/// container filesystem; this transport never extracts an archive on the host.
+pub struct EngineFiles {
+    docker: crate::docker::Docker,
+    id: crate::docker::ContainerId,
+}
+
+impl EngineFiles {
+    pub fn new(docker: crate::docker::Docker, id: crate::docker::ContainerId) -> Self {
+        Self { docker, id }
+    }
+
+    pub async fn read(&self, path: FilePath, maximum: usize) -> Result<Vec<u8>> {
+        let (reply, _) = self
+            .docker
+            .archive(
+                "GET",
+                &route(self.id.as_str(), path.as_str(), false),
+                Bytes::new(),
+                archive_limit(maximum)?,
+            )
+            .await?;
+        ensure!(
+            reply.status.is_success(),
+            "read container file: {}",
+            reply.message()
+        );
+        read_archive(&reply.body, maximum)
+    }
+
+    pub async fn write(&self, path: FilePath, data: &[u8], mode: u32) -> Result<()> {
+        let (parent, _) = path.destination()?;
+        let body = write_archive(&path, data, mode)?;
+        let (reply, _) = self
+            .docker
+            .archive(
+                "PUT",
+                &route(self.id.as_str(), parent, true),
+                Bytes::from(body),
+                OVERHEAD,
+            )
+            .await?;
+        ensure!(
+            reply.status.is_success(),
+            "write container file: {}",
+            reply.message()
+        );
+        Ok(())
+    }
+
+    pub async fn stat(&self, path: FilePath) -> Result<FileMetadata> {
+        let (reply, stat) = self
+            .docker
+            .archive(
+                "HEAD",
+                &route(self.id.as_str(), path.as_str(), false),
+                Bytes::new(),
+                OVERHEAD,
+            )
+            .await?;
+        ensure!(
+            reply.status.is_success(),
+            "stat container file: {}",
+            reply.message()
+        );
+        stat_header(&stat.context("container stat header missing")?)
+    }
+
+    pub async fn list(
+        &self,
+        path: FilePath,
+        maximum: usize,
+        max_entries: usize,
+    ) -> Result<Vec<FileMetadata>> {
+        ensure!(
+            (1..=MAX_FILE_ENTRIES).contains(&max_entries),
+            "invalid container listing entry budget"
+        );
+        let path = if path.as_str() == "/" {
+            "/.".into()
+        } else {
+            format!("{}/.", path.as_str())
+        };
+        let (reply, _) = self
+            .docker
+            .archive(
+                "GET",
+                &route(self.id.as_str(), &path, false),
+                Bytes::new(),
+                archive_limit(maximum)?,
+            )
+            .await?;
+        ensure!(
+            reply.status.is_success(),
+            "list container files: {}",
+            reply.message()
+        );
+        list_archive(&reply.body, maximum, max_entries)
+    }
+}
+
 #[cfg(test)]
 #[path = "files_tests.rs"]
 mod tests;

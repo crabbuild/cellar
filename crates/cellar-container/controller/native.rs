@@ -111,6 +111,11 @@ fn encode(request: ContainerRequest) -> Result<(Operation, Value)> {
             Operation::SetInactivityTimeout,
             json!({"timeout_ms":u64::try_from(timeout.as_millis())?}),
         ),
+        ContainerRequest::ExecOutput { options, max_bytes } => (
+            Operation::ExecOutput,
+            json!({"options":{"cmd":options.cmd,"env":options.env,"cwd":options.cwd,"user":options.user,
+                "combined":options.combined,"pty":options.pty.map(|size|json!({"cols":size.cols(),"rows":size.rows()}))},"max_bytes":max_bytes}),
+        ),
         ContainerRequest::ReadFile { path, max_bytes } => (
             Operation::ReadFile,
             json!({"path":path.as_str(),"max_bytes":max_bytes}),
@@ -166,11 +171,30 @@ fn decode(operation: Operation, value: Value) -> Result<ContainerReply> {
         ),
         Operation::StatFile => ContainerReply::Metadata(serde_json::from_value(value)?),
         Operation::ListFiles => ContainerReply::Entries(serde_json::from_value(value)?),
+        Operation::ExecOutput => ContainerReply::Execution(ExecOutput {
+            exit_code: value["exit_code"]
+                .as_i64()
+                .context("invalid container execution status")?,
+            stdout: STANDARD.decode(
+                value["stdout"]
+                    .as_str()
+                    .context("missing container stdout")?,
+            )?,
+            stderr: STANDARD.decode(
+                value["stderr"]
+                    .as_str()
+                    .context("missing container stderr")?,
+            )?,
+        }),
         _ => anyhow::bail!("invalid native container operation"),
     })
 }
 
 impl ContainerAdapter for NativeContainerAdapter {
+    fn supports_bounded_sandbox(&self) -> bool {
+        self.provider.identity.provider == super::docker::PROVIDER
+    }
+
     fn identity(&self) -> BackendIdentity {
         self.provider.identity()
     }
@@ -192,6 +216,10 @@ impl ContainerAdapter for NativeContainerAdapter {
             );
         }
         let (operation, input) = encode(request)?;
+        ensure!(
+            crate::Provider::operations(self.provider.as_ref()).contains(&operation),
+            cellar::sdk::consensus::CommandFailure::UnsupportedCapability
+        );
         values::check_depth(&input)?;
         native::validate(operation.name(), &input, &self.limits)?;
         ensure!(
@@ -200,10 +228,11 @@ impl ContainerAdapter for NativeContainerAdapter {
             "native container request exceeds the controller payload bound"
         );
         let result_limit = match operation {
-            Operation::ReadFile | Operation::ListFiles => input["max_bytes"]
-                .as_u64()
-                .context("file result limit missing")?
-                as usize,
+            Operation::ReadFile | Operation::ListFiles | Operation::ExecOutput => {
+                input["max_bytes"]
+                    .as_u64()
+                    .context("file result limit missing")? as usize
+            }
             _ => self.limits.max_body_bytes,
         };
         let entry_limit = if operation == Operation::ListFiles {

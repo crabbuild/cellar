@@ -286,10 +286,7 @@ pub(super) fn changed(
 
 pub(super) fn invocation_minimum(scope: &str) -> anyhow::Result<Durability> {
     if scope == RAFT_STORAGE_SCOPE {
-        Ok(crate::storage::capture_raft_dispatch()?
-            .ok_or(crate::application::consensus::CommandFailure::Unavailable)?
-            .binding_source()?
-            .durability)
+        super::raft_invocation_minimum()
     } else {
         Ok(Durability::Quorum)
     }

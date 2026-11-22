@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
+use sha2::{Digest, Sha256};
 
 const PARENT: &str = "Business:alice";
 

@@ -135,3 +135,16 @@ impl SandboxAllocation {
         Ok(())
     }
 }
+
+/// Shared by retained metadata and authenticated private routing.
+pub(crate) fn execution_name(
+    scope: &str,
+    incarnation: &str,
+    name: &str,
+    generation: u64,
+) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let identity =
+        serde_json::to_vec(&("cellar-sandbox-v1", scope, incarnation, name, generation))?;
+    Ok(format!("sandbox-{}", hex::encode(Sha256::digest(identity))))
+}

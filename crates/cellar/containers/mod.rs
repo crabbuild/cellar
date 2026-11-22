@@ -48,7 +48,7 @@ mod network;
 mod network_options;
 mod ports;
 pub use cellar_egress::HttpTarget as HttpInterceptTarget;
-pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
+pub use files::{EngineFiles, FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
 pub use network_options::{HttpsInterceptionOptions, NetworkHelperOptions};
 
 /// Public CA only; private signing keys never enter the application container.

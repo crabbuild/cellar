@@ -284,7 +284,7 @@ impl Docker {
 
     /// Bounded control-plane replies. Dropping the call also drops its owned
     /// connection; a cancelled mutation may still complete in the daemon.
-    pub(crate) async fn call_bounded(
+    pub async fn call_bounded(
         &self,
         method: &str,
         path: &str,

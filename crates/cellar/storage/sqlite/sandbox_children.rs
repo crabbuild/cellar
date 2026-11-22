@@ -9,7 +9,7 @@ const SCHEMA: event_schema::Schema = event_schema::Schema {
     required: &[("__sys_sandbox_child","singleton,record")],
 };
 
-fn read(connection: &Connection) -> anyhow::Result<Option<Record>> {
+pub(super) fn read(connection: &Connection) -> anyhow::Result<Option<Record>> {
     if !SCHEMA.check(connection)? {
         return Ok(None);
     }
@@ -64,7 +64,11 @@ pub(crate) fn save(scope: &str, record: &Record) -> anyhow::Result<()> {
     })
 }
 
-fn save_in(connection: &Connection, record: &Record, encoded: &str) -> anyhow::Result<()> {
+pub(super) fn save_in(
+    connection: &Connection,
+    record: &Record,
+    encoded: &str,
+) -> anyhow::Result<()> {
     if let Some(prior) = read(connection)? {
         anyhow::ensure!(
             prior.identity == record.identity && prior.container_spec == record.container_spec,

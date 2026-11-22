@@ -30,6 +30,16 @@ fn raft_framework_work_is_atomic_generation_fenced_and_retained() -> anyhow::Res
         assert!(rolled.is_err());
         assert!(storage.work_installation(Reason::Outbox)?.is_none());
         assert!(storage.schedule_work(Reason::SandboxCleanup, 10).is_err());
+        storage
+            .raft_command_authority()?
+            .resources
+            .sandbox_catalog
+            .store(true, Ordering::Release);
+        storage.schedule_work(Reason::SandboxCleanup, 10)?;
+        let sandbox = storage.work_installation(Reason::SandboxCleanup)?.unwrap();
+        assert_eq!(sandbox.at_ms, 10);
+        assert!(storage.clear_work(sandbox)?);
+        assert!(storage.work_installation(Reason::SandboxCleanup)?.is_none());
         storage.schedule_work(Reason::Outbox, 10)?;
         let old = storage.work_installation(Reason::Outbox)?.unwrap();
         storage.schedule_work(Reason::Outbox, 10)?;
