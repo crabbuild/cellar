@@ -81,7 +81,7 @@ impl Authority {
 }
 
 pub(crate) fn history(context: &Context) -> Result<CellHistory> {
-    context.check_turn()?;
+    context.check_binding_turn()?;
     let history = crate::storage::capture_raft_dispatch()?
         .ok_or(CommandFailure::UnsupportedCapability)?
         .source_history()?;

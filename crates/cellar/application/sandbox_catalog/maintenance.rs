@@ -7,7 +7,7 @@ use anyhow::Result;
 use cellar_logic::work::{Installation, Reason};
 
 pub(crate) fn publish(context: &Context) -> Result<()> {
-    context.check_turn()?;
+    context.check_binding_turn()?;
     if context.raft_storage.is_some() {
         // The private image already arms shared discovery atomically with its
         // allocation changes. A Fleet host gate cannot own this cell's work.
@@ -157,7 +157,7 @@ async fn maintain_shared(context: Context, installation: Installation) -> Result
     let catalog = SandboxCatalog::open(&context)?;
     if let Some(allocation) = next {
         let result = catalog.destroy_child(&context, &allocation).await;
-        context.check_turn()?;
+        context.check_binding_turn()?;
         crate::storage::sandbox_shared::refresh(&history)?;
         // The work result proves refresh. Parent retirement is a separate
         // bounded turn, already discoverable after the last child settles.

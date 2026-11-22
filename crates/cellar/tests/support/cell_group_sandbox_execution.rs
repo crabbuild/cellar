@@ -183,9 +183,7 @@ impl Cell for Parent {
                 .lock()
                 .unwrap()
                 .get_or_insert_with(|| context.clone());
-            let catalog = SandboxCatalog::open(&context).inspect_err(|error| {
-                eprintln!("sandbox_bridge_open_error {error:?}");
-            })?;
+            let catalog = SandboxCatalog::open(&context)?;
             let value = match operation.as_str() {
                 "Create" | "Spare" => serde_json::to_value(
                     catalog
@@ -195,10 +193,7 @@ impl Cell for Parent {
                             "SANDBOX",
                             parameters(),
                         )
-                        .await
-                        .inspect_err(|error| {
-                            eprintln!("sandbox_bridge_start_error {error:?}");
-                        })?,
+                        .await?,
                 )?,
                 "Exec" => {
                     self.storage.put_json("business", &json!(12))?;

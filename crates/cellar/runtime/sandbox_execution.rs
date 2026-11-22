@@ -229,7 +229,7 @@ async fn save(context: &Context, record: &Record) -> Result<()> {
     // gate before exposing a terminal reply. No separate phase-only S3 barrier
     // or reusable external-I/O authority is needed.
 
-    context.check_turn()?;
+    context.check_binding_turn()?;
     Ok(())
 }
 
@@ -411,7 +411,7 @@ pub(crate) async fn invoke(
     invocation: Invocation,
     authority: Authority,
 ) -> Result<Output> {
-    context.check_turn()?;
+    context.check_binding_turn()?;
     let Invocation::CellRpc { method, args } = invocation else {
         anyhow::bail!("sandbox execution requires RPC");
     };
