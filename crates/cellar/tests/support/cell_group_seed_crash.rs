@@ -272,6 +272,10 @@ async fn recover(root: &Path, rooted: bool, cut: &str) -> Result<()> {
             } else {
                 assert_eq!(length, complete);
             }
+        } else if cut == "image-synced" {
+            assert_eq!(path.parent(), Some(root.join("learner/images").as_path()));
+            assert_eq!(path.extension(), Some(std::ffi::OsStr::new("sqlite")));
+            assert_eq!(std::fs::metadata(&path)?.len(), length);
         } else {
             assert_eq!(path, std::path::PathBuf::from("snapshot.scratch"));
         }

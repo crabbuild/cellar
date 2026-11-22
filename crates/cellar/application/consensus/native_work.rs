@@ -221,6 +221,28 @@ pub(crate) fn complete(db: &Connection, work: &Work, leased_until: u64) -> Resul
     Ok(())
 }
 
+/// Validate the exact current claim before installing a successor obligation.
+/// Its lease bounds retry scheduling; observing a due time alone grants nothing.
+pub(crate) fn require_claim(
+    db: &Connection,
+    work: &Work,
+    leased_until: u64,
+    now: u64,
+) -> Result<()> {
+    validate(&work.reason)?;
+    ensure!(
+        now < leased_until && exists(db)?,
+        CommandFailure::Unavailable
+    );
+    let current: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM __sys_raft_native_work WHERE reason=?1 AND generation=?2 AND attempts=?3 AND due=?4 AND claimed=1)",
+        params![work.reason,work.generation.as_slice(),u64::from(work.attempts)+1,i64::try_from(leased_until)?],
+        |row| row.get(0),
+    )?;
+    ensure!(current, CommandFailure::Unavailable);
+    Ok(())
+}
+
 /// Only a known application error/panic after the claim proof creates this tag.
 /// Kernel cancellation, failed claim sync and unknown physical outcomes do not.
 #[derive(Debug)]

@@ -156,7 +156,7 @@ async fn run(
     let mut retention = CellGroupLogRetentionLimits::default();
     retention.group.entries = ENTRY_LIMIT;
     retention.progress_group.entries = 1;
-    let h = Box::pin(Harness::configured_retention(
+    let mut h = Box::pin(Harness::configured_retention(
         rooted,
         global.clone(),
         2,
@@ -166,6 +166,11 @@ async fn run(
         Some(retention),
     ))
     .await?;
+    h.fixture.cluster._root.disable_cleanup(true);
+    eprintln!(
+        "retained outage voter disks: {}",
+        h.fixture.cluster._root.path().display()
+    );
     let group = h.fixture.cluster.voters[0]
         .log
         .cell_group(&h.route.history)?;
@@ -572,7 +577,12 @@ async fn run(
         )
         .await?
         .response()
-        .await?;
+        .await
+        .with_context(|| format!(
+            "Quorum resume after reclaim extents={rooted}, callbacks={}, last={:?}, first={:?}, debt={:?}",
+            h.calls.load(Ordering::SeqCst),group.last_index(),group.first_index(),
+            group.log_retention_usage().map(|usage|(usage.retained_entries,usage.reserved_entries))
+        ))?;
     assert_eq!(resumed.durability(), Durability::Quorum);
     drop(resumed);
     // Preserve the same invocation, captured inputs, original deadline and

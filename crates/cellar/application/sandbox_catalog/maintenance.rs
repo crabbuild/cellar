@@ -58,7 +58,8 @@ pub(crate) fn recover(context: &Context) -> Result<()> {
 
 pub(crate) async fn maintain(context: Context, installation: Installation) -> Result<Output> {
     if context.raft_storage.is_some() {
-        return maintain_shared(context, installation).await;
+        // Shared cleanup requires the authenticated native-work claim below.
+        return Err(crate::application::consensus::CommandFailure::UnsupportedCapability.into());
     }
     let storage = context.storage()?;
     if storage.work_installation(Reason::SandboxCleanup)? != Some(installation) {
@@ -144,14 +145,24 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     Ok(Output::Done)
 }
 
-async fn maintain_shared(context: Context, installation: Installation) -> Result<Output> {
+pub(crate) async fn maintain_shared(
+    context: Context,
+    installation: Installation,
+    work: &crate::application::consensus::native_work::Work,
+    leased_until: u64,
+) -> Result<Output> {
     let history = super::shared::parent_history(&context)?
         .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?;
     let storage = context.storage()?;
     if storage.work_installation(Reason::SandboxCleanup)? != Some(installation) {
         return Ok(Output::Done);
     }
-    let next = crate::storage::sandbox_shared::claim(&history, crate::asyncrt::wall_ms().max(0))?;
+    let next = crate::storage::sandbox_shared::claim(
+        &history,
+        crate::asyncrt::wall_ms().max(0),
+        work,
+        leased_until,
+    )?;
     // destroy_child proves the retry claim together with exact deletion intent
     // before crossing into the child. Losing the call retains discovery.
     let catalog = SandboxCatalog::open(&context)?;

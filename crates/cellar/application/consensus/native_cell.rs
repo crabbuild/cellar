@@ -653,9 +653,11 @@ impl NativeCellFactory {
                 if let Some(installation) =
                     storage.work_installation(cellar_logic::work::Reason::SandboxCleanup)?
                 {
-                    let output = crate::application::sandbox_catalog::maintenance::maintain(
+                    let output = crate::application::sandbox_catalog::maintenance::maintain_shared(
                         context,
                         installation,
+                        &work,
+                        leased_until,
                     )
                     .await?;
                     anyhow::ensure!(

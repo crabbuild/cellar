@@ -250,6 +250,24 @@ pub(super) fn claim_at(
     scope: &str,
     now: i64,
 ) -> Result<Option<SandboxAllocation>> {
+    claim_with_retry(connection, scope, now, None)
+}
+
+pub(super) fn claim_until(
+    connection: &Connection,
+    scope: &str,
+    now: i64,
+    retry_at: i64,
+) -> Result<Option<SandboxAllocation>> {
+    claim_with_retry(connection, scope, now, Some(retry_at))
+}
+
+fn claim_with_retry(
+    connection: &Connection,
+    scope: &str,
+    now: i64,
+    retry_at: Option<i64>,
+) -> Result<Option<SandboxAllocation>> {
     ensure!(now >= 0, "sandbox cleanup clock must be nonnegative");
     let Some((name, generation, _, due)) = next(connection)? else {
         // Reinstall idle discovery before the current turn completes. Its
@@ -269,9 +287,13 @@ pub(super) fn claim_at(
         allocation.generation == generation,
         "sandbox cleanup generation changed"
     );
-    let retry = now
-        .checked_add(30_000)
-        .ok_or_else(|| anyhow::anyhow!("sandbox cleanup deadline exhausted"))?;
+    let retry = match retry_at {
+        Some(at) => at,
+        None => now
+            .checked_add(30_000)
+            .ok_or_else(|| anyhow::anyhow!("sandbox cleanup deadline exhausted"))?,
+    };
+    ensure!(retry > now, "sandbox cleanup retry lease expired");
     connection.execute(
         "UPDATE __sys_sandbox_managed SET due_ms=?1 WHERE name=?2 AND generation=?3",
         rusqlite::params![retry, name, generation],

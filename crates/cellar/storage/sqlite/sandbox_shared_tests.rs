@@ -63,6 +63,92 @@ fn shared_sandbox_cannot_replace_a_retained_history_or_parent_pin() -> Result<()
 }
 
 #[tokio::test]
+async fn shared_cleanup_retry_uses_its_exact_claim_and_preserves_proof_floor() -> Result<()> {
+    use crate::application::consensus::native_work;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            for lease_ms in [4_000, 91_000] {
+                let db = database()?;
+                let h = history(3)?;
+                owner(&db, &h, None, true)?;
+                db.execute_batch(super::super::work::SCHEMA)?;
+                let allocation = reserve_at(&db, &h)?.allocation;
+                super::super::sandbox_work::register_in(
+                    &db,
+                    h.cell.as_str(),
+                    &allocation,
+                    &"c".repeat(64),
+                )?;
+                let (_, deleting) = super::super::sandbox_catalog::transition_at(
+                    &db,
+                    h.cell.as_str(),
+                    &allocation,
+                    SandboxAllocationState::Deleting,
+                )?;
+                strengthen_minimum(&db, Durability::S3)?;
+                native_work::arm(&db, "sandbox-cleanup", 0)?;
+                let mut work = native_work::due(&db, 100)?.context("cleanup wake missing")?;
+                work.lease_ms = lease_ms;
+                let until = 100 + lease_ms;
+                assert!(native_work::claim(&db, &work, 100)?);
+                assert!(claim_in(&db, &h, 100, Durability::Quorum, &work, until).is_err());
+                let mut stale = work.clone();
+                stale.generation[0] ^= 1;
+                assert!(claim_in(&db, &h, 100, Durability::S3, &stale, until).is_err());
+                stale = work.clone();
+                stale.attempts += 1;
+                assert!(claim_in(&db, &h, 100, Durability::S3, &stale, until).is_err());
+                assert!(claim_in(&db, &h, 100, Durability::S3, &work, until + 1).is_err());
+                assert!(
+                    claim_in(&db, &h, until.try_into()?, Durability::S3, &work, until).is_err()
+                );
+                let due = || -> Result<i64> {
+                    Ok(db.query_row(
+                        "SELECT due_ms FROM __sys_sandbox_managed WHERE name='job'",
+                        [],
+                        |row| row.get(0),
+                    )?)
+                };
+                assert_eq!(due()?, 0);
+                assert_eq!(
+                    native_work::get(&db, "sandbox-cleanup")?,
+                    Some(until.try_into()?)
+                );
+
+                db.execute_batch("SAVEPOINT retry_claim")?;
+                assert_eq!(
+                    claim_in(&db, &h, 100, Durability::S3, &work, until)?,
+                    Some(deleting.clone())
+                );
+                assert_eq!(due()?, i64::try_from(until)?);
+                db.execute_batch("ROLLBACK TO retry_claim; RELEASE retry_claim")?;
+                assert_eq!(due()?, 0);
+                native_work::require_claim(&db, &work, until, 100)?;
+
+                assert_eq!(
+                    claim_in(&db, &h, 100, Durability::S3, &work, until)?,
+                    Some(deleting)
+                );
+                assert_eq!(due()?, i64::try_from(until)?);
+                native_work::complete(&db, &work, until)?;
+                assert!(native_work::due(&db, until - 1)?.is_none());
+                let next = native_work::due(&db, until)?
+                    .context("cleanup retry was consumed by old completion")?;
+                assert_ne!(next.generation, work.generation);
+                assert_eq!(next.attempts, 0);
+                assert_eq!(next.due, until);
+                assert!(native_work::require_claim(&db, &work, until, 100).is_err());
+                assert_eq!(next_minimum(&db)?, Durability::S3);
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
 async fn terminal_sandbox_keeps_confirmation_work_and_rolls_back_stale_completion() -> Result<()> {
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     let result = domain

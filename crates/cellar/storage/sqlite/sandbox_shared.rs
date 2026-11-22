@@ -264,12 +264,41 @@ pub(crate) fn retire(
     })
 }
 
-pub(crate) fn claim(history: &CellHistory, now: i64) -> Result<Option<SandboxAllocation>> {
+pub(crate) fn claim(
+    history: &CellHistory,
+    now: i64,
+    work: &crate::application::consensus::native_work::Work,
+    leased_until: u64,
+) -> Result<Option<SandboxAllocation>> {
     let minimum = super::raft_invocation_minimum()?;
     change(history, None, |db| {
-        check_work_minimum(db, minimum)?;
-        super::sandbox_work::claim_at(db, history.cell.as_str(), now)
+        claim_in(db, history, now, minimum, work, leased_until)
     })
+}
+
+fn claim_in(
+    db: &Connection,
+    history: &CellHistory,
+    now: i64,
+    minimum: Durability,
+    work: &crate::application::consensus::native_work::Work,
+    leased_until: u64,
+) -> Result<Option<SandboxAllocation>> {
+    check_work_minimum(db, minimum)?;
+    ensure!(
+        work.reason == "sandbox-cleanup",
+        "different cleanup work reason"
+    );
+    crate::application::consensus::native_work::require_claim(
+        db,
+        work,
+        leased_until,
+        u64::try_from(now)?,
+    )?;
+    // Retry after this exact callback's lease, rather than an unrelated 30s
+    // interval. This also avoids admitting a successor before a longer claim
+    // expires. Proofs, original call deadlines and unknown I/O stay unchanged.
+    super::sandbox_work::claim_until(db, history.cell.as_str(), now, i64::try_from(leased_until)?)
 }
 
 pub(crate) fn refresh(history: &CellHistory) -> Result<()> {
