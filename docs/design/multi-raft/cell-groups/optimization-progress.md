@@ -75,10 +75,32 @@ and settlement 1,191 ms. Fresh entry-authority refresh reaches 15 ms. One rooted
 checkpoint-proof timer remains pending for about 25 seconds until shutdown.
 These overlapping observations locate further investigations; they are not
 exclusive costs, a complete business outcome attribution or a performance gain.
-Next, isolate checkpoint/proof progress and writer-hold/image/settlement costs,
-then close the unchanged C2/C4 delivery and uniqueness oracle. Complete OPT/CG,
-recovery/SDK/release qualification and the constrained Colima/RustFS comparison
-remain open.
+
+A follow-up exact-proposal observer binds **72 checkpoints** to their original
+command, input digest, step, prepared bytes and expected image. **71 complete**
+proof observation and SQL adoption; one rooted proposal remains unresolved until
+joined cleanup. Its accepted log position is in term 4, while every matching
+initial load-failure snapshot is in term 2. It belongs to later work than the
+original producer failures. Reconciliation repeatedly selects an older cell
+sequence; no continuation-fence refusal is recorded. Calls return within 264 ms
+across the three traces. This excludes delayed reconciliation or SQL handoff as
+the explanation for that long proof; it does not prove the uncommitted outcome
+of an accepted proposal. The pending producer correctly retains custody.
+
+Four of those five fresh C4 cases reach load and fail; the final uninstrumented
+control fails at startup before load. Its logical cleanup joins are not established
+by a load-cleanup marker. All available exports, disks and closed copies are
+independently verified, and temporary source instrumentation is removed.
+
+The earlier request trace shows five of 15 rooted Queue dispatcher captures and
+48 of 132 materialized captures have under two seconds left in the original
+three-second budget. These are per-invocation remaining budgets, not elapsed-time
+comparisons across node clocks. Next, distinguish pre-dispatch ingress FIFO,
+enrollment/name selection and sequence observation from SQL writer/image and
+settlement costs. The separate checkpoint follower-progress repeatability gap
+remains open. Close the unchanged C2/C4 delivery/uniqueness oracle and complete
+OPT/CG, recovery/SDK/release qualification and the constrained Colima/RustFS
+comparison before claiming completion or a performance gain.
 
 ## Earlier Queue diagnostic boundary
 
