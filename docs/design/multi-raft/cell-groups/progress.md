@@ -34,6 +34,27 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ### CG-17 shared Delete input and completion qualification
 
+The full recovery diagnostic `e8aa22970` has now joined **FAILED, 1/4
+profiles**. Extent/Quorum passes the complete original lost-Exec, file,
+generation-replacement, lost-Delete/restart and autonomous-cleanup oracle.
+Materialized/Quorum and both S3 profiles fail Start1 at the original five-second
+deadline after actual physical Create completion. The owned VM is stopped;
+source, executable, phase trace and retained state have a verified second copy
+in `CG-17-recovery-profile-e8aa22970-2609`. This diagnostic does not replace the
+fixed eight-function acceptance campaign below.
+
+The next implementation removes entry observation only for authenticated,
+dedicated-framework Sandbox exec/file/capability calls that do not consume its
+running snapshot. Their ordinary adapter input proof, original operations and
+independent execution fence remain mandatory. Start, Inspect, running-state
+queries and unknown operations keep entry observation. Initial controller
+registration also persists its inactive high-water claim directly through the
+existing crash-safe registration protocol, avoiding a separate empty slot write.
+Backend entry still waits for registration and high-water durability. A new
+restart regression requires failed first activation to retain that high-water
+and refuse an older claim. These changes await current-source qualification;
+they do not establish a cure for the separate Start/final-response deadlines.
+
 Runtime `fad389bf3` combines private shared-Sandbox deletion intent and its
 maintenance retry claim with the exact child-call intent in the mandatory input
 checkpoint. Provider I/O still follows that proof. Public manual transitions and
@@ -67,9 +88,9 @@ function.
 | Journal-failure shutdown and physical fence/receipt control | Both pass |
 | Public Container recovery | Both materialized profiles pass; extent/Quorum docker-b Destroy4 and extent/S3 docker-b Status2 exceed 5s |
 | Container source-proof refusal/recovery | All four profiles pass |
-| Public Sandbox recovery | Materialized/Quorum Read5 exceeds 5s; the other three profiles fail Start1 before physical Create |
+| Public Sandbox recovery | Materialized/Quorum Read5 exceeds 5s; the other three profiles fail Start1. Retained journals show materialized/S3 Create pending, extent/Quorum Create completed, and no physical operation in extent/S3 |
 | Sandbox source-proof refusal | All four profiles pass the Reserved-generation oracle |
-| Explicit S3 cleanup floor | Both Start1 requests exceed 5s before the fault cut; extent enters physical Create |
+| Explicit S3 cleanup floor | Both Start1 requests exceed 5s before the fault cut; both retained backend journals show physical Create completed |
 | Delete input/restart recovery | Materialized verifies three cuts, then its second cell's Create1 expires; extent's first Create1 expires |
 
 Read-only backend-journal observations bound one failed Quorum Create's durable

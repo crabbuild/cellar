@@ -38,7 +38,7 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-Draft [PR #180](https://github.com/crabbuild/cellar/pull/180) integrates shared
+[PR #180](https://github.com/crabbuild/cellar/pull/180) integrates shared
 Sandbox execution, the physical Docker backend, inspection handoff and
 accepted-apply scheduling. Runtime `fad389bf3` also combines private Sandbox
 deletion/retry state with its exact binding input proof. Materialized ordinary
@@ -55,6 +55,13 @@ deadlines prevent its fault phase from running. Prior pre-change testing reached
 that phase and failed autonomous recovery. Completion/startup failures now affect
 Quorum as well as S3 in this campaign. Earlier source-specific passes do not
 qualify this source.
+The separate full recovery diagnostic `e8aa22970` passes extent/Quorum's entire
+oracle; the other three profiles fail Start1 after completed physical Create.
+It is not a replacement for the fixed campaign. The next source removes unused
+entry observations for authenticated private Sandbox exec/file calls and combines
+initial controller registration with inactive high-water persistence. Its owning
+restart tests and original public gates still need to pass. Running-state
+consumers, terminal sync and independent provider fencing retain their contracts.
 See
 [progress](progress.md#cg-17-shared-delete-input-and-completion-qualification)
 for the exact failures and retained evidence.

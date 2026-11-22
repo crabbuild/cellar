@@ -244,18 +244,15 @@ impl CellRpcActivation {
             if sandbox {
                 crate::application::sandbox_catalog::shared::prepare_entry(&context)?;
             }
-            let destroy = sandbox
+            let direct = sandbox
                 && context.sandbox_authority.as_ref().is_some_and(|authority| {
-                    matches!(
-                        authority.execution.action(),
-                        crate::runtime::sandbox_execution::Action::Destroy
-                    )
+                    !authority.execution.action().requires_running_snapshot()
                 });
             // This dedicated framework cell has no application constructor that
-            // needs a running snapshot. Destroy reconciles original debt and
-            // fences execution itself; an entry Observe adds an unnecessary
-            // physical call and checkpoint inside the same cleanup deadline.
-            if !destroy {
+            // needs a running snapshot. These operations reconcile original
+            // debt and fence execution at their own adapter boundary. Preserve
+            // entry observation for operations that actually consume it.
+            if !direct {
                 crate::application::containers::backend::prepare_invocation(&context).await?;
             }
             instance.0.invoke(context, invocation)?.await

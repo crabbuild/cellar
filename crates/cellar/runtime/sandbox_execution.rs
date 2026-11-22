@@ -79,6 +79,26 @@ pub(crate) enum Action {
 }
 
 impl Action {
+    // Only the dedicated, authenticated framework execution class can omit its
+    // entry snapshot. These calls do not read Container::running; their normal
+    // adapter still proves the original intent and fences every provider I/O.
+    // Unknown/new operations keep observation until their contract is audited.
+    pub(crate) fn requires_running_snapshot(&self) -> bool {
+        match self {
+            Self::Destroy => false,
+            Self::Call { operation } => !matches!(
+                operation.as_str(),
+                "container.capabilities"
+                    | "container.exec_output"
+                    | "container.file.read"
+                    | "container.file.write"
+                    | "container.file.stat"
+                    | "container.file.list"
+            ),
+            _ => true,
+        }
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         if let Self::Call { operation } = self {
             ensure!(

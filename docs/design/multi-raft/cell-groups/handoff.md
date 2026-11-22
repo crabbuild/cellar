@@ -6,7 +6,7 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current shared Sandbox and completion delivery
 
-Continue on `codex/cg17-s3-completion`; open draft PR #180 uses
+Continue on `codex/cg17-s3-completion`; open PR #180 uses
 `codex/cg17-shared-sandbox-bridge`. Both include merged main `09cdcf423`.
 Runtime `fad389bf3` also batches private Sandbox deletion/retry state with its
 binding input proof; materialized ordinary Delete verifies three source cuts.
@@ -17,8 +17,18 @@ Container recovery profiles pass. Sandbox recovery, extent Container recovery,
 explicit S3 floors and the new Delete input/restart case remain incomplete.
 The owned lab and read-only journal observer are stopped and joined.
 
-Next use the diagnostic full recovery phase trace to close startup/completion and
-autonomous Delete recovery, preserving the documented terminal sync, all original
+The full recovery diagnostic `e8aa22970` joined FAILED: extent/Quorum passes its
+whole recovery/cleanup oracle; the other three profiles fail Start1 after actual
+Create completion. Evidence `CG-17-recovery-profile-e8aa22970-2609` and its
+verified backup retain the exact trace and state. Completed-return counters
+cannot establish absence of physical entry; inspect the backend journal.
+
+Next qualify the implementation that removes unused entry observations for
+authenticated private Sandbox exec/file/capability calls and combines first
+controller registration with inactive high-water persistence. Keep observations
+for running-state consumers and prove failed first activation across restart.
+Then close startup/completion and autonomous Delete recovery using the phase
+trace, preserving the documented terminal sync, all original
 identities, proofs and deadlines. The current new test verifies the materialized
 cut count but Create failures prevent reaching its archive fault. The pre-change
 run reaches it and fails 60s autonomous recovery. Then finish full primitive API/feature/recovery/GC coverage
