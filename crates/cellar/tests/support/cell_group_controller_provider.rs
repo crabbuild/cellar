@@ -19,6 +19,8 @@ use std::{
 mod admission;
 #[path = "cell_group_provider_delete_intent.rs"]
 mod delete_intent;
+#[path = "cell_group_provider_inspection.rs"]
+mod inspection;
 #[path = "cell_group_provider_lifecycle_wait.rs"]
 mod lifecycle_wait;
 #[path = "cell_group_native_container.rs"]
@@ -64,6 +66,7 @@ struct Peer {
     hold_retirement_fence: AtomicBool,
     retirement_fences: AtomicUsize,
     retirement_fence_changed: Notify,
+    inspection_gate: Option<Arc<inspection::Gate>>,
 }
 
 impl ExecutionControllerBackend for Peer {
@@ -177,7 +180,12 @@ impl ExecutionControllerBackend for Peer {
                         self.deletes.fetch_add(1, Ordering::AcqRel);
                         serde_json::Value::Null
                     }
-                    Operation::Running => json!(resource.exists),
+                    Operation::Running => {
+                        if let Some(gate) = &self.inspection_gate {
+                            gate.inspected();
+                        }
+                        json!(resource.exists)
+                    }
                     Operation::WriteFile => {
                         ensure!(resource.exists);
                         self.writes.fetch_add(1, Ordering::AcqRel);
@@ -290,16 +298,22 @@ impl ExecutionControllerBackend for Peer {
 // Supervision retains its authority at registration. Model a stable host-owned
 // endpoint, not an old closed controller handle, across independent restart.
 // Only the endpoint changes: every supplied claim remains the original claim.
-struct Authority(Arc<RwLock<Arc<ControllerProvider>>>);
+struct Authority {
+    provider: Arc<RwLock<Arc<ControllerProvider>>>,
+    inspection: Option<Arc<inspection::Gate>>,
+}
 
 impl ExecutionFenceAuthority for Authority {
     fn identity(&self) -> BackendIdentity {
-        self.0.read().unwrap().identity()
+        self.provider.read().unwrap().identity()
     }
 
     fn activate(self: Arc<Self>, claim: ExecutionClaim) -> HandlerFuture<()> {
-        let authority = self.0.read().unwrap().authority();
-        authority.activate(claim)
+        let authority = self.provider.read().unwrap().authority();
+        match self.inspection.as_ref().filter(|gate| gate.hold(&claim)) {
+            Some(gate) => gate.clone().activate(authority, claim),
+            None => authority.activate(claim),
+        }
     }
 }
 
@@ -326,7 +340,14 @@ impl FencedMaintenanceBackend for Route {
     }
 
     fn authority(&self) -> Arc<dyn ExecutionFenceAuthority> {
-        Arc::new(Authority(self.provider.clone()))
+        Arc::new(Authority {
+            provider: self.provider.clone(),
+            inspection: self
+                .wait
+                .inspection
+                .enabled()
+                .then(|| self.wait.inspection.clone()),
+        })
     }
 
     fn prepare(
@@ -345,6 +366,7 @@ impl FencedMaintenanceBackend for Route {
         grant: ExecutionGrant,
     ) -> HandlerFuture<()> {
         let provider = self.selected();
+        self.wait.inspection.maintaining();
         Box::pin(async move {
             let confirmation = expected.record.is_retired().then(|| expected.clone());
             if expected.record.is_retired() {
@@ -418,6 +440,9 @@ impl Cell for Root {
                         operation == "WaitDirtyLifecycle",
                     )
                     .await?;
+                }
+                "WaitInspectionLifecycle" => {
+                    inspection::wait(&context, &journal, &self.1.wait.inspection).await?;
                 }
                 "Create" => {
                     self.0.put_json("business", &json!(17))?;
@@ -558,6 +583,25 @@ async fn start(
     route: Arc<Route>,
     scenario: Scenario,
 ) -> Result<ManagedCluster> {
+    let policy = (scenario != Scenario::Basic).then_some(MaintenancePolicy {
+        inspect_interval_ms: 100,
+        maximum_lifetime_ms: if scenario == Scenario::Expired {
+            500
+        } else {
+            10_000
+        },
+        attempt_timeout_ms: 3000,
+        idle_timeout_ms: None,
+    });
+    start_with_policy(rooted, minimum, route, policy).await
+}
+
+async fn start_with_policy(
+    rooted: bool,
+    minimum: Durability,
+    route: Arc<Route>,
+    policy: Option<MaintenancePolicy>,
+) -> Result<ManagedCluster> {
     let identity = route.selected().identity();
     let class = RaftClass::new("Counter", 1, [241; 32])?
         .initializer([242; 32], |_, _| Ok(()))?
@@ -583,21 +627,9 @@ async fn start(
             },
         )?,
     );
-    let application: Arc<dyn Application> = if scenario != Scenario::Basic {
+    let application: Arc<dyn Application> = if let Some(policy) = policy {
         let mut supervision = Supervision::default();
-        supervision.register_fenced(
-            route.clone(),
-            MaintenancePolicy {
-                inspect_interval_ms: 100,
-                maximum_lifetime_ms: if scenario == Scenario::Expired {
-                    500
-                } else {
-                    10_000
-                },
-                attempt_timeout_ms: 3000,
-                idle_timeout_ms: None,
-            },
-        )?;
+        supervision.register_fenced(route.clone(), policy)?;
         supervise(application, supervision)
     } else {
         application
@@ -697,6 +729,10 @@ pub async fn qualify_data_recovery(real: bool, write: bool) -> Result<()> {
 
 pub async fn qualify_lifecycle_wait(real: bool, dirty: bool) -> Result<()> {
     lifecycle_wait::qualify(real, dirty).await
+}
+
+pub async fn qualify_inspection_handoff(real: bool) -> Result<()> {
+    inspection::qualify(real).await
 }
 
 pub async fn profile_extent_create(real: bool) -> Result<()> {

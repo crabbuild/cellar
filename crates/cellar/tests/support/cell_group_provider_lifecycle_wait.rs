@@ -8,6 +8,7 @@ pub(super) struct Wait {
     held: Notify,
     waiting: Notify,
     release: Notify,
+    pub(super) inspection: Arc<inspection::Gate>,
 }
 
 pub(super) async fn hold(

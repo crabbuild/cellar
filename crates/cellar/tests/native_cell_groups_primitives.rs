@@ -3244,6 +3244,17 @@ async fn rustfs_controller_lifecycle_wait_proves_dirty_work_before_parking() -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_routine_inspection_yields_after_fencing_to_foreground() -> Result<()> {
+    controller_provider::qualify_inspection_handoff(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_routine_inspection_yields_after_fencing_to_foreground() -> Result<()> {
+    controller_provider::qualify_inspection_handoff(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "diagnostic only: original extent/S3 provider Create latency"]
 async fn profile_extent_s3_controller_provider_create() -> Result<()> {
     controller_provider::profile_extent_create(false).await
