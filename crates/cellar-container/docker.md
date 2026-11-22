@@ -79,6 +79,15 @@ requested minimum across the parent lifetime, including explicit S3 requests
 in Quorum-default namespaces. Discovery projects that minimum; stale Quorum
 work refuses before claiming the wake or reserving an allocation. A Quorum
 terminal confirmation cannot settle a newly strengthened S3 obligation.
+
+Shared cleanup retry uses the exact current native-work lease. Reason,
+generation, attempt, due time and claimed state must match, and the lease must
+remain unexpired before installing a successor wake. The allocation retry and
+successor are written atomically; completing the old claim cannot clear the new
+generation. A short lease does not inherit a fixed 30-second delay, and a long
+lease cannot admit its successor early. Retrying discovery grants no permission
+to replay an unknown physical operation or bypass an input/output proof.
+
 Retained child/parent
 tombstones prevent delayed Start from reopening retired generations. Immutable
 `QueryContext::sandbox_parent`, `sandbox_allocation` and

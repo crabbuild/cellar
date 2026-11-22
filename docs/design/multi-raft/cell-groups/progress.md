@@ -32,6 +32,76 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 lease-fenced cleanup and restored safety controls
+
+Runtime `ee8c87e57` binds shared Sandbox cleanup retry to its exact claimed
+native-work lease, replacing the unrelated fixed 30-second delay. The claim
+must match reason, generation, attempt, due time and claimed state, and remain
+unexpired. The strongest requested minimum is checked first. Installing the
+successor wake and allocation retry remains one private SQL transaction;
+completing the old claim cannot erase that successor. Input/output proofs,
+original operation identities, unknown-outcome reconciliation and 5s request,
+3s maintenance and 60s restoration limits are unchanged. Fleet keeps its
+existing retry policy.
+
+Five shared Sandbox SQL units and twelve native-work units pass, including
+4s/91s lease boundaries, stale generation/attempt/expiry refusal, minimum
+custody, rollback and successor-wake retention. All 35 Container library units,
+strict affected Clippy, canonical formatting and the locked optimized build pass.
+
+The full native archive matrix now **passes: 41 passed, 0 failed, 17 RustFS-only
+cases ignored**. Both six-cut SIGKILL seed matrices also pass. The two prior
+safety failures required corrections to obsolete test boundaries:
+
+- Cancellation now holds the actual final image sync, rather than the disposable
+  receive spool. It checks the selected durable image/extent path and nonempty
+  bytes, retained physical admission while I/O is held, and joined cleanup.
+  Materialized seed recovery checks that same durable image; extent and prefix
+  crash assertions retain their existing boundaries.
+- Outage coverage now separates cold originating discovery, which refuses
+  without S3, from an authenticated known route, which may continue at Quorum
+  without another catalog GET. This follows the canonical routing contract.
+  Original receipt deduplication, six callbacks, the nine-entry debt ceiling,
+  S3 refusal, physical checkpoint release and restored bytes remain asserted.
+  Five quiet repetitions pass both modes. An earlier `da4aba12b` post-reclamation
+  Quorum write missed its original 15s limit, then passed an unchanged repeat;
+  that intermittent failure remains retained and is not declared cured by the
+  Sandbox lease change.
+
+The real RustFS run remains **FAILED: 3/5 complete functions, 8/14 configuration
+success markers**:
+
+| Case | Result on `ee8c87e57` |
+| --- | --- |
+| Bounded Quorum archive outage | Both modes pass, including all four physical RustFS stop/start transitions and restored reclamation |
+| Delete input/restart/restore | Both modes pass the complete oracle: exact S3 input refusal, retained restart, autonomous terminal proof within 60s, no unavailable parent construction and exactly two resource deletions |
+| Requested-S3 retirement floor | Both initial S3 Create1 requests expire at 5s before reaching the intended archive-cut scenario; materialized entered physical Create, extent did not |
+| Ordinary Sandbox recovery | Materialized Quorum FileStat3 and both S3 Create1 requests expire at 5s; extent Quorum reaches retirement after generation replacement but returns a generic elapsed error, whose restart-versus-terminal-confirmation phase is unresolved |
+| Source-proof refusal | All four image/minimum profiles pass |
+
+The prior quiet materialized restoration failure is retained. An older
+`da4aba12b` diagnostic passed that materialized oracle but left about 23s before
+the first observed post-restore callback, motivating removal of the unrelated
+30s delay. The current two-mode pass supports this scoped recovery delivery;
+it does not establish an exclusive cause for every historical timeout or close
+retirement, ordinary response paths or a complete primitive family.
+
+Evidence `CG-17-sandbox-lease-real-ee8c87e57-2771` is sealed with 6,426 manifest
+files, six current frozen executables, full Git source, 50 real and 24 native
+retained roots and a checksum-verified second copy. Older diagnostic/control
+sources are explicitly separate. The owned 4-CPU/8-GiB VM and all test processes
+are stopped/joined; RustFS objects and volumes remain retained at 1 CPU/2 GiB.
+Native RF3 still shares one macOS process and one SQL worker per voter. No own
+compiler, formatter or evidence copy overlapped the real runtime. Latest fetched
+main `09cdcf423` is included.
+
+Next locate the exact failed retirement phase and correct the measured foreground
+deadline path, preserving every original budget and proof. Then rerun the full
+input/floor/recovery oracles on one source and complete the ordinary execution
+and public-family drivers. All **32 full CG-17 cases remain unaccepted**;
+CG-13/15/16, independent voters, load, provider-volume recovery and cutover remain
+required. The implementation index and full acceptance oracles are unchanged.
+
 ### CG-17 archive descriptors and remaining safety failures
 
 Qualifier `3a3de9949` removes two repeated immutable-index GETs from each new
