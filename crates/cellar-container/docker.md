@@ -36,6 +36,12 @@ reconciled from its exact retained outcome. Unknown create, command or write
 outcomes are never inferred from a missing response or replayed. Missing,
 corrupt, incompatible or ambiguous mutation state refuses reopening.
 
+Backend shutdown closes admission and attempts process termination, job joining
+and a final process scan even if journal deactivation or an earlier cleanup
+step fails. A storage failure is still returned after these attempts; successful
+process termination does not acknowledge a failed durable transition. Stores,
+original outcomes and workspace volumes remain retained.
+
 Keep both controller and backend stores outside voter disks. Reopen with the
 same options and original controller ID; do not create replacement stores to
 clear uncertainty. A changed Engine identity refuses admission. Fresh cell
@@ -81,7 +87,7 @@ cell. Shared `request_erasure` remains refused; physical namespace erasure and
 identity/receipt garbage collection require their separate managed protocol.
 
 The opt-in `native-docker` qualification suite includes a physical backend
-restart/fence case and public native RF3 recovery and archive-refusal drivers
+restart/fence case, a journal-failure shutdown case and public native RF3 recovery and archive-refusal drivers
 against real RustFS. See the [runner instructions](../../tools/multi-raft/README.md)
 and [CG-17 progress](../../docs/design/multi-raft/cell-groups/progress.md) for
 executed results and scope. Implementation and type checking alone are not a

@@ -56,6 +56,7 @@ SUITES = {
         "native_cell_groups_docker",
         (
             "docker_backend_joins_processes_and_retains_original_receipts",
+            "docker_backend_shutdown_fences_processes_when_journal_fails",
             "rustfs_native_docker_executes_and_recovers_shared_quorum",
             "rustfs_native_docker_refuses_execution_without_source_proof",
             "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum",
@@ -63,7 +64,7 @@ SUITES = {
             "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum",
         ),
         "Bounded normal native Container/Sandbox execution against an explicitly selected Linux Engine and real RustFS, including physical fencing, original receipts and source Quorum/S3 admission.",
-        "The standalone backend case uses trusted metadata; four public cases each cover both images and minima; a fifth covers explicit S3 retirement in a Quorum namespace in both images. Sandbox additionally checks authenticated parent/child dispatch, generation replacement, retained restart and terminal confirmation without business construction. RF3 shares one native process. The fixed read-only idle scaffold is not an application entrypoint. Interactive/port APIs, physical namespace erasure, independent voters, sustained load and provider-volume/fresh-history disaster recovery remain unqualified.",
+        "The two standalone backend cases use trusted metadata, including failed-journal shutdown; four public cases each cover both images and minima; a fifth covers explicit S3 retirement in a Quorum namespace in both images. Sandbox additionally checks authenticated parent/child dispatch, generation replacement, retained restart and terminal confirmation without business construction. RF3 shares one native process. The fixed read-only idle scaffold is not an application entrypoint. Interactive/port APIs, physical namespace erasure, independent voters, sustained load and provider-volume/fresh-history disaster recovery remain unqualified.",
     ),
     "controller-provider": (
         "native_cell_groups_primitives",
@@ -963,8 +964,8 @@ def main():
     try:
         if args.suite == "native-docker":
             record["docker_backend"] = docker_configuration(remote["profile"], os.environ)
-            record["planned_configurations"] = dict(zip(cases, (1, 4, 4, 4, 4, 2)))
-            record["limitations"] = ("One standalone physical-backend case and four host-native RF3 suites. "
+            record["planned_configurations"] = dict(zip(cases, (1, 1, 4, 4, 4, 4, 2), strict=True))
+            record["limitations"] = ("Two standalone physical-backend cases and five host-native RF3 suites. "
                                      + limitations)
         bucket = remote["owner"] + "-cg-" + secrets.token_hex(4)
         record["s3_probe"] = probe(remote["endpoint"], bucket,

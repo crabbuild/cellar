@@ -155,8 +155,10 @@ The runner refuses another profile's socket or a mutable image tag. It retains
 the exact source, executable and selection evidence. The standalone physical
 case uses trusted host metadata and checks backend/controller restart, original
 receipts, actual kernel limits, deadline termination, detached-process fencing
-and rejection of unfenced incarnations. Each public case runs both image modes
-and Quorum/S3 minima against real RustFS: normal Context/Container execution,
+and rejection of unfenced incarnations. A second standalone case injects an
+actual backend journal-write failure and requires the process to be stopped
+before test cleanup, while shutdown still reports the storage error. Each public
+case runs both image modes and Quorum/S3 minima against real RustFS: normal Context/Container execution,
 lost replies, retained voter restart, leader transfer, stale claims and actual
 source-archive refusal before provider entry. Two additional Sandbox cases check
 private parent/child dispatch, lost original execution/deletion receipts,

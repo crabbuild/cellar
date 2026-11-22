@@ -32,6 +32,43 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 journal-failure shutdown and current completion
+
+The physical Docker shutdown path previously returned immediately when its
+inactive-fence journal write failed, before stopping or joining processes.
+The new unchanged-oracle negative control at `ecfdad90b` injects a real
+`state.next` directory/write failure after a known Create. Shutdown returns the
+original I/O error, but Engine inspection still reports Running=true and PID
+1803. Only separate exact-owner test cleanup stops and joins that process.
+The control fails its physical fence assertion, not setup or a deadline. Source,
+executable, raw logs and retained state are sealed in
+`CG-17-docker-shutdown-red-ecfdad90b-2559` with a verified second copy; the owned
+lab is stopped and joined.
+
+Shutdown now attempts deactivation, physical stop, owned-job join and a second
+stop before returning the first failure. It preserves closed admission, the
+journal error, unknown operations and original receipts. The new physical control
+is required in the native-Docker runner, alongside every earlier public case:
+seven functions and 20 configurations. Current-source green qualification is
+pending; the negative control does not establish a passing fix.
+
+Separately, combined source `06afc4ec2` passes the locked optimized public build,
+strict primitive-target Clippy and all four native handoff profiles. Its ordinary
+SDK basic function remains FAILED: three profiles pass; extent/S3 Create1 takes
+5,004 ms and fails after physical Create completed with 2,137 ms remaining.
+No loss cut, altered ID or replacement response excuses that failure. The single
+extent/S3 diagnostic passes in 2,900 ms. Per-node stable-source snapshots report
+232,796–357,692 microseconds in engine file sync and 132,093–415,552 microseconds
+in SQL preparation; operation sums overlap and are not critical-path attribution.
+The logged object-store method bodies remain only a few milliseconds. The
+remaining latency must be measured at checkpoint/archive/receipt boundaries;
+no exclusive cause or performance improvement is established.
+
+Next qualify the shutdown correction against the real Engine, then run the
+combined native Container/Sandbox and S3 completion gates. Full primitive APIs,
+retention/GC, managed recovery and independent-voter/load/disk-loss qualification
+remain required. All 32 full CG-17 cases and the default cutover stay open.
+
 ### CG-17 public inspection handoff and combined source
 
 The cooperative handoff is now integrated with PR #180's shared Sandbox and

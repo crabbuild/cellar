@@ -119,7 +119,15 @@ class SqlCampaignTests(unittest.TestCase):
                                  1 if suite == "binding-settlement-diagnostic" else 2)
                 if suite == "native-docker":
                     self.assertEqual(summary["rustfs_cases"], 5)
-                    self.assertEqual(record["planned_configurations"],dict(zip(cases,(1,4,4,4,4,2))))
+                    self.assertEqual(record["planned_configurations"], {
+                        "docker_backend_joins_processes_and_retains_original_receipts": 1,
+                        "docker_backend_shutdown_fences_processes_when_journal_fails": 1,
+                        "rustfs_native_docker_executes_and_recovers_shared_quorum": 4,
+                        "rustfs_native_docker_refuses_execution_without_source_proof": 4,
+                        "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum": 4,
+                        "rustfs_native_sandboxes_refuse_unproved_parent_dispatch": 4,
+                        "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum": 2,
+                    })
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
                 else:
@@ -301,6 +309,7 @@ class ProviderJournalCampaignTests(unittest.TestCase):
         self.assertEqual(target, "native_cell_groups_docker")
         self.assertEqual(cases, (
             "docker_backend_joins_processes_and_retains_original_receipts",
+            "docker_backend_shutdown_fences_processes_when_journal_fails",
             "rustfs_native_docker_executes_and_recovers_shared_quorum",
             "rustfs_native_docker_refuses_execution_without_source_proof",
             "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum",

@@ -395,16 +395,22 @@ impl DockerBackend {
     async fn shutdown_owned(&self) -> Result<()> {
         self.closed.store(true, Ordering::Release);
         let _admission = self.admission.lock().await;
-        self.update(|state| {
-            for slot in state.slots.values_mut() {
-                slot.active = false;
-            }
-            Ok(())
-        })
-        .await?;
-        self.engine.stop_all(None).await?;
-        self.wait_jobs(None).await?;
-        self.engine.stop_all(None).await
+        let inactive = self
+            .update(|state| {
+                for slot in state.slots.values_mut() {
+                    slot.active = false;
+                }
+                Ok(())
+            })
+            .await;
+        // Persistence or an earlier termination failure must not bypass the
+        // remaining cleanup. Joining covers entered jobs; the final stop also
+        // covers a Create that completed after the first inventory. Return the
+        // original failure even when the process namespace has been stopped.
+        let stopped = self.engine.stop_all(None).await;
+        let joined = self.wait_jobs(None).await;
+        let stopped_after_join = self.engine.stop_all(None).await;
+        inactive.and(stopped).and(joined).and(stopped_after_join)
     }
 
     async fn revoke_to(&self, successor: ExecutionClaim) -> Result<()> {

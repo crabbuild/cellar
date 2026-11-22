@@ -57,6 +57,11 @@ materialized/Quorum Exec2 and extent/S3 physical Container Destroy4 deadlines
 remain open. Earlier source-specific passes do not qualify the integration.
 See [progress](progress.md#current-integration-checkpoint) for retained evidence.
 
+The new physical shutdown control also remains required: journal persistence
+failure must not skip process stop/join. Its pre-fix real-Engine control fails;
+qualify the correction and the expanded seven-function/20-configuration suite
+before accepting bounded native execution.
+
 The next feature deliveries are:
 
 1. Close common public S3 input/output completion and receipt settlement under
