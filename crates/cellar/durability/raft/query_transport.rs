@@ -365,7 +365,7 @@ impl State {
                 tokio_rustls::TlsAcceptor::from(self.tls.server.clone())
                     .accept(tcp)
                     .await
-                    .map_err(|e| TransportError::Tls(e.to_string()))
+                    .map_err(TransportError::tls_handshake)
             })
             .await?;
         let exporter = stream
@@ -604,7 +604,7 @@ impl State {
                     tokio_rustls::TlsConnector::from(self.tls.client.clone())
                         .connect(name, tcp)
                         .await
-                        .map_err(|e| TransportError::Tls(e.to_string()))
+                        .map_err(TransportError::tls_handshake)
                 })
                 .await?;
             let exporter = tls

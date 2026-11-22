@@ -34,11 +34,32 @@ struct Link {
     proxy: Proxy,
 }
 
+/// Preserve voter files on setup failure, early return or panic. Successful
+/// close releases them only after every service, node and proxy has joined.
+struct VoterRoots {
+    directories: Vec<tempfile::TempDir>,
+    joined: bool,
+}
+
+impl Drop for VoterRoots {
+    fn drop(&mut self) {
+        if !self.joined {
+            for root in &mut self.directories {
+                root.disable_cleanup(true);
+                eprintln!(
+                    "retained public-read voter disk: {}",
+                    root.path().display()
+                );
+            }
+        }
+    }
+}
+
 pub(super) struct Cluster {
     pub(super) services: Vec<RaftCells>,
     nodes: Vec<Node>,
     links: Vec<Link>,
-    _roots: Vec<tempfile::TempDir>,
+    _roots: VoterRoots,
     pub(super) history: GroupHistory,
 }
 
@@ -64,13 +85,16 @@ impl Cluster {
             group: GroupId::new([3; 16])?,
             incarnation: IncarnationId::new([4; 16])?,
         };
-        let roots = (0..definitions.len())
-            .map(|_| tempfile::tempdir())
-            .collect::<Result<Vec<_>, _>>()?;
+        let roots = VoterRoots {
+            directories: (0..definitions.len())
+                .map(|_| tempfile::tempdir())
+                .collect::<Result<Vec<_>, _>>()?,
+            joined: false,
+        };
         let mut nodes = Vec::new();
         let mut listeners = Vec::new();
         let mut peers = Vec::new();
-        for (index, root) in roots.iter().enumerate() {
+        for (index, root) in roots.directories.iter().enumerate() {
             let id = u8::try_from(index + 1)?;
             let label = format!("shared-read-{id}");
             nodes.push(
@@ -324,6 +348,7 @@ impl Cluster {
         for link in &mut self.links {
             link.proxy.close().await?;
         }
+        self._roots.joined = true;
         Ok(())
     }
 }

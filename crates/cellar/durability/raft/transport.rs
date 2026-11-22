@@ -128,6 +128,32 @@ pub enum TransportError {
 }
 
 impl TransportError {
+    /// A socket can disappear during TLS negotiation. Keep genuine TLS errors
+    /// distinct so read availability retries cannot soften authentication.
+    /// This classification supplies no mutation disposition or replay authority.
+    fn tls_handshake(error: std::io::Error) -> Self {
+        use std::io::ErrorKind;
+        let tls = error
+            .get_ref()
+            .is_some_and(|cause| cause.is::<rustls::Error>());
+        if !tls
+            && matches!(
+                error.kind(),
+                ErrorKind::ConnectionAborted
+                    | ErrorKind::ConnectionRefused
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::BrokenPipe
+                    | ErrorKind::NotConnected
+                    | ErrorKind::TimedOut
+                    | ErrorKind::UnexpectedEof
+            )
+        {
+            Self::from(error)
+        } else {
+            Self::Tls(error.to_string())
+        }
+    }
+
     /// A read-only transport failure carries no mutation disposition. Keep this
     /// translation out of command submission: a lost write reply remains
     /// ambiguous even when the transport is unavailable.
