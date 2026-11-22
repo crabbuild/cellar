@@ -13,7 +13,7 @@ pub(super) async fn dependency_reads_once(rooted: bool, remote: Arc<dyn ObjectSt
     let s = Scenario::with_store(rooted, Default::default(), archive_store::Store::around(remote))
         .await?;
     let checkpoint = s.checkpoint(&s.upload).await?;
-    let uploaded = s.tail(&s.upload, checkpoint).await?;
+    let uploaded = s.tail(&s.upload, &checkpoint).await?;
     s.remote.object_gets.lock().unwrap().clear();
     let coverage = s.publish(&s.upload, &uploaded).await?;
     tail_fixture::check_images(&s.cluster, coverage.recovery().manifest(), &s.expected).await?;
