@@ -191,8 +191,7 @@ fn stale_quorum_discovery_cannot_claim_a_strengthened_s3_obligation() -> anyhow:
     let task = tasks(&db)?.remove(0);
     assert_eq!(task.minimum, Durability::S3);
     let error = claim_in(&db, RAFT_STORAGE_SCOPE, &task, 1100, Durability::Quorum)
-        .err()
-        .expect("stale Quorum admission must refuse the S3 task");
+        .expect_err("stale Quorum admission must refuse the S3 task");
     assert_eq!(
         error.downcast_ref::<crate::application::consensus::CommandFailure>(),
         Some(&crate::application::consensus::CommandFailure::Unavailable)
