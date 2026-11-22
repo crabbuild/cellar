@@ -24,6 +24,12 @@ pub mod storage_fault;
 async fn docker_backend_joins_processes_and_retains_original_receipts() -> anyhow::Result<()> {
     docker_backend::qualify().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated Linux Docker and a pinned local scaffold image"]
+async fn docker_backend_shutdown_fences_processes_when_journal_fails() -> anyhow::Result<()> {
+    docker_backend::qualify_failed_shutdown().await
+}
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
 #[path = "support/cell_group_named_service.rs"]

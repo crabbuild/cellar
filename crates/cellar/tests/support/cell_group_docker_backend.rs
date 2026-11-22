@@ -111,6 +111,152 @@ async fn read(
     )?)
 }
 
+async fn process_state(
+    domain: &ExecutionDomain,
+    options: &DockerOptions,
+    resource: &str,
+) -> Result<Value> {
+    ensure!(resource.len() == 64 && resource.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    let resource = resource.to_owned();
+    let options = options.clone();
+    domain
+        .run(async move {
+            let docker = cellar::docker::Docker::new(options.socket);
+            let reply = docker
+                .call_bounded(
+                    "GET",
+                    &format!("/containers/{resource}/json"),
+                    None,
+                    1024 * 1024,
+                )
+                .await?;
+            ensure!(
+                reply.status.is_success(),
+                "Docker process observation refused"
+            );
+            let value = reply.json()?;
+            ensure!(
+                value["Id"].as_str() == Some(&resource)
+                    && value["Config"]["Labels"]["cellar.execution.owner"].as_str()
+                        == Some(&options.owner)
+                    && value["Config"]["Image"].as_str() == Some(&options.image),
+                "Docker shutdown fixture ownership differs"
+            );
+            Ok::<_, anyhow::Error>(value["State"].clone())
+        })
+        .await?
+}
+
+pub async fn qualify_failed_shutdown() -> Result<()> {
+    let root = tempfile::tempdir()?.keep();
+    eprintln!("retained Docker shutdown fault: {}", root.display());
+    let options = DockerOptions {
+        directory: root.join("backend"),
+        socket: PathBuf::from(std::env::var("CELLAR_DOCKER_BACKEND_SOCKET")?),
+        image: std::env::var("CELLAR_DOCKER_BACKEND_IMAGE")?,
+        binding: "DOCKER".into(),
+        owner: hex::encode(&Sha256::digest(root.as_os_str().as_encoded_bytes())[..16]),
+        memory_bytes: 128 * 1024 * 1024,
+        nano_cpus: 250_000_000,
+        pids: 64,
+        max_resources: 8,
+        max_operations: 256,
+        max_inflight: 8,
+        max_body_bytes: 4096,
+        max_operation_ms: 5000,
+    };
+    let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let backend =
+        DockerBackend::create(domain.clone(), options.clone(), Arc::new(RefuseHistory)).await?;
+    let controller = ExecutionController::create(
+        domain.clone(),
+        ExecutionControllerOptions {
+            directory: root.join("controller"),
+            controller_id: [0; 16],
+            backend: backend.identity(),
+            limits: ExecutionControllerLimits::default(),
+        },
+        backend.clone(),
+        [33; 32],
+    )
+    .await?;
+    let start = payload(
+        Operation::Start,
+        json!({"options":{"entrypoint":null,"env":[],"labels":[],"enable_internet":false}}),
+    )?;
+    let parameters = hex::encode(
+        ExecutionOperation::new([1; 16], ExecutionOperationKind::Create, &start, 1)?.payload_digest,
+    );
+    let first = claim(&controller.identity(), 3, 1, None, &parameters)?;
+    controller.clone().activate(first.clone()).await?;
+    let create = operation(&domain, 1, ExecutionOperationKind::Create, &start).await?;
+    let resource = result(&controller, &first, create, start)
+        .await?
+        .resource_id;
+    controller.shutdown().await?;
+    let before = process_state(&domain, &options, &resource).await?;
+    ensure!(before["Running"] == true && before["Pid"].as_u64().is_some_and(|pid| pid > 0));
+    let fault = options.directory.join("state.next");
+    domain
+        .blocking(move || {
+            let fs = cellar::asyncrt::fs();
+            ensure!(matches!(fs.symlink_metadata(&fault), Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+            fs.create_dir_all(&fault)?;
+            Ok::<_, anyhow::Error>(())
+        })?
+        .await??;
+    let shutdown = backend.shutdown().await;
+    let observed = process_state(&domain, &options, &resource).await?;
+    let fenced = observed["Running"] == false && observed["Pid"] == 0;
+    // Preserve the actual pre-cleanup oracle. The failing source still needs
+    // an exact-owner kill/join so qualification never leaves its process alive.
+    if !fenced {
+        let socket = options.socket.clone();
+        let resource = resource.clone();
+        domain
+            .run(async move {
+                let docker = cellar::docker::Docker::new(socket);
+                for suffix in ["kill?signal=KILL", "wait?condition=not-running"] {
+                    let reply = docker
+                        .call_bounded(
+                            "POST",
+                            &format!("/containers/{resource}/{suffix}"),
+                            None,
+                            1024 * 1024,
+                        )
+                        .await?;
+                    ensure!(
+                        reply.status.is_success(),
+                        "owned shutdown-fault cleanup refused"
+                    );
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
+        let cleaned = process_state(&domain, &options, &resource).await?;
+        ensure!(cleaned["Running"] == false && cleaned["Pid"] == 0);
+    }
+    domain.shutdown().await;
+    let error = shutdown
+        .err()
+        .context("journal failure was silently acknowledged")?;
+    ensure!(
+        error.chain().any(|cause| cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::IsADirectory)),
+        "shutdown did not retain the injected journal error: {error:#}"
+    );
+    eprintln!(
+        "docker_shutdown_failure_observations {}",
+        json!({"journal_error_retained":true,"fenced_before_test_cleanup":fenced,"process_state":observed,"forced_test_cleanup":!fenced})
+    );
+    ensure!(
+        fenced,
+        "failed durable deactivation left Docker process running"
+    );
+    Ok(())
+}
+
 pub async fn qualify() -> Result<()> {
     let root = tempfile::tempdir()?.keep();
     eprintln!("retained physical Docker qualification: {}", root.display());
