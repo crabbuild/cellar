@@ -438,11 +438,14 @@ pub(crate) async fn invoke(
             }
             Reply::Success(value)
         }
-        Err(error) => Reply::Failure(error.downcast_ref::<SandboxFailure>().cloned().unwrap_or(
-            SandboxFailure {
-                kind: SandboxFailureKind::Unknown,
-            },
-        )),
+        Err(error) => {
+            tracing::debug!(target: "cellar::sandbox::execution", error = ?error, "sandbox execution deferred or failed");
+            Reply::Failure(error.downcast_ref::<SandboxFailure>().cloned().unwrap_or(
+                SandboxFailure {
+                    kind: SandboxFailureKind::Unknown,
+                },
+            ))
+        }
     };
     let value = serde_json::to_value(reply)?;
     crate::application::sandbox_catalog::execution::digest(&value)?;

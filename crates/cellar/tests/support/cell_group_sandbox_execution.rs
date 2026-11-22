@@ -429,6 +429,10 @@ pub async fn qualify_minimum_custody() -> Result<()> {
 }
 
 async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::sandbox::execution=debug")
+        .with_test_writer()
+        .try_init();
     let socket = PathBuf::from(std::env::var("CELLAR_DOCKER_BACKEND_SOCKET")?);
     let image = std::env::var("CELLAR_DOCKER_BACKEND_IMAGE")?;
     let mut failures = Vec::new();

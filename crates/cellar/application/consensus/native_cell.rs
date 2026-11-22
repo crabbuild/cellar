@@ -236,14 +236,28 @@ impl CellRpcActivation {
         }
         let instance = self.clone();
         Ok(Box::pin(async move {
-            if context.raft_storage.as_ref().is_some_and(|s| {
+            let sandbox = context.raft_storage.as_ref().is_some_and(|s| {
                 s.resources
                     .sandbox_execution
                     .load(std::sync::atomic::Ordering::Acquire)
-            }) {
+            });
+            if sandbox {
                 crate::application::sandbox_catalog::shared::prepare_entry(&context)?;
             }
-            crate::application::containers::backend::prepare_invocation(&context).await?;
+            let destroy = sandbox
+                && context.sandbox_authority.as_ref().is_some_and(|authority| {
+                    matches!(
+                        authority.execution.action(),
+                        crate::runtime::sandbox_execution::Action::Destroy
+                    )
+                });
+            // This dedicated framework cell has no application constructor that
+            // needs a running snapshot. Destroy reconciles original debt and
+            // fences execution itself; an entry Observe adds an unnecessary
+            // physical call and checkpoint inside the same cleanup deadline.
+            if !destroy {
+                crate::application::containers::backend::prepare_invocation(&context).await?;
+            }
             instance.0.invoke(context, invocation)?.await
         }))
     }
