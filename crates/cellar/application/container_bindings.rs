@@ -346,7 +346,6 @@ impl BindingJournal {
                         .schedule_effect(move |_| lock.lock_owned())
                         .future
                         .await
-                        .map_err(Into::into)
                 })
                 .await?
             } else {
