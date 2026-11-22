@@ -46,10 +46,7 @@ impl Drop for VoterRoots {
         if !self.joined {
             for root in &mut self.directories {
                 root.disable_cleanup(true);
-                eprintln!(
-                    "retained public-read voter disk: {}",
-                    root.path().display()
-                );
+                eprintln!("retained public-read voter disk: {}", root.path().display());
             }
         }
     }
