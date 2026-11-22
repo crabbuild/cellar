@@ -183,7 +183,9 @@ impl Cell for Parent {
                 .lock()
                 .unwrap()
                 .get_or_insert_with(|| context.clone());
-            let catalog = SandboxCatalog::open(&context)?;
+            let catalog = SandboxCatalog::open(&context).inspect_err(|error| {
+                eprintln!("sandbox_bridge_open_error {error:?}");
+            })?;
             let value = match operation.as_str() {
                 "Create" | "Spare" => serde_json::to_value(
                     catalog
@@ -193,7 +195,10 @@ impl Cell for Parent {
                             "SANDBOX",
                             parameters(),
                         )
-                        .await?,
+                        .await
+                        .inspect_err(|error| {
+                            eprintln!("sandbox_bridge_start_error {error:?}");
+                        })?,
                 )?,
                 "Exec" => {
                     self.storage.put_json("business", &json!(12))?;
@@ -534,6 +539,8 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
                 let before=store.denied_group_archive_writes.load(Ordering::Acquire);store.deny_group_archive_writes.store(true,Ordering::Release);
                 let error=call(&cluster,&a,minimum,1,"Create").await.err().context("Sandbox creation bypassed required archive proof")?;
                 unknown(&error,options(1,minimum)?.id)?;
+                let prepared=state(&cluster,&a,0).await?;
+                ensure!(prepared["job"]["state"]=="reserved" && prepared["job"]["generation"]==1,"archive refusal did not retain the original Sandbox reservation: {prepared}");
                 ensure!(track.calls.load(Ordering::Acquire)==1 && store.denied_group_archive_writes.load(Ordering::Acquire)>before,"archive cut did not enter the public Sandbox callback/proof");
                 ensure!(peer.creates.load(Ordering::Acquire)==0 && peer.executes.load(Ordering::Acquire)==0 && docker_execution::physical_resources(&domain,&policy).await?==0,"Sandbox entered physical work without source/target S3 proof");
                 store.deny_group_archive_writes.store(false,Ordering::Release);
