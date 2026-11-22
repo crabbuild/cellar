@@ -1356,6 +1356,21 @@ impl RaftClass {
             .and_then(|factory| factory.configuration_digest())
     }
 
+    pub(crate) fn validate_cell_rpc_identity(
+        &self,
+        scope: &str,
+        name: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let factory = self
+            .cell_factory
+            .as_ref()
+            .ok_or(super::CommandFailure::UnsupportedCapability)?;
+        // Private events can target application-owned classes, whose IDs are
+        // authenticated with the compiled application namespace as well as
+        // their class. Reserved service namespaces remain shared by design.
+        super::native_rpc::validate_identity(factory.script(), &self.name, scope, name)
+    }
+
     pub(crate) fn cell_binding_classes(&self) -> Option<&BTreeSet<String>> {
         self.cell_factory
             .as_ref()

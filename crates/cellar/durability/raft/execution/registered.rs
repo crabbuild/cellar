@@ -60,13 +60,9 @@ pub(crate) fn validate_admission(
         let rpc =
             crate::application::consensus::native_event_rpc::decode(history.cell.as_str(), input)
                 .map_err(|_| ExecutionError::Refused(CommandFailure::UnsupportedCapability))?;
-        crate::application::consensus::native_rpc::validate_identity(
-            "",
-            class.name(),
-            history.cell.as_str(),
-            rpc.rpc.name.as_deref(),
-        )
-        .map_err(|_| ExecutionError::Refused(CommandFailure::UnsupportedCapability))?;
+        class
+            .validate_cell_rpc_identity(history.cell.as_str(), rpc.rpc.name.as_deref())
+            .map_err(|_| ExecutionError::Refused(CommandFailure::UnsupportedCapability))?;
     }
     if !admission.is_system() {
         class
