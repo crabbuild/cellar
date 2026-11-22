@@ -97,3 +97,9 @@ async fn profile_rustfs_extent_s3_sandbox_start() -> anyhow::Result<()> {
 async fn profile_rustfs_native_sandbox_recovery() -> anyhow::Result<()> {
     sandbox_execution::profile_recovery().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: original Delete input/restart/restore oracle with phase timing"]
+async fn profile_rustfs_native_sandbox_delete_input() -> anyhow::Result<()> {
+    sandbox_execution::profile_delete_input().await
+}

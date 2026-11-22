@@ -661,6 +661,10 @@ pub async fn profile_recovery() -> Result<()> {
     run(Scenario::RecoveryProfile).await
 }
 
+pub async fn profile_delete_input() -> Result<()> {
+    run(Scenario::DeleteInputProfile).await
+}
+
 enum Scenario {
     Recovery,
     Outage,
@@ -668,14 +672,22 @@ enum Scenario {
     StartProfile,
     DeleteInput,
     RecoveryProfile,
+    DeleteInputProfile,
 }
 
 async fn run(scenario: Scenario) -> Result<()> {
     let outage = matches!(scenario, Scenario::Outage);
     let minimum_custody = matches!(scenario, Scenario::MinimumCustody);
     let profile = matches!(scenario, Scenario::StartProfile);
-    let trace = profile || matches!(scenario, Scenario::RecoveryProfile);
-    let delete_input = matches!(scenario, Scenario::DeleteInput);
+    let trace = profile
+        || matches!(
+            scenario,
+            Scenario::RecoveryProfile | Scenario::DeleteInputProfile
+        );
+    let delete_input = matches!(
+        scenario,
+        Scenario::DeleteInput | Scenario::DeleteInputProfile
+    );
     let _ = tracing_subscriber::fmt()
         .with_env_filter(if trace { "cellar::sandbox::execution=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::group_archive=debug,cellar::raft::sql_publish=trace" } else { "cellar::sandbox::execution=debug" })
         .with_test_writer()
@@ -811,6 +823,7 @@ async fn run(scenario: Scenario) -> Result<()> {
                 call(&cluster,&floor,Durability::Quorum,1,"Create").await?;
                 let denied=store.denied_sandbox_parent_writes.load(Ordering::Acquire);
                 store.deny_sandbox_parent_writes.store(true,Ordering::Release);
+                if trace { eprintln!("sandbox_delete_input_phase {}",json!({"extents":rooted,"phase":"archive-cut","at_ms":cellar::asyncrt::wall_ms()})); }
                 let error=call(&cluster,&floor,Durability::S3,2,"DestroyJob").await.err().context("Sandbox Delete bypassed its source S3 input proof")?;
                 unknown(&error,options(2,Durability::S3)?.id)?;
                 let pending=state(&cluster,&floor,0).await?;
@@ -822,6 +835,7 @@ async fn run(scenario: Scenario) -> Result<()> {
                 named_service::restart(&mut cluster).await?;
                 ensure!(peer.deletes.load(Ordering::Acquire)==1,"retained restart downgraded original S3 Delete input");
                 store.deny_sandbox_parent_writes.store(false,Ordering::Release);
+                if trace { eprintln!("sandbox_delete_input_phase {}",json!({"extents":rooted,"phase":"archive-restored-after-restart","at_ms":cellar::asyncrt::wall_ms()})); }
                 cellar::asyncrt::timeout(Duration::from_secs(60),async {let mut id=1;loop {
                     let status=state(&cluster,&floor,id).await?;id+=1;
                     if status["job"]["state"]=="deleted" && status["cleanup_pending"]==false {break;}

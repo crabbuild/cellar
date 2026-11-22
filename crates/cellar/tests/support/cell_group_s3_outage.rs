@@ -578,6 +578,7 @@ async fn run(
     // Preserve the same invocation, captured inputs, original deadline and
     // attempt budget for a receipt retry after backend restoration. Its first
     // Quorum response already succeeded; this must not run the callback again.
+    let before_receipt_retry = h.calls.load(Ordering::SeqCst);
     remote_invocation.retry().await?;
     let resumed = remote_invocation
         .execute_remote(remote.transport(), MemberId::new(1)?)
@@ -585,13 +586,14 @@ async fn run(
     assert_eq!(resumed.durability(), Durability::Quorum);
     assert_eq!(resumed.result(), b"remote-outage");
     drop(resumed);
+    assert_eq!(h.calls.load(Ordering::SeqCst), before_receipt_retry);
     drop(remote_invocation);
     latest = h.fixture.runtimes[0]
         .status(h.route.history)
         .await?
         .applied
         .index;
-    state(&h, latest, OFFLINE_COMMANDS + 2).await?;
+    state(&h, latest, OFFLINE_COMMANDS + 1).await?;
     archive_controller::published(&h.controllers[0], h.route.history, latest).await?;
     remote.close().await?;
     drop(group);

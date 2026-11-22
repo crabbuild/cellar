@@ -197,6 +197,8 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
     ) {
         let _release_image = image_gate.arm(if cut.ends_with("prefix") {
             fault::HOLD_DEPENDENCY_PREFIX
+        } else if !rooted {
+            fault::HOLD_IMAGE_SYNC
         } else {
             fault::HOLD_DEPENDENCY_SYNC
         });
