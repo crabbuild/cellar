@@ -201,3 +201,173 @@ fn maintenance_priority_preserves_expiry_when_wall_time_moves_backwards() {
         BackgroundAdmission::Required
     );
 }
+
+#[tokio::test]
+async fn inspection_yields_after_its_proof_to_a_late_foreground_waiter() {
+    let locks = LifecycleLocks::default();
+    let name: Arc<str> = "TOOL".into();
+    let background = locks.get(&name, 1).unwrap();
+    let admission = InspectionAdmission::new(background.foreground_probe(), 100, 10);
+    let held = background
+        .try_background(BackgroundAdmission::Routine)
+        .unwrap();
+    let inspection_proof = Notify::new();
+    let constructed = AtomicUsize::new(0);
+    let mut inspection = Box::pin(async {
+        inspection_proof.notified().await;
+        InspectionAdmission::run(Some(&admission), 20, || {
+            constructed.fetch_add(1, Ordering::SeqCst);
+            async { Ok(()) }
+        })
+        .await
+    });
+    poll_fn(|cx| {
+        assert!(inspection.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let foreground_proof = Notify::new();
+    let mut foreground = Box::pin(locks.get(&name, 1).unwrap().lock_shared(|mutex| async {
+        foreground_proof.notified().await;
+        Ok(mutex.lock_owned().await)
+    }));
+    poll_fn(|cx| {
+        assert!(foreground.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    inspection_proof.notify_one();
+    assert_eq!(inspection.await.unwrap(), None);
+    assert_eq!(
+        constructed.load(Ordering::SeqCst),
+        0,
+        "deferred I/O future was constructed"
+    );
+    foreground_proof.notify_one();
+    poll_fn(|cx| {
+        assert!(foreground.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(held);
+    let foreground = foreground.await.unwrap();
+    assert!(locks
+        .get(&name, 1)
+        .unwrap()
+        .try_background(BackgroundAdmission::Routine)
+        .is_none());
+    drop(foreground);
+    assert!(locks
+        .get(&name, 1)
+        .unwrap()
+        .try_background(BackgroundAdmission::Routine)
+        .is_some());
+}
+
+#[tokio::test]
+async fn inspection_handoff_never_defers_expired_or_required_work() {
+    let locks = LifecycleLocks::default();
+    let name: Arc<str> = "TOOL".into();
+    let background = locks.get(&name, 1).unwrap();
+    let probe = background.foreground_probe();
+    let admission = InspectionAdmission::new(probe.clone(), 100, 10);
+    let held = background
+        .try_background(BackgroundAdmission::Routine)
+        .unwrap();
+    let mut foreground = Box::pin(locks.get(&name, 1).unwrap().lock_shared(|mutex| async {
+        std::future::pending::<()>().await;
+        Ok(mutex.lock_owned().await)
+    }));
+    poll_fn(|cx| {
+        assert!(foreground.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let constructed = AtomicUsize::new(0);
+    let operation = || {
+        constructed.fetch_add(1, Ordering::SeqCst);
+        async { Ok(()) }
+    };
+    assert_eq!(
+        InspectionAdmission::run(Some(&admission), 99, operation)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(constructed.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        InspectionAdmission::run(Some(&admission), 100, operation)
+            .await
+            .unwrap(),
+        Some(())
+    );
+    let logically_expired = InspectionAdmission::new(probe, 100, 100);
+    assert_eq!(
+        InspectionAdmission::run(Some(&logically_expired), 5, operation)
+            .await
+            .unwrap(),
+        Some(())
+    );
+    assert_eq!(
+        InspectionAdmission::run(None, 20, operation).await.unwrap(),
+        Some(())
+    );
+    assert_eq!(constructed.load(Ordering::SeqCst), 3);
+    drop(foreground);
+    drop(held);
+}
+
+#[tokio::test]
+async fn late_waiter_does_not_cancel_entered_io_and_cancellation_restores_inspection() {
+    let locks = LifecycleLocks::default();
+    let name: Arc<str> = "TOOL".into();
+    let background = locks.get(&name, 1).unwrap();
+    let admission = InspectionAdmission::new(background.foreground_probe(), 100, 10);
+    let held = background
+        .try_background(BackgroundAdmission::Routine)
+        .unwrap();
+    let completion = Notify::new();
+    let entered = AtomicUsize::new(0);
+    let mut inspection = Box::pin(InspectionAdmission::run(Some(&admission), 20, || {
+        entered.fetch_add(1, Ordering::SeqCst);
+        async {
+            completion.notified().await;
+            anyhow::bail!("original inspection outcome is unknown")
+        }
+    }));
+    poll_fn(|cx| {
+        assert!(inspection.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let mut foreground = Box::pin(locks.get(&name, 1).unwrap().lock_shared(|mutex| async {
+        std::future::pending::<()>().await;
+        Ok(mutex.lock_owned().await)
+    }));
+    poll_fn(|cx| {
+        assert!(foreground.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    completion.notify_one();
+    let result: Result<Option<()>> = inspection.await;
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "original inspection outcome is unknown"
+    );
+    assert_eq!(entered.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        InspectionAdmission::run(Some(&admission), 20, || async { Ok(()) })
+            .await
+            .unwrap(),
+        None
+    );
+    drop(foreground);
+    assert_eq!(
+        InspectionAdmission::run(Some(&admission), 20, || async { Ok(()) })
+            .await
+            .unwrap(),
+        Some(())
+    );
+    drop(held);
+}

@@ -2,7 +2,10 @@
 
 //! Durable execution claims for an independently enforced provider fence.
 use super::{
-    containers::{BackendIdentity, BindingCheckpoint, BindingJournal, BindingLifecycleGuard},
+    containers::{
+        BackendIdentity, BindingCheckpoint, BindingJournal, BindingLifecycleGuard,
+        InspectionAdmission,
+    },
     Context, HandlerFuture,
 };
 use anyhow::{ensure, Result};
@@ -432,6 +435,38 @@ impl BindingJournal {
         authority: Arc<dyn ExecutionFenceAuthority>,
         purpose: crate::storage::container_execution::ClaimPurpose,
     ) -> HandlerFuture<ExecutionGrant> {
+        let future = self.fence_admitted(context, lifecycle, authority, purpose, None);
+        Box::pin(async move {
+            future
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("required execution fence was deferred"))
+        })
+    }
+
+    pub(super) fn fence_inspection(
+        &self,
+        context: &Context,
+        lifecycle: BindingLifecycleGuard,
+        authority: Arc<dyn ExecutionFenceAuthority>,
+        inspection: InspectionAdmission,
+    ) -> HandlerFuture<Option<ExecutionGrant>> {
+        self.fence_admitted(
+            context,
+            lifecycle,
+            authority,
+            crate::storage::container_execution::ClaimPurpose::Execute,
+            Some(inspection),
+        )
+    }
+
+    fn fence_admitted(
+        &self,
+        context: &Context,
+        lifecycle: BindingLifecycleGuard,
+        authority: Arc<dyn ExecutionFenceAuthority>,
+        purpose: crate::storage::container_execution::ClaimPurpose,
+        inspection: Option<InspectionAdmission>,
+    ) -> HandlerFuture<Option<ExecutionGrant>> {
         let journal = self.clone();
         let context = context.clone();
         Box::pin(async move {
@@ -445,10 +480,21 @@ impl BindingJournal {
             // An idempotent reservation can reuse only this invocation's
             // unchanged unfinished-receipt proof. A new claim or fresh
             // invocation still requires its own complete checkpoint.
-            dispatch
-                .schedule_effect(move |_| controller.activate(request))
+            let activated = dispatch
+                .schedule_effect(move |_| async move {
+                    InspectionAdmission::run(
+                        inspection.as_ref(),
+                        crate::asyncrt::wall_ms().max(0),
+                        move || controller.activate(request),
+                    )
+                    .await
+                })
                 .future
                 .await??;
+            if activated.is_none() {
+                lifecycle.check(&context, &journal)?;
+                return Ok(None);
+            }
             let grant = ExecutionGrant {
                 journal,
                 claim,
@@ -456,7 +502,7 @@ impl BindingJournal {
                 authority,
             };
             grant.check(&context)?;
-            Ok(grant)
+            Ok(Some(grant))
         })
     }
 }

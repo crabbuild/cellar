@@ -33,6 +33,52 @@ impl BackgroundAdmission {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct ForegroundProbe(Arc<AtomicUsize>);
+
+/// A scheduling hint for a healthy inspection, never permission for I/O.
+#[derive(Clone)]
+pub(crate) struct InspectionAdmission {
+    foreground: ForegroundProbe,
+    deadline_ms: i64,
+    logical_ms: i64,
+}
+
+impl InspectionAdmission {
+    pub(crate) fn new(foreground: ForegroundProbe, deadline_ms: i64, logical_ms: i64) -> Self {
+        Self {
+            foreground,
+            deadline_ms,
+            logical_ms,
+        }
+    }
+
+    /// Call only after the original source proof. Deferred work constructs no
+    /// operation future. Expiry and required cleanup do not yield this way.
+    pub(crate) async fn run<T, F, Fut>(
+        admission: Option<&Self>,
+        now_ms: i64,
+        operation: F,
+    ) -> Result<Option<T>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<T>>,
+    {
+        if admission.is_some_and(|admission| {
+            BackgroundAdmission::for_maintenance(
+                true,
+                admission.deadline_ms,
+                now_ms,
+                admission.logical_ms,
+            ) == BackgroundAdmission::Routine
+                && admission.foreground.0.load(Ordering::Acquire) != 0
+        }) {
+            return Ok(None);
+        }
+        operation().await.map(Some)
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct LifecycleLocks {
     locks: Mutex<HashMap<Arc<str>, Entry>>,
@@ -94,6 +140,10 @@ impl LifecycleLocks {
 }
 
 impl LifecycleLock {
+    pub(crate) fn foreground_probe(&self) -> ForegroundProbe {
+        ForegroundProbe(self.waiting.clone())
+    }
+
     pub(crate) async fn lock(self) -> OwnedMutexGuard<()> {
         self.mutex.lock_owned().await
     }

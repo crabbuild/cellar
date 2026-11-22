@@ -3,13 +3,20 @@
 use super::registry::Backend;
 use super::{DeleteSafety, MaintenanceAction, MaintenancePreparation};
 use crate::application::{
-    containers::{BackgroundAdmission, BindingIntent, BindingJournal, BindingObservation},
+    containers::{
+        BackgroundAdmission, BindingIntent, BindingJournal, BindingObservation, InspectionAdmission,
+    },
     Context, Output,
 };
 use crate::storage::{container_bindings as bindings, container_maintenance as tasks};
 use anyhow::{ensure, Result};
 use cellar_logic::work::{Installation, Reason};
 use std::time::Duration;
+
+enum MaintenanceResult {
+    Completed,
+    Deferred,
+}
 
 fn scope(context: &Context) -> Result<&str> {
     context.container_provider_authority()?.check(context)?;
@@ -88,7 +95,7 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     // yet: refuse without checkpointing or waiting so that the obligation is
     // retried from committed state. Foreground calls retain their cancellable
     // wait, and ordinary Fleet maintenance keeps its existing serialization.
-    let _lifecycle = if context.raft_storage.is_some() {
+    let (_lifecycle, inspection) = if context.raft_storage.is_some() {
         // Only healthy, unexpired inspections may yield to a foreground proof.
         // Recovery, expiry and retirement still try any free mutex. This hint
         // grants no effect: task and checkpoint validation below remain exact.
@@ -104,11 +111,17 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
             now,
             task.logical_ms,
         );
-        journal
+        let lifecycle = journal
             .try_lock_lifecycle(&context, admission)?
-            .ok_or(crate::application::consensus::CommandFailure::Unavailable)?
+            .ok_or(crate::application::consensus::CommandFailure::Unavailable)?;
+        let inspection = if admission == BackgroundAdmission::Routine {
+            lifecycle.inspection_admission(task.deadline()?, task.logical_ms)
+        } else {
+            None
+        };
+        (lifecycle, inspection)
     } else {
-        journal.lock_lifecycle(&context).await?
+        (journal.lock_lifecycle(&context).await?, None)
     };
     if db.work_installation(Reason::ResourceReconciliation)? != Some(installation) {
         return Ok(Output::Done);
@@ -165,7 +178,9 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
             journal.load(&context)?.as_ref() == Some(&expected),
             "maintenance checkpoint changed before dispatch"
         );
-        let future: crate::application::HandlerFuture<()> = match registration.backend {
+        let future: crate::application::HandlerFuture<MaintenanceResult> = match registration
+            .backend
+        {
             Backend::Direct(backend) => {
                 context
                     .container_provider_authority()?
@@ -175,7 +190,19 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
                     journal.load(&context)?.as_ref() == Some(&expected),
                     "maintenance checkpoint changed at effect admission"
                 );
-                backend.maintain(context.clone(), expected, action)
+                let context = context.clone();
+                Box::pin(async move {
+                    InspectionAdmission::run(
+                        inspection.as_ref(),
+                        crate::asyncrt::wall_ms().max(0),
+                        move || backend.maintain(context, expected, action),
+                    )
+                    .await
+                    .map(|result| match result {
+                        Some(()) => MaintenanceResult::Completed,
+                        None => MaintenanceResult::Deferred,
+                    })
+                })
             }
             Backend::Fenced { backend, authority } => {
                 let expected = match backend.prepare(&expected, action)? {
@@ -201,20 +228,42 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
                 let context = context.clone();
                 Box::pin(async move {
                     let grant = if expected.record.is_retired() {
+                        Some(
+                            journal
+                                .fence_retirement(&context, lifecycle, authority)
+                                .await?,
+                        )
+                    } else if let Some(inspection) = inspection.as_ref() {
                         journal
-                            .fence_retirement(&context, lifecycle, authority)
+                            .fence_inspection(&context, lifecycle, authority, inspection.clone())
                             .await?
                     } else {
-                        journal
-                            .fence_execution(&context, lifecycle, authority)
-                            .await?
+                        Some(
+                            journal
+                                .fence_execution(&context, lifecycle, authority)
+                                .await?,
+                        )
+                    };
+                    let Some(grant) = grant else {
+                        return Ok(MaintenanceResult::Deferred);
                     };
                     ensure!(
                         grant.claim().checkpoint() == &expected,
                         "maintenance checkpoint changed during execution fencing"
                     );
                     grant.before_effect(&context).await?;
-                    backend.maintain(context, expected, action, grant).await
+                    // An entered fence is fully known before yielding. No
+                    // unknown controller/provider future is dropped or retried.
+                    InspectionAdmission::run(
+                        inspection.as_ref(),
+                        crate::asyncrt::wall_ms().max(0),
+                        move || backend.maintain(context, expected, action, grant),
+                    )
+                    .await
+                    .map(|result| match result {
+                        Some(()) => MaintenanceResult::Completed,
+                        None => MaintenanceResult::Deferred,
+                    })
                 })
             }
         };
@@ -227,14 +276,22 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     }
     .await;
     context.container_provider_authority()?.check(&context)?;
-    if let Some(expected) = retirement.filter(|_| result.is_ok() && context.raft_storage.is_some())
-    {
+    if let Some(expected) = retirement.filter(|_| {
+        matches!(&result, Ok(MaintenanceResult::Completed)) && context.raft_storage.is_some()
+    }) {
         // The fenced entry proved this retired checkpoint and revoked older
         // execution. Its backend only confirmed the observation; no new Delete
         // or replayed business callback can supply this result.
         tasks::confirm_retired(&scope, &task.binding, &expected)?;
     }
-    tasks::finish(&scope, &claim, result.is_ok())?;
+    if matches!(&result, Ok(MaintenanceResult::Deferred)) {
+        // Keep the exact reserved task, minimum and failure count. Refreshing
+        // discovery prevents this framework turn's completion from consuming
+        // its successor; deferral is no provider success or failure.
+        tasks::refresh(&scope)?;
+    } else {
+        tasks::finish(&scope, &claim, result.is_ok())?;
+    }
     publish(&context)?;
     // The shared system turn proves task settlement and its own completion in
     // one final output. No further I/O can observe this private settlement.

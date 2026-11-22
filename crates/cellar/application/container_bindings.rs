@@ -3,7 +3,7 @@
 //! Host-only durable provider metadata. Guest storage cannot authorize a remote ID.
 pub(crate) use super::containers::LifecycleLocks;
 use super::{
-    containers::{BackgroundAdmission, ProviderAuthority},
+    containers::{BackgroundAdmission, ForegroundProbe, InspectionAdmission, ProviderAuthority},
     Context, HandlerFuture,
 };
 use anyhow::{ensure, Result};
@@ -196,6 +196,7 @@ pub struct BindingLifecycleGuard {
     guard: Arc<tokio::sync::OwnedMutexGuard<()>>,
     name: Arc<str>,
     authority: Arc<ProviderAuthority>,
+    foreground: Option<ForegroundProbe>,
 }
 
 impl BindingLifecycleGuard {
@@ -223,7 +224,18 @@ impl BindingLifecycleGuard {
             guard: self.guard.clone(),
             name: self.name.clone(),
             authority: self.authority.clone(),
+            foreground: self.foreground.clone(),
         }
+    }
+
+    pub(super) fn inspection_admission(
+        &self,
+        deadline_ms: i64,
+        logical_ms: i64,
+    ) -> Option<InspectionAdmission> {
+        self.foreground
+            .clone()
+            .map(|foreground| InspectionAdmission::new(foreground, deadline_ms, logical_ms))
     }
 
     pub(super) fn check(&self, context: &Context, journal: &BindingJournal) -> Result<()> {
@@ -360,6 +372,7 @@ impl BindingJournal {
                 guard: Arc::new(guard),
                 name: journal.name,
                 authority: journal.authority,
+                foreground: None,
             })
         })
     }
@@ -378,6 +391,7 @@ impl BindingJournal {
             .resources()
             .provider_lifecycle
             .get(&self.name, MAX_BINDINGS)?;
+        let foreground = lock.foreground_probe();
         let Some(guard) = lock.try_background(admission) else {
             return Ok(None);
         };
@@ -386,6 +400,7 @@ impl BindingJournal {
             guard: Arc::new(guard),
             name: self.name.clone(),
             authority: self.authority.clone(),
+            foreground: Some(foreground),
         }))
     }
 
