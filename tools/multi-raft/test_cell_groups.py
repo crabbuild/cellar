@@ -322,6 +322,8 @@ class ProviderJournalCampaignTests(unittest.TestCase):
             "rustfs_controller_provider_expiry_seals_unsubmitted_creates",
             "rustfs_controller_provider_recovers_live_write_without_replay",
             "rustfs_controller_provider_reconciles_live_exec_before_destroy",
+            "rustfs_controller_retirement_confirmation_survives_lost_s3_proof",
+            "rustfs_controller_retirement_confirmation_waits_for_independent_fence",
         ))
         self.campaign(suite="controller-provider")
 

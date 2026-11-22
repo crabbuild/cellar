@@ -189,8 +189,10 @@ replays an uncertain mutation. The same adapter implements fenced background
 maintenance, including cleanup when the business constructor is unavailable.
 
 Shared retirement keeps its bounded maintenance task until the exact retired
-checkpoint has passed its Quorum/S3 proof. If that proof response is lost, a new
-framework invocation fences prior execution and confirms the retained checkpoint
+checkpoint has passed its Quorum/S3 proof and the independent controller has
+acknowledged the retirement fence. A successful metadata proof alone cannot
+remove that work. A new framework invocation fences prior execution and confirms
+the retained checkpoint
 without provider I/O or business construction. Its private task removal shares
 the ordinary result proof. Retired grants refuse new operation allocation and
 dispatch. Revision and generation checks prevent an old confirmation from

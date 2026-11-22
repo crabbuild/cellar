@@ -525,6 +525,8 @@ impl BindingJournal {
     /// Atomically replace the expected revision and await its required durability
     /// proof before returning. An error after the write can leave a retained
     /// pending intent. A successful return does not grant remote fencing.
+    /// Shared retirement keeps its maintenance obligation until framework
+    /// confirmation also fences the independent controller at this checkpoint.
     pub fn compare_exchange(
         &self,
         context: &Context,
@@ -545,13 +547,6 @@ impl BindingJournal {
                 current.as_ref() == Some(&checkpoint),
                 "binding revision changed while awaiting durability"
             );
-            if context.raft_storage.is_some() && checkpoint.record.is_retired() {
-                crate::storage::container_maintenance::confirm_retired(
-                    journal.check(&context)?,
-                    &journal.name,
-                    &checkpoint,
-                )?;
-            }
             Ok(checkpoint)
         })
     }
