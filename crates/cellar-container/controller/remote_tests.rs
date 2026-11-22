@@ -246,6 +246,101 @@ async fn operation(domain: &ExecutionDomain, id: u8, payload: &[u8]) -> Result<E
     ExecutionOperation::new([id; 16], ExecutionOperationKind::Execute, payload, expires)
 }
 
+// Exercise the provider's admitted submission closure against the actual
+// durable controller. This controlled backend establishes no physical fence.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn provider_submission_reconciles_debt_without_inspection_or_replay() -> Result<()> {
+    let domain = domain();
+    let root = tempfile::tempdir()?;
+    let backend = Arc::new(Backend::default());
+    let controller = ExecutionController::create(
+        domain.clone(),
+        ExecutionControllerOptions {
+            directory: root.path().join("controller"),
+            controller_id: [0; 16],
+            backend: backend.identity(),
+            limits: ExecutionControllerLimits::default(),
+        },
+        backend.clone(),
+        [42; 32],
+    )
+    .await?;
+    let current = claim(&controller.identity(), 2, 1)?;
+    controller.clone().activate(current.clone()).await?;
+    let original_payload = b"original mutation";
+    let mut original = operation(&domain, 61, original_payload).await?;
+    original.expires_unix_ms -= 4000;
+    backend.hold.store(true, Ordering::Release);
+    failure(
+        ExecutionController::execute(
+            &controller,
+            current.clone(),
+            original.clone(),
+            original_payload.to_vec(),
+        )
+        .await
+        .unwrap_err(),
+        ExecutionControllerFailure::UnknownOperation,
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    assert_eq!(
+        ExecutionController::pending(&controller, current.clone())
+            .await?
+            .len(),
+        1
+    );
+    backend.hold.store(false, Ordering::Release);
+    backend.results.lock().unwrap().clear();
+    let payload = b"next mutation";
+    let next = operation(&domain, 62, payload).await?;
+    failure(
+        crate::controller::ControllerProvider::submit(
+            controller.clone(),
+            current.clone(),
+            next.clone(),
+            payload.to_vec(),
+        )
+        .await
+        .unwrap_err(),
+        ExecutionControllerFailure::UnknownOperation,
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    backend
+        .results
+        .lock()
+        .unwrap()
+        .insert(original.id, original_payload.to_vec());
+    assert_eq!(
+        crate::controller::ControllerProvider::submit(
+            controller.clone(),
+            current.clone(),
+            next,
+            payload.to_vec(),
+        )
+        .await?,
+        ExecutionOutcome::Completed(payload.to_vec()),
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 2);
+    assert!(ExecutionController::pending(&controller, current.clone())
+        .await?
+        .is_empty());
+    assert_eq!(
+        ExecutionController::reconcile(
+            &controller,
+            current.clone(),
+            ExecutionPendingOperation {
+                claim: current,
+                operation: original
+            }
+        )
+        .await?,
+        ExecutionOutcome::Completed(original_payload.to_vec()),
+    );
+    controller.shutdown().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tls_authorization_and_controller_pins_precede_backend_entry() -> Result<()> {
     let domain = domain();

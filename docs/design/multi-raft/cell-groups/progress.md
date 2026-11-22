@@ -54,6 +54,10 @@ Backend entry still waits for registration and high-water durability. A new
 restart regression requires failed first activation to retain that high-water
 and refuse an older claim. These changes await current-source qualification;
 they do not establish a cure for the separate Start/final-response deadlines.
+The direct provider submission closure still looks up and reconciles original
+pending mutations before submitting a new operation. A controlled-controller
+regression requires unknown debt to refuse the next mutation, then recover its
+exact receipt without replaying it when that original outcome becomes available.
 
 Runtime `fad389bf3` combines private shared-Sandbox deletion intent and its
 maintenance retry claim with the exact child-call intent in the mandatory input
