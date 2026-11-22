@@ -38,29 +38,30 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-This branch integrates the cooperative inspection handoff with draft
-[PR #180](https://github.com/crabbuild/cellar/pull/180)'s physical Docker/shared
-Sandbox bridge. The combined source still requires qualification.
+Draft [PR #180](https://github.com/crabbuild/cellar/pull/180) integrates the shared
+Sandbox, physical Docker backend and cooperative inspection handoff. Current
+runtime `4240bc404` also closes a real shutdown defect: journal persistence
+failure previously skipped process termination. The unchanged real-Engine
+control fails before the fix and passes afterward with PID zero and the original
+I/O error retained.
 
-The handoff has a deterministic public SDK control at `4de0eade0`: all four native
-and all four real RustFS image/minimum profiles pass. Applying its identical test
-to pre-handoff production `d8730e797` (composite `1982a1520`) fails the ordering
-assertion in all four native profiles. An entered activation completes before
-foreground admission; routine inspection yields and later resumes autonomously,
-without the business constructor. This accepts the scoped correction only.
+Current real RustFS/Engine qualification remains **FAILED: 5/7 whole functions**
+and 20 required configurations. Native Container recovery passes all four
+image/minimum profiles, and all eight archive-refusal profiles pass. Both
+Quorum Sandbox profiles complete execution, files, generation replacement,
+retained lost-Exec/Delete recovery and autonomous terminal cleanup. Both S3
+Sandbox Start1 requests still exceed 5s, and both explicit-S3 retirement profiles
+fail at Start before their fault cut. There are 14 configurations in passing
+functions and two Quorum markers in the failed Sandbox function; no full Sandbox
+or primitive-family acceptance follows.
 
-The broader gates remain failed: `8e3dafe0a` passes 4/10 original completion
-functions, and physical Container/Sandbox source `a2fc2a15b` passes 3/6 functions
-with 13/19 success markers. The passing extent/Quorum Sandbox path includes
-retained lost-Exec/Delete recovery and autonomous cleanup. S3 Start1,
-materialized/Quorum Exec2 and extent/S3 physical Container Destroy4 deadlines
-remain open. Earlier source-specific passes do not qualify the integration.
-See [progress](progress.md#current-integration-checkpoint) for retained evidence.
-
-The new physical shutdown control also remains required: journal persistence
-failure must not skip process stop/join. Its pre-fix real-Engine control fails;
-qualify the correction and the expanded seven-function/20-configuration suite
-before accepting bounded native execution.
+The native basic function at `06afc4ec2` also remains failed: three profiles pass,
+but extent/S3 Create1 expires after actual Create. Its primitive executable is
+byte-identical to the current Cargo-validated artifact. Earlier full completion
+and physical campaigns remain preserved; none supplies current full closure.
+The handoff's four native/four real-RustFS passes and four pre-fix ordering
+failures remain scoped evidence. See
+[progress](progress.md#cg-17-journal-failure-shutdown-and-current-completion).
 
 The next feature deliveries are:
 
@@ -68,7 +69,10 @@ The next feature deliveries are:
    the original identities, minima and 5s/3s/60s limits. A minimal native S3
    Create diagnostic takes 1,516 ms with only 3,649 microseconds inside logged
    object-store bodies across nodes; measure host checkpoint, apply and proof
-   stages before changing the protocol. This is one diagnostic, not a benchmark
+   stages before changing the protocol. The current real Create diagnostic also
+   records 18 SQL publication and 77 stage attempts in 2,050 ms; consider waiting
+   for the original accepted position without weakening fresh term/owner/route
+   reconciliation. These are diagnostics, not a benchmark
    or an exclusive latency cause. Preserve required cleanup and unknown work.
 2. Run the combined completion and physical Container/Sandbox gates. Retain both
    selected namespaces, constructor-independent cleanup, original receipts,

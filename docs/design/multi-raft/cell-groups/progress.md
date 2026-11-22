@@ -49,14 +49,49 @@ Shutdown now attempts deactivation, physical stop, owned-job join and a second
 stop before returning the first failure. It preserves closed admission, the
 journal error, unknown operations and original receipts. The new physical control
 is required in the native-Docker runner, alongside every earlier public case:
-seven functions and 20 configurations. Current-source green qualification is
-pending; the negative control does not establish a passing fix.
+seven functions and 20 configurations. At `4240bc404`, the identical physical
+control passes in 0.742 seconds: the original journal error remains, Running is
+false and PID is zero before any test cleanup. Forced test cleanup is false.
+The earlier physical restart/fence case also passes. All 35 Container library
+checks, 44 qualification-runner tests, affected strict Clippy, canonical format,
+documentation and locked public/unit builds pass.
+
+**The complete real RustFS/Engine selection remains FAILED: 5/7 functions.**
+
+| Current-source case | Result |
+| --- | --- |
+| Journal-failure shutdown | Pass; actual stopped process and retained I/O error |
+| Physical restart/fence/receipt control | Pass |
+| Public native Container recovery | Pass in all four image/minimum configurations |
+| Container archive refusal | Pass in all four configurations |
+| Sandbox archive refusal | Pass in all four configurations |
+| Public Sandbox execution/recovery/cleanup | Both Quorum images pass the entire oracle; both S3 Start1 requests exceed the original 5s deadline after physical Create |
+| Explicit S3 retirement floor in a Quorum namespace | Both images fail S3 Start1 before the retirement fault cut; floor recovery remains unqualified |
+
+There are 14 configurations in wholly passing functions and two Quorum success
+markers in the failed Sandbox function. Those Quorum paths include lost Exec,
+file read/write/stat/list, generation replacement, lost Delete, retained restart
+and autonomous terminal confirmation with business construction refused. They do
+not accept the full Sandbox family. All original IDs, inputs, minima and
+5s/3s/60s budgets remain unchanged. No causal latency cure follows from the
+Container pass. The source/executables, raw logs and retained state are sealed
+in `CG-17-docker-shutdown-fixed-4240bc404-2563`: 5,271 files / 402,622,478 bytes,
+with a checksum-verified second copy. The owned lab is stopped and joined.
+
+The separate real-RustFS single Create diagnostic passes in 2,050 ms. Its stable
+per-node windows record 153–198 object GETs, totaling 160,007–205,517 microseconds
+inside those operations per node; the leader records 18 SQL publication attempts
+and 77 SQL stage attempts. These overlapping observations are not a benchmark,
+a critical-path sum or proof of an exclusive latency cause.
 
 Separately, combined source `06afc4ec2` passes the locked optimized public build,
 strict primitive-target Clippy and all four native handoff profiles. Its ordinary
 SDK basic function remains FAILED: three profiles pass; extent/S3 Create1 takes
 5,004 ms and fails after physical Create completed with 2,137 ms remaining.
-No loss cut, altered ID or replacement response excuses that failure. The single
+No loss cut, altered ID or replacement response excuses that failure. Evidence
+`CG-17-combined-native-06afc4ec2-2565` has a verified second copy. The primitive
+executable at `4240bc404` is byte-identical to that actually executed at
+`06afc4ec2`; no later native basic rerun is invented. The single
 extent/S3 diagnostic passes in 2,900 ms. Per-node stable-source snapshots report
 232,796–357,692 microseconds in engine file sync and 132,093–415,552 microseconds
 in SQL preparation; operation sums overlap and are not critical-path attribution.
@@ -64,8 +99,11 @@ The logged object-store method bodies remain only a few milliseconds. The
 remaining latency must be measured at checkpoint/archive/receipt boundaries;
 no exclusive cause or performance improvement is established.
 
-Next qualify the shutdown correction against the real Engine, then run the
-combined native Container/Sandbox and S3 completion gates. Full primitive APIs,
+Next close S3 nested-start and ordinary completion deadlines. Investigate
+repeated SQL settlement/stage probes while an accepted proposal remains
+unapplied; preserve fresh reconciliation after term, owner or route changes.
+Then repeat the full completion selection and required primitive-family gates.
+Full primitive APIs,
 retention/GC, managed recovery and independent-voter/load/disk-loss qualification
 remain required. All 32 full CG-17 cases and the default cutover stay open.
 
