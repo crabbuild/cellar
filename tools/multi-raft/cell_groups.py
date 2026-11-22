@@ -44,6 +44,7 @@ CASES = (
     "rustfs_s3_namespace_minimum_cannot_be_downgraded",
     "rustfs_s3_enrollment_requires_the_original_archived_creation",
     "rustfs_s3_enrollment_deadlines_preserve_resolved_ownership",
+    "rustfs_s3_evicted_receipt_does_not_archive_unrelated_cells",
     "rustfs_s3_receipt_lookup_tracks_archived_observations",
     "rustfs_s3_receipt_lookup_honors_namespace_and_stored_minimums",
     "rustfs_s3_receipt_lookup_preserves_typed_failures_and_result_admission",

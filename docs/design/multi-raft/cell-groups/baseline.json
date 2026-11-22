@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "b26f901e23e58337226cc4b38f4a5cb20bd0117d",
-  "runtime_revision": "b26f901e23e58337226cc4b38f4a5cb20bd0117d",
-  "review_note": "Reviewed current b26f901e2 against prior bb09d155c anchors. Twenty-three anchor files remain byte-identical. The only changed anchor file adds mod binding_confirmation, moving the unchanged Manager excerpt by one line. Reviewed its receipt-only rediscovery, exact original command/minimum/retry-horizon validation, fresh effect-authority checks and bounded confirmation follow-up; it does not replay business mutations. Current production92af owning50 pass and native32pass2deadlinefail2unrun; test-onlyb26 corrects RustFS minimum-prefix isolation but native and real extent/S3 Create1 still miss original deadlines. This source review grants no primitive-family/release acceptance, oracle/deadline waiver or default-backend cutover.",
+  "source_revision": "fb592565257b1362bfddae7d6a40ba43d4f50285",
+  "runtime_revision": "fb592565257b1362bfddae7d6a40ba43d4f50285",
+  "review_note": "Reviewed fb5925652 against b26f901e2: every source-anchor file and excerpt remains byte-identical. Reviewed pending ReadIndex retry, selected-cell covered-prefix verification, pending archive identity custody and TLS socket/security classification at their owning boundaries. Scoped checks and preserved provider deadline failures are recorded in progress.md. This review grants no primitive-family/release acceptance, oracle/deadline waiver or default-backend cutover.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {

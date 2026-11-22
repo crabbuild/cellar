@@ -32,6 +32,75 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 pending read recovery and covered S3 receipts
+
+Source `fb5925652` recovers a pending leader ReadIndex when its quorum heartbeat
+is lost, including hosts that drive Raft ticks manually. Retries retain the exact
+context, deadline and admission, share one heartbeat per physical group per
+interval, and still require current term, configuration, quorum and contiguous
+apply before output. They create no new command, log entry or per-idle-cell task.
+The deterministic regression drops both initial heartbeats; the pre-fix source
+fails and both image modes pass after the fix.
+
+An S3 receipt can independently verify an already archived target while a newer
+Quorum-only sibling remains unarchived. Eviction of its verification cache does
+not force a new archive of that sibling. Existing pending upload/publication
+identities and reconciliation debt remain intact. Physical verification still
+covers the complete selected recovery closure; metadata alone supplies no proof,
+and unarchived group history cannot be reclaimed.
+
+Query TLS socket loss now follows the existing read-unavailability retry policy.
+Typed certificate/TLS failures remain security errors; mutation transport loss
+remains uncertain. The unchanged minority-read assertion failed with a raw TLS
+EOF before this correction and passes afterward. The read fixture now retains
+voter disks on setup failure, early error and panic until joined successful close.
+
+| Qualification at `fb5925652` | Result |
+| --- | --- |
+| Owning TLS/read-cohort units | 6/6 pass |
+| Lost-heartbeat regression | Both image modes pass |
+| Covered-prefix eviction, write outage and recovery | Both native image modes pass |
+| Full native archive suite | 32/32 pass |
+| Full public read suite | 18/18 pass |
+| Owning read, seed and cohort gates | 13/13 pass |
+| Native provider selections | **Failed**: Container and retirement Create1 expire |
+| Selected real RustFS functions | 13 pass / 2 fail / 0 unrun |
+
+Real RustFS selection failures: `rustfs_native_container_uses_shared_group_fences_and_owned_invocation_entry`, `rustfs_controller_retirement_confirmation_survives_lost_s3_proof`. Container passes three of four
+configurations; extent/S3 `Counter:native-b` Destroy3 misses its original deadline
+after physical Delete. Retirement passes materialized mode, but extent mode
+observes retirement while the independent controller's retained claim is not
+retired. Its subsequent direct-controller refusal and original-receipt checks do
+not run. This is an open fencing/confirmation correctness gate, with no causal
+attribution yet. The real function count is not a count of accepted CG-17 cases
+or complete primitive families. Its full result is
+**FAILED**; the native combined result remains **FAILED**. In the native
+provider run materialized/Quorum Container passes, materialized/S3 Create1 fails,
+and the remaining two Container configurations do not run. Retirement's first
+materialized Create1 fails, leaving its extent configuration unrun. Both failed
+Creates entered and completed at the controlled backend; neither established a
+successful public response within the original five-second deadline. No exclusive
+cause is assigned from passes at another source or different host load.
+
+All original five-second requests, three-second maintenance attempts and
+60-second recovery waits remain. The prior `87febf23c` broader failures and the
+`d21a9ad23` minority-read failure remain retained with their source and executable
+pins. Old minority panic evidence lacks voter disks; the new retention guard does
+not retroactively qualify them. Current failures retain their logs and disks.
+
+Evidence is in `CG-17-covered-prefix-fb5925652-covered-prefix-green-2454`, the
+matching leader/read-refusal/unit bundles and checksum-verified second copies.
+RustFS is capped at 1 CPU/2 GiB inside the owned 4-CPU/8-GiB VM. Voters share one
+native macOS process and providers use a controlled peer; these checks do not
+qualify physical compute fencing, independent Linux voters or provider-volume
+recovery. The lab is stopped with its objects and volumes retained.
+
+Next close the retirement confirmation/fence ordering and original provider
+completion deadlines, integrate qualified native Container/Sandbox execution,
+and finish the full public primitive and recovery
+matrix. Receipt GC, WebSockets and all 32 formal acceptance cases remain required.
+CG-17 stays IN_PROGRESS; no default cutover is accepted.
+
 ### CG-17 retirement confirmation and maintenance durability custody
 
 Source `57dc9e0d0` retains shared-group retirement work until the exact retired
