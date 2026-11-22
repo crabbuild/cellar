@@ -200,12 +200,20 @@ pub(super) async fn sibling_dependency(
         .context("archive checkpoint chunks")?;
     let a = chunks
         .iter()
-        .filter(|chunk| chunk["part"]["cell"] == "registered-a")
+        .filter(|chunk| {
+            chunk["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|part| part["part"]["cell"] == "registered-a")
+        })
         .map(|chunk| dependency_path(prefix, "chunks", &chunk["object"]))
         .collect::<Result<Vec<_>>>()?;
     for chunk in chunks.iter().filter(|chunk| {
-        chunk["part"]["cell"] == "registered-b"
-            && chunk["part"]["kind"] == if rooted { "Extent" } else { "Materialized" }
+        chunk["parts"].as_array().unwrap().iter().any(|part| {
+            part["part"]["cell"] == "registered-b"
+                && part["part"]["kind"] == if rooted { "Extent" } else { "Materialized" }
+        })
     }) {
         let path = dependency_path(prefix, "chunks", &chunk["object"])?;
         if !a.contains(&path) {

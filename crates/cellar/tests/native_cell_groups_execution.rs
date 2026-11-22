@@ -1444,6 +1444,14 @@ async fn rooted_linearizable_change_reads_wait_for_the_exact_cell() -> Result<()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn leader_read_barrier_recovers_lost_heartbeats_without_clock_ticks() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::leader_read_retry(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn linearizable_read_cohorts_keep_fresh_barriers() -> Result<()> {
     Box::pin(runtime_fixture::cohort_reads(false)).await
 }

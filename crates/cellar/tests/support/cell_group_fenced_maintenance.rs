@@ -306,6 +306,12 @@ impl FencedMaintenanceBackend for Backend {
             let journal = BindingJournal::open(&context, "TOOL")?;
             ensure!(journal.load(&context)?.as_ref() == Some(&expected));
             grant.before_effect(&context).await?;
+            if expected.record.is_retired() {
+                ensure!(action == MaintenanceAction::Inspect);
+                self.0.retired.store(true, Ordering::Release);
+                self.0.changed.notify_waiters();
+                return Ok(());
+            }
             let exists = self.0.inspect(grant.claim()).await?;
             if !exists {
                 ensure!(

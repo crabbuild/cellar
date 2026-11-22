@@ -15,7 +15,10 @@ mod tests;
 
 pub(crate) enum DueEffect {
     Alarm(alarm::DueAlarm),
-    Work(crate::application::consensus::native_work::Work),
+    Work {
+        work: crate::application::consensus::native_work::Work,
+        minimum: Durability,
+    },
     Binding(Box<crate::storage::raft_binding_recovery::Pending>),
     Payload(crate::storage::raft_payloads::Retirement),
     Delivery {
@@ -29,7 +32,8 @@ impl DueEffect {
     pub fn minimum(&self) -> Result<Durability> {
         match self {
             Self::Alarm(due) => Ok(due.minimum),
-            Self::Work(_) | Self::Payload(_) => Ok(Durability::Quorum),
+            Self::Work { minimum, .. } => Ok(*minimum),
+            Self::Payload(_) => Ok(Durability::Quorum),
             Self::Binding(pending) => pending.minimum(),
             Self::Delivery { minimum, .. } => Ok(*minimum),
         }
@@ -38,7 +42,7 @@ impl DueEffect {
     pub fn command(&self) -> Result<(String, Vec<u8>)> {
         Ok(match self {
             Self::Alarm(due) => (due.operation.clone(), due.input.clone()),
-            Self::Work(work) => (
+            Self::Work { work, .. } => (
                 crate::application::consensus::native_work::OPERATION.into(),
                 serde_json::to_vec(work)?,
             ),
@@ -99,7 +103,16 @@ fn scan_connection(
             .system_contract(crate::application::consensus::native_work::OPERATION)
             .is_some()
         {
-            crate::application::consensus::native_work::due(connection, now)?.map(DueEffect::Work)
+            crate::application::consensus::native_work::due(connection, now)?
+                .map(|work| {
+                    let minimum = if work.reason == "resource-reconciliation" {
+                        crate::storage::container_maintenance::next_minimum(connection)?
+                    } else {
+                        Durability::Quorum
+                    };
+                    Ok::<_, anyhow::Error>(DueEffect::Work { work, minimum })
+                })
+                .transpose()?
         } else {
             None
         };

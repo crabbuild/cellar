@@ -106,7 +106,7 @@ fn readiness_wait_keeps_the_cohort_open_until_submission() {
     assert!(joined);
     assert_eq!(first, second);
 
-    let now = super::super::reads::FORWARDED_RETRY_MS + 5;
+    let now = super::super::reads::READ_RETRY_MS + 5;
     cohorts.progress(&first, now, |_, term, _, retry| {
         assert!(!retry, "first submission cannot be a retransmission");
         *term = Some(scope.term);
@@ -127,7 +127,7 @@ fn original_admission_and_deadlines_bound_shared_members_and_retransmission() {
         Err(RuntimeError::Overloaded)
     ));
     assert_eq!(cohorts.deadline(&context, 20), 20);
-    let retry_at = 10 + super::super::reads::FORWARDED_RETRY_MS;
+    let retry_at = 10 + super::super::reads::READ_RETRY_MS;
     cohorts.progress(&context, 10, |_, term, _, retry| {
         assert!(!retry);
         *term = Some(scope.term);

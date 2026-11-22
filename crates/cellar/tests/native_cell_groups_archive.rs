@@ -742,7 +742,13 @@ fn cell_objects(index_path: &Path, index: &serde_json::Value, cell: &str) -> Vec
         .as_array()
         .unwrap()
         .iter()
-        .filter(|c| c["part"]["cell"] == cell)
+        .filter(|c| {
+            c["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|part| part["part"]["cell"] == cell)
+        })
         .map(|chunk| {
             let digest: Vec<u8> =
                 serde_json::from_value(chunk["object"]["digest"].clone()).unwrap();
@@ -1305,7 +1311,13 @@ async fn checkpoint_archive_warm_cache_cannot_hide_wrong_extent_payload() -> Res
         .as_array_mut()
         .context("chunks")?
         .iter_mut()
-        .find(|chunk| chunk["part"]["kind"] == "Extent" && chunk["offset"] == 0)
+        .find(|chunk| {
+            chunk["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|part| part["part"]["kind"] == "Extent" && part["offset"] == 0)
+        })
         .context("first streamed extent chunk")?;
     let (prefix, _) = generation_prefix(&path)?;
     let digest: Vec<u8> = serde_json::from_value(chunk["object"]["digest"].clone())?;
@@ -1316,7 +1328,16 @@ async fn checkpoint_archive_warm_cache_cannot_hide_wrong_extent_payload() -> Res
         hex::encode(digest)
     ));
     let mut corrupt = store.get(&old).await?.bytes().await?.to_vec();
-    corrupt[100] ^= 0x80;
+    let extent_offset = chunk["parts"]
+        .as_array()
+        .context("packed parts")?
+        .iter()
+        .take_while(|part| part["part"]["kind"] != "Extent" || part["offset"] != 0)
+        .map(|part| part["bytes"].as_u64().context("fragment bytes"))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .sum::<u64>() as usize;
+    corrupt[extent_offset + 100] ^= 0x80;
     let digest: [u8; 32] = Sha256::digest(&corrupt).into();
     let new = Path::from(format!(
         "{prefix}/generations/{}/chunks/{}-{}",
@@ -1391,14 +1412,20 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
         let base = group.group_manifest()?.context("destination base")?;
         let applier = destination(&cluster).await?;
         let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
-        for attack in 0..4 {
+        for attack in 0..10 {
             let mut value = original.clone();
             match attack {
                 0 => value["domain"] = "cellar-single-cell-archive-1".into(),
-                1 => value["chunks"][1]["offset"] = 1.into(),
+                1 => value["chunks"][1]["parts"][0]["offset"] = 1.into(),
                 2 => {
                     let chunks = value["chunks"].as_array_mut().unwrap();
-                    chunks.retain(|chunk| chunk["part"]["cell"] != "beta");
+                    chunks.retain(|chunk| {
+                        !chunk["parts"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|part| part["part"]["cell"] == "beta")
+                    });
                     value["bytes"] = chunks
                         .iter()
                         .map(|c| c["object"]["length"].as_u64().unwrap())
@@ -1406,6 +1433,24 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
                         .into();
                 }
                 3 => value["marker"] = serde_json::to_value(&base)?,
+                4 => value["chunks"][0]["parts"][0]["bytes"] = 0.into(),
+                5 => value["chunks"][0]["parts"][0]["bytes"] = u64::MAX.into(),
+                6 => value["chunks"][0]["parts"][0]["offset"] = u64::MAX.into(),
+                7 => {
+                    value["chunks"][0]["parts"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("bytes");
+                }
+                8 => {
+                    // Hard cutover: a legacy flat descriptor is never accepted.
+                    let first = &mut value["chunks"][0];
+                    let part = first["parts"][0].clone();
+                    *first = serde_json::json!({"object":first["object"], "part":part["part"], "offset":part["offset"], "length":part["length"]});
+                }
+                9 => {
+                    value["chunks"][0]["parts"].as_array_mut().unwrap().clear();
+                }
                 _ => unreachable!(),
             }
             let forged = forged_index(store.as_ref(), &path, &value).await?;
@@ -1426,6 +1471,15 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
                 3 => assert!(matches!(
                     result,
                     Err(CellGroupArchiveError::Invalid("archive checkpoint binding"))
+                )),
+                4 | 5 | 9 => assert!(matches!(result, Err(CellGroupArchiveError::Limit))),
+                6 => assert!(matches!(
+                    result,
+                    Err(CellGroupArchiveError::Invalid("chunk bounds"))
+                )),
+                7 | 8 => assert!(matches!(
+                    result,
+                    Err(CellGroupArchiveError::Invalid("checkpoint index"))
                 )),
                 _ => unreachable!(),
             }
@@ -1577,6 +1631,25 @@ async fn rustfs_fresh_archive_objects_create_then_confirm_without_missing_reads(
             rustfs::store("immutable-create-confirm", rooted)?,
         )
         .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_checkpoint_packs_fragments_and_refuses_corruption() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::packed(rooted, Arc::new(object_store::memory::InMemory::new()))
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_checkpoint_packs_fragments_and_refuses_corruption() -> Result<()> {
+    for rooted in [false, true] {
+        checkpoint_window_fixture::packed(rooted, rustfs::store("checkpoint-packed", rooted)?)
+            .await?;
     }
     Ok(())
 }

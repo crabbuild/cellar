@@ -2190,7 +2190,7 @@ impl Worker {
                 grant.check_lifecycle(self.lifecycle.guard.as_ref())?;
             }
         }
-        // Incoming estimates omit cached metadata serialized on every write.
+        // Estimates do not replace a check of the actual serialized metadata.
         // Bound the complete encoded batch, including its nonempty root fence,
         // before arming publications or entering physical I/O. An oversized
         // cohort can then fall back to its original requests without ambiguity.

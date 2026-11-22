@@ -10,6 +10,32 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+## Integration with main #179
+
+The merge of main `09cdcf423` preserves its Container lifecycle/recovery,
+pending ReadIndex heartbeat retry and selected-cell archive coverage. Conflict
+resolution keeps the first-submission read cohort boundary and both branches'
+tests and qualification suites. Reverification of an existing archive head uses
+the original admitted-batch eligibility, including when a newer cut is pending.
+
+The merged sources pass **1,378 library tests / two existing ignores**, all
+**13 selected native controls**, strict all-feature library/test Clippy for
+Cellar and cellar-container, and formatting, layout, dependency and documentation
+checks. The native selections cover packed checkpoint corruption refusal,
+bounded checkpoint/registry reads, covered-prefix receipts, archive admission,
+ReadIndex heartbeat recovery and cohorts, public routing, and all three storage
+API controls. The qualification runner and primitive checker also pass **83
+Python tests**. Original and closed-copy inventories match for all available
+retained media; the driver, domain owners and independent verifier have finished.
+Two initial compile/lint failures remain retained with their source bindings.
+
+These passes qualify the selected merged boundaries. The earlier C4, service
+repeatability and full Python 3.14t RPC failures below remain open, alongside
+complete-prefix recovery, physical reclamation and combined OPT/CG/SDK/release
+acceptance. The original constrained Colima/RustFS comparison has no admitted
+cases; its last reserve witness was below the unchanged 6 GiB minimum. No
+end-to-end throughput or latency gain is qualified.
+
 ## Queued persistence and encoded bounds
 
 The node's existing storage worker now combines an already-queued prefix of
@@ -28,7 +54,7 @@ one sync instead of three; the metadata-heavy 6,400-byte control splits into
 three fences, with a largest write of 2,628 bytes. These are storage controls,
 not end-to-end throughput or latency measurements.
 
-All three public storage controls, seven owning controls, strict Clippy and
+Before the main #179 merge, all three public storage controls, seven owning controls, strict Clippy and
 repository checks pass. The complete library passes **1,372 tests / two existing
 ignores**. A first native campaign passes **four of 17 selections**; all eight
 C4 Queue trials fail across both candidate and baseline. A separate fresh paired
@@ -42,8 +68,8 @@ The published head also has a failed full Python 3.14t RPC matrix during proof
 warmup/fencing; its root cause remains unqualified. Remaining priorities are
 repeatable service/C4 progress, complete-prefix recovery and lifecycle coverage,
 fair persistence/read/archive scheduling and physical segment reclamation, then
-the original constrained three-node Colima/RustFS comparison. The unchanged
-RustFS reserve still prevents that comparison; no overall performance gain or
+the original constrained three-node Colima/RustFS comparison. Its last RustFS
+witness failed the unchanged reserve check; no overall performance gain or
 complete OPT/CG/SDK/release qualification is claimed.
 
 ## Current private workspace cleanup

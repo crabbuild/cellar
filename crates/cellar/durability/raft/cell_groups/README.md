@@ -319,6 +319,17 @@ item/byte budget. A source captures the exact engine-selected root, membership
 and configuration. It retains immutable dependencies while later writes proceed,
 and streams bounded chunks without aggregating the group images.
 
+S3 checkpoints pack these wire fragments into immutable objects of at most
+64 KiB. The index records each original part, offset, total length and fragment
+length; the receiver validates every span before downloading and verifies the
+complete original physical stream. Cell payloads remain in separate objects.
+The original fragment-count limit bounds metadata as well as object admission;
+packing does not increase the accepted checkpoint size. The archive pool charges
+a ten-chunk workspace for the two-object I/O windows, packing and unpacking.
+Create confirmations, independent recovery, live archive holds and publication
+fences remain required. This is a format-1 hard cutover: flat legacy chunk
+indexes are refused, with no compatibility reader.
+
 A receiver binds the destination engine and its selected base. It validates
 ordered page/image parts, route/history, cut, membership and complete tree closure.
 Materialized images spool one at a time under a shared `ScratchPool`, then undergo

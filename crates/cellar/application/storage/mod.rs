@@ -51,6 +51,7 @@ pub(crate) struct Resources {
         std::sync::OnceLock<Arc<super::container_bindings::ProviderDeclarations>>,
     pub(crate) provider_supervision:
         std::sync::OnceLock<Arc<super::container_supervision::Supervision>>,
+    pub(crate) container_adapter: std::sync::OnceLock<Arc<super::containers::backend::Binding>>,
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,

@@ -678,7 +678,11 @@ impl Request {
                 let witness = &selected.observation().witness;
                 (witness.group == self.route.history).then_some(witness.position.index)
             }
-            Output::Enrollment(_) | Output::Lookup(_) => None,
+            Output::Lookup(lookup) => {
+                let witness = &lookup.selected.observation().witness;
+                (witness.group == self.route.history).then_some(witness.position.index)
+            }
+            Output::Enrollment(_) => None,
         }
     }
 
@@ -697,14 +701,19 @@ impl Request {
 }
 
 /// Only a negative bound: a prefix below every waiting command or selected
-/// query image cannot prove any of them. This does not settle an output: the
-/// physical verifier must still check its exact version, witness and history.
-/// Enrollment and lookup keep the ordinary full-verification path; a lookup
-/// can deliberately replace its selected observation with an archived one.
+/// query or receipt image cannot prove any of them. This does not settle an
+/// output: the physical verifier still checks its exact version, witness and history.
+/// A foreign-group witness and enrollment keep the ordinary full-verification
+/// path. A prefix already rejected by a waiter cannot qualify as its next cut.
 pub(super) fn required_prefix(requests: &[Request]) -> Option<cellar_logic::consensus::LogIndex> {
     let mut minimum = None;
     for request in requests {
-        let required = request.minimum_index()?;
+        let mut required = request.minimum_index()?;
+        if let Some(attempted) = request.attempted_cut {
+            required = required.max(cellar_logic::consensus::LogIndex::new(
+                attempted.get().checked_add(1)?,
+            ));
+        }
         minimum = Some(
             minimum.map_or(required, |previous: cellar_logic::consensus::LogIndex| {
                 previous.min(required)

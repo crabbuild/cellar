@@ -4,6 +4,12 @@
 use super::*;
 use crate::application::containers::{BindingCheckpoint, MAX_BINDINGS};
 
+#[derive(Clone, Copy)]
+pub(crate) enum ClaimPurpose {
+    Execute,
+    ConfirmRetired,
+}
+
 const SCHEMA: event_schema::Schema = event_schema::Schema {
     marker: "__sys_container_execution_schema",
     ddl: include_str!("container_execution.sql"),
@@ -98,11 +104,21 @@ fn reserve(
     expected: &BindingCheckpoint,
     owner: &str,
 ) -> anyhow::Result<Claim> {
+    reserve_for(connection, binding, expected, owner, ClaimPurpose::Execute)
+}
+
+fn reserve_for(
+    connection: &Connection,
+    binding: &str,
+    expected: &BindingCheckpoint,
+    owner: &str,
+    purpose: ClaimPurpose,
+) -> anyhow::Result<Claim> {
     super::container_bindings::validate_name(binding)?;
     validate_owner(owner)?;
     anyhow::ensure!(
         super::container_bindings::read(connection, binding)?.as_ref() == Some(expected)
-            && !expected.record.is_retired(),
+            && expected.record.is_retired() == matches!(purpose, ClaimPurpose::ConfirmRetired),
         "provider binding changed before execution claim"
     );
     let previous = read(connection, binding)?;
@@ -139,6 +155,29 @@ pub(crate) fn claim(
 ) -> anyhow::Result<Claim> {
     with_application_storage_write(scope, |connection| {
         as_framework_sql(|| reserve(connection, binding, expected, owner))
+    })
+}
+
+pub(crate) fn claim_retirement(
+    scope: &str,
+    binding: &str,
+    expected: &BindingCheckpoint,
+    owner: &str,
+) -> anyhow::Result<Claim> {
+    anyhow::ensure!(
+        scope == RAFT_STORAGE_SCOPE,
+        "retirement fencing requires shared storage"
+    );
+    with_application_storage_write(scope, |connection| {
+        as_framework_sql(|| {
+            reserve_for(
+                connection,
+                binding,
+                expected,
+                owner,
+                ClaimPurpose::ConfirmRetired,
+            )
+        })
     })
 }
 

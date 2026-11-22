@@ -28,6 +28,7 @@ pub(crate) use enrollment::{
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
+    s3_evicted_receipt_ignores_unarchived_sibling,
     s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
@@ -73,6 +74,7 @@ struct Harness {
 enum Resources {
     SlowMaintenance,
     BackgroundCoalescing,
+    DeferredBackground,
     QueuedBackgroundArchives,
     Retention(CellGroupLogRetentionLimits),
     Storage {
@@ -223,10 +225,11 @@ impl Harness {
         let mut limits = controller::limits();
         limits.max_commands = max_commands;
         let queued_background = matches!(&resources, Some(Resources::QueuedBackgroundArchives));
+        let deferred_background = matches!(&resources, Some(Resources::DeferredBackground));
         if queued_background {
             limits.max_groups = 3;
         }
-        if slow_maintenance {
+        if slow_maintenance || deferred_background {
             limits.retry_interval_ms = 60_000;
         }
         let (mut fixture, route, cell, _) = if let Some(Resources::Retention(retention)) = resources
@@ -305,6 +308,11 @@ impl Harness {
         if background_coalescing {
             archive.publisher = CellGroupArchivePublisher::GroupLeader {
                 retry_interval_ms: 500,
+            };
+        }
+        if deferred_background {
+            archive.publisher = CellGroupArchivePublisher::GroupLeader {
+                retry_interval_ms: 60_000,
             };
         }
         if send_buffer.is_some() {

@@ -2414,6 +2414,28 @@ impl CellGroupOwner {
         Ok(())
     }
 
+    /// Retransmit an existing safe read's quorum heartbeat. The pending Raft
+    /// context supplies retry authority; this creates no new read or admission.
+    /// A newer pending context can also confirm its predecessors in Raft order.
+    pub(super) fn retry_read_barrier(&mut self, context: &[u8]) -> Result<bool, RuntimeError> {
+        self.live()?;
+        if self.node.raft.state != StateRole::Leader
+            || self.phase.is_some()
+            || self.waiting.is_some()
+            || self.checkpoint.is_some()
+            || !self
+                .node
+                .raft
+                .read_only
+                .pending_read_index
+                .contains_key(context)
+        {
+            return Ok(false);
+        }
+        self.node.raft.bcast_heartbeat();
+        Ok(true)
+    }
+
     pub(super) fn membership_read_origin(&self) -> u64 {
         self.group.identity().member.get()
     }

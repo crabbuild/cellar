@@ -1179,3 +1179,32 @@ async fn rustfs_foreground_s3_receipt_precedes_queued_background_archive() -> Re
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_evicted_receipt_does_not_archive_unrelated_cells() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_evicted_receipt_ignores_unarchived_sibling(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_evicted_receipt_does_not_archive_unrelated_cells() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_evicted_receipt_ignores_unarchived_sibling(
+                rooted,
+                rustfs::store("evicted-covered-prefix", rooted)?,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}

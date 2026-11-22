@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::registry::Backend;
-use super::{DeleteSafety, MaintenanceAction};
+use super::{DeleteSafety, MaintenanceAction, MaintenancePreparation};
 use crate::application::{
     containers::{BindingIntent, BindingJournal, BindingObservation},
     Context, Output,
@@ -109,16 +109,21 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         .load(&context)?
         .ok_or_else(|| anyhow::anyhow!("maintenance binding missing"))?;
     ensure!(
-        expected.record.generation == task.generation && !expected.record.is_retired(),
+        expected.record.generation == task.generation,
         "maintenance generation does not match binding"
     );
     let Some(claim) = tasks::claim(&scope, &task, now)? else {
         return Ok(Output::Done);
     };
     publish(&context)?;
-    // Reserve the next attempt durably before I/O. Cancellation or host loss
-    // then leaves discoverable work instead of relying on a finally callback.
-    db.sync().await?;
+    // Shared-group effect admission proves this reservation together with the
+    // provider fence before any controller/backend I/O. A cancellation before
+    // that proof leaves the previous committed obligation discoverable. After
+    // it, the reserved next attempt survives cancellation and host loss.
+    if context.raft_storage.is_none() {
+        db.sync().await?;
+    }
+    let retirement = expected.record.is_retired().then(|| expected.clone());
     let registration = context
         .container_supervision
         .as_ref()
@@ -131,7 +136,9 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         let expired = claim.deadline()? <= claim.logical_ms;
         let submitted_delete =
             deleting && expected.record.observation == BindingObservation::Pending;
-        let action = if (deleting || expired)
+        let action = if expected.record.is_retired() {
+            MaintenanceAction::Inspect
+        } else if (deleting || expired)
             && (!submitted_delete
                 || registration.backend.delete_safety() == DeleteSafety::RevalidateExactResource)
         {
@@ -156,13 +163,37 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
                 backend.maintain(context.clone(), expected, action)
             }
             Backend::Fenced { backend, authority } => {
+                let expected = match backend.prepare(&expected, action)? {
+                    MaintenancePreparation::Unchanged => expected,
+                    MaintenancePreparation::DeleteIntent => {
+                        // Validate before mutating private state. A preparation
+                        // decision cannot publish a result or change resources.
+                        ensure!(
+                            action == MaintenanceAction::Delete
+                                && expected.record.intent == BindingIntent::Running
+                                && expected.record.resource_id.is_some()
+                                && !expected.record.is_retired(),
+                            "invalid maintenance deletion preparation"
+                        );
+                        let mut record = expected.record;
+                        record.intent = BindingIntent::Deleted;
+                        record.observation = BindingObservation::Pending;
+                        journal.prepare_exchange(&context, Some(expected.revision), record)?
+                    }
+                };
                 let lifecycle = _lifecycle.retained();
                 let journal = journal.clone();
                 let context = context.clone();
                 Box::pin(async move {
-                    let grant = journal
-                        .fence_execution(&context, lifecycle, authority)
-                        .await?;
+                    let grant = if expected.record.is_retired() {
+                        journal
+                            .fence_retirement(&context, lifecycle, authority)
+                            .await?
+                    } else {
+                        journal
+                            .fence_execution(&context, lifecycle, authority)
+                            .await?
+                    };
                     ensure!(
                         grant.claim().checkpoint() == &expected,
                         "maintenance checkpoint changed during execution fencing"
@@ -181,9 +212,20 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     }
     .await;
     context.container_provider_authority()?.check(&context)?;
+    if let Some(expected) = retirement.filter(|_| result.is_ok() && context.raft_storage.is_some())
+    {
+        // The fenced entry proved this retired checkpoint and revoked older
+        // execution. Its backend only confirmed the observation; no new Delete
+        // or replayed business callback can supply this result.
+        tasks::confirm_retired(&scope, &task.binding, &expected)?;
+    }
     tasks::finish(&scope, &claim, result.is_ok())?;
     publish(&context)?;
-    db.confirm_checkpoint().await?;
+    // The shared system turn proves task settlement and its own completion in
+    // one final output. No further I/O can observe this private settlement.
+    if context.raft_storage.is_none() {
+        db.confirm_checkpoint().await?;
+    }
     if result.is_err() {
         // Provider exception text can contain credentials; persist only bounded
         // failure accounting. The exact obligation remains in protected state.

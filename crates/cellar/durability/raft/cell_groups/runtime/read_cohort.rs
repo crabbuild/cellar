@@ -67,7 +67,7 @@ impl Cohorts {
                 members: 1,
                 term: None,
                 barrier: None,
-                retry_at: now.saturating_add(super::reads::FORWARDED_RETRY_MS),
+                retry_at: now.saturating_add(super::reads::READ_RETRY_MS),
             },
         );
         self.members += 1;
@@ -102,7 +102,7 @@ impl Cohorts {
             self.open.remove(&cohort.identity.history);
         }
         if due || initiated {
-            cohort.retry_at = now.saturating_add(super::reads::FORWARDED_RETRY_MS);
+            cohort.retry_at = now.saturating_add(super::reads::READ_RETRY_MS);
         }
         (result, retry || before != (cohort.term, cohort.barrier))
     }

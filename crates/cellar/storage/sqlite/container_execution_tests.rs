@@ -98,3 +98,26 @@ fn execution_claims_refuse_forgery_exhaustion_and_corrupt_restoration() -> anyho
     }
     Ok(())
 }
+
+#[test]
+fn retirement_fencing_is_separate_from_execution_and_keeps_high_water() -> anyhow::Result<()> {
+    let (c, first) = database()?;
+    let owner = "a".repeat(64);
+    assert!(reserve_for(&c, "tool", &first, &owner, ClaimPurpose::ConfirmRetired).is_err());
+    let active = reserve(&c, "tool", &first, &owner)?;
+    let mut closed = first.record;
+    closed.intent = BindingIntent::Deleted;
+    closed.observation = BindingObservation::Confirmed;
+    let retired =
+        super::super::container_bindings::transaction(&c, "tool", Some(first.revision), 1, closed)?;
+    assert!(reserve(&c, "tool", &retired, &owner).is_err());
+    let confirmed = reserve_for(&c, "tool", &retired, &owner, ClaimPurpose::ConfirmRetired)?;
+    assert!(confirmed.sequence > active.sequence);
+    assert_eq!(
+        reserve_for(&c, "tool", &retired, &owner, ClaimPurpose::ConfirmRetired)?,
+        confirmed
+    );
+    assert!(reserve(&c, "tool", &retired, &owner).is_err());
+    check_schema(&c)?;
+    Ok(())
+}

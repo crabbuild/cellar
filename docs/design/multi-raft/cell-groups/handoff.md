@@ -4,7 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current public provider-session delivery
+## Current durable controller delivery
+
+PR #174 is merged in main `5ae2b21f4`. Continue on
+`codex/cg17-durable-execution-controller`, based directly on that main.
+Runtime `66afc02f4` adds the durable `ExecutionController`, not a default/native
+Container adapter. It persists high-water ownership, original operation
+identities/deadlines/results and permanent revocations. New identities are pinned
+to provider configuration. Old unknown mutations survive fresh incarnations and
+block new mutations; reconciliation settles their original history. Startup
+reasserts provider fencing. Missing/corrupt/incompatible state refuses admission.
+
+All **14 controller tests, 26 provider units and seven ordinary provider
+regressions pass**; strict affected Clippy, formatting and repository checks pass.
+The two causal deadline/debt reds, failed setup controls and their source remain.
+Evidence `CG-17-controller-core-66afc02f4-2107` retains four executables, 14 roots
+and a verified 222-file second copy. Tests use trusted metadata and controlled
+provider state; no Raft quorum, authenticated transport, independent process
+crash or new RustFS result is claimed. See the
+[current checkpoint](progress.md#current-integration-checkpoint) and
+[controller contract](../../../../crates/cellar-container/controller.md).
+
+**Next deliver the normal native Container/sandbox request path.** Wire the
+host-selected controller through an owned async prologue/request-bound transport;
+old Contexts cannot borrow newer global grants. Complete restored lifecycle
+receipt lookup and safe receipt reclamation before claiming a complete controller
+integration. Use actual infrastructure revocation, independent controller/provider
+faults and real RustFS/volume recovery after deleting all voter disks. Then finish
+WebSockets and all public primitive/feature/clock/retention/lifecycle ledgers.
+Prior Fleet3/5 and S3 Read/Delete failures remain open. Preserve failed roots,
+original IDs, proof requirements and budgets. Formal acceptance remains
+**13/17 tasks, 147/195 cases, CG-17 0/32**; catalog 18 entries/305 symbols is partial.
+
+## Previous public provider-session delivery
 
 Latest `origin/main` `76a440139` is merged at `0cee7536f`. Its new LTX reload
 regression passes independent cold restore after a paused final upload;
@@ -54,7 +86,7 @@ See [progress](progress.md#current-integration-checkpoint) for exact boundaries.
 
 ## Previous prepared-provider delivery
 
-Reuse PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `4f87197ec`
+Merged PR [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `4f87197ec`
 delivers Raft-only `BindingJournal::prepare_exchange`, sharing exact existing CAS
 validation. This synchronous return is local preparation. Execution fencing must
 prove intent and claim before provider I/O; final observation and result share

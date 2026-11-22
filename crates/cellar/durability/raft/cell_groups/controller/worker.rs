@@ -366,7 +366,10 @@ impl Worker {
                         }
                         requests::Request::Archive(request) => self.archives.request(*request, &self.shared),
                         requests::Request::EnsureArchive(group) => self.late_archives.request(group, &self.archives, &self.shared)? ,
-                        requests::Request::S3(request) => self.archives.settle(*request),
+                        requests::Request::S3(request) => self.archives.settle(
+                            *request,
+                            domain.mono_ms().map_err(|_| CellGroupControllerError::Closed)?,
+                        ),
                         requests::Request::Provision(request) => self.provisioning.request(*request, &self.shared, &self.transport),
                         requests::Request::Registration(request) => {
                             let group = request.registration.applier.history();

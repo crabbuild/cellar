@@ -3,6 +3,10 @@
 //! Read-only S3 results at a later cut, with bounded payload allocation.
 use super::*;
 
+#[path = "cell_group_s3_covered_prefix.rs"]
+mod covered_prefix;
+pub(crate) use covered_prefix::s3_evicted_receipt_ignores_unarchived_sibling;
+
 impl Harness {
     pub(super) fn receipt_request(
         &self,

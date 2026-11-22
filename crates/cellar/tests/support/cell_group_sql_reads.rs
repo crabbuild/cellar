@@ -10,7 +10,9 @@ pub(crate) use changes::run as change_reads;
 
 #[path = "cell_group_read_cohorts.rs"]
 mod cohorts;
-pub(crate) use cohorts::{invalidated as cohort_invalidated, run as cohort_reads};
+pub(crate) use cohorts::{
+    invalidated as cohort_invalidated, lost_heartbeat as leader_read_retry, run as cohort_reads,
+};
 
 pub(super) async fn deadline(fixture: &RuntimeCluster, ms: u64) -> Result<u64> {
     fixture

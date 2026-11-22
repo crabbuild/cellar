@@ -1044,6 +1044,7 @@ fn read_transport_unavailability_preserves_security_and_mutation_failures() {
     );
     for error in [
         TransportError::Authentication,
+        TransportError::Tls("certificate rejected".into()),
         TransportError::Identity,
         TransportError::Protocol,
         TransportError::Refused,

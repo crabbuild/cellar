@@ -971,7 +971,7 @@ pub(super) use sql::{
     enrollment_output_during_apply, follower_acquires_published_prefix,
     follower_bootstraps_first_prefix, full_backend_outage, output_during_apply, output_progress,
     peer_connection_idle, retirement_coalesces_next_archive_intent, s3_commands, s3_deadline,
-    s3_enrollment, s3_enrollment_deadline,
+    s3_enrollment, s3_enrollment_deadline, s3_evicted_receipt_ignores_unarchived_sibling,
     s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_missing_sibling, s3_namespace_minimum, s3_newer_receipt_bypasses_inflight_maintenance,
@@ -1057,7 +1057,7 @@ pub(super) async fn bounded_queued_submissions(rooted: bool) -> Result<()> {
 
 pub(super) use sql::{
     change_reads, coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable,
-    query_lifecycle, recent_source_reads,
+    leader_read_retry, query_lifecycle, recent_source_reads,
 };
 
 pub(super) use sql::apply_images;

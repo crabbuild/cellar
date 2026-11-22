@@ -265,6 +265,21 @@ Stale explicitly permits an older coherent image. No clock lease optimization is
 introduced. Transfer-sealed groups refuse new strong reads and mutations for their
 range; requests already in progress retain their original deadlines/proof rules.
 
+Pending strong reads retain their original context, deadline and admission while
+waiting for quorum. The node's shared read timer can rebroadcast an already
+pending Raft heartbeat, coalesced by physical group, including when an embedding
+drives election ticks manually. A retry creates no new read identity or log
+entry. Term, configuration, contiguous apply and current-authority checks still
+precede output. Idle cells acquire no timer or worker from this retry policy.
+
+S3 observations require physical proof of the selected cell state/result and its
+complete recovery closure. Later Quorum mutations of a sibling do not require a
+new archive merely to prove an already archived target. A durable pending upload
+or publication retains its original reconciliation identity while an eligible
+older hold is independently verified. Published-status metadata supplies no
+proof. Reclamation remains bounded by the verified complete group prefix, so
+unarchived sibling history stays local.
+
 Idle cell eviction closes disposable execution/SQLite caches only when no proposal,
 effect callback or unsafe pin is active. Reopening reconstructs the private base
 from the committed cell root. Group membership, data and receipt floors remain.

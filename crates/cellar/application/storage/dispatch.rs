@@ -18,11 +18,42 @@ pub(crate) struct RaftDispatchContext {
     pub binding_source: Option<crate::application::cell_bindings::Source>,
 }
 
+impl RaftDispatchContext {
+    /// Capture the original wall deadline once for all captures and checkpoints
+    /// of this invocation. Re-converting a remaining monotonic duration later
+    /// can renew expiry through clock changes or millisecond sample skew.
+    pub(crate) fn pin_source_deadline(mut self) -> Result<Self> {
+        if let Some(source) = &mut self.binding_source {
+            // Sample wall time first so time between the two samples cannot
+            // extend the original monotonic budget.
+            let wall = u64::try_from(crate::asyncrt::wall_ms())?;
+            let now = self
+                .domain
+                .mono_ms()
+                .map_err(|_| consensus::RuntimeError::Closed)?;
+            let remaining = self
+                .deadline
+                .checked_sub(now)
+                .filter(|n| *n != 0)
+                .ok_or(consensus::RuntimeError::DeadlineExceeded)?;
+            let deadline = wall
+                .checked_add(remaining)
+                .ok_or(consensus::CommandFailure::Overloaded)?;
+            source.deadline_unix_ms = Some(
+                source
+                    .deadline_unix_ms
+                    .map_or(deadline, |old| old.min(deadline)),
+            );
+        }
+        Ok(self)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct RaftDispatch {
     authority: RaftStorageAuthority,
     context: RaftDispatchContext,
-    target: Option<(DomainToken, u64)>,
+    target: Option<(DomainToken, u64, u64)>,
 }
 
 /// Only the owned checkpoint task can create this permit, after exact apply
@@ -32,6 +63,13 @@ pub(crate) struct RaftDispatchPermit(RaftDispatch);
 pub(crate) struct DispatchCall<T> {
     pub future: HandlerFuture<T>,
     pub started: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Copy)]
+enum SourceProof {
+    Checkpoint,
+    Read,
+    Effect,
 }
 
 /// Only framework-owned work can switch between pure external I/O and source
@@ -136,11 +174,13 @@ impl RaftDispatch {
             .binding_source
             .clone()
             .ok_or_else(|| anyhow!(consensus::CommandFailure::UnsupportedCapability))?;
-        let now = u64::try_from(crate::asyncrt::wall_ms())?;
-        let remaining = u64::try_from(self.remaining()?.as_millis())?;
+        let original = source
+            .deadline_unix_ms
+            .ok_or(consensus::CommandFailure::Unavailable)?;
         source.deadline_unix_ms = Some(
-            now.checked_add(remaining)
-                .ok_or(consensus::CommandFailure::Overloaded)?,
+            self.target
+                .as_ref()
+                .map_or(original, |(_, _, target)| original.min(*target)),
         );
         Ok(source)
     }
@@ -196,9 +236,13 @@ impl RaftDispatch {
     }
 
     pub(crate) fn limit(mut self, domain: DomainToken, timeout: Duration) -> Result<Self> {
+        let wall = u64::try_from(crate::asyncrt::wall_ms())?;
         let started = domain
             .mono_ms()
             .map_err(|_| consensus::RuntimeError::Closed)?;
+        // A second limit can only narrow the first; it cannot restart its
+        // timeout or replace a shorter deadline from another domain.
+        let timeout = timeout.min(self.remaining()?);
         let deadline = crate::raft::cell_groups::CellRoutingLimits {
             timeout,
             max_attempts: 4,
@@ -209,7 +253,14 @@ impl RaftDispatch {
                 "SDK dispatch deadline".into()
             ))
         })?;
-        self.target = Some((domain, deadline));
+        let wall_deadline = wall
+            .checked_add(u64::try_from(timeout.as_millis())?)
+            .ok_or(consensus::CommandFailure::Overloaded)?;
+        let wall_deadline = self
+            .target
+            .as_ref()
+            .map_or(wall_deadline, |(_, _, old)| wall_deadline.min(*old));
+        self.target = Some((domain, deadline, wall_deadline));
         self.remaining()?;
         Ok(self)
     }
@@ -231,7 +282,7 @@ impl RaftDispatch {
             .checked_sub(now)
             .filter(|n| *n != 0)
             .ok_or_else(|| anyhow!(consensus::RuntimeError::DeadlineExceeded))?;
-        if let Some((domain, deadline)) = &self.target {
+        if let Some((domain, deadline, _)) = &self.target {
             let now = domain
                 .mono_ms()
                 .map_err(|_| consensus::RuntimeError::Closed)?;
@@ -266,7 +317,11 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        self.try_schedule_inner(action, Arc::new(AtomicBool::new(false)), false)
+        self.try_schedule_inner(
+            action,
+            Arc::new(AtomicBool::new(false)),
+            SourceProof::Checkpoint,
+        )
     }
 
     /// The binding adapter alone owns both its remote I/O and private intent
@@ -283,7 +338,7 @@ impl RaftDispatch {
             authority: self.authority.clone(),
             parked_io: parked_io.clone(),
         };
-        self.try_schedule_inner(move |_| action(io), parked_io, false)
+        self.try_schedule_inner(move |_| action(io), parked_io, SourceProof::Checkpoint)
     }
 
     /// Target calls and payload adapters execute owned I/O after source proof.
@@ -295,7 +350,7 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        self.schedule_owned_io(action, false)
+        self.schedule_owned_io(action, SourceProof::Checkpoint)
     }
 
     /// Read-only target queries and provider GET bodies may reuse an unchanged
@@ -306,16 +361,27 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        self.schedule_owned_io(action, true)
+        self.schedule_owned_io(action, SourceProof::Read)
     }
 
-    fn schedule_owned_io<T, F, Fut>(self, action: F, read_only: bool) -> DispatchCall<T>
+    /// Provider effects may reuse only this exact invocation's unchanged,
+    /// proven unfinished receipt. Entry/read authority alone cannot admit them.
+    pub(crate) fn schedule_effect<T, F, Fut>(self, action: F) -> DispatchCall<T>
     where
         T: Send + 'static,
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        match self.try_schedule_inner(action, Arc::new(AtomicBool::new(true)), read_only) {
+        self.schedule_owned_io(action, SourceProof::Effect)
+    }
+
+    fn schedule_owned_io<T, F, Fut>(self, action: F, proof: SourceProof) -> DispatchCall<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(Duration) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        match self.try_schedule_inner(action, Arc::new(AtomicBool::new(true)), proof) {
             Ok(call) => call,
             Err(error) => DispatchCall {
                 started: Arc::new(AtomicBool::new(false)),
@@ -328,13 +394,14 @@ impl RaftDispatch {
         self,
         action: F,
         parked_io: Arc<AtomicBool>,
-        read_only: bool,
+        proof: SourceProof,
     ) -> Result<DispatchCall<T>>
     where
         T: Send + 'static,
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
+        let read_only = matches!(proof, SourceProof::Read);
         let started = Arc::new(AtomicBool::new(false));
         let submitted = started.clone();
         let prepared = (|| -> Result<_> {
@@ -363,9 +430,11 @@ impl RaftDispatch {
                         tracing::debug!(target: "cellar::raft::resource_read", phase = "source-proving",
                             source = ?self.context.binding_source.as_ref().map(|s| &s.history.cell),
                             at_ms = crate::asyncrt::mono_ms());
-                        crate::storage::confirm_raft_read_work(&self.authority).await
-                    } else {
-                        crate::storage::commit_raft_work(&self.authority).await
+                    }
+                    match proof {
+                        SourceProof::Read => crate::storage::confirm_raft_read_work(&self.authority).await,
+                        SourceProof::Effect => crate::storage::confirm_raft_checkpoint_work(&self.authority).await,
+                        SourceProof::Checkpoint => crate::storage::commit_raft_work(&self.authority).await,
                     }
                 }
                 .await;

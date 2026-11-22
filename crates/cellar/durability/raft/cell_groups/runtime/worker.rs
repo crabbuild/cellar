@@ -48,6 +48,8 @@ struct Group {
     snapshot_hints: BTreeMap<u64, (bool, Permit)>,
     inbound: Arc<Budget>,
     tick: bool,
+    // Active read retries share one heartbeat per physical group/interval.
+    read_heartbeat_at: u64,
     wake_due: bool,
     write: Option<Box<CellGroupPersist>>,
     write_bytes: usize,
@@ -345,6 +347,7 @@ impl Worker {
                     (self.options.max_requests / 8).clamp(1, GROUP_REQUEST_BATCH),
                 ),
                 tick: false,
+                read_heartbeat_at: 0,
                 wake_due: false,
                 write: None,
                 write_bytes: 0,
@@ -1372,6 +1375,19 @@ impl Worker {
                             return Err(RuntimeError::NotLeader);
                         }
                     }
+                    if retry
+                        && barrier.is_none()
+                        && term.is_some()
+                        && now >= group.read_heartbeat_at
+                        && group.owner.retry_read_barrier(context)?
+                    {
+                        group.read_heartbeat_at = now.saturating_add(reads::READ_RETRY_MS);
+                        // Lost delivery may leave no further Ready work and an
+                        // embedding may drive election ticks manually. Drive
+                        // this original barrier without waiting for a write,
+                        // clock tick or another inbound packet.
+                        group.wake(history, &mut self.order);
+                    }
                     match &request.kind {
                         reads::ReadKind::Cell(cell, consistency) => {
                             if term.is_none() {
@@ -1392,8 +1408,9 @@ impl Worker {
                                 if term.is_none() && group.read_collection_remaining != 0 {
                                     return Err(RuntimeError::NotReady);
                                 }
-                                // Raft already retries a leader's heartbeat.
-                                // A follower must resend a lost forwarded request.
+                                // Leaders retry the existing quorum heartbeat
+                                // above. Followers resend their original
+                                // forwarded ReadIndex request instead.
                                 if term.is_none()
                                     || status.leader != Some(group.owner.membership_read_origin())
                                 {
