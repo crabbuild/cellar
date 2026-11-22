@@ -56,6 +56,14 @@ Green evidence `CG-17-inspection-sdk-4de0eade0-2536` and red evidence
 `CG-17-inspection-public-parent-1982a1520-2542` retain exact source, executable,
 raw logs and controller/voter roots, with checksum-verified second copies.
 
+Combined source `0517738e1` passes strict Clippy for Cellar's library and both
+public primitive/Docker targets, plus the Container library. Canonical formatting,
+layout, native dependencies, documentation, 44 plan tests and 44 qualification
+runner tests pass. The generated implementation index matches. Check evidence
+`CG-17-inspection-integration-0517738e1-2546` has a verified second copy. Full
+plan validation still fails on the missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`; no evidence waiver is applied.
+
 These are scoped handoff results, not combined-source runtime acceptance. The
 broader `8e3dafe0a` completion campaign remains FAILED (4/10 functions), and the
 `a2fc2a15b` physical Container/Sandbox campaign remains FAILED (3/6 functions,
