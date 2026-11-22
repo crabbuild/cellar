@@ -24,6 +24,35 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_reservation_contention_does_not_wait_for_outage_retry() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::archive_reservation_renews_known_superseded_intent(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_reservation_contention_does_not_wait_for_outage_retry() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::archive_reservation_renews_known_superseded_intent(
+                rooted,
+                rustfs::store("reservation-contention", rooted)?,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn s3_evicted_receipt_does_not_archive_unrelated_cells() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(

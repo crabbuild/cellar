@@ -28,6 +28,109 @@ async fn journal(fixture: &RuntimeCluster) -> Result<serde_json::Value> {
         .await?
 }
 
+/// A confirmed CAS loss consumes the old allocation slot. It must not park a
+/// fresh cut for the unrelated outage retry interval or replay that old intent.
+pub(crate) async fn archive_reservation_renews_known_superseded_intent(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let (mut fixture, route) = setup_store(rooted, store).await?;
+    fixture.cluster._root.disable_cleanup(true);
+    eprintln!(
+        "retained reservation-contention disk: {}",
+        fixture.cluster._root.path().display()
+    );
+    let (config, remote) = registration(&fixture, &route, rooted).await?;
+    let mut limits = controller::limits();
+    // This is the declared cadence for failed/background I/O. A single proven
+    // allocation loss is not a backend outage and can finish one bounded turn.
+    limits.retry_interval_ms = 10_000;
+    let mut controllers = controller::start_with_limits(&mut fixture, limits).await?;
+    drop(controllers[0].archive(config.clone())?);
+    let initial = fixture.runtimes[0]
+        .status(route.history)
+        .await?
+        .applied
+        .index;
+    let mut competing = None;
+    let mut held = None;
+    let work = async {
+        published(&controllers[0], route.history, initial).await?;
+        let registry = config
+            .directory
+            .open_group_archive(&fixture.cluster.domain, &config.io, &config.birth)
+            .await?;
+        let gate = remote.hold_publication();
+        held = Some(gate.clone());
+        let next = add(&fixture, &route, rooted, 47).await?;
+        tokio::time::timeout(Duration::from_secs(5), gate.entered.notified())
+            .await
+            .context("new reservation missed actual registry CAS gate")?;
+        let before = journal(&fixture).await?;
+        let original = before["record"]["pending"]
+            .get("Reserve")
+            .context("gate did not hold a prepared reservation")?;
+        let original: CellGroupArchiveIntent = serde_json::from_value(original.clone())?;
+        let acquire = registry.prepare_acquire(&fixture.cluster.domain).await?;
+        let hold = registry.acquire(&fixture.cluster.domain, &acquire).await?;
+        competing = Some((registry.clone(), hold));
+        // This genuine unrelated hold wins the version, then the actual old
+        // reservation CAS loses. No synthetic success or changed data bytes.
+        gate.release.notify_one();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            published(&controllers[0], route.history, next),
+        )
+        .await
+        .context("known superseded reservation waited for outage retry")??;
+        ensure!(
+            matches!(
+                registry.reserve(&fixture.cluster.domain, &original).await,
+                Err(CellGroupArchiveError::Expired)
+            ),
+            "superseded original intent became allocatable again"
+        );
+        // Join publication/retirement and release the controller's physical
+        // workspace before an independent owner audits the selected bytes.
+        let owner = controllers.remove(0);
+        owner.close().await?;
+        drop(owner);
+        let coverage =
+            verified_current(&fixture, &config, rooted, "reservation-contention-proof").await?;
+        ensure!(
+            coverage.marker().position().index >= next,
+            "reservation retry did not independently recover the new cut"
+        );
+        ensure!(
+            coverage
+                .recovery()
+                .manifest()
+                .pin_cell(&CellId::new("later-47")?)
+                .is_some(),
+            "reservation retry lost new cell data"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if let Some(gate) = held {
+        gate.release.notify_one();
+    }
+    let mut cleanup = Ok(());
+    if let Some((registry, hold)) = competing {
+        cleanup = registry
+            .release(&fixture.cluster.domain, &hold)
+            .await
+            .map_err(anyhow::Error::from);
+    }
+    for owner in &controllers {
+        cleanup = cleanup.and(owner.close().await.map_err(anyhow::Error::from));
+    }
+    drop(controllers);
+    drop(config);
+    let closed = fixture.close().await;
+    work.and(cleanup).and(closed)
+}
+
 pub(crate) async fn archive_reservation_retries_from_durable_intent(
     rooted: bool,
     store: Arc<dyn ObjectStore>,

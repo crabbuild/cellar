@@ -9,6 +9,7 @@ mod payload_retry;
 pub(crate) use payload_retry::archive_controller_payload_outage;
 #[path = "cell_group_archive_reservation.rs"]
 mod reservation;
+pub(crate) use reservation::archive_reservation_renews_known_superseded_intent;
 pub(crate) use reservation::archive_reservation_retries_from_durable_intent;
 #[path = "cell_group_archive_retirement.rs"]
 mod retirement;
