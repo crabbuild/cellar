@@ -1,13 +1,11 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Host-only durable provider metadata. Guest storage cannot authorize a remote ID.
+pub(crate) use super::containers::LifecycleLocks;
 use super::{containers::ProviderAuthority, Context, HandlerFuture};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, Weak},
-};
+use std::sync::Arc;
 
 pub const MAX_BINDINGS: usize = 64;
 pub const MAX_BINDING_BYTES: usize = 16 * 1024;
@@ -236,28 +234,6 @@ impl BindingLifecycleGuard {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct LifecycleLocks {
-    locks: Mutex<HashMap<Arc<str>, Weak<tokio::sync::Mutex<()>>>>,
-}
-
-impl LifecycleLocks {
-    fn get(&self, name: &Arc<str>) -> Result<Arc<tokio::sync::Mutex<()>>> {
-        let mut locks = self.locks.lock().unwrap();
-        locks.retain(|_, lock| lock.strong_count() > 0);
-        if let Some(lock) = locks.get(name).and_then(Weak::upgrade) {
-            return Ok(lock);
-        }
-        ensure!(
-            locks.len() < MAX_BINDINGS,
-            "provider lifecycle limit exceeded"
-        );
-        let lock = Arc::new(tokio::sync::Mutex::new(()));
-        locks.insert(name.clone(), Arc::downgrade(&lock));
-        Ok(lock)
-    }
-}
-
 impl BindingJournal {
     pub fn open(context: &Context, name: &str) -> Result<Self> {
         crate::storage::container_bindings::validate_name(name)?;
@@ -340,6 +316,8 @@ impl BindingJournal {
     /// A contended shared-group wait proves the original invocation at its
     /// required durability before parking its private writer. Only an unchanged
     /// unfinished receipt from this invocation can reuse its existing proof.
+    /// Background maintenance yields to this contended admission while its
+    /// proof is pending; cancellation releases the local reservation.
     pub fn lock_lifecycle(&self, context: &Context) -> HandlerFuture<BindingLifecycleGuard> {
         let prepared = (|| {
             self.check(context)?;
@@ -347,7 +325,7 @@ impl BindingJournal {
                 .storage()?
                 .resources()
                 .provider_lifecycle
-                .get(&self.name)
+                .get(&self.name, MAX_BINDINGS)
         })();
         let journal = self.clone();
         let context = context.clone();
@@ -355,25 +333,24 @@ impl BindingJournal {
             let lock = prepared?;
             journal.check(&context)?;
             let guard = if context.raft_storage.is_some() {
-                match lock.clone().try_lock_owned() {
-                    Ok(guard) => guard,
-                    Err(_) => {
-                        // The owner of this lock can need its writer again to
-                        // finish a checkpoint. Waiting with our private writer
-                        // would prevent that owner from releasing the lock.
-                        crate::storage::capture_raft_dispatch()?
-                            .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
-                            // Parking requires this invocation's unfinished
-                            // receipt. Reuse its proof only while unchanged;
-                            // dirty work still checkpoints before parking.
-                            // Entry/read authority alone cannot resume it.
-                            .schedule_effect(move |_| lock.lock_owned())
-                            .future
-                            .await?
-                    }
-                }
+                lock.lock_shared(move |lock| async move {
+                    // The owner of this lock can need its writer again to
+                    // finish a checkpoint. Waiting with our private writer
+                    // would prevent that owner from releasing the lock.
+                    crate::storage::capture_raft_dispatch()?
+                        .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
+                        // Parking requires this invocation's unfinished
+                        // receipt. Reuse its proof only while unchanged;
+                        // dirty work still checkpoints before parking.
+                        // Entry/read authority alone cannot resume it.
+                        .schedule_effect(move |_| lock.lock_owned())
+                        .future
+                        .await
+                        .map_err(Into::into)
+                })
+                .await?
             } else {
-                lock.lock_owned().await
+                lock.lock().await
             };
             journal.check(&context)?;
             Ok(BindingLifecycleGuard {
@@ -396,8 +373,8 @@ impl BindingJournal {
             .storage()?
             .resources()
             .provider_lifecycle
-            .get(&self.name)?;
-        let Ok(guard) = lock.try_lock_owned() else {
+            .get(&self.name, MAX_BINDINGS)?;
+        let Some(guard) = lock.try_background() else {
             return Ok(None);
         };
         self.check(context)?;

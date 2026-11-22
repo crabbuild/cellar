@@ -2,6 +2,7 @@
 
 //! Cell-owned containers. Retained handles require the current executing Context.
 pub(crate) mod backend;
+mod lifecycle;
 mod native;
 mod values;
 pub use crate::application::container_bindings::{
@@ -32,6 +33,7 @@ use anyhow::{anyhow, Result};
 pub use backend::{
     ContainerAdapter, ContainerFuture, ContainerReply, ContainerRequest, PreparedContainerCall,
 };
+pub(crate) use lifecycle::LifecycleLocks;
 use std::{sync::Arc, time::Duration};
 pub use values::{ExecInfo, ExecOptions, ExecOutput, StartOptions};
 
