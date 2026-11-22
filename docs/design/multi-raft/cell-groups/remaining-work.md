@@ -40,35 +40,34 @@ full disaster profile remain open.
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
 Draft [PR #180](https://github.com/crabbuild/cellar/pull/180) integrates shared
 Sandbox execution, the physical Docker backend, inspection handoff and
-accepted-apply scheduling. Runtime `515bbd4e5` eliminates premature SQL
-publication probes for known accepted commands and enrollment while preserving
-fresh reconciliation and original ownership. The pre-change held-apply control
-records 23 probes; the current command/enrollment controls assert zero in both
-image modes. The owning selection remains **FAILED, 26/27**; the lost-SQL-reply error
-assertion fails in both pre-change and current executables. Its typed-error and
-shutdown contract remains unresolved.
+accepted-apply scheduling. Runtime `a99ddd9d3` also joins failed intermediate/final
+capture tasks and preserves unresolved origins through fatal SQL closure. All
+27 owning tests and three preparation tests pass, including the original
+lost-SQL-reply shutdown assertion. Both public SDK provider controls pass all
+eight Quorum/S3 image profiles. Shared Sandbox reservation and binding intent now
+share one mandatory input checkpoint; public reservation and output proofs retain
+their existing contracts.
 
-The basic public SDK control passes all four Quorum/S3 image profiles. The native
-inspection function still fails extent/S3 Destroy3. The current complete real
-RustFS/Engine campaign remains **FAILED, 3/7 functions**, with 20 required
-configurations and 11 success markers, including five in failed functions.
-Both physical controls and all four Sandbox source-proof refusal profiles pass.
-Container recovery, Container archive refusal, Sandbox recovery and explicit S3
-retirement floors remain incomplete. Startup, enrollment and post-effect public
-completion can still exceed their original budgets. Earlier source-specific
-passes do not qualify this source. See
-[progress](progress.md#cg-17-accepted-apply-scheduling-and-remaining-completion-gates)
+The current complete real RustFS/Engine campaign remains **FAILED, 5/7
+functions, 17/20 configurations**. Both physical controls, all Container recovery
+and archive-refusal profiles, both Quorum Sandbox recovery profiles and all
+Sandbox source-proof refusal profiles pass. The materialized explicit S3-floor
+control also passes archive refusal and autonomous recovery. Three Sandbox S3
+deadlines remain: materialized DestroyJob8, extent Start1, and extent floor Start1
+before its fault cut. Earlier source-specific passes do not qualify this source.
+See
+[progress](progress.md#cg-17-joined-capture-failures-and-sandbox-input-batching)
 for the exact failures and retained evidence.
 
 The next feature deliveries are:
 
-1. Close public completion and startup waits under the original identities,
+1. Close the three remaining Sandbox S3 deadlines under the original identities,
    minima and 5s/3s/60s limits. Trace actual checkpoint/apply/archive/receipt waits;
    stage counters include async continuation polls and are not proof of redundant
    preparation. Preserve fresh authority, source/target proofs, required cleanup
-   and unknown work. Resolve the baseline lost-reply typed-error/shutdown
-   contract without weakening its assertion. Current single-Create diagnostics
-   take 1,615 ms native and 2,046 ms with RustFS; neither proves a latency cure.
+   and unknown work. The fatal lost-reply contract now passes its owning tests.
+   The isolated extent/S3 Start passes in 4,802 ms but fails in the complete
+   campaign; it does not establish deadline closure or a performance cause.
 2. Run the combined completion and physical Container/Sandbox gates. Retain both
    selected namespaces, constructor-independent cleanup, original receipts,
    independent execution fences and explicit S3 custody floors. Complete

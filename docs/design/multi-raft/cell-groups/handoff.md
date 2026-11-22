@@ -4,7 +4,27 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current durable controller delivery
+## Current shared Sandbox and completion delivery
+
+Continue on `codex/cg17-s3-completion`; open draft PR #180 uses
+`codex/cg17-shared-sandbox-bridge`. Both include merged main `09cdcf423`.
+Runtime `a99ddd9d3` joins failed capture tasks, preserves fatal reply-loss origin
+custody and batches private Sandbox reservation with its binding input proof.
+All 27 owning tests, three preparation tests and eight SDK provider profiles pass.
+The full real RustFS/Engine run remains FAILED: 5/7 functions, 17/20 profiles.
+All Container recovery/refusal profiles and both Quorum Sandbox recovery profiles
+pass. Materialized explicit S3 cleanup custody also passes archive interruption
+and autonomous terminal recovery. The owned lab is stopped and joined.
+
+Next close materialized/S3 Sandbox DestroyJob8 and the two extent/S3 Start1
+failures (normal and floor configurations), retaining all original identities,
+proofs and deadlines. Then finish full primitive API/feature/recovery/GC coverage
+and the independent-voter release gates. See the
+[current source and evidence](progress.md#cg-17-joined-capture-failures-and-sandbox-input-batching)
+and [priorities](remaining-work.md#primitive-delivery-priority). Earlier scoped
+passes do not close any of the 32 full CG-17 cases or authorize default cutover.
+
+## Previous durable controller delivery
 
 PR #174 is merged in main `5ae2b21f4`. Continue on
 `codex/cg17-durable-execution-controller`, based directly on that main.

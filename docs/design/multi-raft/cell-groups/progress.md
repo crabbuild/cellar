@@ -32,6 +32,70 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 joined capture failures and Sandbox input batching
+
+Runtime `a99ddd9d3` closes the lost-SQL-reply shutdown contract. A failed
+intermediate or final image-capture task now stops its SQL worker while retaining
+the original reply, activation and private producer through physical joins.
+Fatal closure drops the reply after cleanup, preserving unresolved origin custody
+and the controller's joined node fence. It cannot turn a lost task into an
+ordinary storage refusal or a known non-effect. Graceful closure retains its
+existing typed refusal.
+
+All **27 ownership/reconciliation tests pass**, including the previously failing
+`controller_owned_commands_join_a_lost_sql_reply` with unchanged assertions.
+Three public preparation tests also pass: injected physical capture-task failure,
+normal preparation with one SQL worker, and cancellation retaining physical
+custody until close. Each covers both image modes and intermediate/final capture.
+The basic SDK provider and inspection-handoff controls pass all **eight**
+image/minimum profiles. The earlier `a96511f7d` and `a502e86f3` failures remain
+retained; the latter exposed origin loss after an ordinary cleanup reply.
+
+Shared Sandbox Start now stages its private reservation with the exact child-call
+intent in the mandatory binding input checkpoint. That proof covers the original
+source writes, receipt, identity and minimum before target enrollment or provider
+I/O. Public reservation still awaits its original sync; Fleet dispatch retains
+its explicit checkpoint. This removes a separate parent input cut without
+changing output proof, fencing or deadlines. The separate extent/S3 single-Start
+diagnostic passes in 4,802 ms; the full run below still fails that profile. Neither
+the diagnostic nor differing historical results establishes a latency cure.
+
+**The complete real RustFS/Engine campaign is FAILED: 5/7 whole functions,
+17/20 required configurations.** Fourteen passing configurations belong to
+passing functions; three belong to failed functions.
+
+| Current-source case | Result |
+| --- | --- |
+| Journal-failure shutdown | Pass; original error retained and process stopped |
+| Physical restart/fence/receipt control | Pass |
+| Public native Container recovery | All four Quorum/S3 image profiles pass |
+| Container archive refusal and recovery | All four profiles pass |
+| Public Sandbox execution/recovery/cleanup | Both Quorum image profiles pass; materialized/S3 DestroyJob8 and extent/S3 Start1 exceed 5s |
+| Sandbox archive refusal | All four profiles pass the exact Reserved-generation oracle |
+| Explicit S3 retirement floor | Materialized passes archive interruption and autonomous terminal-proof recovery; extent fails Start1 before the fault cut |
+
+The two failing extent/S3 Starts entered actual Create and retain their original
+ambiguous outcomes. The materialized floor control denies 406 parent archive
+writes after physical deletion, then requires autonomous recovery at the persisted
+S3 minimum despite a Quorum-default namespace. Its pass does not qualify extent
+mode. Original IDs, payloads, proofs and 5s/3s/60s limits are unchanged.
+
+Source, frozen executables, raw results and retained state are preserved in
+`CG-17-completion-final-native-a99ddd9d3-2596` and
+`CG-17-completion-final-real-a99ddd9d3-2594b`, with verified second copies.
+The pre-change trace and lost-reply control remain in
+`CG-17-sandbox-input-red-a96511f7d-2582`. The owned lab is stopped and joined.
+Locked builds, strict affected Clippy, formatting, layout, native dependency and
+documentation checks pass. The generated implementation index is unchanged;
+full plan validation still lacks historical CG-01 evidence.
+
+Next close the three remaining Sandbox S3 deadlines using actual archive/input/
+completion waits, then finish the public primitive inventory and family recovery/
+GC matrix. Native RF3 shares one macOS process; real RustFS (1 CPU/2 GiB) and
+bounded physical execution run in the owned Linux VM (4 CPU/8 GiB). Independent
+voters, load, disk loss, provider-volume recovery, interactive/port/WebSocket
+contracts and all 32 full CG-17 acceptance cases remain required before cutover.
+
 ### CG-17 accepted-apply scheduling and remaining completion gates
 
 Runtime `515bbd4e5` retains the exact accepted position for commands and
