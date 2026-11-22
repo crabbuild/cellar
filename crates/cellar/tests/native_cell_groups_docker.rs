@@ -69,3 +69,9 @@ async fn rustfs_native_sandboxes_refuse_unproved_parent_dispatch() -> anyhow::Re
 async fn rustfs_native_sandbox_retirement_preserves_requested_s3_minimum() -> anyhow::Result<()> {
     sandbox_execution::qualify_minimum_custody().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: original extent/S3 Start against isolated Docker and RustFS"]
+async fn profile_rustfs_extent_s3_sandbox_start() -> anyhow::Result<()> {
+    sandbox_execution::profile_start().await
+}

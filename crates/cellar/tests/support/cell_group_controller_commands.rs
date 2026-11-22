@@ -586,10 +586,15 @@ pub(crate) async fn owned_command_failure(lost_reply: bool) -> Result<()> {
         assert!(error.ambiguous);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         if lost_reply {
-            assert!(matches!(
-                error.cause.as_ref(),
-                CellDispatchError::Execution(ExecutionError::Refused(CommandFailure::Unavailable))
-            ));
+            assert!(
+                matches!(
+                    error.cause.as_ref(),
+                    CellDispatchError::Execution(ExecutionError::Refused(
+                        CommandFailure::Unavailable
+                    ))
+                ),
+                "lost SQL reply returned {error:?}"
+            );
             assert!(matches!(
                 tokio::time::timeout(Duration::from_secs(5), controllers[0].wait()).await?,
                 Err(CellGroupControllerError::Command(_))

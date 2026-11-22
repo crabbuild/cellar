@@ -32,6 +32,65 @@ use tokio::sync::Notify;
 
 const ORDINARY_COMMAND_SLOTS: usize = 3;
 
+struct TimingAdapter(NativeContainerAdapter);
+
+impl ContainerAdapter for TimingAdapter {
+    fn identity(&self) -> BackendIdentity {
+        self.0.identity()
+    }
+
+    fn max_body_bytes(&self) -> usize {
+        self.0.max_body_bytes()
+    }
+
+    fn supports_bounded_sandbox(&self) -> bool {
+        self.0.supports_bounded_sandbox()
+    }
+
+    fn prepare<'a>(
+        &'a self,
+        context: &'a Context,
+        request: ContainerRequest,
+        lifecycle: Option<&'a BindingLifecycleGuard>,
+    ) -> Result<PreparedContainerCall<'a>> {
+        let kind = match &request {
+            ContainerRequest::Start(_) => "Start",
+            ContainerRequest::Observe => "Observe",
+            ContainerRequest::Destroy => "Destroy",
+            _ => "other",
+        };
+        let scope = context
+            .identity()
+            .context("timed child identity")?
+            .scope
+            .clone();
+        eprintln!(
+            "sandbox_start_adapter {}",
+            json!({"scope":scope,"kind":kind,"phase":"prepare-enter","at_unix_ms":cellar::asyncrt::wall_ms()})
+        );
+        let call = self.0.prepare(context, request, lifecycle)?;
+        eprintln!(
+            "sandbox_start_adapter {}",
+            json!({"scope":scope,"kind":kind,"phase":"prepare-complete","at_unix_ms":cellar::asyncrt::wall_ms()})
+        );
+        Ok(Box::new(move || {
+            eprintln!(
+                "sandbox_start_adapter {}",
+                json!({"scope":scope,"kind":kind,"phase":"source-proved","at_unix_ms":cellar::asyncrt::wall_ms()})
+            );
+            let future = call();
+            Box::pin(async move {
+                let result = future.await;
+                eprintln!(
+                    "sandbox_start_adapter {}",
+                    json!({"scope":scope,"kind":kind,"phase":"complete","at_unix_ms":cellar::asyncrt::wall_ms(),"success":result.is_ok()})
+                );
+                result
+            })
+        }))
+    }
+}
+
 struct Peer {
     backend: Arc<DockerBackend>,
     retirement_cut: Option<Arc<catalog_fault::Store>>,
@@ -47,6 +106,7 @@ struct Peer {
     original_delete: Mutex<Option<ExecutionPendingOperation>>,
     lookups: AtomicUsize,
     changed: Notify,
+    trace: bool,
 }
 
 impl ExecutionControllerBackend for Peer {
@@ -82,11 +142,19 @@ impl ExecutionControllerBackend for Peer {
         payload: Vec<u8>,
     ) -> HandlerFuture<ExecutionOutcome> {
         Box::pin(async move {
-            let outcome = self
+            let started = cellar::asyncrt::wall_ms();
+            let result = self
                 .backend
                 .clone()
                 .execute(claim.clone(), operation.clone(), payload)
-                .await?;
+                .await;
+            if self.trace {
+                eprintln!(
+                    "sandbox_start_physical {}",
+                    json!({"kind":format!("{:?}",operation.kind),"started_unix_ms":started,"finished_unix_ms":cellar::asyncrt::wall_ms(),"success":result.is_ok()})
+                );
+            }
+            let outcome = result?;
             if matches!(outcome, ExecutionOutcome::Completed(_)) {
                 let pending = ExecutionPendingOperation {
                     claim,
@@ -285,13 +353,19 @@ async fn start(
     store: Arc<catalog_fault::Store>,
     controller: Arc<ExecutionController>,
     track: Arc<Track>,
+    trace: bool,
 ) -> Result<ManagedCluster> {
-    let adapter = Arc::new(NativeContainerAdapter::new(
+    let adapter = NativeContainerAdapter::new(
         Arc::new(ControllerProvider::new(controller)?),
         Limits {
             max_body_bytes: 4096,
         },
-    )?);
+    )?;
+    let adapter: Arc<dyn ContainerAdapter> = if trace {
+        Arc::new(TimingAdapter(adapter))
+    } else {
+        Arc::new(adapter)
+    };
     let parent=RaftClass::new("Counter",1,[220;32])?.initializer([230;32],|_,_|Ok(()))?.json_cell_rpc("Run",[221;32])?.sandbox_catalog()?
         .query("SandboxState",[222;32],|query,_|Ok(serde_json::to_vec(&json!({"parent":query.sandbox_parent()?,"cleanup_pending":query.sandbox_cleanup_pending()?,"job":query.sandbox_allocation("job")?,"spare":query.sandbox_allocation("spare")?}))?))?;
     let child = RaftClass::new("Sandbox", 1, [223; 32])?
@@ -380,13 +454,20 @@ async fn call_options(
     let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
     let cell = cluster.hosts[leader].cell(history.clone())?;
     let minimum = options.durability;
-    let receipt = cell
+    let sequence = options.id.sequence();
+    let started = cellar::asyncrt::wall_ms();
+    let result = cell
         .command(
             &cell.contract("Run")?,
             serde_json::to_vec(operation)?,
             options,
         )
-        .await?;
+        .await;
+    eprintln!(
+        "sandbox_native_request {}",
+        json!({"cell":history.cell.as_str(),"sequence":sequence,"operation":operation,"minimum":format!("{minimum:?}"),"started_unix_ms":started,"finished_unix_ms":cellar::asyncrt::wall_ms(),"success":result.is_ok()})
+    );
+    let receipt = result?;
     ensure!(
         receipt.durability >= minimum,
         "Sandbox command returned a weaker proof"
@@ -421,16 +502,20 @@ fn unknown(error: &anyhow::Error, id: CommandId) -> Result<()> {
 }
 
 pub async fn qualify(outage: bool) -> Result<()> {
-    run(outage, false).await
+    run(outage, false, false).await
 }
 
 pub async fn qualify_minimum_custody() -> Result<()> {
-    run(false, true).await
+    run(false, true, false).await
 }
 
-async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
+pub async fn profile_start() -> Result<()> {
+    run(false, false, true).await
+}
+
+async fn run(outage: bool, minimum_custody: bool, profile: bool) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::sandbox::execution=debug")
+        .with_env_filter(if profile { "cellar::sandbox::execution=debug,cellar::raft::checkpoint=debug,cellar::raft::group_archive=debug,cellar::raft::sql_publish=trace" } else { "cellar::sandbox::execution=debug" })
         .with_test_writer()
         .try_init();
     let socket = PathBuf::from(std::env::var("CELLAR_DOCKER_BACKEND_SOCKET")?);
@@ -438,6 +523,9 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
+            if profile && (!rooted || minimum != Durability::S3) {
+                continue;
+            }
             if minimum_custody && minimum != Durability::S3 {
                 continue;
             }
@@ -496,6 +584,7 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
                 original_delete: Mutex::new(None),
                 lookups: AtomicUsize::new(0),
                 changed: Notify::new(),
+                trace: profile,
             });
             let controller = ExecutionController::create(
                 domain.clone(),
@@ -525,6 +614,7 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
                 store.clone(),
                 controller.clone(),
                 track.clone(),
+                profile,
             )
             .await
             {
@@ -584,6 +674,11 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
             } else {
                 let first=call(&cluster,&a,minimum,1,"Create").await?;let allocation:SandboxAllocation=serde_json::from_slice(&first.result)?;
                 ensure!(allocation.generation==1 && allocation.state==SandboxAllocationState::Ready);
+                if profile {
+                    ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.executes.load(Ordering::Acquire)==0,"diagnostic must use the original first Start");
+                    eprintln!("sandbox_start_profile {{\"extents\":true,\"minimum\":\"S3\",\"sequence\":1,\"original_request_ms\":5000}}");
+                    return Ok(());
+                }
                 let output=call(&cluster,&a,minimum,2,"Exec").await?;let output:Value=serde_json::from_slice(&output.result)?;ensure!(STANDARD.decode(output["stdout"].as_str().context("Sandbox stdout")?)?==b"sandbox");
                 peer.lose_exec.store(true,Ordering::Release);peer.hide_exec.store(true,Ordering::Release);
                 let lost=call(&cluster,&a,minimum,3,"Exec").await.err().context("Sandbox exec reply loss not reached")?;unknown(&lost,options(3,minimum)?.id)?;
