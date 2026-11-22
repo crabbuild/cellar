@@ -1121,6 +1121,7 @@ pub(super) fn storage(error: impl Into<anyhow::Error>) -> ExecutionError {
 }
 
 fn private_failure(error: anyhow::Error) -> ExecutionError {
+    tracing::debug!(target: "cellar::raft::execution", error = ?error, "private execution failed");
     // This is still private execution: no proposal or output proof exists.
     // Preserve rebuild_required even for SQLITE_FULL. SQLite may have rolled
     // back automatically, and an error does not prove the connection reusable.
