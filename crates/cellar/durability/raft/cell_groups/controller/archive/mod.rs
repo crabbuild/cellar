@@ -442,7 +442,7 @@ impl Manager {
         }
     }
 
-    pub fn settle(&mut self, request: settlement::Request) {
+    pub fn settle(&mut self, request: settlement::Request, now: u64) {
         let group = request.route.history;
         let Some(entry) = self.entries.get_mut(&group) else {
             request.fail(Arc::new(Error::Runtime(RuntimeError::NotReady)));
@@ -456,6 +456,9 @@ impl Manager {
         }
         // One newly waiting foreground proof bypasses background coalescing.
         // Further waiters share that attempt and its bounded retry schedule.
+        // An expired/cancelled predecessor is no longer part of this cohort;
+        // its leftover queue row must not suppress a fresh request's wake.
+        settlement::prune(&mut entry.waiters, now);
         if entry.waiters.is_empty() {
             entry.retry_at = 0;
             entry.foreground_wake = true;
