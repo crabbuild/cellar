@@ -149,7 +149,15 @@ async fn contend(
     // cancel an entered fence or turn its unresolved result into no effect.
     route.factory_refused.store(true, Ordering::Release);
     gate.release.notify_one();
-    let receipt = foreground.await?;
+    let receipt = foreground.await.with_context(|| {
+        format!(
+            "inspection foreground failed: activated={} acquired={} maintained={} inspected={}",
+            gate.activated.load(Ordering::Acquire),
+            gate.acquired.load(Ordering::Acquire),
+            gate.maintained.load(Ordering::Acquire),
+            gate.inspected.load(Ordering::Acquire)
+        )
+    })?;
     ensure!(receipt.durability >= minimum);
     let activated = gate.activated.load(Ordering::Acquire);
     let acquired = gate.acquired.load(Ordering::Acquire);
