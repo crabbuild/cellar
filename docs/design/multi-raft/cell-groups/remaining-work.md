@@ -38,41 +38,37 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-Draft [PR #180](https://github.com/crabbuild/cellar/pull/180) integrates the shared
-Sandbox, physical Docker backend and cooperative inspection handoff. Current
-runtime `4240bc404` also closes a real shutdown defect: journal persistence
-failure previously skipped process termination. The unchanged real-Engine
-control fails before the fix and passes afterward with PID zero and the original
-I/O error retained.
+Draft [PR #180](https://github.com/crabbuild/cellar/pull/180) integrates shared
+Sandbox execution, the physical Docker backend, inspection handoff and
+accepted-apply scheduling. Runtime `515bbd4e5` eliminates premature SQL
+publication probes for known accepted commands and enrollment while preserving
+fresh reconciliation and original ownership. The pre-change held-apply control
+records 23 probes; the current command/enrollment controls assert zero in both
+image modes. The owning selection remains **FAILED, 26/27**; the lost-SQL-reply error
+assertion fails in both pre-change and current executables. Its typed-error and
+shutdown contract remains unresolved.
 
-Current real RustFS/Engine qualification remains **FAILED: 5/7 whole functions**
-and 20 required configurations. Native Container recovery passes all four
-image/minimum profiles, and all eight archive-refusal profiles pass. Both
-Quorum Sandbox profiles complete execution, files, generation replacement,
-retained lost-Exec/Delete recovery and autonomous terminal cleanup. Both S3
-Sandbox Start1 requests still exceed 5s, and both explicit-S3 retirement profiles
-fail at Start before their fault cut. There are 14 configurations in passing
-functions and two Quorum markers in the failed Sandbox function; no full Sandbox
-or primitive-family acceptance follows.
-
-The native basic function at `06afc4ec2` also remains failed: three profiles pass,
-but extent/S3 Create1 expires after actual Create. Its primitive executable is
-byte-identical to the current Cargo-validated artifact. Earlier full completion
-and physical campaigns remain preserved; none supplies current full closure.
-The handoff's four native/four real-RustFS passes and four pre-fix ordering
-failures remain scoped evidence. See
-[progress](progress.md#cg-17-journal-failure-shutdown-and-current-completion).
+The basic public SDK control passes all four Quorum/S3 image profiles. The native
+inspection function still fails extent/S3 Destroy3. The current complete real
+RustFS/Engine campaign remains **FAILED, 3/7 functions**, with 20 required
+configurations and 11 success markers, including five in failed functions.
+Both physical controls and all four Sandbox source-proof refusal profiles pass.
+Container recovery, Container archive refusal, Sandbox recovery and explicit S3
+retirement floors remain incomplete. Startup, enrollment and post-effect public
+completion can still exceed their original budgets. Earlier source-specific
+passes do not qualify this source. See
+[progress](progress.md#cg-17-accepted-apply-scheduling-and-remaining-completion-gates)
+for the exact failures and retained evidence.
 
 The next feature deliveries are:
 
-1. Close common public S3 input/output completion and receipt settlement under
-   the original identities, minima and 5s/3s/60s limits. Current single-Create
-   diagnostics take 2,900 ms with native storage and 2,050 ms with RustFS; these
-   are separate observations, not a benchmark or exclusive cause. The real
-   window records 18 SQL publication and 77 stage attempts. Investigate using
-   original accepted-position progress to avoid premature SQL settlement probes;
-   fresh receipt, term, owner and route checks remain mandatory. Preserve
-   required cleanup and unknown work.
+1. Close public completion and startup waits under the original identities,
+   minima and 5s/3s/60s limits. Trace actual checkpoint/apply/archive/receipt waits;
+   stage counters include async continuation polls and are not proof of redundant
+   preparation. Preserve fresh authority, source/target proofs, required cleanup
+   and unknown work. Resolve the baseline lost-reply typed-error/shutdown
+   contract without weakening its assertion. Current single-Create diagnostics
+   take 1,615 ms native and 2,046 ms with RustFS; neither proves a latency cure.
 2. Run the combined completion and physical Container/Sandbox gates. Retain both
    selected namespaces, constructor-independent cleanup, original receipts,
    independent execution fences and explicit S3 custody floors. Complete

@@ -32,6 +32,62 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 accepted-apply scheduling and remaining completion gates
+
+Runtime `515bbd4e5` retains the exact accepted position for commands and
+enrollment. While the same local leader/term has not applied that position, the
+existing owner waits on controller progress instead of probing SQL. Apply,
+leadership change or a failed status sample returns to fresh receipt/term/route
+reconciliation. Status cannot acknowledge a write or retire a producer; unknown
+acceptance keeps normal reconciliation. Original deadlines and joined ownership
+remain intact, with no additional per-cell worker or timer.
+
+The unchanged held-manifest test fails on `49a37a4f0`: 23 SQL publication attempts
+occur during 100 ms of unapplied committed work. Commands and enrollment now
+assert zero premature attempts in both image modes, including disconnect,
+response expiry and accepted shutdown. The broader owning selection is
+**FAILED, 26/27**. Its lost-SQL-reply case fails the expected Unavailable-error
+assertion in both the pre-change and current executables; its typed-error and
+shutdown contract remains unresolved. Explicit compiled/observer source pins
+prevent treating that baseline failure as a current-source pass.
+
+The ordinary public SDK provider control passes **4/4** Quorum/S3 image profiles.
+The native inspection control remains **FAILED** at extent/S3 Destroy3's original
+5s deadline. Separate single-Create diagnostics pass in 1,615 ms native and
+2,046 ms with real RustFS, each recording one SQL publication operation. They
+record 57 and 103 SQL stage operations respectively. That counter also includes
+woken async continuation polls; it does not establish redundant SQL staging.
+These observations establish neither an end-to-end speedup nor deadline closure.
+
+**The fixed real RustFS/Engine campaign is FAILED: 3/7 whole functions.**
+
+| Current-source case | Result |
+| --- | --- |
+| Journal-failure shutdown | Pass; original error retained and process stopped |
+| Physical restart/fence/receipt control | Pass |
+| Public native Container recovery | Extent/Quorum passes; materialized/Quorum docker-a Read5, materialized/S3 startup and extent/S3 docker-b Status3 fail |
+| Container archive refusal | Three profiles pass; materialized/Quorum cleanup Destroy2 exceeds 5s |
+| Public Sandbox execution/recovery/cleanup | Materialized/Quorum passes; materialized/S3 and extent/Quorum Start1 exceed 5s after Create; extent/S3 enrollment expires |
+| Sandbox archive refusal | All four profiles pass the Reserved-generation oracle |
+| Explicit S3 retirement floor | Both profiles fail Start1 after Create, before the retirement fault cut |
+
+All seven functions and 20 required configurations ran. There are 11 success
+markers: six configurations in passing functions and five in failed functions.
+Earlier passes remain source-specific; this run cannot establish a performance
+cause or full family acceptance. Original IDs, payloads, minima and 5s/3s/60s
+budgets are unchanged. Native RF3 still shares one macOS process; RustFS and the
+physical backend run in the owned constrained Linux VM. Independent voters,
+load, disk loss, provider-volume recovery and full primitive APIs remain open.
+
+Locked optimized builds, affected strict Clippy, canonical formatting, layout,
+native dependency and documentation checks pass. Source, binaries, raw logs and
+retained state are preserved in `CG-17-accepted-apply-native-515bbd4e5-2577`,
+`CG-17-accepted-apply-real-515bbd4e5-2575` and the pre-change negative-control
+bundle `CG-17-accepted-apply-red-49a37a4f0-2571`, with verified second copies.
+The lab is stopped and joined. Next trace actual checkpoint/proof and startup
+waits, close the baseline lost-reply contract, then repeat combined primitive
+qualification. All 32 full CG-17 cases and default cutover remain open.
+
 ### CG-17 journal-failure shutdown and current completion
 
 The physical Docker shutdown path previously returned immediately when its
