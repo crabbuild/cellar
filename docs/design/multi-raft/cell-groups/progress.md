@@ -32,6 +32,64 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 shared Delete input and completion qualification
+
+Runtime `fad389bf3` combines private shared-Sandbox deletion intent and its
+maintenance retry claim with the exact child-call intent in the mandatory input
+checkpoint. Provider I/O still follows that proof. Public manual transitions and
+terminal confirmations retain their sync and current-checkpoint checks.
+
+The new required real-Docker/RustFS Delete test expands the fixed campaign from
+seven functions/20 profiles to **eight functions/22 profiles**. It checks the
+ordinary Delete checkpoint count, an actual S3 parent-input cut after Quorum
+Create, retained restart and constructor-independent cleanup after restoration.
+Its original 5s/3s/60s limits, identities and effect counts remain enforced.
+
+The pre-change `00bb5aed1` run records four materialized source cuts, then fails
+60s cleanup after archive restoration; its applied image retains the stronger
+S3 floor and managed/native discovery while the child remains Ready. Extent
+mode fails its original Quorum Delete2 deadline after physical deletion. These
+are distinct failures, not a pure two-image checkpoint-count control.
+
+The current materialized ordinary Delete completes with **three source cuts**,
+but the new test is still FAILED: its subsequent Quorum Create times out after
+physical creation, before the S3 fault phase. Extent times out at its first
+Quorum Create. The input/restart recovery oracle is not qualified on this source.
+
+All **27 ownership tests, three preparation tests and both SDK controls/eight
+profiles pass**. Strict affected Clippy, formatting, layout, native dependency
+checks and all 44 qualification-runner tests pass. The full real campaign is
+**FAILED: 4/8 functions, 12/22 profiles**, including two profiles in a failed
+function.
+
+| Current-source case | Result |
+| --- | --- |
+| Journal-failure shutdown and physical fence/receipt control | Both pass |
+| Public Container recovery | Both materialized profiles pass; extent/Quorum docker-b Destroy4 and extent/S3 docker-b Status2 exceed 5s |
+| Container source-proof refusal/recovery | All four profiles pass |
+| Public Sandbox recovery | Materialized/Quorum Read5 exceeds 5s; the other three profiles fail Start1 before physical Create |
+| Sandbox source-proof refusal | All four profiles pass the Reserved-generation oracle |
+| Explicit S3 cleanup floor | Both Start1 requests exceed 5s before the fault cut; extent enters physical Create |
+| Delete input/restart recovery | Materialized verifies three cuts, then its second cell's Create1 expires; extent's first Create1 expires |
+
+Read-only backend-journal observations bound one failed Quorum Create's durable
+physical completion at least 1,127 ms before its public deadline. The response
+still expires. This narrows investigation to the remaining completion path; it
+does not establish one cause. Host resource observations are retained as context.
+The documented terminal sync is preserved. A separate diagnostic mode now traces
+the entire original Sandbox recovery flow using existing binding/checkpoint/
+archive/publication and real-adapter timing; it is not an acceptance substitute.
+
+The lab and observer are stopped and joined. Verified source/binary/log/state
+copies are retained in `CG-17-delete-input-native-fad389bf3-2606` and
+`CG-17-delete-input-real-fad389bf3-2604`. The failed pre-change test is retained in
+`CG-17-delete-input-red-00bb5aed1-2599`, also with a verified second copy.
+Earlier `a99ddd9d3` passes remain pinned to that source. Native RF3 still shares
+one macOS process; bounded physical execution and real RustFS use the owned
+constrained Linux VM. All 32 full CG-17 cases, independent-voter/load/disk-loss
+qualification and hard cutover remain open. The generated implementation index
+is unchanged; historical CG-01 evidence is still missing from full validation.
+
 ### CG-17 joined capture failures and Sandbox input batching
 
 Runtime `a99ddd9d3` closes the lost-SQL-reply shutdown contract. A failed

@@ -522,21 +522,27 @@ pub async fn qualify_delete_input() -> Result<()> {
     run(Scenario::DeleteInput).await
 }
 
+pub async fn profile_recovery() -> Result<()> {
+    run(Scenario::RecoveryProfile).await
+}
+
 enum Scenario {
     Recovery,
     Outage,
     MinimumCustody,
     StartProfile,
     DeleteInput,
+    RecoveryProfile,
 }
 
 async fn run(scenario: Scenario) -> Result<()> {
     let outage = matches!(scenario, Scenario::Outage);
     let minimum_custody = matches!(scenario, Scenario::MinimumCustody);
     let profile = matches!(scenario, Scenario::StartProfile);
+    let trace = profile || matches!(scenario, Scenario::RecoveryProfile);
     let delete_input = matches!(scenario, Scenario::DeleteInput);
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(if profile { "cellar::sandbox::execution=debug,cellar::raft::checkpoint=debug,cellar::raft::group_archive=debug,cellar::raft::sql_publish=trace" } else { "cellar::sandbox::execution=debug" })
+        .with_env_filter(if trace { "cellar::sandbox::execution=debug,cellar::raft::binding=debug,cellar::raft::checkpoint=debug,cellar::raft::group_archive=debug,cellar::raft::sql_publish=trace" } else { "cellar::sandbox::execution=debug" })
         .with_test_writer()
         .try_init();
     let socket = PathBuf::from(std::env::var("CELLAR_DOCKER_BACKEND_SOCKET")?);
@@ -608,7 +614,7 @@ async fn run(scenario: Scenario) -> Result<()> {
                 original_delete: Mutex::new(None),
                 lookups: AtomicUsize::new(0),
                 changed: Notify::new(),
-                trace: profile,
+                trace,
             });
             let controller = ExecutionController::create(
                 domain.clone(),
@@ -638,7 +644,7 @@ async fn run(scenario: Scenario) -> Result<()> {
                 store.clone(),
                 controller.clone(),
                 track.clone(),
-                profile,
+                trace,
             )
             .await
             {

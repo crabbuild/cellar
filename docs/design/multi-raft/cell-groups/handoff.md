@@ -8,19 +8,22 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 Continue on `codex/cg17-s3-completion`; open draft PR #180 uses
 `codex/cg17-shared-sandbox-bridge`. Both include merged main `09cdcf423`.
-Runtime `a99ddd9d3` joins failed capture tasks, preserves fatal reply-loss origin
-custody and batches private Sandbox reservation with its binding input proof.
+Runtime `fad389bf3` also batches private Sandbox deletion/retry state with its
+binding input proof; materialized ordinary Delete verifies three source cuts.
 All 27 owning tests, three preparation tests and eight SDK provider profiles pass.
-The full real RustFS/Engine run remains FAILED: 5/7 functions, 17/20 profiles.
-All Container recovery/refusal profiles and both Quorum Sandbox recovery profiles
-pass. Materialized explicit S3 cleanup custody also passes archive interruption
-and autonomous terminal recovery. The owned lab is stopped and joined.
+The full expanded real RustFS/Engine run is FAILED: 4/8 functions, 12/22 profiles.
+Both physical controls, all source-proof refusal profiles and both materialized
+Container recovery profiles pass. Sandbox recovery, extent Container recovery,
+explicit S3 floors and the new Delete input/restart case remain incomplete.
+The owned lab and read-only journal observer are stopped and joined.
 
-Next close materialized/S3 Sandbox DestroyJob8 and the two extent/S3 Start1
-failures (normal and floor configurations), retaining all original identities,
-proofs and deadlines. Then finish full primitive API/feature/recovery/GC coverage
+Next use the diagnostic full recovery phase trace to close startup/completion and
+autonomous Delete recovery, preserving the documented terminal sync, all original
+identities, proofs and deadlines. The current new test verifies the materialized
+cut count but Create failures prevent reaching its archive fault. The pre-change
+run reaches it and fails 60s autonomous recovery. Then finish full primitive API/feature/recovery/GC coverage
 and the independent-voter release gates. See the
-[current source and evidence](progress.md#cg-17-joined-capture-failures-and-sandbox-input-batching)
+[current source and evidence](progress.md#cg-17-shared-delete-input-and-completion-qualification)
 and [priorities](remaining-work.md#primitive-delivery-priority). Earlier scoped
 passes do not close any of the 32 full CG-17 cases or authorize default cutover.
 

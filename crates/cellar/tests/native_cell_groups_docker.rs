@@ -81,3 +81,9 @@ async fn rustfs_native_sandbox_deletion_preserves_input_proof() -> anyhow::Resul
 async fn profile_rustfs_extent_s3_sandbox_start() -> anyhow::Result<()> {
     sandbox_execution::profile_start().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnostic: original full Sandbox recovery flow with phase timing against Docker and RustFS"]
+async fn profile_rustfs_native_sandbox_recovery() -> anyhow::Result<()> {
+    sandbox_execution::profile_recovery().await
+}

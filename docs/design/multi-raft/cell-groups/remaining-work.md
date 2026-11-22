@@ -40,35 +40,37 @@ full disaster profile remain open.
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
 Draft [PR #180](https://github.com/crabbuild/cellar/pull/180) integrates shared
 Sandbox execution, the physical Docker backend, inspection handoff and
-accepted-apply scheduling. Runtime `a99ddd9d3` also joins failed intermediate/final
-capture tasks and preserves unresolved origins through fatal SQL closure. All
-27 owning tests and three preparation tests pass, including the original
-lost-SQL-reply shutdown assertion. Both public SDK provider controls pass all
-eight Quorum/S3 image profiles. Shared Sandbox reservation and binding intent now
-share one mandatory input checkpoint; public reservation and output proofs retain
-their existing contracts.
+accepted-apply scheduling. Runtime `fad389bf3` also combines private Sandbox
+deletion/retry state with its exact binding input proof. Materialized ordinary
+Delete now verifies three source cuts instead of four. Public transitions and
+terminal sync retain their contracts. All 27 owning tests, three preparation
+tests and both SDK controls/eight profiles pass on this source.
 
-The current complete real RustFS/Engine campaign remains **FAILED, 5/7
-functions, 17/20 configurations**. Both physical controls, all Container recovery
-and archive-refusal profiles, both Quorum Sandbox recovery profiles and all
-Sandbox source-proof refusal profiles pass. The materialized explicit S3-floor
-control also passes archive refusal and autonomous recovery. Three Sandbox S3
-deadlines remain: materialized DestroyJob8, extent Start1, and extent floor Start1
-before its fault cut. Earlier source-specific passes do not qualify this source.
+The expanded real RustFS/Engine campaign is **FAILED, 4/8 functions,
+12/22 profiles**. Both physical controls and all source-proof refusal profiles
+pass. Container recovery passes both materialized profiles; extent Destroy4 and
+Status2 fail. Normal Sandbox recovery and the S3-floor case remain incomplete.
+The new Delete input/restart test verifies the materialized cut count, but Create
+deadlines prevent its fault phase from running. Prior pre-change testing reached
+that phase and failed autonomous recovery. Completion/startup failures now affect
+Quorum as well as S3 in this campaign. Earlier source-specific passes do not
+qualify this source.
 See
-[progress](progress.md#cg-17-joined-capture-failures-and-sandbox-input-batching)
+[progress](progress.md#cg-17-shared-delete-input-and-completion-qualification)
 for the exact failures and retained evidence.
 
 The next feature deliveries are:
 
-1. Close the three remaining Sandbox S3 deadlines under the original identities,
+1. Close public startup/completion and interrupted Delete recovery under the original identities,
    minima and 5s/3s/60s limits. Trace actual checkpoint/apply/archive/receipt waits;
    stage counters include async continuation polls and are not proof of redundant
    preparation. Preserve fresh authority, source/target proofs, required cleanup
-   and unknown work. The fatal lost-reply contract now passes its owning tests.
-   The isolated extent/S3 Start passes in 4,802 ms but fails in the complete
-   campaign; it does not establish deadline closure or a performance cause.
-2. Run the combined completion and physical Container/Sandbox gates. Retain both
+   and unknown work. Preserve the documented terminal sync. Use the complete
+   recovery phase trace to distinguish checkpoint/completion delay, background
+   lifecycle interference and leadership changes. One failed Quorum Create's
+   durable physical result is observed over a second before public expiry;
+   neither that observation nor an earlier isolated pass proves a cause.
+2. Pass all eight combined physical Container/Sandbox functions/22 profiles. Retain both
    selected namespaces, constructor-independent cleanup, original receipts,
    independent execution fences and explicit S3 custody floors. Complete
    interactive, port/HTTP/WebSocket and provider-volume contracts.
