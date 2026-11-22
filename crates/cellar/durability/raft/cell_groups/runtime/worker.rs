@@ -479,6 +479,32 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
+        if !group.owner.park_fenced() && group.park_write.is_none() {
+            // These proofs select only the current applied root and recheck
+            // its term, membership and exact leaf. They neither grant private
+            // execution nor initialize a cell, so unrelated Ready persistence
+            // need not delay them. Keep park/wake requests on their existing
+            // ordered path; node request admission still bounds every reply.
+            let observation = match &request.command {
+                Command::Reconciliation(cell) => Some(
+                    group
+                        .owner
+                        .reconciliation_authority(cell)
+                        .map(|authority| Response::Reconciliation(Box::new(authority))),
+                ),
+                Command::EnrollmentState(cell) => Some(
+                    group
+                        .owner
+                        .enrollment_state(cell.clone())
+                        .map(|state| Response::EnrollmentState(Box::new(state))),
+                ),
+                _ => None,
+            };
+            if let Some(observation) = observation {
+                reply(request, observation);
+                return;
+            }
+        }
         if let Command::RoutingStatus { advice, activity } = request.command {
             let observation = group.owner.routing_status(advice).and_then(|observation| {
                 // An authenticated mutation probe reaches this before its

@@ -2554,7 +2554,7 @@ impl CellGroupOwner {
         Ok(())
     }
 
-    fn park_fenced(&self) -> bool {
+    pub(super) fn park_fenced(&self) -> bool {
         self.pending_park.is_some() || self.parked.is_some() || self.waking_after.is_some()
     }
 

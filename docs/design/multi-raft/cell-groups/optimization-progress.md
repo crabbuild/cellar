@@ -36,6 +36,40 @@ acceptance. The original constrained Colima/RustFS comparison has no admitted
 cases; its last reserve witness was below the unchanged 6 GiB minimum. No
 end-to-end throughput or latency gain is qualified.
 
+## Applied observations during persistence
+
+Compiler inputs `77f944ab` serve reconciliation and enrollment-state observations
+from the current applied root while unrelated Ready persistence is pending.
+Existing term, membership and exact-leaf checks remain in the proof constructors.
+These observations grant neither private execution nor initialization authority.
+Failed/retiring groups retain their refusals; park preparation, parked groups and
+wake barriers keep their existing ordered path. Every request retains ordinary
+node item/byte admission. No worker, bank, deadline or durability proof changes.
+
+A byte-identical native RF3 regression holds actual leader-log sync for another
+cell. The unchanged runtime fails the one-second observation-progress window
+twice; the candidate passes twice. The fixture checks the known cell's exact
+version and enrollment, absence of the unpublished cell, lack of early
+initialization authority, unchanged publication and successful settlement after
+release. A timeout observes the original requests; it never reissues them. All
+workers and the domain close before the final result, and failed media is kept.
+Eighteen existing receipt, leadership-change, ambiguous-initialization,
+cancellation, capacity and quarantine controls pass, as do managed park
+admission/restart and source sealing. All **1,387 library tests / two existing
+ignores** and strict affected all-feature Clippy pass.
+
+The uninstrumented original C4 Queue comparison still fails both rooted
+candidate and both rooted control runs during load. One materialized candidate
+run delivers **528 messages / 528 unique IDs**. All five Queue cases report
+joined domains, three node/host close attempts and zero cleanup errors; original
+media, synthetic exports and exact closed copies are independently verified.
+The unchanged workload retains its three-second RPC, five-second callback and
+30-second drain windows and original admission. This qualifies the removed
+observation dependency, not service repeatability or an end-to-end speedup.
+Target SQL/image/persistence interference, checkpoint repeatability and full
+OPT/CG/recovery/SDK/release acceptance remain open, followed by the constrained
+Colima/RustFS comparison. See [remaining priorities](remaining-work.md).
+
 ## Rooted workspace preparation
 
 Compiler inputs `44ea1133` move rooted workspace creation onto the existing
@@ -95,12 +129,22 @@ independently verified, and temporary source instrumentation is removed.
 The earlier request trace shows five of 15 rooted Queue dispatcher captures and
 48 of 132 materialized captures have under two seconds left in the original
 three-second budget. These are per-invocation remaining budgets, not elapsed-time
-comparisons across node clocks. Next, distinguish pre-dispatch ingress FIFO,
-enrollment/name selection and sequence observation from SQL writer/image and
-settlement costs. The separate checkpoint follower-progress repeatability gap
-remains open. Close the unchanged C2/C4 delivery/uniqueness oracle and complete
-OPT/CG, recovery/SDK/release qualification and the constrained Colima/RustFS
-comparison before claiming completion or a performance gain.
+comparisons across node clocks.
+
+A subsequent five-case ingress campaign reaches load and fails in every case;
+all five cleanup joins and retained copies verify. Its three traced selections
+validate **85 normalized inputs**. Every call enters source ingress with the full
+three-second budget, with at most 1 ms to first poll. Completed FIFO waits reach
+2,272 ms and target-command service reaches 2,320 ms. Enrollment and name work
+are rare and take at most 2 ms; history and sequence observations are smaller
+than the largest FIFO and target waits. These overlapping phase observations
+are not request percentiles and cannot be added across calls or node clocks.
+Temporary tracing is removed byte-exact. Preserve FIFO ordering and focus the
+next optimization on target SQL writer/image/settlement interference. The
+separate checkpoint follower-progress repeatability gap remains open. Close the
+unchanged C2/C4 delivery/uniqueness oracle and complete OPT/CG,
+recovery/SDK/release qualification and the constrained Colima/RustFS comparison
+before claiming completion or a performance gain.
 
 ## Earlier Queue diagnostic boundary
 

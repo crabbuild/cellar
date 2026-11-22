@@ -34,6 +34,11 @@ async fn runtime_replicates_append_while_its_sync_is_pending() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn runtime_observes_applied_cells_without_waiting_for_unrelated_sync() -> Result<()> {
+    Box::pin(runtime_fixture::observations_during_sync()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn retained_read_starts_one_normal_election_without_idle_ticks() -> Result<()> {
     startup_read::retained_read_election(true).await
 }

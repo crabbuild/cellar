@@ -45,7 +45,7 @@ pub(super) use checkpoint_pressure::transfer_pressure;
 
 #[path = "cell_group_ready_runtime.rs"]
 mod ready_runtime;
-pub(super) use ready_runtime::append_during_sync;
+pub(super) use ready_runtime::{append_during_sync, observations_during_sync};
 
 #[path = "cell_group_checkpoint_receive.rs"]
 mod checkpoint_receive;

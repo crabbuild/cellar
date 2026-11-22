@@ -14,7 +14,7 @@ controls**, strict affected Clippy and repository checks, and **83 Python toolin
 tests**. These are scoped passes; complete service and release qualification
 remain open. See [the implementation ledger](optimization-progress.md#integration-with-main-179).
 
-The rooted workspace-opening candidate at compiler inputs `44ea1133` passes
+The rooted workspace-opening change at compiler inputs `44ea1133` passes
 **1,387 library tests / two existing ignores**, nine owning controls and both
 managed RF3 workspace-progress regressions. **Broader native qualification remains
 failed (14 of 21 selections pass)**, including checkpoint progress and Queue
@@ -24,10 +24,23 @@ Observed writer admission, image preparation and settlement waits are material.
 An exact-proposal follow-up places the long unresolved checkpoint after initial
 producer failures; it does not explain their deadlines. Some Queue calls reach
 dispatcher capture with under two seconds of the original three-second budget.
-Source tracing is removed. The next P0 is separating pre-dispatch ingress FIFO,
-enrollment/name/sequence costs from SQL writer/image/settlement costs, while
-retaining the independent checkpoint-progress repeatability gate. See the
+Source tracing is removed. A subsequent ingress trace finds full three-second
+budgets at source entry, substantial FIFO waits behind target commands, and
+rare, short enrollment/name work. The next P0 is reducing target SQL
+writer/image/settlement costs while retaining FIFO ordering and the independent
+checkpoint-progress repeatability gate. See the
 [workspace qualification boundary](optimization-progress.md#rooted-workspace-preparation).
+
+Current inputs `77f944ab` let verified applied-state observations finish during
+unrelated Raft persistence, preserving execution, initialization and park fences.
+The held-sync regression passes twice while the unchanged runtime fails twice;
+18 existing receipt/recovery/admission controls, park admission/restart and source
+sealing also pass. All **1,387 library tests / two existing ignores** pass.
+This closes one scheduling dependency, not Queue service acceptance: one fresh
+materialized C4 run drains **528 messages / 528 unique IDs**, while both rooted
+candidate and both rooted control runs fail during load. All five Queue cleanup
+joins and retained copies are independently verified. See
+[applied observations during persistence](optimization-progress.md#applied-observations-during-persistence).
 
 Earlier fresh unsampled C4 Queue trials on `06fe9101f` pass twice in materialized mode
 and fail twice in rooted mode. The C2 control passes materialized delivery and
@@ -40,7 +53,7 @@ joins do not close earlier cleanup/storage failures.
 
 | Priority | Work required before acceptance |
 | --- | --- |
-| **P0: Repeatable service and recovery** | Close Queue producer/callback service and drain under the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows, SQL/KV repeatability, receipt/RPC and complete-prefix recovery/lifecycle gaps. Attribute pre-dispatch ingress and SQL writer/image/settlement costs, then lock down each change with an owning regression. Keep checkpoint-progress repeatability as a separate gate. |
+| **P0: Repeatable service and recovery** | Close Queue producer/callback service and drain under the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows, SQL/KV repeatability, receipt/RPC and complete-prefix recovery/lifecycle gaps. Reduce measured target SQL writer/image/settlement interference and lock down each change with an owning regression. Keep checkpoint-progress repeatability as a separate gate. |
 | **P1: Shared execution** | Reduce measured image, persistence and archive interference; prove fairness under control/election/shutdown work and routing/read partitions. Preserve exact receipts, Ready/sync ordering, admission banks and S3 coverage. |
 | **P1: Sustainable capacity and release** | Prove physical shared-segment deletion and once-only capacity credit, repeated reserve-aware movement, interrupted park/wake/recovery, and combined primitive/SDK/Axum/daemon/fault/crash acceptance. |
 | **P2: Constrained performance** | Run the original three-node, **1 vCPU / 2 GiB each**, RF3/three-group SQL/KV/Queue comparison against shared RustFS, including Quorum, Quorum+S3, Fleet and Bucket at C1/4/16 with reversed repeats. |
