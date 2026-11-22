@@ -4,6 +4,11 @@
 //! Engine. No ambient socket, image, object-store credential or durability fallback.
 #![allow(clippy::disallowed_methods)]
 
+use anyhow::{ensure, Context as _, Result};
+use cellar::sdk::consensus::*;
+use managed_fixture::{ManagedCluster, TIMEOUT};
+use std::time::Duration;
+
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
 #[path = "support/cell_group_configuration.rs"]
@@ -22,6 +27,8 @@ async fn docker_backend_joins_processes_and_retains_original_receipts() -> anyho
 }
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
+#[path = "support/cell_group_named_service.rs"]
+pub mod named_service;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 

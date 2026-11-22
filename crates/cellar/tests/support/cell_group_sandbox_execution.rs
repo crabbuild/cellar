@@ -1,7 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Public named Sandbox calls, actual processes and autonomous cleanup.
-use super::{catalog_fault, configuration, docker_execution, managed_fixture, rustfs};
+use super::{
+    catalog_fault, configuration, docker_execution, managed_fixture, named_service, rustfs,
+};
 use anyhow::{ensure, Context as _, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use cellar::{
@@ -527,6 +529,11 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
             };
             let execution = cluster.fixtures[0].domain.clone();
             let result=execution.run(async {
+            // The generic fixture selects only the first namespace. Provision
+            // the execution namespace and its independent RF3/archive authority
+            // before any public Sandbox call or archive fault is admitted.
+            named_service::activate(&cluster,"sandbox-archive").await?;
+            ensure!(cluster.hosts.iter().all(|host|host.resource_usage().host.controller.groups==2),"both Sandbox namespaces must have a live managed group");
             let history=|name:&str|->Result<CellHistory>{Ok(CellHistory{cluster:cluster.history.cluster,namespace:cluster.history.namespace,cell:CellId::new(format!("Counter:{name}"))?,incarnation:IncarnationId::new([227;16])?})};
             let a=history(if minimum_custody {"sandbox-floor"}else{"sandbox-parent"})?;let b=history("sandbox-independent")?;
             for (index,h) in [&a,&b].iter().enumerate() {let leader=managed_fixture::leader(&cluster.hosts,cluster.history).await?;cluster.hosts[leader].cell((*h).clone())?.enroll(CellEnrollmentRequest{creation:ProposalId::new([228+index as u8;16])?,durability:minimum},TIMEOUT).await?;}
@@ -548,7 +555,7 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
                     cellar::asyncrt::sleep(Duration::from_millis(50)).await;
                 }}).await.context("actual Delete/parent S3 archive cut not reached")?;
                 track.refuse.store(true,Ordering::Release);let factories=track.factories.load(Ordering::Acquire);
-                docker_execution::restart(&mut cluster).await?;
+                named_service::restart(&mut cluster).await?;
                 let start=std::time::Instant::now();let mut id=1;
                 while std::time::Instant::now().duration_since(start)<Duration::from_secs(10) {
                     let status=state(&cluster,&a,id).await?;id+=1;
@@ -571,7 +578,7 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
                 peer.lose_exec.store(true,Ordering::Release);peer.hide_exec.store(true,Ordering::Release);
                 let lost=call(&cluster,&a,minimum,3,"Exec").await.err().context("Sandbox exec reply loss not reached")?;unknown(&lost,options(3,minimum)?.id)?;
                 ensure!(peer.executes.load(Ordering::Acquire)==2 && peer.original_exec.lock().unwrap().is_some());
-                call(&cluster,&b,minimum,1,"Status").await?;docker_execution::restart(&mut cluster).await?;
+                call(&cluster,&b,minimum,1,"Status").await?;named_service::restart(&mut cluster).await?;
                 ensure!(call(&cluster,&a,minimum,4,"Read").await.is_err(),"hidden original execution receipt admitted Sandbox work");
                 ensure!(peer.lookups.load(Ordering::Acquire)>0,"original Sandbox receipt was not consulted");
                 peer.hide_exec.store(false,Ordering::Release);call(&cluster,&a,minimum,5,"Read").await?;
@@ -599,7 +606,7 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
                 call(&cluster,&a,minimum,10,"Retire").await?;
                 cellar::asyncrt::timeout(Duration::from_secs(60),async {loop {let changed=peer.changed.notified();if peer.original_delete.lock().unwrap().is_some(){break;}changed.await;}}).await.context("autonomous Sandbox Delete never entered")?;
                 track.refuse.store(true,Ordering::Release);let factories=track.factories.load(Ordering::Acquire);
-                docker_execution::restart(&mut cluster).await?;peer.hide_delete.store(false,Ordering::Release);
+                named_service::restart(&mut cluster).await?;peer.hide_delete.store(false,Ordering::Release);
                 cellar::asyncrt::timeout(Duration::from_secs(60),async {let mut id=1;loop {let status=state(&cluster,&a,id).await?;id+=1;if status["parent"]["state"]=="deleted" && status["cleanup_pending"]==false && status["job"]["state"]=="deleted" && status["spare"]["state"]=="deleted" {break;}cellar::asyncrt::sleep(Duration::from_millis(50)).await;}Ok::<_,anyhow::Error>(())}).await.context("retained Sandbox cleanup did not prove terminal metadata")??;
                 ensure!(track.factories.load(Ordering::Acquire)==factories,"autonomous Sandbox cleanup constructed business code");
                 ensure!(peer.creates.load(Ordering::Acquire)==3 && peer.deletes.load(Ordering::Acquire)==3 && peer.executes.load(Ordering::Acquire)==2,"Sandbox cleanup replayed a mutation or missed an exact generation");
@@ -623,9 +630,10 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
                 .store(false, Ordering::Release);
             peer.hide_exec.store(false, Ordering::Release);
             peer.hide_delete.store(false, Ordering::Release);
-            let closed = managed_fixture::close_group_nodes(
+            let closed = managed_fixture::close_group_nodes_with_groups(
                 std::mem::take(&mut cluster.nodes),
                 &cluster.hosts,
+                2,
             )
             .await;
             for root in std::mem::take(&mut cluster.roots) {
