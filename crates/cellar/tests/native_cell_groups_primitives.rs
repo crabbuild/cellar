@@ -327,6 +327,16 @@ async fn private_image_preparation_releases_the_single_sql_worker() -> Result<()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_private_image_tasks_join_and_fence_rpc_owners() -> Result<()> {
+    for rooted in [false, true] {
+        for checkpoint in [false, true] {
+            rpc_progress::failed_preparation(rooted, checkpoint).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
     for rooted in [false, true] {

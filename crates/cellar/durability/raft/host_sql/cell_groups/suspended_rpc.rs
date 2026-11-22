@@ -352,7 +352,7 @@ impl Preparing {
 }
 
 impl Cells {
-    fn poll_preparing(&mut self, stopped: &AtomicBool, now: u64) -> bool {
+    fn poll_preparing(&mut self, stopped: &AtomicBool, now: u64) -> Result<bool, ExecutionError> {
         for _ in 0..self.preparing.len() {
             let Some(mut preparation) = self.preparing.pop_front() else {
                 break;
@@ -365,6 +365,12 @@ impl Cells {
                 Poll::Pending => {
                     self.preparing.push_back(preparation);
                     continue;
+                }
+                Poll::Ready(Err(error)) if preparation::task_failed(&error) => {
+                    // Preserve the reply and private producer through joined
+                    // worker closure; do not deliver this as a callback refusal.
+                    self.preparing.push_front(preparation);
+                    return Err(error);
                 }
                 Poll::Ready(result) => result,
             };
@@ -395,9 +401,9 @@ impl Cells {
                 now,
             );
             let _ = preparation.reply.send(result);
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
     pub(super) fn start_rpc(
@@ -616,12 +622,12 @@ impl Cells {
         domain: &crate::asyncrt::DomainToken,
         stopped: &AtomicBool,
         performance: &Arc<crate::raft::performance::Registry>,
-    ) -> bool {
+    ) -> Result<bool, ExecutionError> {
         let Ok(now) = domain.mono_ms() else {
-            return false;
+            return Ok(false);
         };
-        if self.poll_preparing(stopped, now) {
-            return true;
+        if self.poll_preparing(stopped, now)? {
+            return Ok(true);
         }
         let _ = self.activations.prune(now);
         for _ in 0..self.suspended.len() {
@@ -656,7 +662,7 @@ impl Cells {
             let mut cx = Context::from_waker(&waker);
             if let Err(error) = admitted {
                 timer.finish(self.finish_suspended(rpc, Err(error.into()), now, domain));
-                return true;
+                return Ok(true);
             }
             if yield_io {
                 // The SQL owner observes contention even if remote owned I/O
@@ -670,7 +676,7 @@ impl Cells {
                         timer.finish(self.finish_suspended(rpc, Err(error.into()), now, domain));
                     }
                 }
-                return true;
+                return Ok(true);
             }
             if rpc.checkpoint.is_some() {
                 match rpc.poll_checkpoint(&mut cx, domain, stopped.load(Ordering::Acquire)) {
@@ -678,23 +684,28 @@ impl Cells {
                         self.suspended.push_back(rpc);
                         timer.finish(true);
                     }
+                    Poll::Ready(Err(error)) if preparation::task_failed(&error) => {
+                        self.suspended.push_front(rpc);
+                        timer.finish(false);
+                        return Err(error);
+                    }
                     Poll::Ready(Err(error)) => {
                         timer.finish(self.finish_suspended(rpc, Err(error.into()), now, domain));
                     }
                 }
-                return true;
+                return Ok(true);
             }
             if rpc.executor.is_none() && rpc.turn.can_poll_parked_io() {
                 match rpc.turn.poll_parked_io(&mut cx) {
                     Ok(true) => {
                         self.suspended.push_back(rpc);
                         timer.finish(true);
-                        return true;
+                        return Ok(true);
                     }
                     Ok(false) => (),
                     Err(error) => {
                         timer.finish(self.finish_suspended(rpc, Err(error.into()), now, domain));
-                        return true;
+                        return Ok(true);
                     }
                 }
             }
@@ -711,7 +722,7 @@ impl Cells {
                     }
                     Poll::Ready(Err(error)) => {
                         timer.finish(self.finish_suspended(rpc, Err(error.into()), now, domain));
-                        return true;
+                        return Ok(true);
                     }
                     Poll::Ready(Ok(())) => (),
                 }
@@ -739,7 +750,7 @@ impl Cells {
                     self.suspended.push_back(rpc);
                     timer.finish(true);
                 }
-                return true;
+                return Ok(true);
             };
             let result = result.and_then(|result| {
                 if stopped.load(Ordering::Acquire) {
@@ -749,8 +760,8 @@ impl Cells {
                 Ok(result)
             });
             timer.finish(self.finish_suspended(rpc, result, now, domain));
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 }

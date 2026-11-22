@@ -378,7 +378,7 @@ impl Pool {
                             if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
                                 break;
                             }
-                            let wait = if shared.poll_suspended(&owner, &stopped, &performance) {
+                            let wait = if shared.poll_suspended(&owner, &stopped, &performance)? {
                                 // Give queued work its turn before trying the next
                                 // ready continuation without the idle tick delay.
                                 Duration::ZERO

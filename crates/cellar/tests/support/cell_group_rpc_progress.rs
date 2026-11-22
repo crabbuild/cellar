@@ -17,6 +17,7 @@ struct PausedCell {
     preparation: ArmPreparation,
     gates: Arc<[RpcGate; 2]>,
     calls: Arc<AtomicUsize>,
+    captures: Arc<AtomicUsize>,
     sql_thread: Arc<Mutex<Option<std::thread::ThreadId>>>,
 }
 
@@ -31,11 +32,13 @@ impl Cell for PausedCell {
                 return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
             }
             if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Add") {
+                self.captures.fetch_add(1, Ordering::AcqRel);
                 let value = update(&self.storage, 2)?;
                 arm_preparation(&self.preparation);
                 return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
             }
             if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Sync") {
+                self.captures.fetch_add(1, Ordering::AcqRel);
                 let value = update(&self.storage, 2)?;
                 arm_preparation(&self.preparation);
                 self.storage.sync().await?;
@@ -205,6 +208,22 @@ enum Mode {
     RegisteredPreview,
     CancelledPreview,
     CancelledCheckpointPreview,
+    FailedPreview,
+    FailedCheckpointPreview,
+}
+
+pub async fn failed_preparation(rooted: bool, checkpoint: bool) -> Result<()> {
+    run_mode_with_workers(
+        rooted,
+        Arc::new(catalog_fault::Store::default()),
+        if checkpoint {
+            Mode::FailedCheckpointPreview
+        } else {
+            Mode::FailedPreview
+        },
+        1,
+    )
+    .await
 }
 
 async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, mode: Mode) -> Result<()> {
@@ -225,9 +244,13 @@ async fn run_mode_with_workers(
             | Mode::RegisteredPreview
             | Mode::CancelledPreview
             | Mode::CancelledCheckpointPreview
+            | Mode::FailedPreview
+            | Mode::FailedCheckpointPreview
     );
     let preparation: ArmPreparation = Arc::new(Mutex::new(None));
     let calls = Arc::new(AtomicUsize::new(0));
+    let captures = Arc::new(AtomicUsize::new(0));
+    let capture_calls = captures.clone();
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
     let reader = Arc::new(ReadGate::default());
     let query_reader = reader.clone();
@@ -280,6 +303,7 @@ async fn run_mode_with_workers(
                     preparation: cell_preparation.clone(),
                     gates: waiting.clone(),
                     calls: called.clone(),
+                    captures: capture_calls.clone(),
                     sql_thread: source_thread.clone(),
                 }))
             },
@@ -337,6 +361,7 @@ async fn run_mode_with_workers(
         faults: faults.clone(),
     });
     let mut cluster = Box::pin(ManagedCluster::start_with_roots(fixture, roots)).await?;
+    let mut expected_close = None;
     let work = cluster.fixtures[0]
         .domain
         .run(async {
@@ -415,10 +440,28 @@ async fn run_mode_with_workers(
             let options = interleaving::command(188, 1, Durability::Quorum)?;
             let run = source.contract("Run")?;
             let add = other.contract(match mode {
-                Mode::CheckpointPreview | Mode::CancelledCheckpointPreview => "Sync",
+                Mode::CheckpointPreview | Mode::CancelledCheckpointPreview | Mode::FailedCheckpointPreview => "Sync",
                 Mode::RegisteredPreview => "Registered",
                 _ => "Add",
             })?;
+            if matches!(mode, Mode::FailedPreview | Mode::FailedCheckpointPreview) {
+                let fault = faults.clone();
+                *preparation.lock().unwrap() = Some(Box::new(move || {
+                    *fault.before_directory_sync.lock().unwrap() = Some(Box::new(|| {
+                        panic!("injected RPC image capture task failure");
+                    }));
+                }));
+                let error = other.command(&add, b"{}".to_vec(), interleaving::command(189, 1, Durability::Quorum)?).await.err().context("capture task failure acknowledged")?;
+                ensure!(error.ambiguous && error.command == interleaving::command(189, 1, Durability::Quorum)?.id, "lost original capture identity: {error:?}");
+                ensure!(matches!(error.cause.as_ref(), CellDispatchError::Execution(ExecutionError::Refused(CommandFailure::Unavailable))), "capture failure remained serving: {error:?}");
+                ensure!(captures.load(Ordering::Acquire) == 1, "capture task failure replayed callback");
+                let closed = cellar::asyncrt::timeout(TIMEOUT, cluster.hosts[0].close()).await?.err().context("fatal capture failure lost close error")?;
+                ensure!(matches!(closed.controller.as_deref(), Some(CellGroupControllerError::Command(_))), "capture failure lost controller custody: {closed:?}");
+                let sql = cluster.hosts[0].resource_usage().sql.context("closed SQL owner")?;
+                ensure!(sql.running_workers == 0 && sql.work_reservations == 0 && sql.queue_closed, "capture failure retained SQL work: {sql:?}");
+                expected_close = Some(closed);
+                return Ok(());
+            }
             if matches!(mode, Mode::CancelledPreview | Mode::CancelledCheckpointPreview) {
                 let (release, started) = hold_private_preparation(faults.clone(), &preparation);
                 let mut command = Box::pin(other.command(
@@ -665,5 +708,16 @@ async fn run_mode_with_workers(
     }
     cluster.fixtures[0].domain.shutdown().await;
     work?;
-    joined
+    if let Some(expected) = expected_close {
+        let error = joined.err().context("fatal owner cleanup hid failure")?;
+        ensure!(
+            error
+                .downcast_ref::<Arc<RaftCloseError>>()
+                .is_some_and(|actual| Arc::ptr_eq(actual, &expected)),
+            "cleanup lost original close failure: {error:#}"
+        );
+        Ok(())
+    } else {
+        joined
+    }
 }
