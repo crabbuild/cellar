@@ -48,6 +48,17 @@ fn shared_sandbox_cannot_replace_a_retained_history_or_parent_pin() -> Result<()
     reserve_at(&retained, &h)?;
     assert!(owner(&retained, &h, None, false).is_err());
     assert!(owner(&retained, &h, None, true).is_err());
+    // Wrongly scoped development work cannot be reinterpreted as an idle cell.
+    let wrong_work = database()?;
+    owner(&wrong_work, &h, None, true)?;
+    wrong_work.execute_batch(super::super::work::SCHEMA)?;
+    super::super::work::set_in(
+        &wrong_work,
+        h.cell.as_str(),
+        cellar_logic::work::Reason::SandboxCleanup,
+        0,
+    )?;
+    assert!(check_schema(&wrong_work).is_err());
     Ok(())
 }
 
@@ -197,7 +208,7 @@ async fn idle_sandbox_turn_preserves_its_successor_discovery() -> Result<()> {
             // without sleeping for the idle interval or changing domain time.
             super::super::work::set_in(
                 &db,
-                h.cell.as_str(),
+                RAFT_STORAGE_SCOPE,
                 cellar_logic::work::Reason::SandboxCleanup,
                 0,
             )?;
@@ -216,6 +227,72 @@ async fn idle_sandbox_turn_preserves_its_successor_discovery() -> Result<()> {
                 SandboxParentState::Active
             );
             Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn shared_sandbox_retirement_is_visible_to_the_storage_callback_gateway() -> Result<()> {
+    use cellar_logic::work::Reason;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let root = tempfile::tempdir()?;
+            let mut database = crate::storage::CommandDatabase::open(
+                &root.path().join("sandbox-work.sqlite"),
+                None,
+                4 << 20,
+            )?;
+            let h = history(3)?;
+            database.transaction(
+                crate::storage::CommandInputs {
+                    now_unix_millis: 1,
+                    random: [8; 32],
+                },
+                |transaction| {
+                    let storage = transaction.storage()?;
+                    {
+                        let db = transaction.framework()?;
+                        super::super::as_framework_sql(|| {
+                            owner(&db, &h, None, true)?;
+                            db.execute_batch(super::super::work::SCHEMA)?;
+                            let allocation = reserve_at(&db, &h)?.allocation;
+                            super::super::sandbox_work::register_in(
+                                &db,
+                                h.cell.as_str(),
+                                &allocation,
+                                &"c".repeat(64),
+                            )?;
+                            super::super::sandbox_catalog::retire_at(
+                                &db,
+                                h.cell.as_str(),
+                                &"a".repeat(32),
+                                false,
+                            )?;
+                            Ok::<_, anyhow::Error>(())
+                        })?;
+                    }
+                    // This is the exact lookup used by the framework callback before
+                    // entering maintain_shared, not a query under the logical cell key.
+                    let installation = storage
+                        .work_installation(Reason::SandboxCleanup)?
+                        .context("retirement was invisible to the shared Storage callback")?;
+                    assert_eq!(installation.at_ms, 0);
+                    let db = transaction.framework()?;
+                    super::super::as_framework_sql(|| {
+                        assert_eq!(
+                            super::super::sandbox_catalog::read_parent(&db)?
+                                .context("parent missing")?
+                                .scope,
+                            h.cell.as_str()
+                        );
+                        assert!(crate::application::consensus::native_work::due(&db, 1)?.is_some());
+                        Ok::<_, anyhow::Error>(())
+                    })
+                },
+            )
         })
         .await?;
     domain.shutdown().await;

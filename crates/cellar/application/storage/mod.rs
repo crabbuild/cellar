@@ -352,6 +352,12 @@ impl Storage {
         at_ms: i64,
     ) -> Result<()> {
         if self.is_raft() {
+            if reason == cellar_logic::work::Reason::SandboxCleanup {
+                anyhow::ensure!(
+                    self.resources().sandbox_catalog.load(Ordering::Acquire),
+                    consensus::CommandFailure::UnsupportedCapability
+                );
+            }
             anyhow::ensure!(
                 self.resources().durable_callbacks.load(Ordering::Acquire),
                 consensus::CommandFailure::UnsupportedCapability

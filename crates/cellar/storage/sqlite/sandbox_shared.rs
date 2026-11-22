@@ -29,6 +29,18 @@ pub(super) fn check_schema(db: &Connection) -> Result<()> {
             history.len() == 32 && parent.as_ref().is_none_or(|p| p.len() == 32),
             "invalid shared sandbox owner"
         );
+        let work: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_work')",
+            [],
+            |row| row.get(0),
+        )?;
+        if work {
+            let wrong_scope: bool = db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM __sys_work WHERE reason='sandbox-cleanup' AND scope!=?1)",
+                [RAFT_STORAGE_SCOPE], |row| row.get(0),
+            )?;
+            ensure!(!wrong_scope, "shared sandbox work has a different storage scope; recreate the development history");
+        }
     }
     Ok(())
 }

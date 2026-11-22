@@ -52,6 +52,10 @@ pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
     if !SCHEMA.check(connection)? {
         return Ok(());
     }
+    let shared = super::sandbox_shared::installed(connection)?;
+    // Shared Storage and its callback look up work in the private image scope.
+    // The logical parent scope still owns catalog identities and generations.
+    let scope = if shared { RAFT_STORAGE_SCOPE } else { scope };
     let mut due = next(connection)?.map(|(_, _, _, due)| due);
     if due.is_none()
         && super::sandbox_catalog::read_parent(connection)?
@@ -109,7 +113,7 @@ pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
             )?;
         }
     }
-    if super::sandbox_shared::installed(connection)? {
+    if shared {
         if let Some(due) = due {
             crate::application::consensus::native_work::arm_maintenance(
                 connection,
