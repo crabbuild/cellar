@@ -38,39 +38,42 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-[PR #180](https://github.com/crabbuild/cellar/pull/180) includes the bounded birth
-window, cooperative inspection and the corrected Sandbox completion observer.
-Qualifier `8dcd2314f` preserves the three-Delete requirement and adds exact
-per-generation resource pairing; it accounts for known results received through
-reconciliation. The earlier two-return cleanup failure had three completed
-physical journal pairs. Both complete Quorum Sandbox recovery image modes now
-pass, including lost replies, retained restart, constructor-independent cleanup
-and zero Engine resources. All four source-proof refusal profiles pass.
+[PR #180](https://github.com/crabbuild/cellar/pull/180) includes bounded birth
+validation, cooperative inspection, exact Sandbox completion observation and
+verified dependency-descriptor reuse. Current qualifier `3a3de9949` passes both
+complete Quorum Sandbox recovery modes and all four source-proof refusal
+profiles against actual RustFS. Native and real descriptor-read regressions
+pass both image modes. This does not accept a complete primitive family.
 
-The affected real campaign remains **FAILED, 1/4 functions** over 12 planned
-configurations: S3 Create/FileRead deadlines and initial Create failures before
-cleanup-input/floor faults remain. Two causal observer regressions and strict
-Clippy/build/format/layout checks pass. Earlier integrated `f5027c3bb` remains
-FAILED 4/11; full primitive acceptance is unchanged. See
-[current results](progress.md#cg-17-reconciled-completion-observations).
+The native archive matrix remains **FAILED, 39 passed / 2 failed / 17 ignored**;
+both failures reproduce before the descriptor change. The real five-function,
+14-configuration characterization is **FAILED, 2/5 functions and 8/14 success
+markers**. Materialized S3 Create1 and extent S3 FileWrite1 still expire. The
+materialized Delete-input fault now reaches restoration but fails autonomous
+recovery within 60s; minimum-floor scenarios remain unqualified. See
+[current results](progress.md#cg-17-archive-descriptors-and-remaining-safety-failures).
 
 The next feature deliveries are:
 
-1. Close S3 request completion latency, including cold Create and existing-cell
-   reads, then execute the original S3 cleanup input/floor/restart oracles. Keep
-   original operations, typed ambiguity, safe sequence sealing, both proof
-   boundaries and 5s/3s/60s limits. Separate ingress/enrollment, publication,
-   verification and SQL resumption using retained phase evidence. Quorum cleanup
-   is qualified in this bounded profile; the corrected counter failure does not
-   justify a production cleanup rewrite. Full-image upload is intentional and
-   short in the observed trace; establish the bottleneck before changing policy.
-2. Complete ordinary Container/Sandbox application execution, interactive APIs,
-   ports, HTTP/WebSocket and provider-volume contracts. Keep both namespaces,
-   constructor-independent recovery, exact receipts and physical fencing.
-3. Finish ordinary Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron,
-   filesystem and payload features/acceptance drivers, including receipt/payload
-   GC. Complete the public API/feature inventory and fault/recovery matrix.
-4. Close CG-13 recovery, CG-15 qualification and CG-16 cutover. Independent Linux
+1. Resolve recovery import's physical-sync/cancellation control and remote
+   fresh-catalog admission during S3 outage. Preserve their assertions; both are
+   release blockers even though reproduced on the pre-change executable.
+2. Close autonomous Delete recovery after source archive restoration. Follow
+   exact original intents, durable work discovery and terminal proof debt;
+   physical deletion does not substitute for confirmed source settlement.
+3. Close S3 Create/FileWrite response latency and run all original cleanup
+   input/floor/restart oracles. Preserve typed ambiguity, safe sequence sealing,
+   both proof boundaries and 5s/3s/60s. Removed duplicate index reads are
+   established, but further small metadata changes cannot substitute for a
+   measured correction to the remaining critical path.
+4. Complete ordinary Container/Sandbox application execution, interactive APIs,
+   ports, HTTP/WebSocket and provider-volume contracts with physical fencing.
+5. Finish Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron, filesystem
+   and payload features, including receipt/payload GC. Deliver real full
+   acceptance drivers and complete API/feature/recovery manifests. The declared
+   target has no planned full entry points at this pin; focused passes must not
+   be presented as full-case acceptance.
+6. Close CG-13 recovery, CG-15 qualification and CG-16 cutover. Independent Linux
    voters, physical disk loss, load and provider-volume recovery remain separate
    from native RF3 and real-RustFS component profiles.
 

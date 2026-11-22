@@ -8,55 +8,54 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 Continue on `codex/cg17-s3-completion`; open PR #180 uses
 `codex/cg17-shared-sandbox-bridge`. Latest fetched main `09cdcf423` is included.
-Qualifier `8dcd2314f` fixes the Sandbox fixture's completion observation and
-strengthens exact generation/resource checks. Production code remains at the
-previous delivery; do not claim a production cleanup fix.
+Qualifier `3a3de9949` includes production commits `8bfcb8d27` and `3a3de9949`:
+archive publication reuses only the descriptors consumed by independent physical
+recovery. Fresh root readback, recovered-state capability, complete graph
+protection, source/payload checks and CAS/readback remain. The causal pre-change
+read-count failure and corrected native/RustFS both-image regressions are frozen.
+Strict affected Clippy, formatting and optimized build pass.
 
-The retained `f5027c3bb` materialized/Quorum failure passed its terminal metadata
-loop before the count assertion. Its checksum-verified physical journal has
-three completed Create/Delete pairs, one per child history, with exact resource
-IDs; the fixture counted two execute returns and omitted reconciliation. The
-actual Peer regression reproduces that gap in 153ms. Both corrected observer
-regressions pass: original identity/results remain stable, receipts count once,
-non-completions do not count, and first-result loss/archive cuts also work through
-reconciliation without rearming after restoration. The three-Delete assertion
-remains and now also checks exact per-generation resource pairs and zero Engine
-resources. Strict Clippy, locked build, formatting, layout and dependency checks
-pass.
+The native archive matrix is **FAILED, 39 passed / 2 failed / 17 ignored**. Both
+failures reproduce on the frozen pre-change `79cce343d` executable:
+`group_recovery_cancelled_import_retains_physical_admission` skips its expected
+sync gate, and `quorum_continues_bounded_s3_outage` allows remote reception where
+fresh discovery must refuse. Do not waive either control. Baseline invocation
+records name the current checkout; the separate comparison record identifies
+the actual older executable/source and checksum.
 
-The four affected Sandbox functions ran 12 actual Docker/RustFS configurations.
-Overall **FAILED, 1/4 functions**. Both full Quorum image-mode recovery profiles
-pass, including lost Exec/Delete replies, retained voter restart, file operations,
-stale authority refusal and constructor-independent terminal cleanup. All four
-source-proof refusal profiles pass. Materialized S3 Create1 and extent S3
-FileRead2 expire; both cleanup-floor and Delete-input functions stop at initial
-Create1 before the intended cuts. Never credit those unentered scenarios.
+Real Docker/RustFS characterization is **FAILED, 2/5 functions, 8/14 success
+markers**. The descriptor case passes both modes. Both full Quorum Sandbox
+recovery profiles and all four source-proof refusal profiles pass. Materialized
+S3 fails Create1; extent S3 gets farther and fails FileWrite1, not Create1.
+Both cleanup-floor Create1 requests expire. Materialized Delete-input reaches
+its intended cut but fails autonomous recovery within 60s after archive restore;
+extent mode fails floor Create1 after seed-parent Create/Destroy succeeded.
+Preserve this newly reached failure and inspect retained native work, terminal
+confirmation debt and original operation/expiry before any recovery change.
 
-Next deliver S3 request completion latency, then qualify S3 cleanup/floors and
-complete wider primitive adapters. The Quorum cleanup failure does not justify
-rewriting the cleanup protocol. Preserve original operations/receipts, unknown
-outcomes, source/target minima, all proof boundaries and 5s/3s/60s limits. Follow
-actual ingress/checkpoint/archive stage timing before changing scheduling or
-publication. Foreground archive priority and immediate S3 demand already exist;
-waiting S3 publications intentionally use full images. The observed image uploads
-are short in the retained trace; do not replace proof logic on an assumed upload
-bottleneck. No new latency fix has been implemented in this checkpoint.
+Next close those correctness controls and autonomous restoration, then S3
+response latency. The two removed GETs are verified; they did not close the
+remaining response path. Preserve exact operation/receipt identities, unknown
+outcomes, source/target minima, actual proof custody and original 5s/3s/60s.
+Do not repeat speculative scheduling/index optimizations or rewrite cleanup
+based on the old false two-Delete count. That observer defect is fixed; both
+Quorum modes pass exact three-generation/resource pairing and zero Engine
+resources on current source.
 
-Complete ordinary application execution, interactive APIs, ports, HTTP/WebSocket,
-provider-volume and all other primitive families/scenarios. Independent voters,
-load, disk loss and CG-13/15/16 remain required; keep the full goal active.
-The prior integrated `f5027c3bb` campaign remains FAILED 4/11. Its native
-extent/S3 Data2 still expires after explicit operations; Inspect there denotes
-ReadFile. The bounded birth window and its full native/RustFS catalog oracle
-remain delivered. All 32 full CG-17 cases and the generated index are unchanged.
+All 32 full CG-17 cases remain required. The primitive target file has 262
+focused function definitions but none of the 32 planned full entry points at
+this pin. Deliver the real complete drivers and normal API/configuration
+coverage as families close; aliases are not acceptance. Complete ordinary
+application execution, interactive APIs, ports, HTTP/WebSocket, provider-volume
+and other primitive contracts. CG-13/15/16 remain open; keep the full goal active.
 
-Evidence `CG-17-sandbox-observer-real-8dcd2314f-2709` retains 48 roots plus frozen
-source/executables, the causal red, green checks and exact journal summaries, with
-a verified second copy. The owned VM and all owners are stopped/joined; RustFS
-objects/volumes are retained. No own build/formatter/copy overlapped runtime.
-Native RF3 shares one host process. See
-[current results](progress.md#cg-17-reconciled-completion-observations) and
-[priorities](remaining-work.md#primitive-delivery-priority).
+Sealed evidence `CG-17-archive-descriptors-real-3a3de9949-2730` has 4,872 manifest
+files, 48 real and 12 native roots, frozen source/executables and a verified
+second copy. Test processes and the owned 4-CPU/8-GiB VM are stopped/joined;
+RustFS objects/volumes remain retained at 1 CPU/2 GiB. Native RF3 shares one host
+process and one SQL worker per voter. See
+[current results](progress.md#cg-17-archive-descriptors-and-remaining-safety-failures)
+and [priorities](remaining-work.md#primitive-delivery-priority).
 
 ## Previous durable controller delivery
 

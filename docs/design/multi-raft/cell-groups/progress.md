@@ -32,6 +32,78 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 archive descriptors and remaining safety failures
+
+Qualifier `3a3de9949` removes two repeated immutable-index GETs from each new
+archive publication. Independent physical recovery records its exact tail,
+entry, checkpoint-index and chunk descriptors in the upload's bounded graph.
+Root confirmation requires the recovered-state capability and still reads back
+the new root, checks its exact marker/tail and validates every dependency's
+registry, generation and inherited protection. Source checks, payload pins,
+publishing CAS/readback, cancellation ownership and cold-owner recovery remain.
+No persisted proof cache or new archive format is introduced.
+
+The focused regression fails on pre-change executable `79cce343d`: publication
+reads the tail twice. It passes in both image modes on `3a3de9949`, including
+independently restored bytes and fresh root readback. The same both-image case
+passes against actual RustFS. This establishes the removed reads; it does not
+establish a cure for the public S3 deadlines. Strict affected Clippy, canonical
+formatting and the locked optimized archive/Docker build pass.
+
+The full native archive matrix is **FAILED: 39 passed, 2 failed, 17 ignored**.
+Both failures reproduce on the frozen pre-change executable, with its own
+source archive/hash retained separately from the invocation checkout:
+
+- `group_recovery_cancelled_import_retains_physical_admission`: import finishes
+  before the expected physical dependency-sync gate. Determine the underlying
+  result and preserve the cancellation/admission assertions.
+- `quorum_continues_bounded_s3_outage`: remote reception succeeds where the test
+  requires fresh catalog discovery to refuse. Resolve the authority contract and
+  actual admission path without weakening the assertion.
+
+These remain release blockers. Passing scoped checks cannot waive them.
+
+The five-function actual Docker/RustFS characterization is **FAILED: 2/5 complete
+functions, 8/14 configuration success markers**:
+
+| Case | Result on `3a3de9949` |
+| --- | --- |
+| Verified dependency descriptors | Both image modes pass physical recovery, one read per dependency and fresh root readback |
+| Full Sandbox recovery | Both Quorum modes pass the complete bounded oracle; materialized S3 Create1 and extent S3 FileWrite1 expire at the original 5s limit |
+| Source-proof refusal | All four image/minimum profiles pass |
+| Requested-S3 cleanup floor | Both floor Create1 requests expire before the intended archive-cut fault |
+| Delete input/restart/restore | Materialized mode reaches the fault but fails autonomous recovery within 60s after source archive restoration; extent mode fails the floor cell's Create1 after successful seed-parent Create/Destroy |
+
+The last row exposes a recovery gap previously hidden by initial request
+failures. Do not treat a physical Delete count as terminal source confirmation,
+weaken its 60s oracle or claim that counter fixes close this restoration failure.
+Generic command sequence 1 also identifies file operations: use the actual
+request label, not the sequence alone, when reporting the extent FileWrite1
+failure. Original identities, minima, ambiguity and 5s/3s/60s limits remain.
+
+All **32 full CG-17 cases remain unaccepted**. On this source the declared
+primitive target file contains 262 focused function definitions and none of the
+32 planned full entry-point definitions. The full acceptance drivers and
+API/configuration/recovery evidence are unfinished deliverables, in addition to
+missing runtime features. This is not a claim that zero focused checks pass.
+The [full definitions](primitive-acceptance-cases.md) and generated acceptance
+index are unchanged; focused helpers must not be renamed to manufacture passes.
+
+Evidence `CG-17-archive-descriptors-real-3a3de9949-2730` is sealed with 4,872
+manifest files, 48 real-run roots, 12 retained native roots, frozen executables
+and source, causal red/green results, baseline comparisons and a checksum-verified
+second copy. Raw RustFS volume bytes remain in the retained VM volume. The owned
+4-CPU/8-GiB VM and test processes are stopped/joined; RustFS remains 1 CPU/2 GiB.
+Native RF3 still shares one host process with one SQL worker per voter. No own
+build, formatter or evidence copy overlapped the real runtime. Latest fetched
+main `09cdcf423` is included. Independent Linux voters, full primitive families,
+load, volume/disk-loss recovery and CG-13/15/16 remain required.
+
+Next close the two native safety controls and autonomous post-restoration
+cleanup, then the S3 response path and real full acceptance drivers. Preserve
+actual proof custody and every original deadline; avoid further speculative
+metadata optimizations as substitutes for these correctness and feature gaps.
+
 ### CG-17 reconciled completion observations
 
 Qualifier `8dcd2314f` corrects a false Sandbox cleanup failure and strengthens
