@@ -32,6 +32,43 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 lifecycle admission and required cleanup
+
+Runtime `96af1bcd2` fixes a local admission race. A contended foreground
+lifecycle call proves its original invocation before constructing the real mutex
+waiter. Routine maintenance could reacquire the free lock during that proof.
+A cancellation-safe per-binding reservation now makes routine inspection yield.
+Expired resources, pending lifecycle transitions, retired bindings and failed
+maintenance can still try the free exclusive mutex; exact task, checkpoint,
+authority and provider proof gates remain mandatory.
+
+The owning negative control at `1e7e22a8d` passes five cases and fails the
+required-cleanup case. The unchanged six owning cases pass at `96af1bcd2`,
+compiled from the actual production leaf and its private sibling tests with the
+Cargo-locked optimized runtime dependencies. Full affected library/test Clippy,
+canonical formatting, layout and native dependency checks pass. Evidence:
+`CG-17-lifecycle-required-owning-96af1bcd2-2498` retains source, executable,
+results and a verified second copy. These are component results. The optimized
+public build at parent `20651c85e` predates the required-cleanup refinement;
+current-source public runtime qualification remains outstanding. Plan unit tests
+pass 44/44; contract loading, source anchors and the generated index pass. Full
+plan validation still fails on missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`; this custody gap is not waived.
+
+CG-17 still has **0/32 formally accepted cases**. The generated index credits
+cases through DONE tasks. At `96af1bcd2`, static audit also finds none of the 32
+planned acceptance entry points defined in the target file, an empty formal
+CG-17 evidence list and a partial SDK inventory (18 entries / 352 symbols).
+Passing focused tests have not delivered the complete public API, feature,
+provider and lifecycle matrix. All exact criteria remain in [tasks.json](tasks.json)
+and `plan.py show CG-17`; this audit is separate from a raw behavioral test count.
+
+Next qualify the combined admission and Sandbox work-discovery fixes against
+real RustFS with the original IDs, Quorum/S3 minima and 5s/3s/60s budgets. Close
+S3 output deadlines and autonomous cleanup, then complete the public-family
+drivers, retention/GC, WebSockets and common recovery matrix. Full primitive
+acceptance and default cutover remain open.
+
 ### CG-17 retirement work and independent controller fencing
 
 Runtime `ddc3ffb9a` fixes premature retirement completion. A successful SDK
@@ -66,8 +103,10 @@ In live Exec recovery, materialized/S3 Destroy4 expires after reconciliation;
 backend Delete starts with only 89 ms remaining and completes, but the original
 public response does not succeed. Its two extent profiles remain unrun. Ordinary
 Container recovery passes three configurations and fails extent/S3 with the
-original Write2 ambiguous DeadlineExceeded during recovery; the precise public
-call that propagates that retained error still needs tracing. No new operation
+original sequence-two ambiguous DeadlineExceeded during recovery. Both native-a Write2
+and native-b Status2 use that command ID, so the retained error does not establish
+which public call propagates it; the last checkpoint is from native-b. That call
+attribution remains unresolved. No new operation
 identity or successful response is substituted for either failure.
 Individual configuration results and any failure before the intended cut remain
 in the raw logs. A failed function receives no whole-function acceptance from
