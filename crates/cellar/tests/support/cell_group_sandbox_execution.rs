@@ -30,6 +30,8 @@ use std::{
 };
 use tokio::sync::Notify;
 
+const ORDINARY_COMMAND_SLOTS: usize = 3;
+
 struct Peer {
     backend: Arc<DockerBackend>,
     retirement_cut: Option<Arc<catalog_fault::Store>>,
@@ -330,6 +332,10 @@ async fn start(
     // provider body bounds, concurrency or original execution deadlines.
     fixture.max_input_bytes = 64 * 1024;
     fixture.sql_workers = 1;
+    // An interrupted parent and its private child retain two admissions. The
+    // independent second-cell command needs one bounded slot of its own, as in
+    // the shared binding progress fixtures; keep the same byte and SQL limits.
+    fixture.ordinary_admission = Some((ORDINARY_COMMAND_SLOTS, 64 * 1024));
     fixture.effects = Some(RaftEffectOptions {
         callback_timeout_ms: 3000,
         ..Default::default()
@@ -616,9 +622,9 @@ async fn run(outage: bool, minimum_custody: bool) -> Result<()> {
                 ensure!(peer.creates.load(Ordering::Acquire)==3);
             }
             if minimum_custody {
-                eprintln!("sandbox_floor_configuration {}",json!({"extents":rooted,"minimum":"S3","namespace_minimum":"Quorum","target_minimum":"S3","original_request_ms":5000,"real_engine":true,"denied_parent_archive_writes":store.denied_sandbox_parent_writes.load(Ordering::Acquire)}));
+                eprintln!("sandbox_floor_configuration {}",json!({"extents":rooted,"minimum":"S3","namespace_minimum":"Quorum","target_minimum":"S3","original_request_ms":5000,"real_engine":true,"denied_parent_archive_writes":store.denied_sandbox_parent_writes.load(Ordering::Acquire),"ordinary_command_slots":ORDINARY_COMMAND_SLOTS,"sql_workers":1}));
             } else {
-            eprintln!("sandbox_native_configuration {}",json!({"extents":rooted,"minimum":format!("{minimum:?}"),"target_minimum":if outage{"S3"}else{if minimum==Durability::S3{"S3"}else{"Quorum"}},"archive_outage":outage,"original_request_ms":5000,"real_engine":true,"business_constructor_cleanup":false}));
+            eprintln!("sandbox_native_configuration {}",json!({"extents":rooted,"minimum":format!("{minimum:?}"),"target_minimum":if outage{"S3"}else{if minimum==Durability::S3{"S3"}else{"Quorum"}},"archive_outage":outage,"original_request_ms":5000,"real_engine":true,"business_constructor_cleanup":false,"ordinary_command_slots":ORDINARY_COMMAND_SLOTS,"sql_workers":1}));
             }
             Ok::<_,anyhow::Error>(())
         }).await.map_err(anyhow::Error::from).and_then(std::convert::identity);
