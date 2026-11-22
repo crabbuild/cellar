@@ -81,7 +81,7 @@ async fn qualify_cut(real: bool, cut: Cut) -> Result<()> {
             let denied_before = route.store.denied_group_archive_writes.load(Ordering::Acquire);
             let fences_before = peer.retirement_fences.load(Ordering::Acquire);
             peer.hold_retirement_fence.store(true, Ordering::Release);
-            let original = match cut {
+            let (original, staged) = match cut {
                 Cut::LostArchiveProof => {
                     *peer.refuse_retirement_archive.lock().unwrap() = Some(route.store.clone());
                     let failure = call(&cluster, &history, Durability::S3, 2, "MaintainRetirement").await
@@ -91,14 +91,18 @@ async fn qualify_cut(real: bool, cut: Cut) -> Result<()> {
                     ensure!(peer.deletes.load(Ordering::Acquire) == 1 && !peer.resource.lock().unwrap().exists, "retirement cut did not follow the physical Delete");
                     ensure!(route.store.denied_group_archive_writes.load(Ordering::Acquire) > denied_before, "retirement cut refused no archive write");
                     ensure!(!route.retired.load(Ordering::Acquire), "retirement was reported before its S3 proof");
-                    Some(original)
+                    (Some(original), None)
                 }
                 Cut::AutonomousDelete => {
                     // Persist only the desired intent. The shared scheduler
                     // must perform Delete, prove its result, then separately
                     // activate the retired confirmation fence without traffic.
-                    call(&cluster, &history, Durability::S3, 2, "StageDeleteIntent").await?;
-                    None
+                    let staged = call(&cluster, &history, Durability::S3, 2, "StageDeleteIntent").await;
+                    eprintln!("retirement_stage_request_completed {}", staged.is_ok());
+                    // Preserve this original response requirement, but first
+                    // collect the independent fence outcome so that an entered
+                    // cleanup cannot hide an ordering failure behind timeout.
+                    (None, Some(staged))
                 }
             };
             route.factory_refused.store(true, Ordering::Release);
@@ -130,6 +134,9 @@ async fn qualify_cut(real: bool, cut: Cut) -> Result<()> {
             let before = peer.calls.load(Ordering::Acquire);
             let refused = controller.execute(claim, operation, payload).await;
             ensure!(refused.err().is_some_and(|error| error.downcast_ref::<ExecutionControllerFailure>() == Some(&ExecutionControllerFailure::StaleClaim)) && peer.calls.load(Ordering::Acquire) == before, "controller admitted retired provider execution");
+            if let Some(staged) = staged {
+                staged.context("DeleteIntent did not finish within its original request deadline")?;
+            }
             // Framework confirmation cannot turn a partly executed business
             // callback into a successful original result.
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
