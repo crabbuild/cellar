@@ -443,6 +443,7 @@ pub struct RaftClass {
     filesystem: Option<crate::application::filesystem::Policy>,
     providers: Arc<crate::application::container_bindings::ProviderDeclarations>,
     provider_supervision: Option<Arc<crate::application::container_supervision::Supervision>>,
+    container_adapter: Option<Arc<crate::application::containers::backend::Binding>>,
 }
 
 impl RaftClass {
@@ -574,6 +575,7 @@ impl RaftClass {
             cell_factory: None,
             filesystem: None,
             providers: Arc::default(),
+            container_adapter: None,
             provider_supervision: None,
         };
         class.bind_command_manifest();
@@ -738,6 +740,34 @@ impl RaftClass {
             return Err(RegistrationError::Limit);
         }
         Arc::make_mut(&mut self.providers).insert(name, declaration);
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    /// Attach the ordinary Context.container API to a host-selected adapter.
+    /// The adapter's identity and bounds participate in the namespace schema.
+    /// Preparation and execution retain the original invocation's durability,
+    /// ownership and deadline; no Fleet engine fallback is permitted.
+    pub fn container_adapter(
+        mut self,
+        adapter: Arc<dyn crate::application::containers::ContainerAdapter>,
+    ) -> Result<Self, RegistrationError> {
+        if self.container_adapter.is_some() {
+            return Err(RegistrationError::Invalid(
+                "duplicate native container adapter",
+            ));
+        }
+        let binding = crate::application::containers::backend::Binding::new(adapter)
+            .map_err(|_| RegistrationError::Invalid("native container adapter"))?;
+        self = self.provider_binding(
+            binding.identity.binding.clone(),
+            binding.identity.provider.clone(),
+            hex::decode(&binding.identity.configuration_digest)
+                .map_err(|_| RegistrationError::Invalid("native container adapter digest"))?
+                .try_into()
+                .map_err(|_| RegistrationError::Invalid("native container adapter digest"))?,
+        )?;
+        self.container_adapter = Some(binding);
         self.bind_command_manifest();
         Ok(self)
     }
@@ -1239,6 +1269,7 @@ impl RaftClass {
             filesystem: self.filesystem,
             providers: self.providers.clone(),
             provider_supervision: self.provider_supervision.clone(),
+            container_adapter: self.container_adapter.clone(),
         }
     }
 
@@ -1464,6 +1495,23 @@ impl RaftClass {
                     "retained provider maintenance has an undeclared policy"
                 );
             }
+        }
+        let storage = transaction.storage()?;
+        match &self.container_adapter {
+            Some(binding) => {
+                let installed = storage
+                    .resources()
+                    .container_adapter
+                    .get_or_init(|| binding.clone());
+                anyhow::ensure!(
+                    Arc::ptr_eq(installed, binding),
+                    "native container adapter changed within an activation"
+                );
+            }
+            None => anyhow::ensure!(
+                storage.resources().container_adapter.get().is_none(),
+                "native container adapter was removed within an activation"
+            ),
         }
         factory.start(target.cell, epoch, method, input, transaction, activation)
     }
@@ -2088,6 +2136,10 @@ impl RaftClass {
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
+        if let Some(binding) = &self.container_adapter {
+            hash.update(b"native-container-adapter-1");
+            hash.update((binding.max_body_bytes as u64).to_be_bytes());
+        }
         if let Some(supervision) = &self.provider_supervision {
             hash.update(b"provider-supervision-1");
             hash.update(supervision.contract_digest());

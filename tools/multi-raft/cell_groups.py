@@ -44,6 +44,7 @@ CASES = (
     "rustfs_s3_namespace_minimum_cannot_be_downgraded",
     "rustfs_s3_enrollment_requires_the_original_archived_creation",
     "rustfs_s3_enrollment_deadlines_preserve_resolved_ownership",
+    "rustfs_s3_evicted_receipt_does_not_archive_unrelated_cells",
     "rustfs_s3_receipt_lookup_tracks_archived_observations",
     "rustfs_s3_receipt_lookup_honors_namespace_and_stored_minimums",
     "rustfs_s3_receipt_lookup_preserves_typed_failures_and_result_admission",
@@ -51,6 +52,25 @@ CASES = (
 )
 
 SUITES = {
+    "controller-provider": (
+        "native_cell_groups_primitives",
+        (
+            "rustfs_controller_provider_sessions_preserve_shared_group_durability",
+            "rustfs_controller_provider_recovers_without_replaying_compute",
+            "rustfs_controller_provider_expiry_seals_unsubmitted_creates",
+            "rustfs_controller_provider_recovers_live_write_without_replay",
+            "rustfs_controller_provider_reconciles_live_exec_before_destroy",
+        ),
+        "ordinary SDK sessions backed by independently durable controller storage",
+        "Both image modes and Quorum/S3 minima, original five-second requests. "
+        "Check exact entry/intent/result proofs, files and buffered exec, retained "
+        "voter/controller restart, accepted create/delete reply loss, constructor-"
+        "independent cleanup, live original write/exec receipt recovery without "
+        "controller restart or mutation replay, stale Context refusal and S3-gated output. The backend "
+        "is a controlled Linux-protocol peer, not actual container execution. "
+        "Independent process crashes, authenticated transport, built-in native "
+        "Container/sandbox, physical fencing and volume/zero-quorum recovery remain open.",
+    ),
     "provider-journals": (
         "native_cell_groups_primitives",
         (
@@ -872,7 +892,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
+    if args.keep_going and args.suite not in ("controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated primitive or binding recovery suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -923,7 +943,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -941,7 +961,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
+            elif args.suite in ("controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

@@ -292,6 +292,33 @@ pub(super) async fn drive(
     let mut record = load(context, execution).await?;
     let retirement = retire(context, execution, &mut record).await?;
     let allocation_ready = retirement != Retirement::Retained;
+    if let Some(head) = record.head.as_ref().filter(|head| {
+        demand.outputs
+            && demand
+                .required_prefix
+                .is_some_and(|minimum| head.marker().position().index >= minimum)
+    }) {
+        // An unrelated newer cut may already own a durable reservation or an
+        // uncertain publication. Confirm this exact old hold independently;
+        // do not discard, replace or replay that pending mutation to serve a
+        // request already covered here. The ordinary background owner retains
+        // the entire pending operation and its original reconciliation debt.
+        let coverage = context
+            .registry
+            .verify_hold(
+                execution,
+                head,
+                &registration.tails,
+                receiver(registration)?,
+            )
+            .await?;
+        retirement.flush(context, execution, &record).await?;
+        return Ok(Outcome::Verified(Driven {
+            published: coverage.marker().clone(),
+            coverage,
+            maintenance_pending: !allocation_ready || !matches!(record.pending, Pending::None),
+        }));
+    }
     // Quiet maintenance can finish predecessor cleanup without discarding the
     // node's one physical proof. This is the exact journaled head, independently
     // recovered earlier and still admitted; the advisory marker cannot create it.

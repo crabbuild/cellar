@@ -69,7 +69,7 @@ impl Cohorts {
                 initiated: false,
                 term: None,
                 barrier: None,
-                retry_at: now.saturating_add(super::reads::FORWARDED_RETRY_MS),
+                retry_at: now.saturating_add(super::reads::READ_RETRY_MS),
             },
         );
         self.members += 1;
@@ -97,7 +97,7 @@ impl Cohorts {
         let before = (cohort.term, cohort.barrier);
         let retry = cohort.barrier.is_none() && now >= cohort.retry_at;
         if retry {
-            cohort.retry_at = now.saturating_add(super::reads::FORWARDED_RETRY_MS);
+            cohort.retry_at = now.saturating_add(super::reads::READ_RETRY_MS);
         }
         let result = select(
             cohort.identity,

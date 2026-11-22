@@ -14,6 +14,44 @@ use crate::raft::storage::ReplicaLog;
 use cellar_logic::consensus::{DiskLineage, ProcessGeneration};
 use cellar_logic::consensus::{GroupId, IncarnationId, MemberId, NodeIdentity};
 
+#[test]
+fn tls_handshake_socket_failures_keep_read_retry_policy() {
+    use std::io::ErrorKind;
+    for kind in [
+        ErrorKind::ConnectionAborted,
+        ErrorKind::ConnectionRefused,
+        ErrorKind::ConnectionReset,
+        ErrorKind::BrokenPipe,
+        ErrorKind::NotConnected,
+        ErrorKind::TimedOut,
+        ErrorKind::UnexpectedEof,
+    ] {
+        let error = TransportError::tls_handshake(std::io::Error::new(kind, "socket unavailable"));
+        assert!(matches!(error, TransportError::Io(_)));
+        assert_eq!(
+            error.for_read(),
+            TransportError::Query(cellar_logic::consensus::CommandFailure::Unavailable)
+        );
+    }
+}
+
+#[test]
+fn tls_handshake_security_failures_are_not_availability() {
+    use std::io::ErrorKind;
+    for error in [
+        std::io::Error::new(ErrorKind::InvalidData, "tls handshake eof"),
+        std::io::Error::new(ErrorKind::PermissionDenied, "authentication refused"),
+        std::io::Error::new(
+            ErrorKind::ConnectionReset,
+            rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer),
+        ),
+    ] {
+        let error = TransportError::tls_handshake(error);
+        assert!(matches!(error, TransportError::Tls(_)));
+        assert_eq!(error.clone().for_read(), error);
+    }
+}
+
 #[derive(Default)]
 struct FrameWriter {
     bytes: Vec<u8>,

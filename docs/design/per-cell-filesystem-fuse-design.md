@@ -115,7 +115,7 @@ These tables are extension state, not required primitive schema. Installing this
 | --- | --- | --- |
 | [SQLite storage](../../crates/cellar/storage/sqlite/mod.rs) | Isolate-owned, epoch-bound database | Enqueue fresh owner-checked work; no callback-owned connection |
 | [Storage transactions](../../crates/cellar/application/storage/transaction.rs) | Async transactions hold an input gate | Reject command startup while a caller holds that gate |
-| [Container SDK](../../crates/cellar/application/containers.rs) | Context-checked start/exec/output APIs; dropping Exec does not kill a process | Add typed attachment, idempotent startup and supervised command cleanup |
+| [Container SDK](../../crates/cellar/application/containers/mod.rs) | Context-checked start/exec/output APIs; dropping Exec does not kill a process | Add typed attachment, idempotent startup and supervised command cleanup |
 | [Container engine](../../crates/cellar/containers/mod.rs) | Idle eviction can retain a container; existing resolver bind | Mounted runs need bounded residency and must preserve other bind entries |
 | [Guest operations](../../crates/cellar-guest/operations.rs) | Common dispatcher does not expose the proposed container command API | Add an explicit optional command capability or application-owned native RPC |
 

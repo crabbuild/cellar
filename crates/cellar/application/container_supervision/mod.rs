@@ -62,7 +62,8 @@ pub enum DeleteSafety {
 }
 
 /// Credential-free registration identity; the backend retains host credentials.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BackendIdentity {
     pub binding: String,
     pub provider: String,
@@ -105,10 +106,26 @@ pub trait FencedMaintenanceBackend: Send + Sync + 'static {
         DeleteSafety::InspectAfterSubmission
     }
 
+    /// Select private metadata preparation without I/O. DeleteIntent is valid
+    /// only for a known running resource selected for deletion. The framework
+    /// stages that exact transition before proving the work claim and fence;
+    /// it does not indicate that Delete was submitted. Opt in only when the
+    /// backend independently distinguishes desired intent from submission.
+    fn prepare(
+        &self,
+        _expected: &BindingCheckpoint,
+        _action: MaintenanceAction,
+    ) -> Result<MaintenancePreparation> {
+        Ok(MaintenancePreparation::Unchanged)
+    }
+
     /// Correlate the exact resource and enforce the supplied claim on every
     /// provider request. After changing the journal, refresh the grant and
     /// await its effect gate before further I/O. Do not reacquire the lifecycle
     /// mutex or create compute. Lost outcomes retain their original identities.
+    /// Inspect can carry an already retired checkpoint when its original proof
+    /// response was lost. Confirm that exact observation without provider I/O;
+    /// the framework has proved it and fenced older execution before entry.
     fn maintain(
         self: std::sync::Arc<Self>,
         context: Context,
@@ -116,6 +133,14 @@ pub trait FencedMaintenanceBackend: Send + Sync + 'static {
         action: MaintenanceAction,
         grant: ExecutionGrant,
     ) -> HandlerFuture<()>;
+}
+
+/// Bounded preparation choices; the framework validates and stages the record.
+/// No backend can supply a confirmed outcome or arbitrary checkpoint here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaintenancePreparation {
+    Unchanged,
+    DeleteIntent,
 }
 
 /// Proven pre-dispatch refusal after a retained generation's local deadline.

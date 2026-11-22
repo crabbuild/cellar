@@ -181,7 +181,7 @@ pub(super) async fn run(
             .await;
         }
     }
-    let native_callback = matches!(due, DueEffect::Work(_));
+    let native_callback = matches!(due, DueEffect::Work { .. });
     if native_callback
         && shared
             .callback_cells
@@ -191,7 +191,7 @@ pub(super) async fn run(
         return Ok(());
     }
     let callback_window = registration.options.callback_timeout_ms + 1000;
-    if let DueEffect::Work(work) = &mut due {
+    if let DueEffect::Work { work, .. } = &mut due {
         work.lease_ms = callback_window;
     }
     if native_callback && callback_window > limits.max_retry_window_ms {
@@ -321,7 +321,7 @@ pub(super) async fn run(
             )
             .await
         }
-        DueEffect::Alarm(_) | DueEffect::Work(_) | DueEffect::Payload(_) => {
+        DueEffect::Alarm(_) | DueEffect::Work { .. } | DueEffect::Payload(_) => {
             check_result(receipt.result())
         }
         DueEffect::Delivery {

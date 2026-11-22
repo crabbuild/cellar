@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "bb09d155c7de987f375746be637158162e899e84",
-  "runtime_revision": "bb09d155c7de987f375746be637158162e899e84",
-  "review_note": "Reviewed bb09d155c KV deadline capture before input/encoding, per-chunk and pending-input checks, source release, and unchanged typed commit RPC settlement. All 24 anchor files/excerpts remain unchanged. Public red input control fails both images; current stream checks pass native 2/2 and RustFS 2/2. Full public native 2/2 passes; RustFS 1/2 fails materialized 25-MiB CLI publication. No original oracle, deadline, dependency, status or evidence is waived.",
+  "source_revision": "fb592565257b1362bfddae7d6a40ba43d4f50285",
+  "runtime_revision": "fb592565257b1362bfddae7d6a40ba43d4f50285",
+  "review_note": "Reviewed fb5925652 against b26f901e2: every source-anchor file and excerpt remains byte-identical. Reviewed pending ReadIndex retry, selected-cell covered-prefix verification, pending archive identity custody and TLS socket/security classification at their owning boundaries. Scoped checks and preserved provider deadline failures are recorded in progress.md. This review grants no primitive-family/release acceptance, oracle/deadline waiver or default-backend cutover.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -103,8 +103,8 @@
     },
     "effects": {
       "path": "crates/cellar/durability/raft/cell_groups/controller/effects/mod.rs",
-      "sha256": "3d24c48c5a47820a17a75797b9f1b0a6acaa46e7615c738b25951c4d167b56fa",
-      "line": 163,
+      "sha256": "94d1dc51fc4deea0328d9318d6dc856bd5550a790d123dd9fcf3ca332f2e2f23",
+      "line": 164,
       "excerpt": "pub(super) struct Manager {\n    group: Option<GroupHistory>,\n    cells: BTreeMap<GroupHistory, CellId>,\n    hints: BTreeMap<GroupHistory, (LogIndex, Option<u64>)>,\n    waiting: BTreeSet<(u64, GroupHistory)>,\n    ready: BTreeSet<GroupHistory>,\n    next_at: u64,\n    jobs: FuturesUnordered<BoxFuture<'static, Completed>>,\n}"
     },
     "placement": {

@@ -151,6 +151,7 @@ fn transaction_managed(
         &str,
         Option<crate::application::containers::MaintenancePolicy>,
         i64,
+        crate::application::consensus::Durability,
     )>,
 ) -> anyhow::Result<BindingCheckpoint> {
     as_framework_sql(|| {
@@ -158,7 +159,7 @@ fn transaction_managed(
         // SAVEPOINT starts a transaction in the first case and nests in the second.
         as_storage_transaction(|| connection.execute_batch("SAVEPOINT cellar_container_binding;"))?;
         let result = write(connection, name, expected, epoch, record).and_then(|checkpoint| {
-            if let Some((scope, policy, now)) = maintenance {
+            if let Some((scope, policy, now, minimum)) = maintenance {
                 super::container_maintenance::changed(
                     connection,
                     scope,
@@ -166,6 +167,7 @@ fn transaction_managed(
                     &checkpoint.record,
                     policy,
                     now,
+                    minimum,
                 )?;
             }
             Ok(checkpoint)
@@ -202,6 +204,7 @@ pub(crate) fn compare_exchange(
     policy: Option<crate::application::containers::MaintenancePolicy>,
     now: i64,
 ) -> anyhow::Result<BindingCheckpoint> {
+    let minimum = super::container_maintenance::invocation_minimum(scope)?;
     with_application_storage_write(scope, |connection| {
         transaction_managed(
             connection,
@@ -209,7 +212,7 @@ pub(crate) fn compare_exchange(
             expected,
             epoch,
             record,
-            Some((scope, policy, now)),
+            Some((scope, policy, now, minimum)),
         )
     })
 }
