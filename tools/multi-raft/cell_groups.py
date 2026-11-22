@@ -60,13 +60,17 @@ SUITES = {
             "rustfs_controller_provider_expiry_seals_unsubmitted_creates",
             "rustfs_controller_provider_recovers_live_write_without_replay",
             "rustfs_controller_provider_reconciles_live_exec_before_destroy",
+            "rustfs_controller_retirement_confirmation_survives_lost_s3_proof",
+            "rustfs_controller_retirement_confirmation_waits_for_independent_fence",
         ),
         "ordinary SDK sessions backed by independently durable controller storage",
         "Both image modes and Quorum/S3 minima, original five-second requests. "
         "Check exact entry/intent/result proofs, files and buffered exec, retained "
         "voter/controller restart, accepted create/delete reply loss, constructor-"
         "independent cleanup, live original write/exec receipt recovery without "
-        "controller restart or mutation replay, stale Context refusal and S3-gated output. The backend "
+        "controller restart or mutation replay, stale Context refusal and S3-gated output. "
+        "Retirement uses explicit S3 in a Quorum-default namespace and holds its "
+        "independent confirmation fence after autonomous Delete. The backend "
         "is a controlled Linux-protocol peer, not actual container execution. "
         "Independent process crashes, authenticated transport, built-in native "
         "Container/sandbox, physical fencing and volume/zero-quorum recovery remain open.",

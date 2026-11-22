@@ -346,6 +346,7 @@ impl FencedMaintenanceBackend for Route {
     ) -> HandlerFuture<()> {
         let provider = self.selected();
         Box::pin(async move {
+            let confirmation = expected.record.is_retired().then(|| expected.clone());
             if expected.record.is_retired() {
                 let entered = Arc::new(AtomicBool::new(false));
                 let observe = entered.clone();
@@ -367,12 +368,17 @@ impl FencedMaintenanceBackend for Route {
             provider
                 .maintain(context.clone(), expected, action, grant)
                 .await?;
-            // The production maintenance adapter returns only after proving its
-            // observation. Inspect that proof's state; add no harness checkpoint.
-            if BindingJournal::open(&context, "TOOL")?
-                .load(&context)?
-                .is_some_and(|row| row.record.is_retired())
-            {
+            // A Delete turn can prove retired metadata before the separate
+            // framework turn fences the controller. Report only confirmation
+            // entered with that exact already-fenced retired checkpoint.
+            if let Some(expected) = confirmation {
+                ensure!(
+                    BindingJournal::open(&context, "TOOL")?
+                        .load(&context)?
+                        .as_ref()
+                        == Some(&expected),
+                    "retirement confirmation checkpoint changed"
+                );
                 self.retired.store(true, Ordering::Release);
                 self.changed.notify_waiters();
             }
