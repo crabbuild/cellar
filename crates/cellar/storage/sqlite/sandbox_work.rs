@@ -66,6 +66,13 @@ pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
             due = Some(0);
         }
     }
+    if due.is_none() {
+        if let Some(parent) = super::sandbox_catalog::read_parent(connection)? {
+            if super::sandbox_shared::confirmation_pending(connection, &parent)? {
+                due = Some(0);
+            }
+        }
+    }
     let current: Option<Option<i64>> = connection
         .query_row(
             "SELECT at_ms FROM __sys_work WHERE scope=?1 AND reason='sandbox-cleanup'",
@@ -100,6 +107,17 @@ pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
                 "UPDATE __sys_work SET at_ms=NULL WHERE scope=?1 AND reason='sandbox-cleanup'",
                 [scope],
             )?;
+        }
+    }
+    if super::sandbox_shared::installed(connection)? {
+        if let Some(due) = due {
+            crate::application::consensus::native_work::arm_maintenance(
+                connection,
+                "sandbox-cleanup",
+                due,
+            )?;
+        } else {
+            crate::application::consensus::native_work::cancel(connection, "sandbox-cleanup")?;
         }
     }
     Ok(())
@@ -230,9 +248,13 @@ pub(super) fn claim_at(
 ) -> Result<Option<SandboxAllocation>> {
     ensure!(now >= 0, "sandbox cleanup clock must be nonnegative");
     let Some((name, generation, _, due)) = next(connection)? else {
+        // Reinstall idle discovery before the current turn completes. Its
+        // claimed wake cannot consume the replacement's generation.
+        rearm(connection, scope)?;
         return Ok(None);
     };
     if due > now {
+        rearm(connection, scope)?;
         return Ok(None);
     }
     let parent = super::sandbox_catalog::read_parent(connection)?

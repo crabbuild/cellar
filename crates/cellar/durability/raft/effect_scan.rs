@@ -107,6 +107,8 @@ fn scan_connection(
                 .map(|work| {
                     let minimum = if work.reason == "resource-reconciliation" {
                         crate::storage::container_maintenance::next_minimum(connection)?
+                    } else if work.reason == "sandbox-cleanup" {
+                        crate::storage::sandbox_shared::next_minimum(connection)?
                     } else {
                         Durability::Quorum
                     };

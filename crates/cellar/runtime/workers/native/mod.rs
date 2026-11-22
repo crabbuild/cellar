@@ -492,6 +492,7 @@ impl NativeWorker {
             rpc_catalog: self.rpc_catalog.clone(),
             event_authority: None,
             catalog_authority: None,
+            sandbox_authority: None,
             name_authority: None,
             io,
             state,

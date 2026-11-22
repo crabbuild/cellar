@@ -106,6 +106,9 @@ async fn rpc(
         crate::application::consensus::native_event_rpc::Authority::Catalog(value) => {
             crate::runtime::RpcAuthority::Catalog(value)
         }
+        crate::application::consensus::native_event_rpc::Authority::Sandbox(_) => {
+            anyhow::bail!(crate::application::consensus::CommandFailure::UnsupportedCapability)
+        }
     };
     let args =
         crate::application::encode_rpc(&cellar_native::clone::StructuredValue::from_json(args)?)?;

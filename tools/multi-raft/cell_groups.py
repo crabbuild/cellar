@@ -52,6 +52,19 @@ CASES = (
 )
 
 SUITES = {
+    "native-docker": (
+        "native_cell_groups_docker",
+        (
+            "docker_backend_joins_processes_and_retains_original_receipts",
+            "rustfs_native_docker_executes_and_recovers_shared_quorum",
+            "rustfs_native_docker_refuses_execution_without_source_proof",
+            "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum",
+            "rustfs_native_sandboxes_refuse_unproved_parent_dispatch",
+            "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum",
+        ),
+        "Bounded normal native Container/Sandbox execution against an explicitly selected Linux Engine and real RustFS, including physical fencing, original receipts and source Quorum/S3 admission.",
+        "The standalone backend case uses trusted metadata; four public cases each cover both images and minima; a fifth covers explicit S3 retirement in a Quorum namespace in both images. Sandbox additionally checks authenticated parent/child dispatch, generation replacement, retained restart and terminal confirmation without business construction. RF3 shares one native process. The fixed read-only idle scaffold is not an application entrypoint. Interactive/port APIs, physical namespace erasure, independent voters, sustained load and provider-volume/fresh-history disaster recovery remain unqualified.",
+    ),
     "controller-provider": (
         "native_cell_groups_primitives",
         (
@@ -881,6 +894,26 @@ def backend(root):
     return record, credentials
 
 
+def docker_configuration(profile, environment):
+    """Bind physical execution to this run's selected private Engine, without pulling."""
+    socket = Path(environment.get("CELLAR_DOCKER_BACKEND_SOCKET", ""))
+    image = environment.get("CELLAR_DOCKER_BACKEND_IMAGE", "")
+    if not socket.is_absolute() or not socket.is_socket():
+        raise RuntimeError("native Docker requires an explicit absolute Engine socket")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
+        raise RuntimeError("native Docker requires a preinstalled immutable image ID")
+    context = "colima-" + profile
+    selected = json.loads(command(["docker", "context", "inspect", context]))
+    endpoint = selected[0]["Endpoints"]["docker"]["Host"]
+    if not endpoint.startswith("unix://") or Path(endpoint[7:]).resolve(strict=True) != socket.resolve(strict=True):
+        raise RuntimeError("native Docker socket differs from the owned backend profile")
+    actual = command(["docker", "--context", context, "image", "inspect", image,
+                      "--format", "{{.Id}}"])
+    if actual.strip() != image:
+        raise RuntimeError("native Docker image differs from its pinned identity")
+    return {"context": context, "socket": str(socket), "image": image}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--suite", choices=tuple(SUITES), default="archive",
@@ -892,7 +925,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
+    if args.keep_going and args.suite not in ("native-docker", "controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated primitive or binding recovery suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -924,6 +957,11 @@ def main():
 
     save()
     try:
+        if args.suite == "native-docker":
+            record["docker_backend"] = docker_configuration(remote["profile"], os.environ)
+            record["planned_configurations"] = dict(zip(cases, (1, 4, 4, 4, 4, 2)))
+            record["limitations"] = ("One standalone physical-backend case and four host-native RF3 suites. "
+                                     + limitations)
         bucket = remote["owner"] + "-cg-" + secrets.token_hex(4)
         record["s3_probe"] = probe(remote["endpoint"], bucket,
                                    credentials["RUSTFS_ACCESS_KEY"], credentials["RUSTFS_SECRET_KEY"])
@@ -943,7 +981,10 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+        if args.suite == "native-docker":
+            env.update(CELLAR_DOCKER_BACKEND_SOCKET=record["docker_backend"]["socket"],
+                       CELLAR_DOCKER_BACKEND_IMAGE=record["docker_backend"]["image"])
+        if args.suite in ("native-docker", "controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -961,7 +1002,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
+            elif args.suite in ("native-docker", "controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")
@@ -1058,8 +1099,9 @@ def main():
     finally:
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
-                      "rustfs_cases": len(cases),
-                      "image_modes_per_case": (0 if args.suite == "immutable-payloads" else
+                      "rustfs_cases": (5 if args.suite == "native-docker" else len(cases)),
+                      "image_modes_per_case": (None if args.suite == "native-docker" else
+                                               0 if args.suite == "immutable-payloads" else
                                                1 if args.suite == "binding-settlement-diagnostic" else 2)}), flush=True)
 
 

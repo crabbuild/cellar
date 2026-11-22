@@ -57,7 +57,11 @@ impl Context {
                     .resources
                     .provider_bindings
                     .get()
-                    .is_some_and(|bindings| !bindings.is_empty()),
+                    .is_some_and(|bindings| !bindings.is_empty())
+                    || storage
+                        .resources
+                        .sandbox_catalog
+                        .load(std::sync::atomic::Ordering::Acquire),
                 CommandFailure::UnsupportedCapability
             );
         }
@@ -301,6 +305,31 @@ impl Container {
                 }
                 unsupported()
             }
+        }
+    }
+
+    /// Execute one bounded command and join its output under this invocation.
+    /// Shared-group adapters retain the original operation identity and fence;
+    /// an ambiguous response never causes the command to run again.
+    pub fn exec_output(
+        &self,
+        context: &Context,
+        options: ExecOptions,
+        max_bytes: usize,
+    ) -> HandlerFuture<ExecOutput> {
+        match &self.0 {
+            Owner::Native(native) => {
+                let future = native.exec(context, options);
+                let context = context.clone();
+                Box::pin(async move { future.await?.output(&context, max_bytes).await })
+            }
+            Owner::Shared(shared) => mapped(
+                shared.call(context, ContainerRequest::ExecOutput { options, max_bytes }),
+                |reply| match reply {
+                    ContainerReply::Execution(output) => Ok(output),
+                    _ => Err(anyhow!("invalid container execution result")),
+                },
+            ),
         }
     }
 

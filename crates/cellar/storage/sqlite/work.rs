@@ -28,7 +28,10 @@ fn raft_reason(reason: Reason) -> anyhow::Result<&'static str> {
     anyhow::ensure!(
         matches!(
             reason,
-            Reason::Outbox | Reason::StreamMaintenance | Reason::ResourceReconciliation
+            Reason::Outbox
+                | Reason::StreamMaintenance
+                | Reason::ResourceReconciliation
+                | Reason::SandboxCleanup
         ),
         crate::application::consensus::CommandFailure::UnsupportedCapability
     );

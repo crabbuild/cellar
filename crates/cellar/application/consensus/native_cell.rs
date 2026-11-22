@@ -236,6 +236,13 @@ impl CellRpcActivation {
         }
         let instance = self.clone();
         Ok(Box::pin(async move {
+            if context.raft_storage.as_ref().is_some_and(|s| {
+                s.resources
+                    .sandbox_execution
+                    .load(std::sync::atomic::Ordering::Acquire)
+            }) {
+                crate::application::sandbox_catalog::shared::prepare_entry(&context)?;
+            }
             crate::application::containers::backend::prepare_invocation(&context).await?;
             instance.0.invoke(context, invocation)?.await
         }))
@@ -493,9 +500,22 @@ impl NativeCellFactory {
                         && self.class == crate::deploy::EVENT_STREAM_CLASS)
                     || (work.reason == "resource-reconciliation"
                         && (self.class == crate::deploy::EVENT_CATALOG_CLASS || supervised))
+                    || (work.reason == "sandbox-cleanup"
+                        && transaction
+                            .storage()?
+                            .resources()
+                            .sandbox_catalog
+                            .load(std::sync::atomic::Ordering::Acquire))
                     || (work.reason == "queue" && self.class == crate::deploy::QUEUE_CLASS),
                 CommandFailure::UnsupportedCapability
             );
+            if work.reason == "sandbox-cleanup" {
+                let admitted = crate::storage::raft_invocation_minimum()?;
+                crate::storage::sandbox_shared::check_work_minimum(
+                    &*transaction.framework()?,
+                    admitted,
+                )?;
+            }
             if !super::native_work::claim(
                 &*transaction.framework()?,
                 &work,
@@ -593,6 +613,50 @@ impl NativeCellFactory {
                 self.accepts(cached) && Arc::ptr_eq(&cached.resources(), &authority.resources),
                 "Raft activation factory or storage changed"
             );
+        }
+        if let Some((work, leased_until)) = work
+            .as_ref()
+            .filter(|(work, _)| work.reason == "sandbox-cleanup")
+        {
+            // Framework cleanup must survive a broken/retired business factory.
+            if activation.is_none() {
+                *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
+                    owner: self.identity.clone(),
+                    instance: Mutex::new(Some(Arc::new(DeferredCell {
+                        owner: self.clone(),
+                        instance: Mutex::new(None),
+                    }))),
+                    resources: authority.resources.clone(),
+                })));
+            }
+            let keepalive = activation
+                .as_ref()
+                .ok_or(CommandFailure::Unavailable)?
+                .clone();
+            let context = self.context(identity, authority)?;
+            let work = work.clone();
+            let leased_until = *leased_until;
+            return Ok(Box::pin(async move {
+                let _activation = keepalive;
+                let storage = context.storage()?;
+                if let Some(installation) =
+                    storage.work_installation(cellar_logic::work::Reason::SandboxCleanup)?
+                {
+                    let output = crate::application::sandbox_catalog::maintenance::maintain(
+                        context,
+                        installation,
+                    )
+                    .await?;
+                    anyhow::ensure!(
+                        matches!(output, Output::Done),
+                        CommandFailure::UnsupportedCapability
+                    );
+                }
+                crate::storage::raft_native_work(|db| {
+                    super::native_work::complete(db, &work, leased_until)
+                })?;
+                Ok(vec![1])
+            }));
         }
         if let Some((work, leased_until)) = work.as_ref().filter(|(work, _)| {
             work.reason == "resource-reconciliation"
@@ -862,6 +926,7 @@ impl NativeCellFactory {
             event_authority: None,
             name_authority: None,
             catalog_authority: None,
+            sandbox_authority: None,
             io: crate::host_io::IoContext::new(),
             state: Arc::new(EventState {
                 raft_workflow_turn: crate::deploy::is_workflow_class(&self.class),

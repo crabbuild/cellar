@@ -16,6 +16,9 @@ impl ControllerProvider {
         input: Value,
         lifecycle: Option<&'a BindingLifecycleGuard>,
     ) -> Result<PreparedProviderCall<'a>> {
+        if self.identity.provider == super::docker::PROVIDER {
+            super::docker::validate_parameters(operation, &input)?;
+        }
         let mut start = None;
         if let Some(lifecycle) = lifecycle {
             let journal = BindingJournal::open(context, &self.identity.binding)?;

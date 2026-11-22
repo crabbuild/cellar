@@ -10,7 +10,14 @@ controller core for a trusted host integration. An authenticated transport and a
 provider implementing `ExecutionControllerBackend` are required. The
 `ControllerProvider` adapter connects ordinary named SDK sessions to this core.
 `NativeContainerAdapter` also connects bounded ordinary `Context::container` calls;
-complete native execution and Sandbox adapters remain required.
+the bounded native execution and private shared Sandbox profiles are described
+in the [Docker backend guide](docker.md). Complete native/Sandbox lifecycle and
+provider-volume recovery remain separate acceptance gates.
+
+The opt-in [Docker execution profile](docker.md) adds a physical backend and
+bounded `Container::exec_output` with a read-only idle scaffold, independent
+receipts and joined process fencing. Its qualification remains separate from
+the controlled-peer results below and from full native/Sandbox compatibility.
 
 ## Named SDK adapter
 
@@ -70,7 +77,9 @@ autonomous S3 cleanup deadlines; see the source-pinned
 [qualification checkpoint](../../docs/design/multi-raft/cell-groups/progress.md#cg-17-native-replacement-deadline-custody-and-original-create-sealing).
 The typed mappings for stat/list, signal, monitor and inactivity configuration
 still need owning behavior qualification. Interactive exec, port/HTTP/WebSocket
-sessions and native Sandbox remain unfinished.
+sessions remain unfinished. Shared Sandbox dispatch and autonomous cleanup use
+an explicit bounded execution class; their current-source results and limits
+remain in CG-17, without credit for full-family compatibility.
 Container file bytes retain the provider's storage contract; quorum metadata
 does not replicate those bytes or establish provider-volume recovery.
 

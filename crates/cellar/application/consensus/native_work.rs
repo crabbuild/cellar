@@ -39,8 +39,12 @@ pub(crate) fn is_provider_reconciliation(
     admission.is_system()
         && class != crate::deploy::EVENT_CATALOG_CLASS
         && operation == OPERATION
-        && serde_json::from_slice::<Work>(input)
-            .is_ok_and(|work| work.reason == "resource-reconciliation")
+        && serde_json::from_slice::<Work>(input).is_ok_and(|work| {
+            matches!(
+                work.reason.as_str(),
+                "resource-reconciliation" | "sandbox-cleanup"
+            )
+        })
 }
 
 fn exists(db: &Connection) -> Result<bool> {
@@ -49,7 +53,7 @@ fn exists(db: &Connection) -> Result<bool> {
 
 fn install(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS __sys_raft_native_work (
-        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue','filesystem','outbox','stream-maintenance','resource-reconciliation')),
+        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue','filesystem','outbox','stream-maintenance','resource-reconciliation','sandbox-cleanup')),
         generation BLOB NOT NULL CHECK(typeof(generation)='blob' AND length(generation)=16),
         due INTEGER NOT NULL CHECK(typeof(due)='integer' AND due>=0),
         attempts INTEGER NOT NULL CHECK(typeof(attempts)='integer' AND attempts BETWEEN 0 AND 4294967295),
@@ -70,6 +74,7 @@ fn validate(reason: &str) -> Result<()> {
                 | "outbox"
                 | "stream-maintenance"
                 | "resource-reconciliation"
+                | "sandbox-cleanup"
         ),
         CommandFailure::UnsupportedCapability
     );

@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Normal provider sessions backed by independently durable execution ownership.
+pub mod docker;
 mod endpoint;
 mod lifecycle;
 mod native;
@@ -269,7 +270,11 @@ impl Provider for ControllerProvider {
     }
 
     fn operations(&self) -> &[Operation] {
-        OPERATIONS
+        if self.identity.provider == docker::PROVIDER {
+            docker::OPERATIONS
+        } else {
+            OPERATIONS
+        }
     }
 
     fn open(&self) -> Box<dyn ProviderSession> {
