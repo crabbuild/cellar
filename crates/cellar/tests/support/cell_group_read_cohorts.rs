@@ -73,7 +73,7 @@ pub(crate) async fn lost_heartbeat(rooted: bool) -> Result<()> {
         let authority = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if let Some(result) = read.as_mut().now_or_never() {
-                    break result;
+                    break result.map_err(anyhow::Error::from);
                 }
                 fixture
                     .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
