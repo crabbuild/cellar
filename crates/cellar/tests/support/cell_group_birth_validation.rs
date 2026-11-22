@@ -49,7 +49,7 @@ impl Reads {
     }
 }
 
-pub(super) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Result<()> {
+pub(crate) async fn current_birth_reads_overlap(store: Arc<fault::Store>) -> Result<()> {
     let f = Fixture::with_store(DirectoryLimits::default(), route().schema_digest, store).await?;
     let work = async {
         let birth = selected_birth(&f).await?;
