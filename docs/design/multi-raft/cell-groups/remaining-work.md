@@ -31,7 +31,7 @@ writer/image/settlement costs while retaining FIFO ordering and the independent
 checkpoint-progress repeatability gate. See the
 [workspace qualification boundary](optimization-progress.md#rooted-workspace-preparation).
 
-Current inputs `77f944ab` let verified applied-state observations finish during
+At compiler inputs `77f944ab`, verified applied-state observations finish during
 unrelated Raft persistence, preserving execution, initialization and park fences.
 The held-sync regression passes twice while the unchanged runtime fails twice;
 18 existing receipt/recovery/admission controls, park admission/restart and source
@@ -41,6 +41,17 @@ materialized C4 run drains **528 messages / 528 unique IDs**, while both rooted
 candidate and both rooted control runs fail during load. All five Queue cleanup
 joins and retained copies are independently verified. See
 [applied observations during persistence](optimization-progress.md#applied-observations-during-persistence).
+
+The image-preparation follow-up at `a6f9c594` removes a duplicate final geometry
+read while retaining each committed cut's independent verification and all
+persistence barriers. The matched 1 MiB owning fixture reads about **25% fewer
+filesystem bytes**; this is not a latency or device-I/O result. All 18
+extent-apply tests, 39 extent-store tests (one existing ignore), 1,387 host library
+tests (two existing ignores) and 18 selected native controls pass. **All five
+fresh C4 selections still fail during load**, including materialized mode; all
+cleanup joins and retained copies verify. Shared target service and checkpoint
+repeatability remain P0 work. See
+[final image geometry verification](optimization-progress.md#final-image-geometry-verification).
 
 Earlier fresh unsampled C4 Queue trials on `06fe9101f` pass twice in materialized mode
 and fail twice in rooted mode. The C2 control passes materialized delivery and

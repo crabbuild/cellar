@@ -300,15 +300,15 @@ impl NodeExtentStore {
                 current =
                     self.apply_image_file(&current, &file, buffer, &mut rolling, &mut work)?;
             }
+            // Preflight requires a nonempty chain. Every apply_image_file,
+            // including the final cut, has independently checked its physical
+            // SQLite geometry before returning this exact manifest.
             if current.binding() != update.binding
                 || current.geometry() != update.geometry
                 || reference(&current)? != update.result
             {
                 return Err(StoreError::Integrity);
             }
-            // Header/hole checks are independent of the proposed commitment.
-            // A checksum-enabled result has already been checked at each file.
-            self.check_image_geometry(&current, buffer, &mut work)?;
             // The serialized publication pins the entire closure and preserves
             // existing retention. A fresh transient root acquires no independent
             // permanent reference, including when its final seal is refused.

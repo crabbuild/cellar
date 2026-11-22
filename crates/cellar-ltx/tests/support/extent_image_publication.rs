@@ -5,6 +5,93 @@ use super::*;
 use std::{sync::mpsc, thread, time::Duration};
 
 #[test]
+fn image_preparation_avoids_redundant_final_extent_reads() {
+    for checksums in [false, true] {
+        let (mut fixture, before) = Fixture::new(4096, 1024 * 1024);
+        // Keep an unexpected failure's actual media for independent inspection.
+        fixture.root.disable_cleanup(true);
+        let mut buffer = vec![0; EXTENT_BYTES as usize];
+        let base = fixture.seal(&before, checksums, &mut buffer);
+        let after = fixture.mutate("UPDATE counter SET value=8");
+        let encoded = delta(&before, &after, 4096, 2, checksums);
+        let update = fixture.update(&base, &encoded, &after, 2, checksums);
+        let start = fixture.files.metrics.read_bytes.load(Ordering::Acquire);
+        let prepared = fixture
+            .store
+            .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+            .unwrap();
+        let reads = fixture.files.metrics.read_bytes.load(Ordering::Acquire) - start;
+        // Read the base, independently verify the destination, and check its
+        // SQLite geometry. Allow a page for the separately verified root file.
+        let bound = before.len() + 2 * after.len() + 4096;
+        fixture.query(&prepared.image, 8);
+        fixture.query(&base, 7);
+        assert_eq!(prepared.image.reference(), update.result);
+        eprintln!(
+            "IMAGE_PREPARATION_READS {{\"checksums\":{checksums},\"physicalReadBytes\":{reads},\"bound\":{bound},\"logicalImageReadBytes\":{}}}",
+            prepared.work.base_bytes_read
+        );
+        assert!(
+            reads <= bound,
+            "image preparation repeated the final physical geometry read"
+        );
+        fixture.root.disable_cleanup(false);
+    }
+}
+
+#[test]
+fn an_empty_ltx_chain_cannot_reseal_an_existing_image() {
+    let (mut fixture, bytes) = Fixture::new(4096, 4096);
+    fixture.root.disable_cleanup(true);
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let base = fixture.seal(&bytes, true, &mut buffer);
+    let update = ImageRootUpdate {
+        base: base.reference(),
+        result: base.reference(),
+        binding: base.manifest().binding(),
+        geometry: base.manifest().geometry(),
+        segments: Vec::new(),
+    };
+    let initial = fixture.store.usage().unwrap();
+    assert!(fixture
+        .store
+        .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+        .is_err());
+    assert_eq!(fixture.store.usage().unwrap(), initial);
+    fixture.query(&base, 7);
+    fixture.root.disable_cleanup(false);
+}
+
+#[test]
+fn a_later_ltx_cannot_hide_invalid_intermediate_sqlite_geometry() {
+    let (mut fixture, before) = Fixture::new(4096, 4096);
+    fixture.root.disable_cleanup(true);
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let base = fixture.seal(&before, true, &mut buffer);
+    let mut middle = fixture.mutate("UPDATE counter SET value=8");
+    let after = fixture.mutate("UPDATE counter SET value=9");
+    // Both LTX files and their rolling checksums remain internally valid. The
+    // later cut repairs a header that was invalid at the preceding commit.
+    middle[0] ^= 1;
+    let encoded2 = delta(&before, &middle, 4096, 2, true);
+    let encoded3 = delta(&middle, &after, 4096, 3, true);
+    let mut update = fixture.update(&base, &encoded2, &middle, 2, true);
+    let next = fixture.update(&base, &encoded3, &after, 3, true);
+    update.result = next.result;
+    update.binding = next.binding;
+    update.geometry = next.geometry;
+    update.segments.extend(next.segments);
+    let initial = fixture.store.usage().unwrap();
+    assert!(fixture
+        .store
+        .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+        .is_err());
+    assert_eq!(fixture.store.usage().unwrap().roots, initial.roots);
+    fixture.query(&base, 7);
+    fixture.root.disable_cleanup(false);
+}
+
+#[test]
 fn a_retried_image_reverifies_bytes_without_repeating_completed_barriers() {
     let (fixture, before) = Fixture::new(4096, 4096);
     let mut buffer = vec![0; EXTENT_BYTES as usize];

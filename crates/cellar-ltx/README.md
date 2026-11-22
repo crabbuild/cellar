@@ -110,6 +110,12 @@ permanent host reference, including when final sealing fails. This batching adds
 neither an asynchronous wait nor a new quota, and supplies no Raft acknowledgement
 or archive authority by itself.
 
+Each committed LTX cut independently checks its physical SQLite header and
+lock-page geometry. The last cut supplies the final geometry check before the
+exact result binding and commitment are sealed. Empty chains are refused, and a
+later valid cut cannot hide invalid intermediate geometry. Destination byte
+verification and the existing file and directory barriers remain required.
+
 Root metadata keeps a volatile observation of completed file and directory
 barriers on its exact open inventory owner. A repeated seal still reads and
 checks the entire root file and SQLite image bytes, while reusing those completed

@@ -36,6 +36,40 @@ acceptance. The original constrained Colima/RustFS comparison has no admitted
 cases; its last reserve witness was below the unchanged 6 GiB minimum. No
 end-to-end throughput or latency gain is qualified.
 
+## Final image geometry verification
+
+Compiler inputs `a6f9c594` remove a duplicate final geometry-validation pass
+from immutable image preparation. The nonempty LTX chain already independently
+checks every committed cut's physical SQLite header and lock-page geometry,
+including the final cut. Exact result binding/commitment checks, destination
+verification, file sync, the shared directory barrier and serialized inventory
+ownership remain required.
+
+In the byte-identical owning fixture, preparation of a 1,060,864-byte SQLite
+image reads **4,243,600 filesystem bytes on the unchanged runtime and 3,182,736
+on the candidate**, about 25% fewer. Both baseline repeats fail the read-work
+bound; both candidate repeats pass with and without LTX checksums, preserving
+old/new SQLite values and integrity. These are filesystem bytes, including
+reads served by the OS cache, not device traffic or request latency. Empty-chain
+refusal and invalid intermediate geometry remain checked. An independent audit
+matches the registered/executed tests; two earlier verifier-construction
+rejections remain retained.
+
+All **18 extent-apply tests**, **39 extent-store tests / one existing ignore**,
+**1,387 host library tests / two existing ignores**, five native
+publication/recovery controls and thirteen RF3 execution/receipt/apply/cleanup
+controls pass. Strict affected LTX/host Clippy and LTX no-default/all-feature
+checks pass.
+
+**Service qualification remains failed.** All five fresh C4 selections fail
+during load: two rooted candidate runs, two preserved rooted controls and one
+materialized candidate run. They report joined cleanup with zero errors, and
+available media, synthetic exports and exact closed copies are independently
+verified. The original Queue fixture, deadlines and admission are unchanged.
+This qualifies reduced image-read work; it establishes no end-to-end throughput
+or latency gain and does not close service repeatability, checkpoint progress,
+full recovery/SDK/release acceptance or the constrained Colima/RustFS matrix.
+
 ## Applied observations during persistence
 
 Compiler inputs `77f944ab` serve reconciliation and enrollment-state observations
