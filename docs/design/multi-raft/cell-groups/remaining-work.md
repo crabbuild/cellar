@@ -9,28 +9,41 @@ Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
 The optimization PR includes main `09cdcf423` (#179). At compiler inputs
-`98bf1829`, final preview retirement runs on the existing joined cleanup owner,
-allowing unrelated SQL to progress while inventory I/O is held. Exact receipt
-validation stays on SQL; replies and original reservations remain held until
-cleanup joins. Both byte-identical owning regressions pass twice after failing
-twice on the prior runtime. The full library passes **1,387 tests / two existing
-ignores**, alongside 25 selected publication/receipt/recovery controls and strict
-affected Clippy. See [final preview retirement](optimization-progress.md#final-preview-retirement).
+`8240ea6c`, intermediate RPC checkpoint retirement also runs on the existing
+joined cleanup owner. SQL validates the exact receipt before handoff and fresh
+authority after join; admission, workspace and continuation custody remain held.
+The byte-identical RF3 owning regression passes twice after failing twice on the
+prior runtime. The full library passes **1,387 tests / two existing ignores**,
+alongside **47 selected retirement/receipt/recovery/checkpoint/SDK/admission
+controls**, strict all-feature/all-target host/core Clippy and repository checks.
+See [intermediate checkpoint retirement](optimization-progress.md#intermediate-rpc-checkpoint-retirement).
 
-**Service acceptance remains failed.** The broad current-candidate native
-selection passes **46 of 52**; ordinary SQL/KV/Queue, C2 and both rooted C4 cases
-fail. Two materialized C4 cases pass. Reversed paired service runs remain
-variable: SQL passes one of two on each runtime, KV one of two on the prior
-runtime and zero of two on the candidate, and Queue callbacks/C2 zero of two on
-each. The candidate's second KV failure is a typed overload. A prior C2 control
-also records 536 delivery attempts for 528 unique IDs; its strict drain-count
-mismatch remains failed. These results establish neither KV non-regression nor
-an end-to-end throughput or latency gain. Earlier failures retain their scope in
-the [implementation ledger](optimization-progress.md).
+**Service acceptance remains failed.** The current-source selection passes
+**53 of 59 executed selections**; the twelve prior-runtime controls are counted
+separately (**three pass**). One already-ignored directed diagnostic earns no
+execution credit; its eviction scenario is covered by the passing complete S3
+read-source case. Two repetitions with reversed case/runtime order give:
+
+| Original service case | Prior runtime (`98bf1829`) | Candidate (`8240ea6c`) |
+| --- | --- | --- |
+| SQL bindings | 0/2 | 1/2 |
+| KV bindings | 1/2 | 2/2 |
+| Queue callbacks | 2/2 | 2/2 |
+| Queue C2 load/drain | 0/2 | 1/2 |
+| Rooted C4 selections | 0/2 | 0/2 |
+| Materialized C4 selections | 0/2 | 0/2 |
+
+All four candidate C4 failures reach load. Two prior C4 failures precede load;
+the other six C4 cases report joined cleanup without errors. Startup cleanup
+joins are not established by absent markers. The successful candidate C2 run
+has both exact **528 deliveries / 528 unique IDs** drains. These observations
+establish neither service repeatability nor an end-to-end throughput or latency
+gain. Earlier failures retain their scope in the
+[implementation ledger](optimization-progress.md).
 
 | Priority | Work required before acceptance |
 | --- | --- |
-| **P0: Repeatable service and recovery** | Close SQL/KV/Queue service and drain under the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows, exact receipts and unchanged admission. Investigate remaining intermediate-checkpoint retirement and target writer/image/persistence interference with owning regressions. Keep checkpoint-progress repeatability and complete-prefix recovery as separate gates. |
+| **P0: Repeatable service and recovery** | Close SQL and Queue C2/C4 deadline/drain failures under the original **3,000-ms RPC / 5,000-ms callback / 30-second drain** windows, exact receipts and unchanged admission. Measure current-source target image/persistence, private capture I/O and bounded-worker interference before selecting another change. Keep successful KV/callback repetitions, checkpoint repeatability and complete-prefix recovery as separate gates. |
 | **P1: Shared execution and routing** | Prove fair bounded SQL/apply/persistence/archive service, control/election/shutdown progress, routing/read partitions and public lost-response reconciliation across elections/splits. Preserve Ready/sync ordering, command identity, image pins and S3 proof. |
 | **P1: Sustainable capacity and release** | Prove physical shared-segment deletion and once-only capacity credit, repeated reserve-aware movement, interrupted park/wake/recovery, and combined primitive/SDK/Axum/daemon/fault/crash acceptance. |
 | **P2: Constrained performance** | Run the original three-node, **1 vCPU / 2 GiB each**, RF3/three-group SQL/KV/Queue comparison against shared RustFS, including Quorum, Quorum+S3, Fleet and Bucket at C1/4/16 with reversed repeats. |

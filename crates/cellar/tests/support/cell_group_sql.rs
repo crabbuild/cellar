@@ -522,6 +522,15 @@ mod receipt_reuse;
 #[path = "cell_group_sql_retirement.rs"]
 mod retirement;
 
+#[path = "cell_group_sql_checkpoint_retirement.rs"]
+mod checkpoint_retirement;
+
+pub(super) async fn checkpoint_retirement_progress(
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    Box::pin(checkpoint_retirement::progress(store)).await
+}
+
 pub(super) async fn preview_retirement_progress(
     reconcile: bool,
     store: Arc<object_store::memory::InMemory>,

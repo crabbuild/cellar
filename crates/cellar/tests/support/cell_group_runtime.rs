@@ -947,6 +947,12 @@ mod sql;
 pub(super) use sql::commit_metadata_publication;
 pub(super) use sql::foreign_commit_ticket;
 
+pub(super) async fn checkpoint_retirement_progress(
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    sql::checkpoint_retirement_progress(store).await
+}
+
 pub(super) async fn preview_retirement_progress(
     reconcile: bool,
     store: Arc<object_store::memory::InMemory>,

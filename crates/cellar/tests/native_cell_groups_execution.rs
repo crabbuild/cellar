@@ -815,6 +815,11 @@ async fn rooted_reconciliation_retirement_keeps_unrelated_sql_runnable() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_rpc_checkpoint_retirement_keeps_unrelated_sql_runnable() -> Result<()> {
+    receipt_retention::checkpoint_retirement().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn enrollment_authority_loss_keeps_controller_alive() -> Result<()> {
     Box::pin(runtime_fixture::enrollment_authority_loss_keeps_controller_alive()).await
 }

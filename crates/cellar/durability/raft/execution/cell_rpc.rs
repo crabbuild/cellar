@@ -13,6 +13,27 @@ pub(crate) enum CellRpcStart {
     Duplicate(Box<CellCommittedReceipt>),
 }
 
+/// Checked on SQL, then owned by physical retirement until the original owner
+/// joins. No SQLite connection, callback or continuation crosses this handoff.
+pub(crate) struct CellCheckpointRetirement {
+    retirement: CellPrivateRetirement,
+    retired: CellCheckpointRetired,
+}
+
+/// Only completed physical retirement can return this exact-owner continuation.
+pub(crate) struct CellCheckpointRetired {
+    previous: Arc<CellExecutionAuthority>,
+    committed: CellExecutionAuthority,
+    receipt: CellCommittedReceipt,
+}
+
+impl CellCheckpointRetirement {
+    pub(crate) fn finish(self) -> Result<CellCheckpointRetired, ExecutionError> {
+        self.retirement.finish()?;
+        Ok(self.retired)
+    }
+}
+
 pub(crate) struct CellRpcDispatch {
     pub domain: crate::asyncrt::DomainToken,
     pub deadline: u64,
@@ -406,11 +427,11 @@ impl CellPrivateExecutor {
             .ok_or(ExecutionError::Uncertain)
     }
 
-    pub(crate) fn finish_rpc_checkpoint(
+    pub(crate) fn prepare_rpc_checkpoint_retirement(
         &mut self,
         committed: CellExecutionAuthority,
         reconciliation: CellReconciliationAuthority,
-    ) -> Result<CellCommittedReceipt, ExecutionError> {
+    ) -> Result<CellCheckpointRetirement, ExecutionError> {
         let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
         let step = pending
             .rpc_step
@@ -468,10 +489,31 @@ impl CellPrivateExecutor {
         };
         check()?;
         committed.check().map_err(authority_failure)?;
-        self.retire_reconciled()?;
-        committed.check().map_err(authority_failure)?;
-        self.authority = std::sync::Arc::new(committed);
-        Ok(receipt)
+        Ok(CellCheckpointRetirement {
+            retirement: self.defer_retirement()?,
+            retired: CellCheckpointRetired {
+                previous: self.authority.clone(),
+                committed,
+                receipt,
+            },
+        })
+    }
+
+    pub(crate) fn adopt_rpc_checkpoint(
+        &mut self,
+        retired: CellCheckpointRetired,
+    ) -> Result<CellCommittedReceipt, ExecutionError> {
+        if self.pending.is_some()
+            || self.preparing.is_some()
+            || !Arc::ptr_eq(&self.authority, &retired.previous)
+        {
+            return Err(ExecutionError::Invalid("RPC checkpoint retirement owner"));
+        }
+        // Time, term and activation may change during physical retirement.
+        // The owning SQL worker alone may adopt authority and resume the VM.
+        retired.committed.check().map_err(authority_failure)?;
+        self.authority = Arc::new(retired.committed);
+        Ok(retired.receipt)
     }
 
     pub(crate) fn continue_rpc_checkpoint(

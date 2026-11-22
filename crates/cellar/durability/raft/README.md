@@ -862,7 +862,11 @@ preview retirement to the existing joined private-cleanup task. Inventory waits
 there do not occupy the SQL callback lane. The task retains the preview and
 log/image reservations; its SQL owner retains the reply, writer admission and
 completion slot until retirement and workspace cleanup finish. Failure returns
-no receipt acknowledgement. Direct private executors retain synchronous retirement.
+no receipt acknowledgement. Intermediate RPC checkpoints use the same joined
+cleanup machinery before SQL rechecks and adopts continuation authority; newer-term
+reconciliation also joins retirement before refusing continuation. The suspended
+invocation retains its original writer, callback and byte admission throughout.
+Direct private executors retain synchronous retirement.
 
 Business commands/queries and administrative operations have independent host
 admission. `max_control_requests` defaults to 16 and `max_control_bytes` to 16 MiB;

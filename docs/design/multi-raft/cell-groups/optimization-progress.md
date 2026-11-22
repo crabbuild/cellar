@@ -36,6 +36,66 @@ acceptance. The original constrained Colima/RustFS comparison has no admitted
 cases; its last reserve witness was below the unchanged 6 GiB minimum. No
 end-to-end throughput or latency gain is qualified.
 
+## Intermediate RPC checkpoint retirement
+
+Compiler inputs `8240ea6c` move applied intermediate RPC preview retirement onto
+the existing joined cleanup owner. SQL first checks the exact checkpoint receipt;
+physical work owns the pending preview and log/image reservations. Only its
+returned token can be adopted by the same SQL executor after a fresh authority
+check. SQL retains the handler, continuation, writer, admission and workspace.
+Newer-term reconciliation retires through the same owner and refuses continuation.
+Close joins outstanding retirement before aborting the handler or releasing custody.
+No worker, bank, FIFO order, deadline, durability proof or execution grant changes.
+
+The byte-identical corrected native RF3 fixture holds a real serialized inventory
+read with one SQL worker. Both prior-runtime repetitions fail unrelated SQL
+progress; both candidate repetitions pass. The original query is observed without
+cancellation/reissue. Retained admission/workspace, withheld continuation, exact
+receipt/replay, one handler invocation, all three voter values and joined fixture
+close remain checked.
+
+An earlier fixture compared combined command/read bytes after the unrelated read
+legitimately shrank its own charge; that failed attempt and verifier rejection
+remain retained. The corrected matched fixture captures the command-only reference
+before either unrelated read is admitted. Its original admission lower bound and
+physical custody, continuation, receipt/replay and close assertions remain.
+
+The full library passes **1,387 tests / two existing ignores**. An initial run
+has thirteen Unix-socket path-length errors from its fresh fixture prefix. The
+same immutable binary passes all thirteen exact controls and the full suite in a
+fresh shorter directory on the same volume; the original failure stays retained.
+Strict all-feature/all-target Clippy for Cellar and cellar-logic, formatting,
+layout, native dependencies, documentation and **44 plan-validator tests** pass.
+The validator tests qualify their evidence gate, not the runtime algorithm.
+
+**Broader qualification remains failed: 53 of 59 current-source selections pass.**
+All 47 selected positive controls pass; the new owning repetitions are separate.
+Twelve prior-runtime controls pass three selections and are counted separately.
+A selected existing ignored diagnostic stops the initial driver; its zero-test
+result and verifier rejection remain retained. Its scenario is included in the
+passing complete S3 read-source case. The 25 previously unstarted selections run
+in fresh fixtures, completing 71 nonignored selections across both captures.
+No started command or failed history is reset or reissued. The paired results are:
+
+| Original service case | Prior runtime (`98bf1829`) | Candidate (`8240ea6c`) |
+| --- | --- | --- |
+| SQL bindings | 0/2 | 1/2 |
+| KV bindings | 1/2 | 2/2 |
+| Queue callbacks | 2/2 | 2/2 |
+| Queue C2 load/drain | 0/2 | 1/2 |
+| Rooted C4 selections | 0/2 | 0/2 |
+| Materialized C4 selections | 0/2 | 0/2 |
+
+The successful candidate C2 case has two exact **528 deliveries / 528 unique IDs**
+drains and joined cleanup without errors. All four candidate C4 cases fail during
+load. Two prior C4 controls fail before load; all six load cases report joined
+cleanup with zero errors. Startup logical joins are not inferred from missing
+markers. All available originals, exports and exact closed copies are audited.
+SQL/C2/C4 failures, checkpoint repeatability and complete recovery remain open.
+These results do not establish an end-to-end gain, the original constrained
+Colima/RustFS comparison or full OPT/CG/SDK/release acceptance. See
+[current priorities](remaining-work.md).
+
 ## Final preview retirement
 
 Compiler inputs `98bf1829` move final command preview retirement from the SQL
@@ -44,7 +104,8 @@ committed or reconciled receipt and closes its SQLite writer. The cleanup owner
 retains the pending preview and log/image reservations; SQL retains the reply,
 writer lease, bytes, activation and completion lane until physical cleanup joins.
 Any retirement/cleanup failure withholds the acknowledgement. Direct private
-executors and intermediate RPC checkpoints retain synchronous retirement.
+executors retain synchronous retirement. The later intermediate RPC checkpoint
+handoff is described above.
 
 Byte-identical native RF3 regressions hold a real serialized inventory read with
 one SQL worker. Finish and reconciliation each fail the unrelated-query progress

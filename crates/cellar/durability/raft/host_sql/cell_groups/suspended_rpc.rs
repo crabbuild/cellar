@@ -3,9 +3,13 @@
 //! Keep suspended RPCs on their existing worker without occupying its queue.
 
 use super::super::checkpoint_task::CheckpointTask;
+use super::super::cleanup_task::CleanupTask;
 use super::super::rpc_commit::{wait_checkpoint, CheckpointProof};
 use super::*;
-use crate::raft::execution::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
+use crate::raft::execution::{
+    CellCheckpointRetirement, CellPrivateRetirement, CellRpcDispatch, CellRpcEnvironment,
+    CellRpcStart, CellRpcTurn,
+};
 use futures_util::future::BoxFuture;
 use std::task::{Context, Poll, Wake, Waker};
 
@@ -92,6 +96,8 @@ struct SubmittedCheckpoint {
 
 enum CheckpointPhase {
     Applying(BoxFuture<'static, Result<CheckpointProof, ExecutionError>>),
+    Retiring(CleanupTask<CellCheckpointRetirement>),
+    Reconciled(CleanupTask<CellPrivateRetirement>),
     Archiving(
         BoxFuture<
             'static,
@@ -131,6 +137,13 @@ impl Suspended {
                 });
                 adopted.and(returned.outcome.map(|_| ()))
             }
+            Some(Checkpoint::Submitted(checkpoint)) => match &mut checkpoint.phase {
+                CheckpointPhase::Retiring(task) => {
+                    task.join(&Waker::from(self.ready.clone())).map(drop)
+                }
+                CheckpointPhase::Reconciled(task) => task.join(&Waker::from(self.ready.clone())),
+                _ => Ok(()),
+            },
             _ => Ok(()),
         };
         let rolled_back = match self.executor.take() {
@@ -273,9 +286,16 @@ impl Suspended {
                         .executor
                         .as_mut()
                         .ok_or_else(unavailable)?
-                        .reconcile(checkpoint.prepared.proposal(), *proof)
+                        .reconcile_for_cleanup(checkpoint.prepared.proposal(), *proof)
                     {
-                        Ok(_) => return Poll::Ready(Err(unavailable())),
+                        Ok(Some((_, retirement))) => {
+                            checkpoint.phase =
+                                CheckpointPhase::Reconciled(CleanupTask::new(retirement, domain));
+                            self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
+                            self.ready.0.store(true, Ordering::Release);
+                            return Poll::Pending;
+                        }
+                        Ok(None) => Err(ExecutionError::Uncertain),
                         Err(error) => Err(error),
                     }
                 }
@@ -284,8 +304,38 @@ impl Suspended {
                         .executor
                         .as_mut()
                         .ok_or_else(unavailable)?
-                        .finish_rpc_checkpoint(*execution, *proof)
+                        .prepare_rpc_checkpoint_retirement(*execution, *proof)
                     {
+                        Ok(retirement) => {
+                            checkpoint.phase =
+                                CheckpointPhase::Retiring(CleanupTask::new(retirement, domain));
+                            self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
+                            self.ready.0.store(true, Ordering::Release);
+                            return Poll::Pending;
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+            },
+            CheckpointPhase::Reconciled(task) => match task.poll(cx) {
+                Poll::Pending => {
+                    self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
+                    return Poll::Pending;
+                }
+                Poll::Ready(result) => return Poll::Ready(result.and(Err(unavailable()))),
+            },
+            CheckpointPhase::Retiring(task) => match task.poll(cx) {
+                Poll::Pending => {
+                    self.checkpoint = Some(Checkpoint::Submitted(Box::new(checkpoint)));
+                    return Poll::Pending;
+                }
+                Poll::Ready(result) => {
+                    match result.and_then(|retired| {
+                        self.executor
+                            .as_mut()
+                            .ok_or_else(unavailable)?
+                            .adopt_rpc_checkpoint(retired)
+                    }) {
                         Ok(receipt) => {
                             tracing::debug!(target: "cellar::raft::checkpoint", phase = "applied",
                                 history = ?self.cell, sequence = checkpoint.expected.sequence.get(),

@@ -23,7 +23,10 @@ pub(crate) use checkpoint::{CellCheckpointGrant, CellCheckpointPrepared};
 
 #[path = "cell_rpc.rs"]
 mod rpc;
-pub(crate) use rpc::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
+pub(crate) use rpc::{
+    CellCheckpointRetired, CellCheckpointRetirement, CellRpcDispatch, CellRpcEnvironment,
+    CellRpcStart, CellRpcTurn,
+};
 
 /// A receipt proven against the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {
@@ -111,7 +114,7 @@ pub(crate) struct CellPrivateRetirement {
 }
 
 impl CellPrivateRetirement {
-    fn finish(self) -> Result<(), ExecutionError> {
+    pub(crate) fn finish(self) -> Result<(), ExecutionError> {
         self.images
             .retire(&self.pending._preview)
             .map_err(storage)?;

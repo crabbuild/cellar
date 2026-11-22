@@ -48,3 +48,22 @@ pub(super) async fn retirement(reconcile: bool) -> Result<()> {
     retained?;
     Ok(())
 }
+
+pub(super) async fn checkpoint_retirement() -> Result<()> {
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let outcome = std::panic::AssertUnwindSafe(runtime_fixture::checkpoint_retirement_progress(
+        store.clone(),
+    ))
+    .catch_unwind()
+    .await;
+    let retained = memory::retain(&store, "checkpoint-retirement").await;
+    if let Err(error) = &retained {
+        eprintln!("checkpoint-retirement memory export error: {error:#}");
+    }
+    match outcome {
+        Ok(result) => result?,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+    retained?;
+    Ok(())
+}
