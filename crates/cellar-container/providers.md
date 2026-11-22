@@ -48,6 +48,13 @@ checks. Direct host journal users need the same guard; maintenance backends
 must not reacquire it. Command/file operations stay concurrent and retain their
 generation checks around result publication.
 
+Healthy shared-group inspections yield to a waiting foreground lifecycle call.
+An entered execution fence finishes before handoff; its owned I/O then releases
+local admission before the maintenance SQL continuation resumes. Every retained
+local guard becomes invalid, and the deferred continuation only refreshes durable
+work discovery. Unknown fence results, expiry and required cleanup retain their
+admission and reconciliation rules. This handoff grants no provider execution.
+
 For [supervised bindings](supervision.md), application operations check
 `BindingJournal::check_retention` before submission. Successful commands/files
 may call `activity(ctx, original_generation)`; polling must not renew retention.

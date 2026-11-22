@@ -475,6 +475,7 @@ impl BindingJournal {
                 .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?;
             let request = claim.clone();
             let controller = authority.clone();
+            let hold = lifecycle.hold();
             // This owned I/O boundary proves the exact newly reserved claim and
             // parks its writer without lending SQLite authority to the controller.
             // An idempotent reservation can reuse only this invocation's
@@ -482,9 +483,10 @@ impl BindingJournal {
             // invocation still requires its own complete checkpoint.
             let activated = dispatch
                 .schedule_effect(move |_| async move {
-                    InspectionAdmission::run(
+                    InspectionAdmission::fence(
                         inspection.as_ref(),
-                        crate::asyncrt::wall_ms().max(0),
+                        &hold,
+                        || crate::asyncrt::wall_ms().max(0),
                         move || controller.activate(request),
                     )
                     .await
@@ -492,7 +494,10 @@ impl BindingJournal {
                 .future
                 .await??;
             if activated.is_none() {
-                lifecycle.check(&context, &journal)?;
+                // Healthy deferral already revoked every clone of the local
+                // admission at the joined I/O boundary. This continuation may
+                // only refresh discovery; it receives no execution grant.
+                journal.check(&context)?;
                 return Ok(None);
             }
             let grant = ExecutionGrant {

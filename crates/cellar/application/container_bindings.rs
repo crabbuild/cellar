@@ -3,7 +3,9 @@
 //! Host-only durable provider metadata. Guest storage cannot authorize a remote ID.
 pub(crate) use super::containers::LifecycleLocks;
 use super::{
-    containers::{BackgroundAdmission, ForegroundProbe, InspectionAdmission, ProviderAuthority},
+    containers::{
+        BackgroundAdmission, ForegroundProbe, InspectionAdmission, LifecycleHold, ProviderAuthority,
+    },
     Context, HandlerFuture,
 };
 use anyhow::{ensure, Result};
@@ -193,13 +195,17 @@ pub struct BindingJournal {
 /// Dropping releases the slot. This supplies no remote fencing or rollback.
 #[must_use = "keep the guard until lifecycle I/O and checkpointing have settled"]
 pub struct BindingLifecycleGuard {
-    guard: Arc<tokio::sync::OwnedMutexGuard<()>>,
+    guard: LifecycleHold,
     name: Arc<str>,
     authority: Arc<ProviderAuthority>,
     foreground: Option<ForegroundProbe>,
 }
 
 impl BindingLifecycleGuard {
+    pub(super) fn hold(&self) -> LifecycleHold {
+        self.guard.clone()
+    }
+
     /// Fence provider work using this invocation's existing lifecycle admission.
     /// The returned grant retains the same guard; no second lock is acquired.
     /// Keep it through lifecycle I/O and settlement. The controller must still
@@ -239,6 +245,10 @@ impl BindingLifecycleGuard {
     }
 
     pub(super) fn check(&self, context: &Context, journal: &BindingJournal) -> Result<()> {
+        ensure!(
+            self.guard.held(),
+            super::consensus::CommandFailure::Unavailable
+        );
         self.authority.check(context)?;
         ensure!(
             self.name == journal.name,
@@ -369,7 +379,7 @@ impl BindingJournal {
             };
             journal.check(&context)?;
             Ok(BindingLifecycleGuard {
-                guard: Arc::new(guard),
+                guard: LifecycleHold::new(guard),
                 name: journal.name,
                 authority: journal.authority,
                 foreground: None,
@@ -397,7 +407,7 @@ impl BindingJournal {
         };
         self.check(context)?;
         Ok(Some(BindingLifecycleGuard {
-            guard: Arc::new(guard),
+            guard: LifecycleHold::new(guard),
             name: self.name.clone(),
             authority: self.authority.clone(),
             foreground: Some(foreground),

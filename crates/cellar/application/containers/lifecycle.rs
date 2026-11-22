@@ -36,6 +36,26 @@ impl BackgroundAdmission {
 #[derive(Clone)]
 pub(crate) struct ForegroundProbe(Arc<AtomicUsize>);
 
+/// Clones share one admission. A known inspection handoff revokes every old
+/// local handle together; retaining a clone cannot retain or revive the lock.
+#[derive(Clone)]
+pub(crate) struct LifecycleHold(Arc<Mutex<Option<OwnedMutexGuard<()>>>>);
+
+impl LifecycleHold {
+    pub(crate) fn new(guard: OwnedMutexGuard<()>) -> Self {
+        Self(Arc::new(Mutex::new(Some(guard))))
+    }
+
+    pub(crate) fn held(&self) -> bool {
+        self.0.lock().unwrap().is_some()
+    }
+
+    fn release(&self) {
+        let guard = self.0.lock().unwrap().take();
+        drop(guard);
+    }
+}
+
 /// A scheduling hint for a healthy inspection, never permission for I/O.
 #[derive(Clone)]
 pub(crate) struct InspectionAdmission {
@@ -53,6 +73,43 @@ impl InspectionAdmission {
         }
     }
 
+    /// Transfer lifecycle custody through the owned fence I/O. A known healthy
+    /// deferral can release it before the SQL continuation reacquires a writer;
+    /// an error retains admission and its original failure. Only a completed
+    /// fence (or a refusal before entry) can make this local handoff.
+    pub(crate) async fn fence<F, Fut>(
+        admission: Option<&Self>,
+        lifecycle: &LifecycleHold,
+        now_ms: impl Fn() -> i64,
+        operation: F,
+    ) -> Result<Option<()>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        let result = Self::run(admission, now_ms(), operation).await;
+        if result
+            .as_ref()
+            .is_ok_and(|activated| activated.is_none() || Self::defers(admission, now_ms()))
+        {
+            lifecycle.release();
+            return Ok(None);
+        }
+        result
+    }
+
+    fn defers(admission: Option<&Self>, now_ms: i64) -> bool {
+        admission.is_some_and(|admission| {
+            BackgroundAdmission::for_maintenance(
+                true,
+                admission.deadline_ms,
+                now_ms,
+                admission.logical_ms,
+            ) == BackgroundAdmission::Routine
+                && admission.foreground.0.load(Ordering::Acquire) != 0
+        })
+    }
+
     /// Call only after the original source proof. Deferred work constructs no
     /// operation future. Expiry and required cleanup do not yield this way.
     pub(crate) async fn run<T, F, Fut>(
@@ -64,15 +121,7 @@ impl InspectionAdmission {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T>>,
     {
-        if admission.is_some_and(|admission| {
-            BackgroundAdmission::for_maintenance(
-                true,
-                admission.deadline_ms,
-                now_ms,
-                admission.logical_ms,
-            ) == BackgroundAdmission::Routine
-                && admission.foreground.0.load(Ordering::Acquire) != 0
-        }) {
+        if Self::defers(admission, now_ms) {
             return Ok(None);
         }
         operation().await.map(Some)

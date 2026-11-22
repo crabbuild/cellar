@@ -34,7 +34,7 @@ pub use backend::{
     ContainerAdapter, ContainerFuture, ContainerReply, ContainerRequest, PreparedContainerCall,
 };
 pub(crate) use lifecycle::{
-    BackgroundAdmission, ForegroundProbe, InspectionAdmission, LifecycleLocks,
+    BackgroundAdmission, ForegroundProbe, InspectionAdmission, LifecycleHold, LifecycleLocks,
 };
 use std::{sync::Arc, time::Duration};
 pub use values::{ExecInfo, ExecOptions, ExecOutput, StartOptions};

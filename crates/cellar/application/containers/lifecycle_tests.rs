@@ -5,6 +5,173 @@ use std::{future::poll_fn, task::Poll};
 use tokio::sync::Notify;
 
 #[tokio::test]
+async fn known_fence_yields_lifecycle_before_sql_resume() {
+    let locks = LifecycleLocks::default();
+    let name: Arc<str> = "TOOL".into();
+    let background = locks.get(&name, 1).unwrap();
+    let admission = InspectionAdmission::new(background.foreground_probe(), 100, 10);
+    let held = LifecycleHold::new(
+        background
+            .try_background(BackgroundAdmission::Routine)
+            .unwrap(),
+    );
+    let retained = held.clone();
+    let completion = Notify::new();
+    let sql_resume = Notify::new();
+    let mut maintenance = Box::pin(async {
+        let result = InspectionAdmission::fence(
+            Some(&admission),
+            &held,
+            || 20,
+            || async {
+                completion.notified().await;
+                Ok(())
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap(), None);
+        assert!(
+            !retained.held(),
+            "known deferral retained lifecycle until SQL resume"
+        );
+        sql_resume.notified().await;
+    });
+    poll_fn(|cx| {
+        assert!(maintenance.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let proof = Notify::new();
+    let mut foreground = Box::pin(locks.get(&name, 1).unwrap().lock_shared(|mutex| async {
+        proof.notified().await;
+        Ok(mutex.lock_owned().await)
+    }));
+    poll_fn(|cx| {
+        assert!(foreground.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    completion.notify_one();
+    poll_fn(|cx| {
+        assert!(maintenance.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    proof.notify_one();
+    let held = poll_fn(|cx| match foreground.as_mut().poll(cx) {
+        Poll::Ready(result) => Poll::Ready(result.unwrap()),
+        Poll::Pending => panic!("foreground depends on background SQL resumption"),
+    })
+    .await;
+    sql_resume.notify_one();
+    maintenance.await;
+    drop(held);
+}
+
+#[tokio::test]
+async fn unknown_fence_retains_lifecycle_and_original_error() {
+    let locks = LifecycleLocks::default();
+    let name: Arc<str> = "TOOL".into();
+    let background = locks.get(&name, 1).unwrap();
+    let admission = InspectionAdmission::new(background.foreground_probe(), 100, 10);
+    let held = LifecycleHold::new(
+        background
+            .try_background(BackgroundAdmission::Routine)
+            .unwrap(),
+    );
+    let completion = Notify::new();
+    let mut fencing = Box::pin(InspectionAdmission::fence(
+        Some(&admission),
+        &held,
+        || 20,
+        || async {
+            completion.notified().await;
+            anyhow::bail!("original fence is unknown")
+        },
+    ));
+    poll_fn(|cx| {
+        assert!(fencing.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let mut foreground = Box::pin(
+        locks
+            .get(&name, 1)
+            .unwrap()
+            .lock_shared(|mutex| async { Ok(mutex.lock_owned().await) }),
+    );
+    poll_fn(|cx| {
+        assert!(foreground.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    completion.notify_one();
+    let result = fencing.await;
+    assert_eq!(result.unwrap_err().to_string(), "original fence is unknown");
+    assert!(held.held());
+    poll_fn(|cx| {
+        assert!(foreground.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(held);
+    drop(foreground.await.unwrap());
+}
+
+#[tokio::test]
+async fn completed_fence_keeps_expired_or_required_lifecycle() {
+    for required in [false, true] {
+        let locks = LifecycleLocks::default();
+        let name: Arc<str> = "TOOL".into();
+        let background = locks.get(&name, 1).unwrap();
+        let admission = InspectionAdmission::new(background.foreground_probe(), 100, 10);
+        let held = LifecycleHold::new(
+            background
+                .try_background(BackgroundAdmission::Required)
+                .unwrap(),
+        );
+        let clock = std::cell::Cell::new(20);
+        let completion = Notify::new();
+        let mut fencing = Box::pin(InspectionAdmission::fence(
+            (!required).then_some(&admission),
+            &held,
+            || clock.get(),
+            || async {
+                completion.notified().await;
+                Ok(())
+            },
+        ));
+        poll_fn(|cx| {
+            assert!(fencing.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        let mut foreground = Box::pin(
+            locks
+                .get(&name, 1)
+                .unwrap()
+                .lock_shared(|mutex| async { Ok(mutex.lock_owned().await) }),
+        );
+        poll_fn(|cx| {
+            assert!(foreground.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        clock.set(100);
+        completion.notify_one();
+        assert_eq!(fencing.await.unwrap(), Some(()));
+        assert!(held.held(), "required or expired lifecycle was deferred");
+        poll_fn(|cx| {
+            assert!(foreground.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        drop(held);
+        drop(foreground.await.unwrap());
+    }
+}
+
+#[tokio::test]
 async fn background_cannot_overtake_a_foreground_proof() {
     let locks = LifecycleLocks::default();
     let name: Arc<str> = "TOOL".into();
