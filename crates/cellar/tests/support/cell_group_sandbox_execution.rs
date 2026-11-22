@@ -657,6 +657,58 @@ pub async fn qualify_delete_input() -> Result<()> {
     run(Scenario::DeleteInput).await
 }
 
+pub async fn profile_retirement() -> Result<()> {
+    run(Scenario::RetirementProfile).await
+}
+
+/// Poll advisory errors only while the diagnostic's unchanged request runs.
+/// This owns no task, proof, I/O or admission and cannot settle the request.
+async fn observe_start(cluster: &ManagedCluster, history: &CellHistory) -> Result<CommandReceipt> {
+    let target = &cluster.fixtures[0].additional_namespaces[0].namespace;
+    let histories = [
+        cluster.history,
+        GroupHistory {
+            cluster: target.cluster,
+            namespace: target.namespace,
+            group: GroupId::new([181; 16])?,
+            incarnation: IncarnationId::new([182; 16])?,
+        },
+    ];
+    let command = call(cluster, history, Durability::S3, 1, "Create");
+    let monitor = async {
+        let mut last = BTreeMap::new();
+        loop {
+            for (voter, host) in cluster.hosts.iter().enumerate() {
+                for (group, history) in histories.iter().enumerate() {
+                    if let Ok(Some(status)) = host.group(*history).and_then(|h| h.archive_status())
+                    {
+                        let error = status.error.as_ref().map(|e| e.to_string());
+                        let observation = (
+                            status.published.as_ref().map(|m| m.position().index.get()),
+                            error,
+                            status.stopped,
+                        );
+                        if last.get(&(voter, group)) != Some(&observation) {
+                            eprintln!(
+                                "[DEBUG-cg17-archive-2786] {}",
+                                json!({"at_ms":cellar::asyncrt::wall_ms(),"voter":voter,"group":group,"published":observation.0,"error":observation.1,"stopped":observation.2})
+                            );
+                            last.insert((voter, group), observation);
+                        }
+                    }
+                }
+            }
+            cellar::asyncrt::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    tokio::pin!(command, monitor);
+    tokio::select! {
+        biased;
+        result = &mut command => result,
+        () = &mut monitor => unreachable!("diagnostic observer does not finish"),
+    }
+}
+
 pub async fn profile_recovery() -> Result<()> {
     run(Scenario::RecoveryProfile).await
 }
@@ -673,12 +725,14 @@ enum Scenario {
     DeleteInput,
     RecoveryProfile,
     DeleteInputProfile,
+    RetirementProfile,
 }
 
 async fn run(scenario: Scenario) -> Result<()> {
     let outage = matches!(scenario, Scenario::Outage);
     let minimum_custody = matches!(scenario, Scenario::MinimumCustody);
     let profile = matches!(scenario, Scenario::StartProfile);
+    let retirement_profile = matches!(scenario, Scenario::RetirementProfile);
     let trace = profile
         || matches!(
             scenario,
@@ -698,6 +752,9 @@ async fn run(scenario: Scenario) -> Result<()> {
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
             if profile && (!rooted || minimum != Durability::S3) {
+                continue;
+            }
+            if retirement_profile && (!rooted || minimum != Durability::Quorum) {
                 continue;
             }
             if minimum_custody && minimum != Durability::S3 {
@@ -871,7 +928,7 @@ async fn run(scenario: Scenario) -> Result<()> {
                 ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.deletes.load(Ordering::Acquire)==1 && peer.executes.load(Ordering::Acquire)==0,"minimum custody replayed physical mutation");
                 ensure!(docker_execution::physical_resources(&domain,&policy).await?==0);
             } else {
-                let first=call(&cluster,&a,minimum,1,"Create").await?;let allocation:SandboxAllocation=serde_json::from_slice(&first.result)?;
+                let first=if profile {observe_start(&cluster,&a).await?}else{call(&cluster,&a,minimum,1,"Create").await?};let allocation:SandboxAllocation=serde_json::from_slice(&first.result)?;
                 ensure!(allocation.generation==1 && allocation.state==SandboxAllocationState::Ready);
                 if profile {
                     ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.executes.load(Ordering::Acquire)==0,"diagnostic must use the original first Start");
@@ -882,7 +939,7 @@ async fn run(scenario: Scenario) -> Result<()> {
                 peer.lose_exec.store(true,Ordering::Release);peer.hide_exec.store(true,Ordering::Release);
                 let lost=call(&cluster,&a,minimum,3,"Exec").await.err().context("Sandbox exec reply loss not reached")?;unknown(&lost,options(3,minimum)?.id)?;
                 ensure!(peer.executes.load(Ordering::Acquire)==2 && peer.original_exec.lock().unwrap().is_some());
-                call(&cluster,&b,minimum,1,"Status").await?;named_service::restart(&mut cluster).await?;
+                call(&cluster,&b,minimum,1,"Status").await?;named_service::restart(&mut cluster).await.context("retained restart after lost Sandbox Exec")?;
                 ensure!(call(&cluster,&a,minimum,4,"Read").await.is_err(),"hidden original execution receipt admitted Sandbox work");
                 ensure!(peer.lookups.load(Ordering::Acquire)>0,"original Sandbox receipt was not consulted");
                 peer.hide_exec.store(false,Ordering::Release);call(&cluster,&a,minimum,5,"Read").await?;
@@ -911,8 +968,8 @@ async fn run(scenario: Scenario) -> Result<()> {
                 call(&cluster,&a,minimum,10,"Retire").await?;
                 cellar::asyncrt::timeout(Duration::from_secs(60),peer.wait_for_delete_cut()).await.context("autonomous Sandbox Delete never entered")?;
                 track.refuse.store(true,Ordering::Release);let factories=track.factories.load(Ordering::Acquire);
-                named_service::restart(&mut cluster).await?;peer.hide_delete.store(false,Ordering::Release);
-                cellar::asyncrt::timeout(Duration::from_secs(60),async {let mut id=1;loop {let status=state(&cluster,&a,id).await?;id+=1;if status["parent"]["state"]=="deleted" && status["cleanup_pending"]==false && status["job"]["state"]=="deleted" && status["spare"]["state"]=="deleted" {break;}cellar::asyncrt::sleep(Duration::from_millis(50)).await;}Ok::<_,anyhow::Error>(())}).await.context("retained Sandbox cleanup did not prove terminal metadata")??;
+                named_service::restart(&mut cluster).await.context("retained restart after lost Sandbox Delete")?;peer.hide_delete.store(false,Ordering::Release);
+                cellar::asyncrt::timeout(Duration::from_secs(60),async {let mut id=1;loop {let status=state(&cluster,&a,id).await.with_context(||format!("retired Sandbox terminal-state query {id}"))?;id+=1;if status["parent"]["state"]=="deleted" && status["cleanup_pending"]==false && status["job"]["state"]=="deleted" && status["spare"]["state"]=="deleted" {break;}cellar::asyncrt::sleep(Duration::from_millis(50)).await;}Ok::<_,anyhow::Error>(())}).await.context("retained Sandbox cleanup did not prove terminal metadata")??;
                 ensure!(track.factories.load(Ordering::Acquire)==factories,"autonomous Sandbox cleanup constructed business code");
                 ensure!(peer.creates.load(Ordering::Acquire)==3 && peer.deletes.load(Ordering::Acquire)==3 && peer.executes.load(Ordering::Acquire)==2,"Sandbox cleanup replayed a mutation or missed an exact generation");
                 peer.require_deleted_generations(&[&allocation,&spare,&next])?;
