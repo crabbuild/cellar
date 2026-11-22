@@ -2,7 +2,10 @@
 
 //! Host-only durable provider metadata. Guest storage cannot authorize a remote ID.
 pub(crate) use super::containers::LifecycleLocks;
-use super::{containers::ProviderAuthority, Context, HandlerFuture};
+use super::{
+    containers::{BackgroundAdmission, ProviderAuthority},
+    Context, HandlerFuture,
+};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -316,8 +319,9 @@ impl BindingJournal {
     /// A contended shared-group wait proves the original invocation at its
     /// required durability before parking its private writer. Only an unchanged
     /// unfinished receipt from this invocation can reuse its existing proof.
-    /// Background maintenance yields to this contended admission while its
-    /// proof is pending; cancellation releases the local reservation.
+    /// Routine background inspection yields while this contended admission's
+    /// proof is pending. Required cleanup still competes for a free lock.
+    /// Cancellation releases the local reservation.
     pub fn lock_lifecycle(&self, context: &Context) -> HandlerFuture<BindingLifecycleGuard> {
         let prepared = (|| {
             self.check(context)?;
@@ -366,6 +370,7 @@ impl BindingJournal {
     pub(super) fn try_lock_lifecycle(
         &self,
         context: &Context,
+        admission: BackgroundAdmission,
     ) -> Result<Option<BindingLifecycleGuard>> {
         self.check(context)?;
         let lock = context
@@ -373,7 +378,7 @@ impl BindingJournal {
             .resources()
             .provider_lifecycle
             .get(&self.name, MAX_BINDINGS)?;
-        let Some(guard) = lock.try_background() else {
+        let Some(guard) = lock.try_background(admission) else {
             return Ok(None);
         };
         self.check(context)?;

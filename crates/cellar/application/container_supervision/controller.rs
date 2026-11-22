@@ -3,7 +3,7 @@
 use super::registry::Backend;
 use super::{DeleteSafety, MaintenanceAction, MaintenancePreparation};
 use crate::application::{
-    containers::{BindingIntent, BindingJournal, BindingObservation},
+    containers::{BackgroundAdmission, BindingIntent, BindingJournal, BindingObservation},
     Context, Output,
 };
 use crate::storage::{container_bindings as bindings, container_maintenance as tasks};
@@ -89,8 +89,23 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
     // retried from committed state. Foreground calls retain their cancellable
     // wait, and ordinary Fleet maintenance keeps its existing serialization.
     let _lifecycle = if context.raft_storage.is_some() {
+        // Only healthy, unexpired inspections may yield to a foreground proof.
+        // Recovery, expiry and retirement still try any free mutex. This hint
+        // grants no effect: task and checkpoint validation below remain exact.
+        let stable_running = task.failures == 0
+            && journal.load(&context)?.is_some_and(|checkpoint| {
+                checkpoint.record.intent == BindingIntent::Running
+                    && checkpoint.record.observation == BindingObservation::Confirmed
+                    && checkpoint.record.resource_id.is_some()
+            });
+        let admission = BackgroundAdmission::for_maintenance(
+            stable_running,
+            task.deadline()?,
+            now,
+            task.logical_ms,
+        );
         journal
-            .try_lock_lifecycle(&context)?
+            .try_lock_lifecycle(&context, admission)?
             .ok_or(crate::application::consensus::CommandFailure::Unavailable)?
     } else {
         journal.lock_lifecycle(&context).await?
