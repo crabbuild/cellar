@@ -73,6 +73,7 @@ its proof obligation. Idle discovery survives an older work completion.
 | `73f112c7e` real-adapter Start diagnostic | FAILED: three child capability refusals before adapter preparation and one original S3 deadline; no physical work |
 | `a323a13fb` configured-application namespace correction, real Start diagnostic | FAILED: all four profiles reach physical Create; materialized Quorum also reaches two Exec calls, then admission overload; three original Create deadlines remain |
 | `1a03df7d0` three-slot/foreground-admission real control | FAILED: both Quorum modes pass lost-Exec recovery, file operations and generation replacement, then autonomous Delete never enters within 60 seconds; two S3 Start deadlines remain |
+| `e9c9d9343` corrected work key plus urgent admission, full real six-function/19-profile campaign | FAILED: 3/6 complete functions and 11 configuration markers; physical fencing and all eight archive-refusal profiles pass |
 
 The `a2a8eac03` gate passes physical fencing/restart, three Container recovery
 profiles and all eight Container/Sandbox archive-refusal profiles under its
@@ -140,7 +141,25 @@ the new shared reason requires the class's Sandbox catalog capability.
 Urgency refinement `96af1bcd2` is integrated: expiry, deletion and interrupted
 operation recovery may acquire a free lifecycle mutex; routine inspection yields
 to a pending foreground proof. Its six owning tests pass at the original source.
-The corrected combined source is rebuilding for current-source qualification.
+The corrected combined source builds and its full real campaign remains FAILED
+at `e9c9d9343`, with unchanged source inputs. Physical fencing and both refusal
+functions pass (nine complete profiles); two additional Container recovery
+profiles pass within a failed function. Materialized Quorum Sandbox now enters
+the lost-Delete cut, restarts voters and recovers the job to Deleted, but the
+live spare remains Deleting with a proven Deleted/Pending intent and no final
+receipt. Its two entry checkpoints consume the same original cleanup budget.
+Extent Quorum instead misses Spare7's original deadline. Both normal S3 Start1
+profiles still fail. The minimum-custody gate fails before its actual Delete/
+parent-archive cut in materialized mode and at Start1 in extent mode. Ordinary
+Container materialized Quorum Read5 and extent S3 command2 also miss deadlines.
+
+Optimization `af44f1ef6` skips only the redundant running observation for an
+authenticated dedicated framework Sandbox Destroy. The framework constructor
+needs no running snapshot; the controller's Delete already reconciles old debt,
+uses the stable deletion ID and enforces the mandatory input proof and fence.
+Ordinary constructors retain their observation. A narrow opt-in failure event
+preserves the internal cause before the public Unknown response. This source
+requires owning checks and real qualification; it is not a proven latency fix.
 
 All original operation IDs, proof requirements and
 5-second/3-second/60-second budgets remain unchanged.

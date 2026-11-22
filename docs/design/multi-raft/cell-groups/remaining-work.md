@@ -38,17 +38,19 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Follow-up PR #180 implements bounded physical
 Docker execution and the shared Sandbox bridge on merged PR #179. The combined
-owning source passes 23 checks. The three-slot real control now passes the
-business, lost-Exec recovery, file and generation paths in both Quorum image
-modes. Autonomous Delete still fails its original 60-second observer, and both
-S3 Start profiles still miss their five-second deadline. Retained images locate
-the skipped cleanup in a logical-key/private-image-key mismatch. Its correction
-and an actual Storage callback regression are committed, along with the
-configured-application namespace, independent retirement fence and urgent versus
-routine lifecycle admission changes. The Sandbox profile retains three bounded
-ordinary slots, 64 KiB and one SQL worker. Run the full corrected six-function/
-19-profile gate before accepting this bounded delivery. Full primitive families
-and all 32 cases remain open.
+owning source passes 23 checks. Full real source `e9c9d9343` remains FAILED:
+three complete functions and 11 profile markers. Physical fencing and all eight
+archive-refusal profiles pass. The work-key correction now reaches actual
+Delete and retained recovery of one child; the live spare remains at deletion
+intent, so terminal cleanup still fails. Normal S3 Start deadlines, extent
+Quorum Spare7 and two ordinary Container deadlines also remain open.
+
+The next bounded delivery removes only the redundant entry observation before
+private framework Destroy, preserving controller reconciliation, stable IDs,
+fencing and input/output proofs. Qualify that source with the same three-slot/
+64-KiB/single-worker profile and original 5s/3s/60s budgets. Every primitive family
+and all 32 formal cases remain open. Do not credit partial profile markers as
+complete family acceptance.
 
 Earlier `fb5925652` archive/read passes and provider deadline/fence failures are
 retained in [progress](progress.md#cg-17-pending-read-recovery-and-covered-s3-receipts);
