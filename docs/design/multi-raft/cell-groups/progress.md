@@ -32,6 +32,68 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 reconciled completion observations
+
+Qualifier `8dcd2314f` corrects a false Sandbox cleanup failure and strengthens
+its physical-generation oracle. In the retained `f5027c3bb` materialized/Quorum
+case, the public terminal-state loop already succeeded. The checksum-verified
+backend journal contains three completed Create/Delete pairs across three child
+histories, each deleting the exact created resource. The fixture counted only
+two completed execute returns; it ignored a completion learned by reconciliation.
+This evidence does not justify a production cleanup rewrite.
+
+The actual fixture Peer now records known completions by resource key and original
+operation ID. Execute and reconciliation share the observer; repeated receipts
+count once, and changed original metadata/result bytes refuse. Unknown, Refused
+and ExpiredBeforeSubmission outcomes cannot count as completion. Lost-reply and
+archive-outage cuts apply to the first known result on either path and cannot
+rearm after restoration. The notification waiter registers before checking the
+cut. The existing exact three-Create/three-Delete requirement remains, with new
+per-generation resource-ID pairing and the independent zero-resource Engine check.
+Production fencing, Raft or durability behavior is unchanged.
+
+A focused regression through the actual Peer fails in 153ms before the fix:
+the original completed Delete is returned by reconciliation but counted zero.
+Both corrected regressions pass, including lost execute returns, repeated receipt
+lookup, conflicting metadata/bytes, non-completions and a lost first reconciled
+reply. The latter also checks original identity, hidden receipt refusal and
+archive restoration without rearming. Strict affected Clippy, canonical formatting,
+locked build, layout and native dependency checks pass.
+
+All four affected public Sandbox functions ran against actual Docker and RustFS,
+covering 12 planned configurations with original identities and 5s/3s/60s limits.
+The campaign is **FAILED, 1/4 complete functions**; scoped results are:
+
+| Case | Result on `8dcd2314f` |
+| --- | --- |
+| Full Sandbox recovery | Both Quorum image modes pass lost Exec/Delete replies, retained voter restart, file operations, stale authority refusal, three exact generation pairs, constructor-independent terminal cleanup and zero remaining Engine resources; materialized S3 Create1 and extent S3 FileRead2 time out |
+| Source-proof refusal | All four image/minimum profiles pass |
+| Requested-S3 cleanup floor | Both initial Create1 requests time out before the intended fault |
+| Delete input/restart/restore | Both initial Create1 requests time out before the intended fault |
+
+Quorum cleanup is now qualified for this bounded execution profile. S3 cleanup
+input/floor qualification remains blocked by earlier request deadlines; neither
+that statement nor passing Quorum recovery establishes complete Container/Sandbox
+support. The earlier integrated `f5027c3bb` run remains FAILED, 4/11 functions.
+No new Container-only, full primitive, independent-voter, load, disk-loss,
+provider-volume or cutover result is claimed.
+
+Evidence `CG-17-sandbox-observer-real-8dcd2314f-2709` retains frozen source and
+executables, the original failing observer, corrected checks, raw logs, forensic
+journal summaries and 48 roots, with a checksum-verified second copy. No own
+compiler, formatter or evidence copy overlapped runtime. All owners and the
+4-CPU/8-GiB VM are stopped and joined; RustFS remains 1 CPU/2 GiB with retained
+objects/volumes. RF3 still shares one native host process with one SQL worker per
+voter. Latest fetched main remains `09cdcf423`, already included.
+
+The next critical feature gap is S3 request completion latency. Use ingress,
+checkpoint and archive stages to separate initialization, publication,
+verification and SQL resumption; retain every proof and original deadline.
+Then run S3 cleanup/floor scenarios and complete ordinary execution/network,
+interactive/HTTP/WebSocket, provider-volume and other primitive adapters.
+All 32 full CG-17 cases and CG-13/15/16 remain required. The generated index and
+acceptance counts are unchanged.
+
 ### CG-17 bounded birth validation
 
 Production `64b649bbf` overlaps fresh directory selection with immutable

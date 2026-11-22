@@ -38,37 +38,37 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-[PR #180](https://github.com/crabbuild/cellar/pull/180) now includes cooperative
-inspection handoff and bounded two-chain current-birth validation. The latter
-passes all 31 native catalog tests and its full real RustFS oracle at qualifier
-`d578b421e`; strict Clippy, formatting and locked builds also pass.
+[PR #180](https://github.com/crabbuild/cellar/pull/180) includes the bounded birth
+window, cooperative inspection and the corrected Sandbox completion observer.
+Qualifier `8dcd2314f` preserves the three-Delete requirement and adds exact
+per-generation resource pairing; it accounts for known results received through
+reconciliation. The earlier two-return cleanup failure had three completed
+physical journal pairs. Both complete Quorum Sandbox recovery image modes now
+pass, including lost replies, retained restart, constructor-independent cleanup
+and zero Engine resources. All four source-proof refusal profiles pass.
 
-The integrated `f5027c3bb` RustFS/Engine gate remains **FAILED, 4/11 functions**.
-Both physical safety functions, eight source-proof refusal profiles and both
-Quorum Container recovery image modes pass. S3 Container Create/Read deadlines,
-Sandbox request/terminal cleanup, initial Creates before Delete-input/floor
-faults and inspection-control deadlines remain open. The corrected catalog
-fixture passes separately; no integrated failure or full-family gate is waived.
-See [current results](progress.md#cg-17-bounded-birth-validation).
+The affected real campaign remains **FAILED, 1/4 functions** over 12 planned
+configurations: S3 Create/FileRead deadlines and initial Create failures before
+cleanup-input/floor faults remain. Two causal observer regressions and strict
+Clippy/build/format/layout checks pass. Earlier integrated `f5027c3bb` remains
+FAILED 4/11; full primitive acceptance is unchanged. See
+[current results](progress.md#cg-17-reconciled-completion-observations).
 
 The next feature deliveries are:
 
-1. Close mandatory S3 proof/continuation latency and exact-generation Sandbox
-   cleanup. The bounded birth-read window is delivered, not a proven cure for
-   request deadlines. A failed native Data2 input checkpoint continues 1611ms
-   after apply, and the last Execute has only 533ms on its operation deadline.
-   Separate publication/verification and SQL resumption before choosing the next
-   change; the explicit ReadFile appears as Inspect and is not evidence of
-   background interference. Diagnose retained terminal cleanup debt against
-   exact original generations and receipts. Preserve typed ambiguity, recovery,
-   safe sequence sealing, both proof boundaries and original 5s/3s/60s limits.
-2. Pass the complete physical Container/Sandbox matrix and inspection controls.
-   Retain both namespaces, constructor-independent cleanup and requested S3
-   floors. Complete ordinary application execution, interactive APIs, ports,
-   HTTP/WebSocket and provider-volume contracts. Copy evidence only after
-   runtime joins and report actual resource limits.
+1. Close S3 request completion latency, including cold Create and existing-cell
+   reads, then execute the original S3 cleanup input/floor/restart oracles. Keep
+   original operations, typed ambiguity, safe sequence sealing, both proof
+   boundaries and 5s/3s/60s limits. Separate ingress/enrollment, publication,
+   verification and SQL resumption using retained phase evidence. Quorum cleanup
+   is qualified in this bounded profile; the corrected counter failure does not
+   justify a production cleanup rewrite. Full-image upload is intentional and
+   short in the observed trace; establish the bottleneck before changing policy.
+2. Complete ordinary Container/Sandbox application execution, interactive APIs,
+   ports, HTTP/WebSocket and provider-volume contracts. Keep both namespaces,
+   constructor-independent recovery, exact receipts and physical fencing.
 3. Finish ordinary Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron,
-   filesystem and payload feature/acceptance drivers, including receipt/payload
+   filesystem and payload features/acceptance drivers, including receipt/payload
    GC. Complete the public API/feature inventory and fault/recovery matrix.
 4. Close CG-13 recovery, CG-15 qualification and CG-16 cutover. Independent Linux
    voters, physical disk loss, load and provider-volume recovery remain separate
