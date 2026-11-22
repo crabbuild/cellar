@@ -53,13 +53,17 @@ The next feature deliveries are:
    sequence sealing. Current failed Creates physically complete but miss the
    original response deadline. Preserve their uncertainty and IDs; do not replay
    business callbacks or extend the 5-second/3-second/60-second budgets.
-2. Integrate and qualify the actual fenced native Container and shared Sandbox
-   bridge on one source, including autonomous cleanup and retained source minima.
+2. Qualify the implemented physical Docker backend and shared Sandbox bridge on
+   the source integrated with merged PR #179. The bridge includes authenticated
+   parent/child dispatch, original receipt reconciliation, constructor-independent
+   cleanup, idle discovery and retained strongest source minima. The corrected
+   fixture campaign is still running; earlier failed campaigns remain retained.
+   See the [bridge checkpoint](progress.md#cg-17-shared-sandbox-bridge-and-physical-execution).
    Finish remaining public interactive, port/HTTP/WebSocket and provider-volume
    contracts; bounded exec alone does not accept the full family.
 3. Finish every ordinary Storage/SQL/KV, Queue, EventStream, Workflow, alarm/cron,
    filesystem and payload acceptance driver, including retention-aware receipt and
-   payload GC. Inventory remains partial at 18 entries/352 symbols. Register real
+   payload GC. Inventory remains partial at 18 entries/397 symbols. Register real
    full-case workloads and produce independently validated coverage ledgers.
 4. Run the complete feature, deployment, clock and lifecycle/recovery matrix on
    independent constrained Linux voters, with real archive/process/network faults,
