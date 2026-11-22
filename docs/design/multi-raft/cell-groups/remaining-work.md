@@ -66,14 +66,13 @@ failures remain scoped evidence. See
 The next feature deliveries are:
 
 1. Close common public S3 input/output completion and receipt settlement under
-   the original identities, minima and 5s/3s/60s limits. A minimal native S3
-   Create diagnostic takes 1,516 ms with only 3,649 microseconds inside logged
-   object-store bodies across nodes; measure host checkpoint, apply and proof
-   stages before changing the protocol. The current real Create diagnostic also
-   records 18 SQL publication and 77 stage attempts in 2,050 ms; consider waiting
-   for the original accepted position without weakening fresh term/owner/route
-   reconciliation. These are diagnostics, not a benchmark
-   or an exclusive latency cause. Preserve required cleanup and unknown work.
+   the original identities, minima and 5s/3s/60s limits. Current single-Create
+   diagnostics take 2,900 ms with native storage and 2,050 ms with RustFS; these
+   are separate observations, not a benchmark or exclusive cause. The real
+   window records 18 SQL publication and 77 stage attempts. Investigate using
+   original accepted-position progress to avoid premature SQL settlement probes;
+   fresh receipt, term, owner and route checks remain mandatory. Preserve
+   required cleanup and unknown work.
 2. Run the combined completion and physical Container/Sandbox gates. Retain both
    selected namespaces, constructor-independent cleanup, original receipts,
    independent execution fences and explicit S3 custody floors. Complete
@@ -85,14 +84,10 @@ The next feature deliveries are:
    Linux voters, physical disk loss, load and provider-volume recovery remain
    separate from the current native RF3 and real-RustFS component profiles.
 
-4. Run the complete feature, deployment, clock and lifecycle/recovery matrix on
-   independent constrained Linux voters, with real archive/process/network faults,
-   reclamation and disk loss. Complete CG-13/15/16 before hard cutover.
-
 Earlier bootstrap, binding/Consume/Ack, provider deadlines and broader source
-failures remain distinct retained controls. The retirement fix does not clear
-unrelated deadline failures, accept a complete primitive family or qualify the
-combined source in PR #180. Full plan validation is still blocked by missing
+failures remain distinct retained controls. Earlier fixes do not clear unrelated
+deadline failures or accept a complete primitive family. Full plan validation
+still fails on missing
 historical CG-01 evidence. The generated index credits only DONE tasks; CG-17 has
 no accepted full-task evidence. All oracles, case names and dependencies remain
 unchanged. Historical checkpoints below retain their source boundaries.
