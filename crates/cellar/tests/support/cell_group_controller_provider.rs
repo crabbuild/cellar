@@ -640,13 +640,23 @@ async fn call(
 ) -> Result<CommandReceipt> {
     let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
     let cell = cluster.hosts[leader].cell(history.clone())?;
-    Ok(cell
+    let started = cellar::asyncrt::mono_ms();
+    eprintln!(
+        "controller_public_request_started {}",
+        json!({"cell":history.cell.as_str(),"sequence":seq,"operation":operation,"minimum":format!("{minimum:?}"),"mono_ms":started})
+    );
+    let result = cell
         .command(
             &cell.contract("Run")?,
             serde_json::to_vec(operation)?,
             bindings::options(seq, minimum)?,
         )
-        .await?)
+        .await;
+    eprintln!(
+        "controller_public_request_finished {}",
+        json!({"cell":history.cell.as_str(),"sequence":seq,"operation":operation,"minimum":format!("{minimum:?}"),"elapsed_ms":cellar::asyncrt::mono_ms().saturating_sub(started),"success":result.is_ok(),"error":result.as_ref().err().map(|error|format!("{error:?}"))})
+    );
+    Ok(result?)
 }
 
 pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
