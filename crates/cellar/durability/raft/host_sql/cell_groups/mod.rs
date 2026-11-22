@@ -13,6 +13,7 @@ mod apply;
 mod checkpoint_task;
 mod cleanup_task;
 mod preparation;
+mod workspace_opening;
 pub use apply::CellGroupPreparedApply;
 pub(in crate::raft::host_sql) use apply::{ApplyRequest, ApplyTasks};
 mod query;
@@ -77,8 +78,8 @@ impl CellSqlLimits {
     }
 }
 
-/// Extent configuration without a live private workspace. The admitted worker
-/// creates and destroys that physical owner; rejected/queued requests do no I/O.
+/// Extent configuration without a live private workspace. The admitted SQL
+/// worker joins domain-owned preparation and cleanup; queued requests do no I/O.
 #[derive(Clone)]
 pub struct CellSqlRootOptions {
     pub host: cellar_ltx::LtxHost,
@@ -115,40 +116,36 @@ impl CellSqlOptions {
 
     fn open_enrollment(
         self,
+        root: Option<RootPrivateOptions>,
         authority: CellEnrollmentAuthority,
         root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Result<CellPrivateEnrollment, ExecutionError> {
-        match self {
-            Self::Materialized(o) => CellPrivateEnrollment::open(o, authority),
-            Self::Extents(o) => CellPrivateEnrollment::open_rooted_with_apply_limits(
-                o.prepare(authority.state().cell())?,
+        match (self, root) {
+            (Self::Materialized(o), None) => CellPrivateEnrollment::open(o, authority),
+            (Self::Extents(_), Some(root)) => CellPrivateEnrollment::open_rooted_with_apply_limits(
+                root,
                 authority,
                 root_apply_limits,
             ),
+            _ => Err(ExecutionError::Invalid("SQL workspace preparation kind")),
         }
     }
 
     fn open(
         self,
+        root: Option<RootPrivateOptions>,
         authority: CellExecutionAuthority,
-        performance: &crate::raft::performance::Registry,
         root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Result<CellPrivateExecutor, ExecutionError> {
-        let result = (|| match self {
-            Self::Materialized(o) => CellPrivateExecutor::open_cursor_image(o, authority),
-            Self::Extents(o) => CellPrivateExecutor::open_rooted_with_apply_limits(
-                o.prepare(&authority.cell().version.history)?,
+        match (self, root) {
+            (Self::Materialized(o), None) => CellPrivateExecutor::open_cursor_image(o, authority),
+            (Self::Extents(_), Some(root)) => CellPrivateExecutor::open_rooted_with_apply_limits(
+                root,
                 authority,
                 root_apply_limits,
             ),
-        })();
-        if matches!(
-            result,
-            Err(ExecutionError::Refused(CommandFailure::Overloaded))
-        ) {
-            performance.increment(crate::raft::performance::Counter::SqlPrivateOpenRefusals, 1);
+            _ => Err(ExecutionError::Invalid("SQL workspace preparation kind")),
         }
-        result
     }
 }
 

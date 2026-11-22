@@ -94,7 +94,7 @@ impl Settlement {
 
 // The one-entry queue is reusable after dequeue; physical users still retain
 // the shared progress lane, as ApplyTasks does, and the original producer bank.
-enum Reservation {
+pub(super) enum Reservation {
     Ordinary {
         _permit: tokio::sync::OwnedSemaphorePermit,
     },

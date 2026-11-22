@@ -100,16 +100,26 @@ pub struct CellPrivateExecutor {
     _lock: PrivateLock,
 }
 
-/// Disposable physical custody after SQLite and capture have closed on their
-/// SQL owner. No connection, continuation or application callback leaves it.
+/// Disposable physical custody before SQL opens or after SQLite and capture
+/// close on their SQL owner. It contains no connection, continuation or callback.
 pub(crate) struct CellPrivateCleanup {
     options: Options,
-    lock: PrivateLock,
+    lock: Option<PrivateLock>,
     closed: Result<(), ExecutionError>,
     discard: bool,
 }
 
 impl CellPrivateCleanup {
+    /// A workspace rejected before a SQLite writer or lock was adopted.
+    pub(crate) fn unopened_workspace(options: RootPrivateOptions) -> Self {
+        Self {
+            options: Options::rooted(options, None),
+            lock: None,
+            closed: Ok(()),
+            discard: false,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn closed_workspace_for_test(
         options: RootPrivateOptions,
@@ -127,7 +137,7 @@ impl CellPrivateCleanup {
         };
         Ok(Self {
             options,
-            lock,
+            lock: Some(lock),
             closed: Ok(()),
             discard: false,
         })
@@ -746,7 +756,7 @@ impl CellPrivateExecutor {
         });
         Ok(CellPrivateCleanup {
             options: self.options,
-            lock: self._lock,
+            lock: Some(self._lock),
             closed,
             discard,
         })

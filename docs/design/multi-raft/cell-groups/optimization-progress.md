@@ -36,7 +36,51 @@ acceptance. The original constrained Colima/RustFS comparison has no admitted
 cases; its last reserve witness was below the unchanged 6 GiB minimum. No
 end-to-end throughput or latency gain is qualified.
 
-## Current Queue diagnostic boundary
+## Rooted workspace preparation
+
+Compiler inputs `44ea1133` move rooted workspace creation onto the existing
+execution domain, with one FIFO lane per existing SQL worker. The SQL owner
+retains command/enrollment authority, original writer/item/byte admission and
+the returned workspace pin until physical completion and SQL adoption or joined
+cleanup. Initial entry and parked RPC resumption share this owner. SQLite and
+application execution remain on their SQL thread; the serialized immutable-store
+gate, durability proofs, budgets and deadlines remain unchanged.
+
+The byte-identical managed RF3, one-SQL-worker regressions fail on the earlier
+runtime in both Quorum and S3 modes: holding actual workspace creation blocks an
+unrelated cell query. Both pass with the candidate, including values, exact replay,
+one callback, admission custody and joined close. Nine real-storage ownership
+controls and **1,387 library tests / two existing ignores** pass. Strict affected
+all-feature Clippy and repository checks pass.
+
+**Broader native qualification remains failed: 14 of 21 selections pass.** The
+checkpoint submission control misses rooted Quorum follower progress once;
+ordinary rooted Queue and rooted C2/C4 producers fail. Two materialized C4 cases
+fail during startup before load, so they establish neither load behavior nor
+logical cleanup joins. Their available memory exports and disk copies remain
+retained. A separate paired checkpoint control passes all eight baseline modes
+and seven of eight candidate modes; its candidate failure is an ambiguous rooted
+S3 enrollment deadline before the checkpoint workload. It does not reproduce the
+earlier follower-progress failure or establish a scheduler cause.
+
+A subsequent four-case C4 campaign brackets current-candidate rooted/materialized
+traces with uninstrumented rooted controls. All four reach load and fail; all
+original three-node/three-host cleanup markers report joined domains without
+cleanup errors. Independent verification checks **194 captured input digests**,
+all observed trace records, retained media and exact closed copies. Temporary
+tracing is removed byte-exact. No failed mutation is reissued or history reset.
+
+Observed rooted writer-admission waits reach 1,524 ms, image preparation 1,076 ms
+and settlement 1,191 ms. Fresh entry-authority refresh reaches 15 ms. One rooted
+checkpoint-proof timer remains pending for about 25 seconds until shutdown.
+These overlapping observations locate further investigations; they are not
+exclusive costs, a complete business outcome attribution or a performance gain.
+Next, isolate checkpoint/proof progress and writer-hold/image/settlement costs,
+then close the unchanged C2/C4 delivery and uniqueness oracle. Complete OPT/CG,
+recovery/SDK/release qualification and the constrained Colima/RustFS comparison
+remain open.
+
+## Earlier Queue diagnostic boundary
 
 Merged source `06fe9101f` retains the original Queue load body and budgets. Fresh
 unsampled C4 trials pass twice in materialized mode and fail twice in rooted mode;

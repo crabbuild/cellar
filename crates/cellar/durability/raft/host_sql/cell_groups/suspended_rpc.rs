@@ -59,6 +59,7 @@ impl RpcReply {
 pub(super) struct Suspended {
     // Physical preparation joins before any callback/lease field drops.
     checkpoint: Option<Checkpoint>,
+    opening: Option<resume::ResumeOpening>,
     cell: CellHistory,
     turn: Box<CellRpcTurn>,
     executor: Option<CellPrivateExecutor>,
@@ -116,6 +117,9 @@ impl Suspended {
     }
 
     pub(super) fn close(mut self) -> Result<(), ExecutionError> {
+        let opening = self.opening.as_mut().map_or(Ok(()), |opening| {
+            opening.close(&Waker::from(self.ready.clone()))
+        });
         let joined = match &mut self.checkpoint {
             Some(Checkpoint::Preparing { task, .. }) => {
                 let returned = task.join(&Waker::from(self.ready.clone()));
@@ -138,7 +142,7 @@ impl Suspended {
         };
         let retired = self.activation.take().map_or(Ok(()), RpcActivation::close);
         self.reply.send(Err(unavailable()));
-        joined.and(rolled_back).and(retired)
+        opening.and(joined).and(rolled_back).and(retired)
     }
 
     fn retry_checkpoint(
@@ -496,20 +500,19 @@ impl Cells {
         false
     }
 
-    pub(super) fn start_rpc(
+    pub(super) fn capture_rpc(
         &mut self,
         cell: CellHistory,
-        stage: Stage,
+        stage: Capture,
         reply: oneshot::Sender<SqlReply>,
-        max: usize,
+        opened: (CellPrivateExecutor, RpcActivation),
         domain: &crate::asyncrt::DomainToken,
         now: u64,
     ) -> bool {
+        let (mut executor, mut activation) = opened;
         let started = (|| {
-            self.check_capacity(&cell, max)?;
-            let Stage {
+            let Capture {
                 options,
-                authority,
                 attempt,
                 mode,
                 callback,
@@ -525,51 +528,8 @@ impl Cells {
             else {
                 return Err(ExecutionError::Invalid("cell RPC callback"));
             };
-            if authority.cell().version.history != cell {
-                return Err(ExecutionError::Invalid("SQL cell history"));
-            }
-            check_waiter(
-                mode,
-                reply.is_closed(),
-                domain.mono_ms().map_err(|_| unavailable())?,
-            )?;
             let commits = commits.map(|context| *context);
             let max_result = options.limits().max_result_bytes;
-            let mut activation = self.activations.take(&cell, &authority, &class, now)?;
-            if commits.is_some() && activation.conflicts_with(&attempt.request) {
-                // `take` matched the exact current image and live leader fence.
-                // This rejects only a known conflicting input; it supplies no
-                // output or absence proof and does not authorize a new sequence.
-                let refusal = (|| {
-                    authority
-                        .check()
-                        .map_err(crate::raft::execution::authority_failure)?;
-                    if authority.route().schema_digest != options.application_digest() {
-                        return Err(ExecutionError::Invalid("cell execution schema"));
-                    }
-                    crate::raft::execution::validate_admitted_registered_command(
-                        options.limits(),
-                        options.application_digest(),
-                        &cell,
-                        &attempt.request,
-                        &class,
-                        &input,
-                        admission,
-                    )?;
-                    authority
-                        .check()
-                        .map_err(crate::raft::execution::authority_failure)?;
-                    Err(ExecutionError::Refused(CommandFailure::CommandConflict))
-                })();
-                return self
-                    .activations
-                    .put(cell.clone(), activation, now)
-                    .and(refusal);
-            }
-            let mut executor =
-                options
-                    .clone()
-                    .open(authority, &self.performance, self.root_apply_limits)?;
             let permit = &mut activation.permit;
             let mut admitted = false;
             let mut reserve = || {
@@ -640,6 +600,7 @@ impl Cells {
                             root_apply_limits: self.root_apply_limits,
                             class,
                             resuming: None,
+                            opening: None,
                             mode,
                             ready: Arc::new(Ready(AtomicBool::new(true), self.wake.clone())),
                             reply: RpcReply::new(reply),
@@ -682,6 +643,12 @@ impl Cells {
         now: u64,
         domain: &crate::asyncrt::DomainToken,
     ) -> bool {
+        // An entered workspace belongs to this invocation even after its
+        // deadline or domain closes. Join before the parked VM or lease moves.
+        let joined = rpc.opening.as_mut().map_or(Ok(()), |opening| {
+            opening.close(&Waker::from(rpc.ready.clone()))
+        });
+        let result = joined.map_err(anyhow::Error::new).and(result);
         let outcome = match rpc.executor.take() {
             Some(mut executor) => {
                 let failed_callback = result.as_ref().err().is_some_and(|error| {
@@ -757,6 +724,9 @@ impl Cells {
         let Ok(now) = domain.mono_ms() else {
             return false;
         };
+        // A newly opened callback cannot monopolize continuation progress.
+        // Finish the bounded existing pass as well before serving queued work.
+        let opened = self.poll_opening(domain, stopped, now);
         if self.poll_preparing(stopped, now) {
             return true;
         }
@@ -767,7 +737,7 @@ impl Cells {
             };
             // A submitted producer outlives deadline/term loss until exact
             // reconciliation; a parked invocation owns no submitted producer.
-            let mut admitted = if rpc.checkpoint.is_some() {
+            let mut admitted = if rpc.checkpoint.is_some() || rpc.opening.is_some() {
                 Ok(())
             } else {
                 rpc.check(now)
@@ -873,7 +843,7 @@ impl Cells {
                     }
                 }
             }
-            if rpc.executor.is_none() && rpc.turn.can_poll_parked_io() {
+            if rpc.executor.is_none() && rpc.opening.is_none() && rpc.turn.can_poll_parked_io() {
                 match rpc.turn.poll_parked_io(&mut cx) {
                     Ok(true) => {
                         self.suspended.push_back(rpc);
@@ -888,7 +858,14 @@ impl Cells {
                 }
             }
             if rpc.executor.is_none() {
-                match rpc.poll_resume(&self.activations, &mut cx, domain, now, performance) {
+                match rpc.poll_resume(
+                    &self.activations,
+                    &mut cx,
+                    domain,
+                    performance,
+                    self.workspace_lane.clone(),
+                    stopped,
+                ) {
                     Poll::Pending => {
                         self.suspended.push_back(rpc);
                         timer.finish(true);
@@ -937,6 +914,6 @@ impl Cells {
             timer.finish(self.finish_suspended(rpc, result, now, domain));
             return true;
         }
-        false
+        opened
     }
 }

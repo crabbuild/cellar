@@ -55,6 +55,8 @@ pub struct Faults {
     pub before_snapshot_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub read_open: Mutex<Option<ReadOpenHook>>,
     pub lock_open: Mutex<Option<ReadOpenHook>>,
+    /// Selected private directory creation, before the real filesystem call.
+    pub directory_create: Mutex<Option<ReadOpenHook>>,
     /// Selected disposable-file removal after its SQLite owner has closed.
     pub private_cleanup: Mutex<Option<ReadOpenHook>>,
     pub signal: Option<PathBuf>,
@@ -84,6 +86,7 @@ impl Faults {
             before_snapshot_close: Mutex::new(None),
             read_open: Mutex::new(None),
             lock_open: Mutex::new(None),
+            directory_create: Mutex::new(None),
             private_cleanup: Mutex::new(None),
             signal,
         })
@@ -463,6 +466,10 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        let hook = self.faults.directory_create.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(path)?;
+        }
         DirectFileSystem.create_dir_all(path)
     }
 }

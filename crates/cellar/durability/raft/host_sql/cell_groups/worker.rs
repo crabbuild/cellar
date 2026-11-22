@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, VecDeque};
 mod cleanup;
 use cleanup::Retiring;
 
+#[path = "opening.rs"]
+mod opening;
 #[path = "suspended_rpc.rs"]
 mod rpc;
 #[path = "stage.rs"]
@@ -35,6 +37,17 @@ pub(super) struct Stage {
     pub callback: Callback,
     pub lease: CellLease,
     pub bytes: Arc<Bytes>,
+}
+
+// The request's authority is consumed exactly once when SQL opens. Its callback
+// and original admission remain retained independently through rejected cleanup.
+struct Capture {
+    options: CellSqlOptions,
+    attempt: CommandAttempt,
+    mode: CellSqlStageMode,
+    callback: Callback,
+    lease: CellLease,
+    bytes: Arc<Bytes>,
 }
 
 impl Stage {
@@ -145,6 +158,8 @@ impl Producer {
 }
 
 pub(in crate::raft::host_sql) struct Cells {
+    opening: VecDeque<opening::Opening>,
+    workspace_lane: Arc<tokio::sync::Semaphore>,
     pending: BTreeMap<CellHistory, Pending>,
     suspended: VecDeque<rpc::Suspended>,
     preparing: VecDeque<Preparing>,
@@ -163,6 +178,8 @@ impl Cells {
         root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Self {
         Self {
+            opening: VecDeque::new(),
+            workspace_lane: Arc::new(tokio::sync::Semaphore::new(1)),
             pending: BTreeMap::new(),
             suspended: VecDeque::new(),
             preparing: VecDeque::new(),
@@ -218,12 +235,19 @@ impl Cells {
                     Action::Stage(stage) if stage.mode.expired(now) => Err(
                         crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded),
                     ),
-                    Action::Stage(stage) if stage.is_cell_rpc() => {
-                        timer.finish(self.start_rpc(cell, *stage, reply, max, domain, now));
-                        return;
-                    }
-                    Action::Stage(stage) => {
-                        timer.finish(self.start_stage(cell, *stage, reply, max, domain, now));
+                    action @ (Action::Stage(_) | Action::Initialize(_)) => {
+                        self.start_opening(
+                            cell,
+                            action,
+                            opening::Completion {
+                                reply,
+                                slot: _slot,
+                                timer,
+                            },
+                            max,
+                            domain,
+                            now,
+                        );
                         return;
                     }
                     action @ (Action::Finish(_) | Action::Reconcile(..)) => {
@@ -243,7 +267,8 @@ impl Cells {
                     Action::Query(query) => {
                         // Retirement requires every same-cell private frame to
                         // join. Its discovery must not mask runnable callbacks.
-                        let binding_ready = !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
+                        let binding_ready = !self.opening.iter().any(|frame| frame.cell == cell)
+                            && !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
                             && !self
                                 .preparing
                                 .iter()
@@ -251,7 +276,7 @@ impl Cells {
                             && !self.retiring.iter().any(|frame| frame.cell == cell);
                         super::query::run(*query, domain, binding_ready)
                     }
-                    action => self.run(cell, action, max),
+                    action => self.run(cell, action),
                 }
             }
             _ => {
@@ -276,71 +301,11 @@ impl Cells {
         let _ = reply.send(result);
     }
 
-    fn run(
-        &mut self,
-        cell: CellHistory,
-        action: Action,
-        max: usize,
-    ) -> Result<CellSqlOutcome, ExecutionError> {
+    fn run(&mut self, cell: CellHistory, action: Action) -> Result<CellSqlOutcome, ExecutionError> {
         match action {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
             Action::Stage(_) => Err(ExecutionError::Invalid("stage worker dispatch")),
-            Action::Initialize(request) => {
-                self.check_capacity(&cell, max)?;
-                let Initialize {
-                    options,
-                    authority,
-                    attempt,
-                    callback,
-                    lease,
-                    mut bytes,
-                } = *request;
-                if authority.state().cell() != &cell {
-                    return Err(ExecutionError::Invalid("initialization cell history"));
-                }
-                authority
-                    .check()
-                    .map_err(crate::raft::execution::authority_failure)?;
-                if let Some(record) = authority.state().record() {
-                    if record.cell() != &cell || record.creation() != attempt.creation {
-                        return Err(ExecutionError::Refused(CommandFailure::CommandConflict));
-                    }
-                    return Ok(CellSqlOutcome::Enrollment(Box::new(CellSqlEnrollment {
-                        record: record.clone(),
-                        _retention: OutputRetention::Sql { _bytes: bytes },
-                        s3: None,
-                    })));
-                }
-                let mut executor = options.open_enrollment(authority, self.root_apply_limits)?;
-                let prepared = match executor.prepare(attempt, callback) {
-                    Ok(prepared) => prepared,
-                    Err(error) => {
-                        executor.close()?;
-                        return Err(error);
-                    }
-                };
-                let retained = prepared
-                    .bytes()
-                    .len()
-                    .checked_add(4096)
-                    .ok_or_else(overloaded)?;
-                Bytes::shrink(&mut bytes, retained)?;
-                let prepared = CellSqlPrepared {
-                    prepared,
-                    _bytes: bytes,
-                };
-                self.pending.insert(
-                    cell,
-                    Pending {
-                        producer: Producer::Enrollment(Box::new(executor)),
-                        prepared: prepared.clone(),
-                        submitted: false,
-                        _lease: lease,
-                        activation: None,
-                    },
-                );
-                Ok(CellSqlOutcome::Prepared(prepared))
-            }
+            Action::Initialize(_) => Err(ExecutionError::Invalid("initialization worker dispatch")),
             Action::ResolveEnrollment(creation, state) => {
                 let pending = self
                     .pending
@@ -424,13 +389,18 @@ impl Cells {
     }
 
     fn check_capacity(&self, cell: &CellHistory, max: usize) -> Result<(), ExecutionError> {
-        if self.pending.contains_key(cell)
+        if self.opening.iter().any(|frame| &frame.cell == cell)
+            || self.pending.contains_key(cell)
             || self.preparing.iter().any(|p| &p.cell == cell)
             || self.retiring.iter().any(|frame| &frame.cell == cell)
         {
             return Err(ExecutionError::Busy);
         }
-        if self.pending.len() + self.suspended.len() + self.preparing.len() + self.retiring.len()
+        if self.opening.len()
+            + self.pending.len()
+            + self.suspended.len()
+            + self.preparing.len()
+            + self.retiring.len()
             >= max
         {
             return Err(overloaded());
@@ -513,6 +483,11 @@ impl Cells {
 
     pub fn close(&mut self) -> Result<(), ExecutionError> {
         let mut result = Ok(());
+        for opening in std::mem::take(&mut self.opening) {
+            if let Err(error) = opening.close() {
+                result = Err(error);
+            }
+        }
         for retiring in std::mem::take(&mut self.retiring) {
             if let Err(error) = retiring.close(&self.activations) {
                 result = Err(error);

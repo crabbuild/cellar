@@ -108,6 +108,8 @@ mod event_streams;
 mod events;
 #[path = "support/cell_group_private_cleanup.rs"]
 mod private_cleanup;
+#[path = "support/cell_group_private_workspace.rs"]
+mod private_workspace;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
@@ -3484,4 +3486,14 @@ async fn rustfs_controller_admission_batches_business_intent_and_fence_proof() -
 async fn rustfs_controller_prepared_admission_preserves_quorum_and_s3_archive_gates() -> Result<()>
 {
     controller_provider::qualify_admission(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_workspace_preparation_preserves_quorum_sql_progress() -> Result<()> {
+    Box::pin(private_workspace::qualify(Durability::Quorum)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_workspace_preparation_preserves_s3_sql_progress() -> Result<()> {
+    Box::pin(private_workspace::qualify(Durability::S3)).await
 }
