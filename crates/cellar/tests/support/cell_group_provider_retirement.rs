@@ -3,7 +3,21 @@
 //! Retirement is not allowed to erase autonomous proof-confirmation work.
 use super::*;
 
+#[derive(Clone, Copy, Debug)]
+enum Cut {
+    LostArchiveProof,
+    AutonomousDelete,
+}
+
 pub(super) async fn qualify(real: bool) -> Result<()> {
+    qualify_cut(real, Cut::LostArchiveProof).await
+}
+
+pub(super) async fn qualify_order(real: bool) -> Result<()> {
+    qualify_cut(real, Cut::AutonomousDelete).await
+}
+
+async fn qualify_cut(real: bool, cut: Cut) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::checkpoint=debug")
         .with_ansi(false)
@@ -67,14 +81,26 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
             let denied_before = route.store.denied_group_archive_writes.load(Ordering::Acquire);
             let fences_before = peer.retirement_fences.load(Ordering::Acquire);
             peer.hold_retirement_fence.store(true, Ordering::Release);
-            *peer.refuse_retirement_archive.lock().unwrap() = Some(route.store.clone());
-            let failure = call(&cluster, &history, Durability::S3, 2, "MaintainRetirement").await
-                .err().context("unarchived retirement returned success")?;
-            let original = bindings::options(2, Durability::S3)?.id;
-            ensure!(failure.downcast_ref::<Arc<CellCommandError>>().is_some_and(|e| e.ambiguous && e.command == original), "retirement lost its original uncertain command: {failure:#}");
-            ensure!(peer.deletes.load(Ordering::Acquire) == 1 && !peer.resource.lock().unwrap().exists, "retirement cut did not follow the physical Delete");
-            ensure!(route.store.denied_group_archive_writes.load(Ordering::Acquire) > denied_before, "retirement cut refused no archive write");
-            ensure!(!route.retired.load(Ordering::Acquire), "retirement was reported before its S3 proof");
+            let original = match cut {
+                Cut::LostArchiveProof => {
+                    *peer.refuse_retirement_archive.lock().unwrap() = Some(route.store.clone());
+                    let failure = call(&cluster, &history, Durability::S3, 2, "MaintainRetirement").await
+                        .err().context("unarchived retirement returned success")?;
+                    let original = bindings::options(2, Durability::S3)?.id;
+                    ensure!(failure.downcast_ref::<Arc<CellCommandError>>().is_some_and(|e| e.ambiguous && e.command == original), "retirement lost its original uncertain command: {failure:#}");
+                    ensure!(peer.deletes.load(Ordering::Acquire) == 1 && !peer.resource.lock().unwrap().exists, "retirement cut did not follow the physical Delete");
+                    ensure!(route.store.denied_group_archive_writes.load(Ordering::Acquire) > denied_before, "retirement cut refused no archive write");
+                    ensure!(!route.retired.load(Ordering::Acquire), "retirement was reported before its S3 proof");
+                    Some(original)
+                }
+                Cut::AutonomousDelete => {
+                    // Persist only the desired intent. The shared scheduler
+                    // must perform Delete, prove its result, then separately
+                    // activate the retired confirmation fence without traffic.
+                    call(&cluster, &history, Durability::S3, 2, "StageDeleteIntent").await?;
+                    None
+                }
+            };
             route.factory_refused.store(true, Ordering::Release);
             route.store.deny_group_archive_writes.store(false, Ordering::Release);
             cellar::asyncrt::timeout(Duration::from_secs(60), async {
@@ -108,10 +134,13 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
             // callback into a successful original result.
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
             let cell = cluster.hosts[leader].cell(history.clone())?;
-            let receipt = cell.receipt(CellReceiptRequest { id: original, contract: cell.contract("Run")?, input: serde_json::to_vec("MaintainRetirement")?, durability: Durability::S3 }, TIMEOUT).await;
-            ensure!(matches!(receipt.as_ref().err().map(AsRef::as_ref), Some(CellDispatchError::Execution(ExecutionError::Uncertain))), "framework confirmation fabricated a business completion");
+            if let Some(original) = original {
+                let receipt = cell.receipt(CellReceiptRequest { id: original, contract: cell.contract("Run")?, input: serde_json::to_vec("MaintainRetirement")?, durability: Durability::S3 }, TIMEOUT).await;
+                ensure!(matches!(receipt.as_ref().err().map(AsRef::as_ref), Some(CellDispatchError::Execution(ExecutionError::Uncertain))), "framework confirmation fabricated a business completion");
+            }
             route.factory_refused.store(false, Ordering::Release);
-            let read = call(&cluster, &history, Durability::S3, 3, "ReadRetirement").await?;
+            let method = match cut { Cut::LostArchiveProof => "ReadRetirement", Cut::AutonomousDelete => "Read" };
+            let read = call(&cluster, &history, Durability::S3, 3, method).await?;
             ensure!(read.durability >= Durability::S3);
             eprintln!("retirement_confirmation_observations {}", json!({"extents":rooted,"minimum":"S3","creates":peer.creates.load(Ordering::Acquire),"deletes":peer.deletes.load(Ordering::Acquire),"denied_archive_writes":route.store.denied_group_archive_writes.load(Ordering::Acquire)-denied_before,"business_callback_replayed":false,"confirmation_fence_observed":true}));
             Ok::<_,anyhow::Error>(())
@@ -134,7 +163,7 @@ pub(super) async fn qualify(real: bool) -> Result<()> {
         domain.shutdown().await;
         controller.shutdown().await?;
         controller_domain.shutdown().await;
-        result.with_context(|| format!("retirement confirmation extents={rooted}"))?;
+        result.with_context(|| format!("retirement confirmation extents={rooted} cut={cut:?}"))?;
         closed?;
     }
     Ok(())

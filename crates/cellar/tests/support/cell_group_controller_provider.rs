@@ -699,6 +699,10 @@ pub async fn qualify_retirement_confirmation(real: bool) -> Result<()> {
     retirement::qualify(real).await
 }
 
+pub async fn qualify_retirement_order(real: bool) -> Result<()> {
+    retirement::qualify_order(real).await
+}
+
 pub async fn qualify_admission(real: bool, archive_outage: bool) -> Result<()> {
     admission::qualify(real, archive_outage).await
 }
