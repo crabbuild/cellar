@@ -21,6 +21,7 @@ use managed_fixture::{ArchiveSetup, FirstGroupSetup, Fixture, ManagedCluster, TI
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -107,6 +108,12 @@ struct Peer {
     lookups: AtomicUsize,
     changed: Notify,
     trace: bool,
+    completed: Mutex<BTreeMap<([u8; 32], [u8; 16]), CompletedOperation>>,
+}
+
+struct CompletedOperation {
+    original: ExecutionPendingOperation,
+    bytes: Vec<u8>,
 }
 
 impl Peer {
@@ -131,13 +138,139 @@ impl Peer {
             lookups: AtomicUsize::new(0),
             changed: Notify::new(),
             trace,
+            completed: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    async fn observe_completed(
+        &self,
+        original: ExecutionPendingOperation,
+        bytes: &[u8],
+    ) -> Result<()> {
+        let fresh = {
+            let mut completed = self.completed.lock().unwrap();
+            let key = (original.claim.resource_key(), original.operation.id);
+            if let Some(known) = completed.get(&key) {
+                ensure!(
+                    known.original == original && known.bytes == bytes,
+                    "original provider completion changed"
+                );
+                false
+            } else {
+                completed.insert(
+                    key,
+                    CompletedOperation {
+                        original: original.clone(),
+                        bytes: bytes.to_vec(),
+                    },
+                );
+                match original.operation.kind {
+                    ExecutionOperationKind::Create => &self.creates,
+                    ExecutionOperationKind::Write => &self.writes,
+                    ExecutionOperationKind::Execute => &self.executes,
+                    ExecutionOperationKind::Delete => &self.deletes,
+                    _ => return Ok(()),
+                }
+                .fetch_add(1, Ordering::AcqRel);
+                true
+            }
+        };
+        if !fresh {
+            return Ok(());
+        }
+        // Count exact known outcomes from either delivery path. A physical job
+        // can complete durably after its execute waiter is cancelled, leaving
+        // reconciliation as the first observer. Repeated receipts are not work.
+        let lose = match original.operation.kind {
+            ExecutionOperationKind::Execute if self.lose_exec.swap(false, Ordering::AcqRel) => {
+                *self.original_exec.lock().unwrap() = Some(original);
+                true
+            }
+            ExecutionOperationKind::Delete => {
+                if let Some(store) = &self.retirement_cut {
+                    store
+                        .deny_sandbox_parent_writes
+                        .store(true, Ordering::Release);
+                }
+                let lose = self.lose_delete.swap(false, Ordering::AcqRel);
+                if lose {
+                    *self.original_delete.lock().unwrap() = Some(original);
+                }
+                lose
+            }
+            _ => false,
+        };
+        self.changed.notify_waiters();
+        if lose {
+            std::future::pending::<()>().await;
+        }
+        Ok(())
+    }
+
+    async fn wait_for_delete_cut(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.original_delete.lock().unwrap().is_some() {
+                return;
+            }
+            changed.await;
+        }
+    }
+
+    fn require_deleted_generations(&self, allocations: &[&SandboxAllocation]) -> Result<()> {
+        let completed = self.completed.lock().unwrap();
+        for allocation in allocations {
+            let operations: Vec<_> = completed
+                .values()
+                .filter(|op| {
+                    op.original.claim.history().cell.as_str() == allocation.execution_scope
+                })
+                .collect();
+            let creates: Vec<_> = operations
+                .iter()
+                .filter(|op| op.original.operation.kind == ExecutionOperationKind::Create)
+                .collect();
+            let deletes: Vec<_> = operations
+                .iter()
+                .filter(|op| op.original.operation.kind == ExecutionOperationKind::Delete)
+                .collect();
+            ensure!(
+                creates.len() == 1 && deletes.len() == 1,
+                "Sandbox {} generation {} lacks one exact Create/Delete pair",
+                allocation.name,
+                allocation.generation
+            );
+            let created: cellar_container::controller::Reply =
+                serde_json::from_slice(&creates[0].bytes)?;
+            let deleted: cellar_container::controller::Reply =
+                serde_json::from_slice(&deletes[0].bytes)?;
+            ensure!(
+                creates[0].original.claim.resource_key()
+                    == deletes[0].original.claim.resource_key()
+                    && !created.resource_id.is_empty()
+                    && deleted.resource_id == created.resource_id
+                    && deletes[0]
+                        .original
+                        .claim
+                        .checkpoint()
+                        .record
+                        .resource_id
+                        .as_deref()
+                        == Some(created.resource_id.as_str()),
+                "Sandbox generation cleanup borrowed another physical resource"
+            );
+        }
+        Ok(())
     }
 }
 
 #[path = "cell_group_sandbox_observation_tests.rs"]
 mod observation_tests;
-pub(super) use observation_tests::reconciled_completion_is_counted_once;
+pub(super) use observation_tests::{
+    reconciled_completion_is_counted_once, reconciled_first_reply_keeps_the_loss_cut,
+};
 
 impl ExecutionControllerBackend for Peer {
     fn identity(&self) -> BackendIdentity {
@@ -185,47 +318,9 @@ impl ExecutionControllerBackend for Peer {
                 );
             }
             let outcome = result?;
-            if matches!(outcome, ExecutionOutcome::Completed(_)) {
-                let pending = ExecutionPendingOperation {
-                    claim,
-                    operation: operation.clone(),
-                };
-                let lose = match operation.kind {
-                    ExecutionOperationKind::Create => {
-                        self.creates.fetch_add(1, Ordering::AcqRel);
-                        false
-                    }
-                    ExecutionOperationKind::Write => {
-                        self.writes.fetch_add(1, Ordering::AcqRel);
-                        false
-                    }
-                    ExecutionOperationKind::Execute => {
-                        self.executes.fetch_add(1, Ordering::AcqRel);
-                        let lose = self.lose_exec.swap(false, Ordering::AcqRel);
-                        if lose {
-                            *self.original_exec.lock().unwrap() = Some(pending);
-                        }
-                        lose
-                    }
-                    ExecutionOperationKind::Delete => {
-                        self.deletes.fetch_add(1, Ordering::AcqRel);
-                        if let Some(store) = &self.retirement_cut {
-                            store
-                                .deny_sandbox_parent_writes
-                                .store(true, Ordering::Release);
-                        }
-                        let lose = self.lose_delete.swap(false, Ordering::AcqRel);
-                        if lose {
-                            *self.original_delete.lock().unwrap() = Some(pending);
-                        }
-                        lose
-                    }
-                    _ => false,
-                };
-                self.changed.notify_waiters();
-                if lose {
-                    return std::future::pending().await;
-                }
+            if let ExecutionOutcome::Completed(bytes) = &outcome {
+                self.observe_completed(ExecutionPendingOperation { claim, operation }, bytes)
+                    .await?;
             }
             Ok(outcome)
         })
@@ -245,7 +340,15 @@ impl ExecutionControllerBackend for Peer {
                 self.lookups.fetch_add(1, Ordering::AcqRel);
                 return Ok(None);
             }
-            self.backend.clone().reconcile(current, original).await
+            let outcome = self
+                .backend
+                .clone()
+                .reconcile(current, original.clone())
+                .await?;
+            if let Some(ExecutionOutcome::Completed(bytes)) = &outcome {
+                self.observe_completed(original, bytes).await?;
+            }
+            Ok(outcome)
         })
     }
 }
@@ -629,7 +732,11 @@ async fn run(scenario: Scenario) -> Result<()> {
                 Arc::new(docker_execution::NoDisasterAuthority),
             )
             .await?;
-            let peer = Peer::new(backend.clone(), minimum_custody.then(|| store.clone()), trace);
+            let peer = Peer::new(
+                backend.clone(),
+                minimum_custody.then(|| store.clone()),
+                trace,
+            );
             let controller = ExecutionController::create(
                 domain.clone(),
                 ExecutionControllerOptions {
@@ -780,17 +887,19 @@ async fn run(scenario: Scenario) -> Result<()> {
                 }
                 ensure!(peer.writes.load(Ordering::Acquire)==1,"Sandbox bridge duplicated file write");
                 call(&cluster,&a,minimum,6,"Forge").await?;ensure!(peer.executes.load(Ordering::Acquire)==2);
-                call(&cluster,&a,minimum,7,"Spare").await?;call(&cluster,&a,minimum,8,"DestroyJob").await?;
+                let spare=call(&cluster,&a,minimum,7,"Spare").await?;let spare:SandboxAllocation=serde_json::from_slice(&spare.result)?;
+                call(&cluster,&a,minimum,8,"DestroyJob").await?;
                 let next=call(&cluster,&a,minimum,9,"Create").await?;let next:SandboxAllocation=serde_json::from_slice(&next.result)?;
                 ensure!(next.generation==2 && next.execution_scope!=allocation.execution_scope,"Sandbox generation reused an old child identity");
                 peer.lose_delete.store(true,Ordering::Release);peer.hide_delete.store(true,Ordering::Release);
                 call(&cluster,&a,minimum,10,"Retire").await?;
-                cellar::asyncrt::timeout(Duration::from_secs(60),async {loop {let changed=peer.changed.notified();if peer.original_delete.lock().unwrap().is_some(){break;}changed.await;}}).await.context("autonomous Sandbox Delete never entered")?;
+                cellar::asyncrt::timeout(Duration::from_secs(60),peer.wait_for_delete_cut()).await.context("autonomous Sandbox Delete never entered")?;
                 track.refuse.store(true,Ordering::Release);let factories=track.factories.load(Ordering::Acquire);
                 named_service::restart(&mut cluster).await?;peer.hide_delete.store(false,Ordering::Release);
                 cellar::asyncrt::timeout(Duration::from_secs(60),async {let mut id=1;loop {let status=state(&cluster,&a,id).await?;id+=1;if status["parent"]["state"]=="deleted" && status["cleanup_pending"]==false && status["job"]["state"]=="deleted" && status["spare"]["state"]=="deleted" {break;}cellar::asyncrt::sleep(Duration::from_millis(50)).await;}Ok::<_,anyhow::Error>(())}).await.context("retained Sandbox cleanup did not prove terminal metadata")??;
                 ensure!(track.factories.load(Ordering::Acquire)==factories,"autonomous Sandbox cleanup constructed business code");
                 ensure!(peer.creates.load(Ordering::Acquire)==3 && peer.deletes.load(Ordering::Acquire)==3 && peer.executes.load(Ordering::Acquire)==2,"Sandbox cleanup replayed a mutation or missed an exact generation");
+                peer.require_deleted_generations(&[&allocation,&spare,&next])?;
                 ensure!(docker_execution::physical_resources(&domain,&policy).await?==0);
                 let old=track.old.lock().unwrap().clone().context("retired parent Context")?;ensure!(SandboxCatalog::open(&old).is_err(),"old Sandbox Context borrowed successor authority");
                 track.refuse.store(false,Ordering::Release);ensure!(call(&cluster,&a,minimum,11,"Create").await.is_err(),"retired Sandbox parent reopened admission");
