@@ -213,10 +213,11 @@ fn stale_quorum_discovery_cannot_claim_a_strengthened_s3_obligation() -> anyhow:
 #[test]
 fn deferred_inspection_preserves_task_and_successor_discovery() -> anyhow::Result<()> {
     let db = Connection::open_in_memory()?;
-    let mut running = record();
+    let initial = shared_change(&db, None, record(), 1000)?;
+    let mut running = initial.record;
     running.resource_id = Some("original-resource".into());
     running.observation = BindingObservation::Confirmed;
-    shared_change(&db, None, running, 1000)?;
+    shared_change(&db, Some(initial.revision), running, 1000)?;
     let before = tasks(&db)?.remove(0);
     let work = crate::application::consensus::native_work::due(&db, 1100)?.unwrap();
     db.execute_batch("BEGIN")?;
