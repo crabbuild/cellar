@@ -10,6 +10,29 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+## Integration with main #180
+
+Main `a85ab6f6c` adds shared Sandbox execution and autonomous cleanup. The
+integration retains recorded archive dependencies, bounded reservation renewal
+and accepted-apply waits together with the optimization branch's admitted-batch
+archive eligibility, canonical configuration checks and joined preview retirement.
+Joined physical task panics close the SQL worker before its reply is dropped;
+opening, resume and retirement retain that fatal closure behavior. Both parents'
+added native test wrappers remain unchanged.
+
+Compiler inputs `4bcd59fd` pass **1,410 library tests / two existing ignores** and
+**29 of 30 selected native controls**. The complete S3 read-source reuse case
+fails in materialized mode 2 while waiting for a target read to enter; its parent
+command reports an ambiguous deadline. That failure prevents the case from
+completing both image modes. Original deadlines, identities and proof assertions
+remain. The failed media, process waits and exact retained copies are audited.
+
+Strict all-feature/all-target Clippy for Cellar and cellar-container,
+**60 Python tests**, formatting, layout, dependency and documentation checks pass.
+Overall runtime acceptance remains failed. Earlier Queue C2/C4, service
+repeatability, recovery/release and the original constrained Colima/RustFS
+comparison remain open. No end-to-end throughput or latency gain is qualified.
+
 ## Integration with main #179
 
 The merge of main `09cdcf423` preserves its Container lifecycle/recovery,

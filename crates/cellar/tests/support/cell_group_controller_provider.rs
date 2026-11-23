@@ -19,6 +19,8 @@ use std::{
 mod admission;
 #[path = "cell_group_provider_delete_intent.rs"]
 mod delete_intent;
+#[path = "cell_group_provider_inspection.rs"]
+mod inspection;
 #[path = "cell_group_provider_lifecycle_wait.rs"]
 mod lifecycle_wait;
 #[path = "cell_group_native_container.rs"]
@@ -61,6 +63,10 @@ struct Peer {
     data_changed: Notify,
     expire_activation: AtomicBool,
     refuse_retirement_archive: Mutex<Option<Arc<catalog_fault::Store>>>,
+    hold_retirement_fence: AtomicBool,
+    retirement_fences: AtomicUsize,
+    retirement_fence_changed: Notify,
+    inspection_gate: Option<Arc<inspection::Gate>>,
 }
 
 impl ExecutionControllerBackend for Peer {
@@ -79,6 +85,20 @@ impl ExecutionControllerBackend for Peer {
         _unresolved: Vec<ExecutionPendingOperation>,
     ) -> HandlerFuture<()> {
         Box::pin(async move {
+            if successor
+                .as_ref()
+                .is_some_and(|claim| claim.checkpoint().record.is_retired())
+            {
+                self.retirement_fences.fetch_add(1, Ordering::AcqRel);
+                self.retirement_fence_changed.notify_waiters();
+                loop {
+                    let changed = self.retirement_fence_changed.notified();
+                    if !self.hold_retirement_fence.load(Ordering::Acquire) {
+                        break;
+                    }
+                    changed.await;
+                }
+            }
             if self.expire_activation.swap(false, Ordering::AcqRel) {
                 // Admission has already proved the intent. Cross its unchanged
                 // 500 ms retention cap before allowing provider dispatch.
@@ -160,7 +180,12 @@ impl ExecutionControllerBackend for Peer {
                         self.deletes.fetch_add(1, Ordering::AcqRel);
                         serde_json::Value::Null
                     }
-                    Operation::Running => json!(resource.exists),
+                    Operation::Running => {
+                        if let Some(gate) = &self.inspection_gate {
+                            gate.inspected();
+                        }
+                        json!(resource.exists)
+                    }
                     Operation::WriteFile => {
                         ensure!(resource.exists);
                         self.writes.fetch_add(1, Ordering::AcqRel);
@@ -273,16 +298,22 @@ impl ExecutionControllerBackend for Peer {
 // Supervision retains its authority at registration. Model a stable host-owned
 // endpoint, not an old closed controller handle, across independent restart.
 // Only the endpoint changes: every supplied claim remains the original claim.
-struct Authority(Arc<RwLock<Arc<ControllerProvider>>>);
+struct Authority {
+    provider: Arc<RwLock<Arc<ControllerProvider>>>,
+    inspection: Option<Arc<inspection::Gate>>,
+}
 
 impl ExecutionFenceAuthority for Authority {
     fn identity(&self) -> BackendIdentity {
-        self.0.read().unwrap().identity()
+        self.provider.read().unwrap().identity()
     }
 
     fn activate(self: Arc<Self>, claim: ExecutionClaim) -> HandlerFuture<()> {
-        let authority = self.0.read().unwrap().authority();
-        authority.activate(claim)
+        let authority = self.provider.read().unwrap().authority();
+        match self.inspection.as_ref().filter(|gate| gate.hold(&claim)) {
+            Some(gate) => gate.clone().activate(authority, claim),
+            None => authority.activate(claim),
+        }
     }
 }
 
@@ -309,7 +340,14 @@ impl FencedMaintenanceBackend for Route {
     }
 
     fn authority(&self) -> Arc<dyn ExecutionFenceAuthority> {
-        Arc::new(Authority(self.provider.clone()))
+        Arc::new(Authority {
+            provider: self.provider.clone(),
+            inspection: self
+                .wait
+                .inspection
+                .enabled()
+                .then(|| self.wait.inspection.clone()),
+        })
     }
 
     fn prepare(
@@ -328,7 +366,9 @@ impl FencedMaintenanceBackend for Route {
         grant: ExecutionGrant,
     ) -> HandlerFuture<()> {
         let provider = self.selected();
+        self.wait.inspection.maintaining();
         Box::pin(async move {
+            let confirmation = expected.record.is_retired().then(|| expected.clone());
             if expected.record.is_retired() {
                 let entered = Arc::new(AtomicBool::new(false));
                 let observe = entered.clone();
@@ -350,12 +390,17 @@ impl FencedMaintenanceBackend for Route {
             provider
                 .maintain(context.clone(), expected, action, grant)
                 .await?;
-            // The production maintenance adapter returns only after proving its
-            // observation. Inspect that proof's state; add no harness checkpoint.
-            if BindingJournal::open(&context, "TOOL")?
-                .load(&context)?
-                .is_some_and(|row| row.record.is_retired())
-            {
+            // A Delete turn can prove retired metadata before the separate
+            // framework turn fences the controller. Report only confirmation
+            // entered with that exact already-fenced retired checkpoint.
+            if let Some(expected) = confirmation {
+                ensure!(
+                    BindingJournal::open(&context, "TOOL")?
+                        .load(&context)?
+                        .as_ref()
+                        == Some(&expected),
+                    "retirement confirmation checkpoint changed"
+                );
                 self.retired.store(true, Ordering::Release);
                 self.changed.notify_waiters();
             }
@@ -395,6 +440,9 @@ impl Cell for Root {
                         operation == "WaitDirtyLifecycle",
                     )
                     .await?;
+                }
+                "WaitInspectionLifecycle" => {
+                    inspection::wait(&context, &journal, &self.1.wait.inspection).await?;
                 }
                 "Create" => {
                     self.0.put_json("business", &json!(17))?;
@@ -535,6 +583,25 @@ async fn start(
     route: Arc<Route>,
     scenario: Scenario,
 ) -> Result<ManagedCluster> {
+    let policy = (scenario != Scenario::Basic).then_some(MaintenancePolicy {
+        inspect_interval_ms: 100,
+        maximum_lifetime_ms: if scenario == Scenario::Expired {
+            500
+        } else {
+            10_000
+        },
+        attempt_timeout_ms: 3000,
+        idle_timeout_ms: None,
+    });
+    start_with_policy(rooted, minimum, route, policy).await
+}
+
+async fn start_with_policy(
+    rooted: bool,
+    minimum: Durability,
+    route: Arc<Route>,
+    policy: Option<MaintenancePolicy>,
+) -> Result<ManagedCluster> {
     let identity = route.selected().identity();
     let class = RaftClass::new("Counter", 1, [241; 32])?
         .initializer([242; 32], |_, _| Ok(()))?
@@ -560,21 +627,9 @@ async fn start(
             },
         )?,
     );
-    let application: Arc<dyn Application> = if scenario != Scenario::Basic {
+    let application: Arc<dyn Application> = if let Some(policy) = policy {
         let mut supervision = Supervision::default();
-        supervision.register_fenced(
-            route.clone(),
-            MaintenancePolicy {
-                inspect_interval_ms: 100,
-                maximum_lifetime_ms: if scenario == Scenario::Expired {
-                    500
-                } else {
-                    10_000
-                },
-                attempt_timeout_ms: 3000,
-                idle_timeout_ms: None,
-            },
-        )?;
+        supervision.register_fenced(route.clone(), policy)?;
         supervise(application, supervision)
     } else {
         application
@@ -617,13 +672,23 @@ async fn call(
 ) -> Result<CommandReceipt> {
     let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
     let cell = cluster.hosts[leader].cell(history.clone())?;
-    Ok(cell
+    let started = cellar::asyncrt::mono_ms();
+    eprintln!(
+        "controller_public_request_started {}",
+        json!({"cell":history.cell.as_str(),"sequence":seq,"operation":operation,"minimum":format!("{minimum:?}"),"mono_ms":started})
+    );
+    let result = cell
         .command(
             &cell.contract("Run")?,
             serde_json::to_vec(operation)?,
             bindings::options(seq, minimum)?,
         )
-        .await?)
+        .await;
+    eprintln!(
+        "controller_public_request_finished {}",
+        json!({"cell":history.cell.as_str(),"sequence":seq,"operation":operation,"minimum":format!("{minimum:?}"),"elapsed_ms":cellar::asyncrt::mono_ms().saturating_sub(started),"success":result.is_ok(),"error":result.as_ref().err().map(|error|format!("{error:?}"))})
+    );
+    Ok(result?)
 }
 
 pub async fn qualify(real: bool, recovery: bool) -> Result<()> {
@@ -666,6 +731,14 @@ pub async fn qualify_lifecycle_wait(real: bool, dirty: bool) -> Result<()> {
     lifecycle_wait::qualify(real, dirty).await
 }
 
+pub async fn qualify_inspection_handoff(real: bool) -> Result<()> {
+    inspection::qualify(real).await
+}
+
+pub async fn qualify_inspection_archive_overlap(real: bool) -> Result<()> {
+    inspection::qualify_archive_overlap(real).await
+}
+
 pub async fn profile_extent_create(real: bool) -> Result<()> {
     lifecycle_wait::profile_create(real).await
 }
@@ -680,6 +753,10 @@ pub async fn qualify_remote(real: bool) -> Result<()> {
 
 pub async fn qualify_retirement_confirmation(real: bool) -> Result<()> {
     retirement::qualify(real).await
+}
+
+pub async fn qualify_retirement_order(real: bool) -> Result<()> {
+    retirement::qualify_order(real).await
 }
 
 pub async fn qualify_admission(real: bool, archive_outage: bool) -> Result<()> {

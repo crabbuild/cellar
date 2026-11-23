@@ -249,8 +249,8 @@ impl ExecutionController {
         journal::check_fence(&claim, &self.journal.options)?;
         let key = journal::logical_key(claim.history(), claim.binding());
         let admission = self.admission(&key).await?;
-        let mut slot = match self.load(&admission, &key).await? {
-            Some(slot) => slot,
+        let (mut slot, registering) = match self.load(&admission, &key).await? {
+            Some(slot) => (slot, false),
             None => {
                 // Existing generations/resources need explicit recovery and
                 // revocation; a new controller cannot silently adopt them.
@@ -261,11 +261,7 @@ impl ExecutionController {
                         && claim.checkpoint().record.resource_id.is_none(),
                     ExecutionControllerFailure::RevokedHistory
                 );
-                let slot = Slot::initial(&claim);
-                let initial = slot.clone();
-                self.io(&admission, move |journal| journal.register(&initial))
-                    .await?;
-                slot
+                (Slot::initial(&claim), true)
             }
         };
         let incarnation = hex::encode(claim.history().incarnation.bytes());
@@ -339,7 +335,18 @@ impl ExecutionController {
             .active = Some(claim.clone());
         self.io(&admission, move |journal| journal.check_capacity(&ready))
             .await?;
-        self.save(&admission, &slot).await?;
+        if registering {
+            // Publish the initial high-water in the existing crash-safe
+            // registration protocol. An empty registration followed by a
+            // second slot write establishes no additional fencing authority.
+            // Interrupted registration retains this exact inactive claim;
+            // backend entry still waits for the registry to reach Ready.
+            let initial = slot.clone();
+            self.io(&admission, move |journal| journal.register(&initial))
+                .await?;
+        } else {
+            self.save(&admission, &slot).await?;
+        }
         // High-water is durable before revocation. Until the exact completion
         // is also durable, every old claim and every business submission refuses.
         let fenced = crate::asyncrt::timeout(

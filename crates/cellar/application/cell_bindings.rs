@@ -34,6 +34,16 @@ pub(crate) struct Route {
 pub(crate) type BufferLease = Arc<dyn Send + Sync>;
 
 pub(crate) trait Host: Send + Sync {
+    /// Immutable declared execution policy only; no enrollment or I/O authority.
+    fn sandbox_configuration(
+        &self,
+        _source: &CellHistory,
+        _configuration: [u8; 32],
+        _scope: &str,
+    ) -> Result<String> {
+        anyhow::bail!(CommandFailure::UnsupportedCapability)
+    }
+
     /// A pending data locator from an already applied target. This performs no
     /// I/O or enrollment and grants no execution or publication authority.
     fn prepare_kv_payload(

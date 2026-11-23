@@ -39,8 +39,12 @@ pub(crate) fn is_provider_reconciliation(
     admission.is_system()
         && class != crate::deploy::EVENT_CATALOG_CLASS
         && operation == OPERATION
-        && serde_json::from_slice::<Work>(input)
-            .is_ok_and(|work| work.reason == "resource-reconciliation")
+        && serde_json::from_slice::<Work>(input).is_ok_and(|work| {
+            matches!(
+                work.reason.as_str(),
+                "resource-reconciliation" | "sandbox-cleanup"
+            )
+        })
 }
 
 fn exists(db: &Connection) -> Result<bool> {
@@ -49,7 +53,7 @@ fn exists(db: &Connection) -> Result<bool> {
 
 fn install(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS __sys_raft_native_work (
-        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue','filesystem','outbox','stream-maintenance','resource-reconciliation')),
+        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue','filesystem','outbox','stream-maintenance','resource-reconciliation','sandbox-cleanup')),
         generation BLOB NOT NULL CHECK(typeof(generation)='blob' AND length(generation)=16),
         due INTEGER NOT NULL CHECK(typeof(due)='integer' AND due>=0),
         attempts INTEGER NOT NULL CHECK(typeof(attempts)='integer' AND attempts BETWEEN 0 AND 4294967295),
@@ -70,6 +74,7 @@ fn validate(reason: &str) -> Result<()> {
                 | "outbox"
                 | "stream-maintenance"
                 | "resource-reconciliation"
+                | "sandbox-cleanup"
         ),
         CommandFailure::UnsupportedCapability
     );
@@ -213,6 +218,28 @@ pub(crate) fn complete(db: &Connection, work: &Work, leased_until: u64) -> Resul
             leased_until
         ],
     )?;
+    Ok(())
+}
+
+/// Validate the exact current claim before installing a successor obligation.
+/// Its lease bounds retry scheduling; observing a due time alone grants nothing.
+pub(crate) fn require_claim(
+    db: &Connection,
+    work: &Work,
+    leased_until: u64,
+    now: u64,
+) -> Result<()> {
+    validate(&work.reason)?;
+    ensure!(
+        now < leased_until && exists(db)?,
+        CommandFailure::Unavailable
+    );
+    let current: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM __sys_raft_native_work WHERE reason=?1 AND generation=?2 AND attempts=?3 AND due=?4 AND claimed=1)",
+        params![work.reason,work.generation.as_slice(),u64::from(work.attempts)+1,i64::try_from(leased_until)?],
+        |row| row.get(0),
+    )?;
+    ensure!(current, CommandFailure::Unavailable);
     Ok(())
 }
 

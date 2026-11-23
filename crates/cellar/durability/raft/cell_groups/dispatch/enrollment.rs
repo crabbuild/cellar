@@ -492,7 +492,7 @@ impl CellEnrollmentInvocation {
                 ))
             }
         }
-        loop {
+        let accepted = loop {
             if self.dispatcher.domain.mono_ms().map_err(|_| closed())? >= self.session.deadline_ms()
             {
                 let prepared = self.prepared()?;
@@ -503,7 +503,7 @@ impl CellEnrollmentInvocation {
                     self.reject(proof, progress).await?;
                     return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
                 }
-                break;
+                break None;
             }
             let prepared = self.prepared()?;
             if let Some(proof) = prepared.rejection().map_err(CellDispatchError::Runtime)? {
@@ -526,7 +526,7 @@ impl CellEnrollmentInvocation {
             }
             .await;
             match submitted {
-                Ok(CellSqlSubmission::Accepted(_)) => break,
+                Ok(CellSqlSubmission::Accepted(proposal)) => break Some(proposal),
                 Ok(CellSqlSubmission::Rejected(proof)) => {
                     self.reject(proof, progress).await?;
                     return Err(CellDispatchError::Execution(ExecutionError::Refused(
@@ -535,7 +535,7 @@ impl CellEnrollmentInvocation {
                 }
                 Err(CellDispatchError::Runtime(
                     RuntimeError::NotLeader | RuntimeError::StaleCompletion,
-                )) => break,
+                )) => break None,
                 Err(error) if transient(&error) => {
                     progress.changed().await.map_err(|_| closed())?
                 }
@@ -549,7 +549,8 @@ impl CellEnrollmentInvocation {
                     return Err(error);
                 }
             }
-        }
+        };
+        accepted_apply::wait(runtime, accepted.as_ref(), progress).await?;
         let prepared_term = self.prepared()?.term();
         loop {
             let origin = self.origin_ref()?;

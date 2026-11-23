@@ -52,6 +52,10 @@ pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
     if !SCHEMA.check(connection)? {
         return Ok(());
     }
+    let shared = super::sandbox_shared::installed(connection)?;
+    // Shared Storage and its callback look up work in the private image scope.
+    // The logical parent scope still owns catalog identities and generations.
+    let scope = if shared { RAFT_STORAGE_SCOPE } else { scope };
     let mut due = next(connection)?.map(|(_, _, _, due)| due);
     if due.is_none()
         && super::sandbox_catalog::read_parent(connection)?
@@ -64,6 +68,13 @@ pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
         )?;
         if !outstanding {
             due = Some(0);
+        }
+    }
+    if due.is_none() {
+        if let Some(parent) = super::sandbox_catalog::read_parent(connection)? {
+            if super::sandbox_shared::confirmation_pending(connection, &parent)? {
+                due = Some(0);
+            }
         }
     }
     let current: Option<Option<i64>> = connection
@@ -100,6 +111,17 @@ pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
                 "UPDATE __sys_work SET at_ms=NULL WHERE scope=?1 AND reason='sandbox-cleanup'",
                 [scope],
             )?;
+        }
+    }
+    if shared {
+        if let Some(due) = due {
+            crate::application::consensus::native_work::arm_maintenance(
+                connection,
+                "sandbox-cleanup",
+                due,
+            )?;
+        } else {
+            crate::application::consensus::native_work::cancel(connection, "sandbox-cleanup")?;
         }
     }
     Ok(())
@@ -228,11 +250,33 @@ pub(super) fn claim_at(
     scope: &str,
     now: i64,
 ) -> Result<Option<SandboxAllocation>> {
+    claim_with_retry(connection, scope, now, None)
+}
+
+pub(super) fn claim_until(
+    connection: &Connection,
+    scope: &str,
+    now: i64,
+    retry_at: i64,
+) -> Result<Option<SandboxAllocation>> {
+    claim_with_retry(connection, scope, now, Some(retry_at))
+}
+
+fn claim_with_retry(
+    connection: &Connection,
+    scope: &str,
+    now: i64,
+    retry_at: Option<i64>,
+) -> Result<Option<SandboxAllocation>> {
     ensure!(now >= 0, "sandbox cleanup clock must be nonnegative");
     let Some((name, generation, _, due)) = next(connection)? else {
+        // Reinstall idle discovery before the current turn completes. Its
+        // claimed wake cannot consume the replacement's generation.
+        rearm(connection, scope)?;
         return Ok(None);
     };
     if due > now {
+        rearm(connection, scope)?;
         return Ok(None);
     }
     let parent = super::sandbox_catalog::read_parent(connection)?
@@ -243,9 +287,13 @@ pub(super) fn claim_at(
         allocation.generation == generation,
         "sandbox cleanup generation changed"
     );
-    let retry = now
-        .checked_add(30_000)
-        .ok_or_else(|| anyhow::anyhow!("sandbox cleanup deadline exhausted"))?;
+    let retry = match retry_at {
+        Some(at) => at,
+        None => now
+            .checked_add(30_000)
+            .ok_or_else(|| anyhow::anyhow!("sandbox cleanup deadline exhausted"))?,
+    };
+    ensure!(retry > now, "sandbox cleanup retry lease expired");
     connection.execute(
         "UPDATE __sys_sandbox_managed SET due_ms=?1 WHERE name=?2 AND generation=?3",
         rusqlite::params![retry, name, generation],

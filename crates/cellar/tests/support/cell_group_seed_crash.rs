@@ -197,6 +197,8 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
     ) {
         let _release_image = image_gate.arm(if cut.ends_with("prefix") {
             fault::HOLD_DEPENDENCY_PREFIX
+        } else if !rooted {
+            fault::HOLD_IMAGE_SYNC
         } else {
             fault::HOLD_DEPENDENCY_SYNC
         });
@@ -270,6 +272,10 @@ async fn recover(root: &Path, rooted: bool, cut: &str) -> Result<()> {
             } else {
                 assert_eq!(length, complete);
             }
+        } else if cut == "image-synced" {
+            assert_eq!(path.parent(), Some(root.join("learner/images").as_path()));
+            assert_eq!(path.extension(), Some(std::ffi::OsStr::new("sqlite")));
+            assert_eq!(std::fs::metadata(&path)?.len(), length);
         } else {
             assert_eq!(path, std::path::PathBuf::from("snapshot.scratch"));
         }

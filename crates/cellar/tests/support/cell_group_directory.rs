@@ -24,6 +24,10 @@ pub(super) use transition::{seal_authorization_cancel_race, unknown_transition_a
 mod fixture;
 use fixture::{assigned, birth_spec, operation, split, Fixture};
 
+#[path = "cell_group_birth_validation.rs"]
+mod birth_validation;
+pub(super) use birth_validation::current_birth_reads_overlap;
+
 pub(super) async fn standby_initialization() -> Result<()> {
     let f = Fixture::new(DirectoryLimits::default()).await?;
     anyhow::ensure!(f.run(f.directory.observe()).await.is_err());

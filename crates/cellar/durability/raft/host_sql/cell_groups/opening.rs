@@ -97,11 +97,11 @@ pub(super) struct Opening {
 }
 
 impl Opening {
-    pub(super) fn close(mut self) -> Result<(), ExecutionError> {
+    pub(super) fn close(mut self, closure: rpc::Closure) -> Result<(), ExecutionError> {
         let joined = self.task.close(&self.waker);
         let retired = self.starting.close_activation();
         self.timer.finish(false);
-        let _ = self.reply.send(Err(unavailable()));
+        closure.complete(self.reply);
         joined.and(retired)
     }
 }
@@ -300,7 +300,7 @@ impl Cells {
         domain: &crate::asyncrt::DomainToken,
         stopped: &AtomicBool,
         now: u64,
-    ) -> bool {
+    ) -> Result<bool, ExecutionError> {
         for _ in 0..self.opening.len() {
             let Some(mut frame) = self.opening.pop_front() else {
                 break;
@@ -341,6 +341,10 @@ impl Cells {
                 Poll::Pending => {
                     self.opening.push_back(frame);
                     continue;
+                }
+                Poll::Ready(Err(error)) if preparation::task_failed(&error) => {
+                    self.opening.push_front(frame);
+                    return Err(error);
                 }
                 Poll::Ready(result) => result,
             };
@@ -404,9 +408,9 @@ impl Cells {
                 }
             };
             frame.timer.finish(success);
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
     fn capture_enrollment(

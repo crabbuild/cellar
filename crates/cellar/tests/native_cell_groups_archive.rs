@@ -54,6 +54,31 @@ use runtime_fixture::persist_archive_intent;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_publication_reuses_exact_verified_dependency_descriptors() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::dependency_reads_once(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_publication_reuses_exact_verified_dependency_descriptors() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::dependency_reads_once(
+            rooted,
+            rustfs::store("verified-descriptors", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_upload_overlaps_bounded_ordered_object_reads() -> Result<()> {
     for rooted in [false, true] {
         window_fixture::qualify(rooted, true).await?;

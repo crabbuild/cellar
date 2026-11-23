@@ -55,6 +55,7 @@ mod json_reads_tests;
 pub(crate) mod sandbox_catalog;
 pub(crate) mod sandbox_children;
 pub(crate) mod sandbox_erasure;
+pub(crate) mod sandbox_shared;
 pub(crate) mod sandbox_work;
 pub use immutable::{
     open_immutable_extent_image, open_immutable_generation, ImmutableQuery, ImmutableQueryOptions,
@@ -70,6 +71,15 @@ pub(crate) use console::{sql_console, sql_console_in_transaction, sql_console_mi
 // Each Raft image belongs to exactly one cell. Both private writes and
 // committed reads use this persisted row scope across placement and recovery.
 pub(crate) const RAFT_STORAGE_SCOPE: &str = "\0raft-command";
+
+/// The admitted invocation's effective minimum, including explicit requests.
+/// Metadata only: this grants no I/O or proof authority.
+pub(crate) fn raft_invocation_minimum() -> anyhow::Result<cellar_logic::consensus::Durability> {
+    Ok(capture_raft_dispatch()?
+        .ok_or(crate::application::consensus::CommandFailure::Unavailable)?
+        .binding_source()?
+        .durability)
+}
 
 /// Read the alarm and its identity before releasing the source's SQLite lock.
 pub(crate) fn alarm_snapshot(scope: &str) -> anyhow::Result<cellar_logic::wake::AlarmSnapshot> {
@@ -441,6 +451,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     container_bindings::check_schema(c)?;
     container_execution::check_schema(c)?;
     sandbox_catalog::check_schema(c)?;
+    sandbox_shared::check_schema(c)?;
     sandbox_children::check_schema(c)?;
     sandbox_erasure::check_schema(c)?;
     sandbox_work::check_schema(c)?;

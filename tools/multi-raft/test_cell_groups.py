@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import socket
 import sys
 import tempfile
 import unittest
@@ -47,7 +48,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
+                if suite in ("native-docker", "controller-provider", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle", "workflow-deletion", "queue-transfer-identity", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -60,7 +61,7 @@ class SqlCampaignTests(unittest.TestCase):
                     self.assertEqual("--nocapture" in argv,
                                      selection in ("rustfs_queue_load_preserves_acknowledged_messages",
                                                    "rustfs_queue_four_in_flight_preserves_acknowledged_messages"))
-                if suite in ("controller-provider", "ordinary-filesystem", "named-bindings", "workflow-deletion", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle"):
+                if suite in ("native-docker", "controller-provider", "ordinary-filesystem", "named-bindings", "workflow-deletion", "provider-journals", "binding-ack-recovery", "binding-settlement-output-loss", "binding-settlement", "binding-settlement-diagnostic", "live-binding-recovery", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "workflow-lifecycle"):
                     self.assertIn("--show-output", argv)
                     self.assertNotIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
@@ -90,6 +91,7 @@ class SqlCampaignTests(unittest.TestCase):
                 return "a" * 40 + "\n" if "rev-parse" in argv else b""
 
             remote = {"owner": "cellar-multi-raft-" + "a" * 16,
+                      "profile": "cellar-multi-raft-fixture",
                       "endpoint": "http://127.0.0.1:1234"}
             credentials = {"RUSTFS_ACCESS_KEY": "access-fixture",
                            "RUSTFS_SECRET_KEY": "secret-fixture"}
@@ -103,6 +105,9 @@ class SqlCampaignTests(unittest.TestCase):
                   patch.object(cell_groups, "backend", return_value=(remote, credentials)),
                   patch.object(cell_groups, "sources", return_value=[]),
                   patch.object(cell_groups, "probe", return_value={"fixture": True}),
+                  patch.object(cell_groups, "docker_configuration", return_value={
+                      "context": "colima-cellar-multi-raft-fixture",
+                      "socket": "/owned/docker.sock", "image": "sha256:" + "b" * 64}),
                   patch.object(cell_groups.subprocess, "check_output", side_effect=git),
                   patch.object(cell_groups.subprocess, "run", side_effect=run),
                   contextlib.redirect_stdout(report)):
@@ -122,8 +127,21 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(executed, list(cases))
                 summary = json.loads(report.getvalue().splitlines()[-1])
                 self.assertEqual(summary["image_modes_per_case"],
+                                 None if suite == "native-docker" else
                                  0 if suite == "immutable-payloads" else
                                  1 if suite == "binding-settlement-diagnostic" else 2)
+                if suite == "native-docker":
+                    self.assertEqual(summary["rustfs_cases"], 6)
+                    self.assertEqual(record["planned_configurations"], {
+                        "docker_backend_joins_processes_and_retains_original_receipts": 1,
+                        "docker_backend_shutdown_fences_processes_when_journal_fails": 1,
+                        "rustfs_native_docker_executes_and_recovers_shared_quorum": 4,
+                        "rustfs_native_docker_refuses_execution_without_source_proof": 4,
+                        "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum": 4,
+                        "rustfs_native_sandboxes_refuse_unproved_parent_dispatch": 4,
+                        "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum": 2,
+                        "rustfs_native_sandbox_deletion_preserves_input_proof": 2,
+                    })
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
                 else:
@@ -324,6 +342,27 @@ class ProviderJournalCampaignTests(unittest.TestCase):
     def test_provider_suite_preserves_every_failure(self):
         self.campaign("zero", "provider-journals", keep_going=True)
 
+    def test_native_docker_selects_fixed_physical_and_public_cases(self):
+        target, cases, _, _ = cell_groups.SUITES["native-docker"]
+        self.assertEqual(target, "native_cell_groups_docker")
+        self.assertEqual(cases, (
+            "docker_backend_joins_processes_and_retains_original_receipts",
+            "docker_backend_shutdown_fences_processes_when_journal_fails",
+            "rustfs_native_docker_executes_and_recovers_shared_quorum",
+            "rustfs_native_docker_refuses_execution_without_source_proof",
+            "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum",
+            "rustfs_native_sandboxes_refuse_unproved_parent_dispatch",
+            "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum",
+            "rustfs_native_sandbox_deletion_preserves_input_proof",
+        ))
+        self.campaign(suite="native-docker")
+
+    def test_native_docker_refuses_zero_selection(self):
+        self.campaign("zero", suite="native-docker")
+
+    def test_native_docker_preserves_all_failures(self):
+        self.campaign("zero", suite="native-docker", keep_going=True)
+
     def test_controller_provider_selects_the_fixed_public_entrypoints(self):
         self.assertEqual(cell_groups.SUITES["controller-provider"][1], (
             "rustfs_controller_provider_sessions_preserve_shared_group_durability",
@@ -331,6 +370,10 @@ class ProviderJournalCampaignTests(unittest.TestCase):
             "rustfs_controller_provider_expiry_seals_unsubmitted_creates",
             "rustfs_controller_provider_recovers_live_write_without_replay",
             "rustfs_controller_provider_reconciles_live_exec_before_destroy",
+            "rustfs_controller_retirement_confirmation_survives_lost_s3_proof",
+            "rustfs_controller_retirement_confirmation_waits_for_independent_fence",
+            "rustfs_controller_routine_inspection_yields_after_fencing_to_foreground",
+            "rustfs_controller_routine_inspection_yields_after_overlapping_s3_checkpoint",
         ))
         self.campaign(suite="controller-provider")
 
@@ -353,6 +396,50 @@ class PayloadLifecycleCampaignTests(unittest.TestCase):
         for suite in ("ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster"):
             with self.subTest(suite=suite):
                 self.campaign("zero", suite=suite)
+
+
+class NativeDockerConfigurationTests(unittest.TestCase):
+    def configuration(self, *, mismatch=False, unpinned=False, changed_image=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            selected = root / "selected.sock"
+            other = root / "other.sock"
+            with socket.socket(socket.AF_UNIX) as first, socket.socket(socket.AF_UNIX) as second:
+                first.bind(str(selected))
+                second.bind(str(other))
+                image = "sha256:" + "b" * 64
+                environment = {"CELLAR_DOCKER_BACKEND_SOCKET": str(other if mismatch else selected),
+                               "CELLAR_DOCKER_BACKEND_IMAGE": "busybox:latest" if unpinned else image}
+
+                def command(argv):
+                    if argv[1] == "context":
+                        self.assertEqual(argv[-1], "colima-cellar-multi-raft-fixture")
+                        return json.dumps([{"Endpoints": {"docker": {"Host": "unix://" + str(selected)}}}])
+                    self.assertEqual(argv[1:3], ["--context", "colima-cellar-multi-raft-fixture"])
+                    return "sha256:" + "c" * 64 if changed_image else image
+
+                with patch.object(cell_groups, "command", side_effect=command):
+                    return cell_groups.docker_configuration("cellar-multi-raft-fixture", environment)
+
+    def test_accepts_the_selected_owned_socket_and_preinstalled_digest(self):
+        selected = self.configuration()
+        self.assertEqual(selected["image"], "sha256:" + "b" * 64)
+
+    def test_refuses_another_engine_before_physical_entry(self):
+        with self.assertRaisesRegex(RuntimeError, "differs from the owned"):
+            self.configuration(mismatch=True)
+
+    def test_refuses_mutable_image_tags(self):
+        with self.assertRaisesRegex(RuntimeError, "immutable"):
+            self.configuration(unpinned=True)
+
+    def test_refuses_a_different_preinstalled_image(self):
+        with self.assertRaisesRegex(RuntimeError, "pinned"):
+            self.configuration(changed_image=True)
+
+    def test_refuses_missing_explicit_configuration(self):
+        with self.assertRaisesRegex(RuntimeError, "explicit"):
+            cell_groups.docker_configuration("cellar-multi-raft-fixture", {})
 
 
 if __name__ == "__main__":

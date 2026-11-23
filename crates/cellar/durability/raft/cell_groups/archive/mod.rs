@@ -43,6 +43,7 @@ pub use upload::{
 };
 mod ownership;
 pub(crate) use ownership::CellGroupArchiveAcquireOutcome;
+pub(crate) use ownership::CellGroupArchiveReservationRenewal;
 pub use ownership::{
     CellGroupArchiveCreation, CellGroupArchiveHold, CellGroupArchiveIntent,
     CellGroupArchiveRegistry, CellGroupArchiveUploadTicket, PreparedCellGroupArchiveCreation,

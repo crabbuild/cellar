@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Normal provider sessions backed by independently durable execution ownership.
+pub mod docker;
 mod endpoint;
 mod lifecycle;
 mod native;
@@ -177,11 +178,27 @@ impl ControllerProvider {
         }
         let controller = self.controller.clone();
         let result = grant
-            .dispatch(context, move |claim| async move {
-                controller.execute(claim, request, bytes).await
+            .dispatch(context, move |claim| {
+                Self::submit(controller, claim, request, bytes)
             })
             .await?;
         Self::reply(result, grant.claim(), operation)
+    }
+
+    async fn submit(
+        controller: Arc<dyn ControllerEndpoint>,
+        claim: ExecutionClaim,
+        request: ExecutionOperation,
+        payload: Vec<u8>,
+    ) -> Result<ExecutionOutcome> {
+        if request.kind != ExecutionOperationKind::Create {
+            // Dedicated Sandbox calls can omit an unused running snapshot,
+            // but still owe exact receipt reconciliation before a new call.
+            // Keep lookup and submission in the same admitted I/O closure;
+            // unknown debt refuses here without replay or a renewed identity.
+            Self::reconcile_pending(controller.clone(), claim.clone()).await?;
+        }
+        controller.execute(claim, request, payload).await
     }
 
     async fn execute(
@@ -269,7 +286,11 @@ impl Provider for ControllerProvider {
     }
 
     fn operations(&self) -> &[Operation] {
-        OPERATIONS
+        if self.identity.provider == docker::PROVIDER {
+            docker::OPERATIONS
+        } else {
+            OPERATIONS
+        }
     }
 
     fn open(&self) -> Box<dyn ProviderSession> {

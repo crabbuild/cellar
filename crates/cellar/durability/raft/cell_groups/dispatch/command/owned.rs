@@ -277,7 +277,7 @@ impl CellCommandInvocation {
             }
             Err(error) => return Err(error),
         }
-        performance
+        let accepted = performance
             .measure(
                 crate::raft::performance::Operation::CellCommandSubmit,
                 self.submit_owned(runtime, progress),
@@ -292,7 +292,7 @@ impl CellCommandInvocation {
         performance
             .measure(
                 crate::raft::performance::Operation::CellCommandSettle,
-                self.settle_owned(runtime, progress),
+                self.settle_owned(runtime, accepted.as_ref(), progress),
             )
             .await
     }
@@ -301,13 +301,13 @@ impl CellCommandInvocation {
         &mut self,
         runtime: &CellGroupRuntime,
         progress: &mut watch::Receiver<()>,
-    ) -> Result<(), CellDispatchError> {
-        loop {
+    ) -> Result<Option<CellGroupProposal>, CellDispatchError> {
+        let accepted = loop {
             if self.expired()? {
                 if self.cancel_unsubmitted(progress).await? {
                     return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
                 }
-                break;
+                break None;
             }
             let submitted = self.submit_at().await;
             match &submitted {
@@ -325,7 +325,7 @@ impl CellCommandInvocation {
                 }
             }
             match submitted {
-                Ok(CellCommandSubmission::Accepted(_)) => break,
+                Ok(CellCommandSubmission::Accepted(proposal)) => break Some(proposal),
                 Ok(CellCommandSubmission::Rejected) => {
                     runtime.log().performance().increment(
                         crate::raft::performance::Counter::CellCommandSubmissionRejections,
@@ -346,7 +346,7 @@ impl CellCommandInvocation {
                 }
                 Err(CellDispatchError::Runtime(
                     RuntimeError::NotLeader | RuntimeError::StaleCompletion,
-                )) => break,
+                )) => break None,
                 Err(error) => {
                     // An untouched preparation can be sealed even if the SQL
                     // mark/submission mailbox refused. Other errors stay owned.
@@ -354,15 +354,17 @@ impl CellCommandInvocation {
                     return Err(error);
                 }
             }
-        }
-        Ok(())
+        };
+        Ok(accepted)
     }
 
     async fn settle_owned(
         &mut self,
         runtime: &CellGroupRuntime,
+        accepted: Option<&CellGroupProposal>,
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellCommandResponse, CellDispatchError> {
+        accepted_apply::wait(runtime, accepted, progress).await?;
         loop {
             match self.settle_at().await {
                 Ok(CellCommandSettlement::Committed(response)) => return Ok(response),

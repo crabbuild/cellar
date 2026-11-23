@@ -481,25 +481,30 @@ impl Cells {
         }
     }
 
-    pub fn close(&mut self) -> Result<(), ExecutionError> {
+    pub fn close(&mut self, failed: bool) -> Result<(), ExecutionError> {
+        let closure = if failed {
+            rpc::Closure::Failed
+        } else {
+            rpc::Closure::Graceful
+        };
         let mut result = Ok(());
         for opening in std::mem::take(&mut self.opening) {
-            if let Err(error) = opening.close() {
+            if let Err(error) = opening.close(closure) {
                 result = Err(error);
             }
         }
         for retiring in std::mem::take(&mut self.retiring) {
-            if let Err(error) = retiring.close(&self.activations) {
+            if let Err(error) = retiring.close(&self.activations, closure) {
                 result = Err(error);
             }
         }
         for preparing in std::mem::take(&mut self.preparing) {
-            if let Err(error) = preparing.close() {
+            if let Err(error) = preparing.close(closure) {
                 result = Err(error);
             }
         }
         for suspended in std::mem::take(&mut self.suspended) {
-            if let Err(error) = suspended.close() {
+            if let Err(error) = suspended.close(closure) {
                 result = Err(error);
             }
         }

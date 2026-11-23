@@ -79,6 +79,26 @@ pub(crate) enum Action {
 }
 
 impl Action {
+    // Only the dedicated, authenticated framework execution class can omit its
+    // entry snapshot. These calls do not read Container::running; their normal
+    // adapter still proves the original intent and fences every provider I/O.
+    // Unknown/new operations keep observation until their contract is audited.
+    pub(crate) fn requires_running_snapshot(&self) -> bool {
+        match self {
+            Self::Destroy => false,
+            Self::Call { operation } => !matches!(
+                operation.as_str(),
+                "container.capabilities"
+                    | "container.exec_output"
+                    | "container.file.read"
+                    | "container.file.write"
+                    | "container.file.stat"
+                    | "container.file.list"
+            ),
+            _ => true,
+        }
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         if let Self::Call { operation } = self {
             ensure!(
@@ -154,6 +174,23 @@ impl Authority {
     pub(crate) fn action(&self) -> &Action {
         &self.action
     }
+
+    pub(crate) fn parent_scope(&self) -> &str {
+        &self.identity.parent_scope
+    }
+
+    pub(crate) fn configuration(&self) -> &str {
+        &self.identity.configuration_digest
+    }
+
+    pub(crate) fn execution_name(&self) -> Result<String> {
+        crate::application::sandbox_catalog::values::execution_name(
+            &self.identity.parent_scope,
+            &self.identity.parent_incarnation,
+            &self.identity.name,
+            self.identity.generation,
+        )
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -187,15 +224,32 @@ pub(crate) struct Record {
 }
 
 async fn save(context: &Context, record: &Record) -> Result<()> {
-    children::save(
-        &context
-            .identity()
-            .context("sandbox child has no identity")?
-            .scope,
-        record,
-    )?;
-    context.storage()?.sync().await?;
-    context.check_turn()?;
+    let scope = &context
+        .identity()
+        .context("sandbox child has no identity")?
+        .scope;
+    if context.raft_storage.is_some() {
+        let authority = context
+            .sandbox_authority
+            .as_ref()
+            .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?;
+        crate::storage::sandbox_shared::save_child(
+            &crate::application::sandbox_catalog::shared::history(context)?,
+            authority.parent_digest()?,
+            record,
+        )?;
+    } else {
+        children::save(scope, record)?;
+    }
+    if context.raft_storage.is_none() {
+        context.storage()?.sync().await?;
+    }
+    // Shared execution proves these private phase writes with the Container
+    // adapter's mandatory input gate before any effect, or its own final output
+    // gate before exposing a terminal reply. No separate phase-only S3 barrier
+    // or reusable external-I/O authority is needed.
+
+    context.check_binding_turn()?;
     Ok(())
 }
 
@@ -209,12 +263,15 @@ async fn run(context: &Context, authority: Authority, input: Value) -> Result<Va
         .identity()
         .context("sandbox child has no identity")?
         .scope;
-    let executor = context
-        .worker_config
-        .native_application
-        .as_ref()
-        .and_then(|app| app.sandbox_executor(&context.identity().unwrap().class))
-        .context("sandbox executor is not registered")?;
+    let executor = match crate::application::sandbox_catalog::native::executor(context)? {
+        Some(executor) => executor,
+        None => context
+            .worker_config
+            .native_application
+            .as_ref()
+            .and_then(|app| app.sandbox_executor(&context.identity().unwrap().class))
+            .context("sandbox executor is not registered")?,
+    };
     ensure!(
         executor.configuration_digest() == authority.identity.configuration_digest
             && executor.requires_native_capacity() == authority.native_capacity,
@@ -222,7 +279,18 @@ async fn run(context: &Context, authority: Authority, input: Value) -> Result<Va
     );
     let lifecycle = BindingJournal::open(context, "sandbox-execution")?;
     let _guard = lifecycle.lock_lifecycle(context).await?;
-    let prior = children::load(scope)?;
+    let prior = if context.raft_storage.is_some() {
+        let authority = context
+            .sandbox_authority
+            .as_ref()
+            .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?;
+        crate::storage::sandbox_shared::child(
+            &crate::application::sandbox_catalog::shared::history(context)?,
+            authority.parent_digest()?,
+        )?
+    } else {
+        children::load(scope)?
+    };
     if let Some(prior) = &prior {
         ensure!(
             prior.identity == authority.identity,
@@ -363,7 +431,7 @@ pub(crate) async fn invoke(
     invocation: Invocation,
     authority: Authority,
 ) -> Result<Output> {
-    context.check_turn()?;
+    context.check_binding_turn()?;
     let Invocation::CellRpc { method, args } = invocation else {
         anyhow::bail!("sandbox execution requires RPC");
     };
@@ -383,18 +451,21 @@ pub(crate) async fn invoke(
     let destroy = matches!(authority.action, Action::Destroy);
     let reply = match run(&context, authority, input).await {
         Ok(value) => {
-            if destroy {
+            if destroy && context.raft_storage.is_none() {
                 crate::storage::sandbox_erasure::prepare(&context.identity().unwrap().scope)?;
                 crate::application::sandbox_catalog::maintenance::publish(&context)?;
                 context.storage()?.sync().await?;
             }
             Reply::Success(value)
         }
-        Err(error) => Reply::Failure(error.downcast_ref::<SandboxFailure>().cloned().unwrap_or(
-            SandboxFailure {
-                kind: SandboxFailureKind::Unknown,
-            },
-        )),
+        Err(error) => {
+            tracing::debug!(target: "cellar::sandbox::execution", error = ?error, "sandbox execution deferred or failed");
+            Reply::Failure(error.downcast_ref::<SandboxFailure>().cloned().unwrap_or(
+                SandboxFailure {
+                    kind: SandboxFailureKind::Unknown,
+                },
+            ))
+        }
     };
     let value = serde_json::to_value(reply)?;
     crate::application::sandbox_catalog::execution::digest(&value)?;

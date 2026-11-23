@@ -10,7 +10,14 @@ controller core for a trusted host integration. An authenticated transport and a
 provider implementing `ExecutionControllerBackend` are required. The
 `ControllerProvider` adapter connects ordinary named SDK sessions to this core.
 `NativeContainerAdapter` also connects bounded ordinary `Context::container` calls;
-complete native execution and Sandbox adapters remain required.
+the bounded native execution and private shared Sandbox profiles are described
+in the [Docker backend guide](docker.md). Complete native/Sandbox lifecycle and
+provider-volume recovery remain separate acceptance gates.
+
+The opt-in [Docker execution profile](docker.md) adds a physical backend and
+bounded `Container::exec_output` with a read-only idle scaffold, independent
+receipts and joined process fencing. Its qualification remains separate from
+the controlled-peer results below and from full native/Sandbox compatibility.
 
 ## Named SDK adapter
 
@@ -70,7 +77,9 @@ autonomous S3 cleanup deadlines; see the source-pinned
 [qualification checkpoint](../../docs/design/multi-raft/cell-groups/progress.md#cg-17-native-replacement-deadline-custody-and-original-create-sealing).
 The typed mappings for stat/list, signal, monitor and inactivity configuration
 still need owning behavior qualification. Interactive exec, port/HTTP/WebSocket
-sessions and native Sandbox remain unfinished.
+sessions remain unfinished. Shared Sandbox dispatch and autonomous cleanup use
+an explicit bounded execution class; their current-source results and limits
+remain in CG-17, without credit for full-family compatibility.
 Container file bytes retain the provider's storage contract; quorum metadata
 does not replicate those bytes or establish provider-volume recovery.
 
@@ -180,8 +189,10 @@ replays an uncertain mutation. The same adapter implements fenced background
 maintenance, including cleanup when the business constructor is unavailable.
 
 Shared retirement keeps its bounded maintenance task until the exact retired
-checkpoint has passed its Quorum/S3 proof. If that proof response is lost, a new
-framework invocation fences prior execution and confirms the retained checkpoint
+checkpoint has passed its Quorum/S3 proof and the independent controller has
+acknowledged the retirement fence. A successful metadata proof alone cannot
+remove that work. A new framework invocation fences prior execution and confirms
+the retained checkpoint
 without provider I/O or business construction. Its private task removal shares
 the ordinary result proof. Retired grants refuse new operation allocation and
 dispatch. Revision and generation checks prevent an old confirmation from

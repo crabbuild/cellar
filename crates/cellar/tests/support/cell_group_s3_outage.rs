@@ -156,7 +156,7 @@ async fn run(
     let mut retention = CellGroupLogRetentionLimits::default();
     retention.group.entries = ENTRY_LIMIT;
     retention.progress_group.entries = 1;
-    let h = Box::pin(Harness::configured_retention(
+    let mut h = Box::pin(Harness::configured_retention(
         rooted,
         global.clone(),
         2,
@@ -166,6 +166,11 @@ async fn run(
         Some(retention),
     ))
     .await?;
+    h.fixture.cluster._root.disable_cleanup(true);
+    eprintln!(
+        "retained outage voter disks: {}",
+        h.fixture.cluster._root.path().display()
+    );
     let group = h.fixture.cluster.voters[0]
         .log
         .cell_group(&h.route.history)?;
@@ -245,6 +250,25 @@ async fn run(
         "stopped backend must refuse actual S3 I/O"
     );
 
+    let cached = remote::command_using(
+        &h,
+        &remote,
+        remote::command_request(&h, 1, b"warm", Durability::Quorum)?,
+        CellRoutingLimits {
+            timeout: Duration::from_secs(15),
+            max_attempts: 4,
+        },
+    )
+    .await?;
+    assert_eq!(cached.result(), b"warm");
+    assert_eq!(cached.durability(), Durability::Quorum);
+    drop(cached);
+    assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        gateway_store.gets.load(Ordering::SeqCst),
+        fresh_gets,
+        "trusted cached receipt retry must not depend on S3"
+    );
     let mut cold = cold_dispatcher
         .command(
             h.cell.clone(),
@@ -562,11 +586,18 @@ async fn run(
         )
         .await?
         .response()
-        .await?;
+        .await
+        .with_context(|| format!(
+            "Quorum resume after reclaim extents={rooted}, callbacks={}, last={:?}, first={:?}, debt={:?}",
+            h.calls.load(Ordering::SeqCst),group.last_index(),group.first_index(),
+            group.log_retention_usage().map(|usage|(usage.retained_entries,usage.reserved_entries))
+        ))?;
     assert_eq!(resumed.durability(), Durability::Quorum);
     drop(resumed);
     // Preserve the same invocation, captured inputs, original deadline and
-    // attempt budget when replaying the successful offline remote response.
+    // attempt budget for a receipt retry after backend restoration. Its first
+    // Quorum response already succeeded; this must not run the callback again.
+    let before_receipt_retry = h.calls.load(Ordering::SeqCst);
     remote_invocation.retry().await?;
     let resumed = remote_invocation
         .execute_remote(remote.transport(), MemberId::new(1)?)
@@ -574,6 +605,7 @@ async fn run(
     assert_eq!(resumed.durability(), Durability::Quorum);
     assert_eq!(resumed.result(), b"remote-outage");
     drop(resumed);
+    assert_eq!(h.calls.load(Ordering::SeqCst), before_receipt_retry);
     drop(remote_invocation);
     latest = h.fixture.runtimes[0]
         .status(h.route.history)

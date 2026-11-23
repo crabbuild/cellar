@@ -136,6 +136,7 @@ impl Retiring {
         mut self,
         cache: &RpcCache,
         cleaned: Result<(), ExecutionError>,
+        closure: rpc::Closure,
     ) -> Result<(), ExecutionError> {
         let action = self.settlement.action();
         let result = match cleaned {
@@ -165,13 +166,19 @@ impl Retiring {
             crate::raft::execution::storage(anyhow::anyhow!("private cleanup completion: {error}"))
         });
         self.timer.finish(result.is_ok());
-        let _ = self.reply.send(result);
+        if matches!(closure, rpc::Closure::Graceful) {
+            let _ = self.reply.send(result);
+        }
         closed
     }
 
-    pub(super) fn close(mut self, cache: &RpcCache) -> Result<(), ExecutionError> {
+    pub(super) fn close(
+        mut self,
+        cache: &RpcCache,
+        closure: rpc::Closure,
+    ) -> Result<(), ExecutionError> {
         let result = self.task.join(&self.waker);
-        self.finish(cache, result)
+        self.finish(cache, result, closure)
     }
 }
 
@@ -320,7 +327,7 @@ impl Cells {
         let _ = reply.send(result);
     }
 
-    pub(super) fn poll_retiring(&mut self) -> bool {
+    pub(super) fn poll_retiring(&mut self) -> Result<bool, ExecutionError> {
         for _ in 0..self.retiring.len() {
             let Some(mut frame) = self.retiring.pop_front() else {
                 break;
@@ -330,11 +337,15 @@ impl Cells {
                     self.retiring.push_back(frame);
                     continue;
                 }
+                Poll::Ready(Err(error)) if preparation::task_failed(&error) => {
+                    self.retiring.push_front(frame);
+                    return Err(error);
+                }
                 Poll::Ready(result) => result,
             };
-            let _ = frame.finish(&self.activations, result);
-            return true;
+            let _ = frame.finish(&self.activations, result, rpc::Closure::Graceful);
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 }

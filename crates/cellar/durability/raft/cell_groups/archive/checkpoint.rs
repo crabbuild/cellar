@@ -348,7 +348,7 @@ impl CellGroupArchive {
         receiver: CellGroupArchiveCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
         let permit = self.admit()?;
-        self.verify_admitted(domain, reference, receiver, permit)
+        self.verify_admitted(domain, reference, receiver, permit, None)
             .await
     }
 
@@ -402,10 +402,17 @@ impl CellGroupArchive {
         reference: &CellGroupArchiveReference,
         mut receiver: CellGroupArchiveCheckpointReceiver,
         permit: Arc<Permit>,
+        graph: Option<(&mut super::graph::Graph, u64)>,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
         let index = self
             .checkpoint_index(domain, reference, permit.clone())
             .await?;
+        if let Some((graph, generation)) = graph {
+            graph.insert(super::graph::Kind::Indexes, reference.object(), generation)?;
+            for chunk in &index.chunks {
+                graph.insert(super::graph::Kind::Chunks, chunk.object.clone(), generation)?;
+            }
+        }
         let marker = index.marker;
         let (sender, mut incoming) = tokio::sync::mpsc::channel::<Vec<wire::Chunk>>(1);
         let retained = permit.clone();

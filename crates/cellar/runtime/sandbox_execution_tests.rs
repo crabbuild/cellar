@@ -55,3 +55,35 @@ fn sandbox_parameter_identity_sorts_nested_objects_and_bounds_messages() -> Resu
     assert!(digest(&json!({"data":"x".repeat(MAX_SANDBOX_MESSAGE_BYTES)})).is_err());
     Ok(())
 }
+
+#[test]
+fn sandbox_running_observations_are_kept_for_snapshot_consumers() {
+    assert!(Action::Start.requires_running_snapshot());
+    assert!(Action::Inspect.requires_running_snapshot());
+    assert!(!Action::Destroy.requires_running_snapshot());
+    for operation in [
+        "container.running",
+        "container.port.wait_ready",
+        "container.port.fetch",
+        "unknown-future-operation",
+    ] {
+        assert!(Action::Call {
+            operation: operation.into()
+        }
+        .requires_running_snapshot());
+    }
+    for operation in [
+        "container.capabilities",
+        "container.exec_output",
+        "container.file.read",
+        "container.file.write",
+        "container.file.stat",
+        "container.file.list",
+    ] {
+        let action = Action::Call {
+            operation: operation.into(),
+        };
+        action.validate().unwrap();
+        assert!(!action.requires_running_snapshot());
+    }
+}

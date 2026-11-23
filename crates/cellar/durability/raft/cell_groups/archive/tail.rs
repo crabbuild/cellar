@@ -734,6 +734,20 @@ impl CellGroupArchive {
         reference: &CellGroupArchiveTailReference,
         receiver: CellGroupArchiveCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveRecovery> {
+        self.verify_tail_recorded(domain, pool, reference, receiver, None)
+            .await
+    }
+
+    /// Record only descriptors read by this physical verification. The caller's
+    /// upload reservation bounds the graph; it cannot be published on failure.
+    pub(super) async fn verify_tail_recorded(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchiveTailPool,
+        reference: &CellGroupArchiveTailReference,
+        receiver: CellGroupArchiveCheckpointReceiver,
+        mut graph: Option<&mut super::graph::Graph>,
+    ) -> Result<VerifiedCellGroupArchiveRecovery> {
         // Execution-domain wrappers carry their future by value. Keep the full
         // verifier on the heap so nested transition replay fits default stacks.
         domain
@@ -744,6 +758,20 @@ impl CellGroupArchive {
                 let tail = self
                     .read_tail_index(domain, reference, limits, io.clone(), retention.clone())
                     .await?;
+                if let Some(graph) = graph.as_deref_mut() {
+                    graph.insert(
+                        super::graph::Kind::Tails,
+                        reference.object(),
+                        reference.generation(),
+                    )?;
+                    for entry in &tail.entries {
+                        graph.insert(
+                            super::graph::Kind::Entries,
+                            entry.object.clone(),
+                            reference.generation(),
+                        )?;
+                    }
+                }
                 let mut encoded = Vec::with_capacity(tail.entries.len());
                 // The validated sum of all encoded entries is charged to the
                 // tail pool's existing four-copy workspace. Overlap two body
@@ -798,7 +826,13 @@ impl CellGroupArchive {
                     .await
                     .map_err(CellGroupArchiveError::Worker)??;
                 let base = self
-                    .verify_admitted(domain, &tail.checkpoint, receiver, io.clone())
+                    .verify_admitted(
+                        domain,
+                        &tail.checkpoint,
+                        receiver,
+                        io.clone(),
+                        graph.map(|graph| (graph, reference.generation())),
+                    )
                     .await?;
                 if base.checkpoint().marker() != &tail.base {
                     return Err(CellGroupArchiveError::Invalid("tail checkpoint binding"));

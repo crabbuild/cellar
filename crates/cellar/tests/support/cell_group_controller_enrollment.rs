@@ -178,6 +178,17 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
             Duration::from_secs(15)
         };
         let performance_before = fixture.cluster.voters[0].log.performance_snapshot();
+        let publications = || {
+            let sample = fixture.cluster.voters[0].log.performance_snapshot();
+            assert!(sample.available && !sample.saturated);
+            sample
+                .operations
+                .iter()
+                .find(|operation| operation.name == "sql_publish")
+                .expect("SQL publication counter")
+                .started
+        };
+        let before_publications = publications();
         let call = controllers[0].enroll(
             enroll(&dispatcher, &cell, 170, timeout).await?,
             fixture.cell_options(&cell).await?,
@@ -188,6 +199,14 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
         assert_eq!(pool.usage()?.active_cells, 1);
         assert_eq!(dispatcher.usage().1, 1);
         assert_eq!(controllers[0].usage().retained_commands, 1);
+        let premature_publications = if phase == 1 {
+            let status = fixture.runtimes[0].status(route.history).await?;
+            assert!(status.committed > status.applied.index);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Some(publications() - before_publications)
+        } else {
+            None
+        };
         // Enrollment consumes the same controller budget as ordinary commands.
         let retry_until = fixture
             .cluster
@@ -383,6 +402,12 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
         drop(pool);
         fixture.close().await?;
         publication_result?;
+        if let Some(premature) = premature_publications {
+            assert_eq!(
+                premature, 0,
+                "accepted enrollment polled SQL before its committed apply: rooted={rooted}"
+            );
+        }
     }
     Ok(())
 }

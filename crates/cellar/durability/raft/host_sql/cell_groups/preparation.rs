@@ -23,6 +23,12 @@ fn busy(error: &ExecutionError) -> bool {
             Some(cellar_ltx::internal::StoreError::Busy)))
 }
 
+// A joined host task failure is not a returned storage refusal. Its owner lost
+// the physical operation's completion and must close before admission resumes.
+pub(super) fn task_failed(error: &ExecutionError) -> bool {
+    matches!(error, ExecutionError::Storage(cause) if cause.is::<crate::asyncrt::TaskPanic>())
+}
+
 impl Preparation {
     pub fn new(
         input: CellPrivatePreparation,

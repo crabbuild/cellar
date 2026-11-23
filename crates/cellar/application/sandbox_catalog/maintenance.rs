@@ -7,7 +7,13 @@ use anyhow::Result;
 use cellar_logic::work::{Installation, Reason};
 
 pub(crate) fn publish(context: &Context) -> Result<()> {
-    context.check_turn()?;
+    context.check_binding_turn()?;
+    if context.raft_storage.is_some() {
+        // The private image already arms shared discovery atomically with its
+        // allocation changes. A Fleet host gate cannot own this cell's work.
+        super::shared::parent_history(context)?;
+        return Ok(());
+    }
     if let Some(identity) = context.identity().filter(|_| context.facet().is_none()) {
         if let Some(at) = sandbox_work::publish(&identity.scope).filter(|at| *at >= 0) {
             crate::host_gates::spawn_arm_gate(
@@ -21,6 +27,9 @@ pub(crate) fn publish(context: &Context) -> Result<()> {
 }
 
 pub(crate) fn recover(context: &Context) -> Result<()> {
+    if let Some(history) = super::shared::parent_history(context)? {
+        return crate::storage::sandbox_shared::refresh(&history);
+    }
     if let Some(identity) = context.identity().filter(|_| context.facet().is_none()) {
         if crate::storage::sandbox_erasure::load(&identity.scope)?.is_some() {
             if crate::storage::work::installation(&identity.scope, Reason::SandboxCleanup)?
@@ -48,6 +57,10 @@ pub(crate) fn recover(context: &Context) -> Result<()> {
 }
 
 pub(crate) async fn maintain(context: Context, installation: Installation) -> Result<Output> {
+    if context.raft_storage.is_some() {
+        // Shared cleanup requires the authenticated native-work claim below.
+        return Err(crate::application::consensus::CommandFailure::UnsupportedCapability.into());
+    }
     let storage = context.storage()?;
     if storage.work_installation(Reason::SandboxCleanup)? != Some(installation) {
         return Ok(Output::Done);
@@ -130,4 +143,66 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         catalog.finish_retirement(&context).await?;
     }
     Ok(Output::Done)
+}
+
+pub(crate) async fn maintain_shared(
+    context: Context,
+    installation: Installation,
+    work: &crate::application::consensus::native_work::Work,
+    leased_until: u64,
+) -> Result<Output> {
+    let history = super::shared::parent_history(&context)?
+        .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?;
+    let storage = context.storage()?;
+    if storage.work_installation(Reason::SandboxCleanup)? != Some(installation) {
+        return Ok(Output::Done);
+    }
+    let next = crate::storage::sandbox_shared::claim(
+        &history,
+        crate::asyncrt::wall_ms().max(0),
+        work,
+        leased_until,
+    )?;
+    // destroy_child proves the retry claim together with exact deletion intent
+    // before crossing into the child. Losing the call retains discovery.
+    let catalog = SandboxCatalog::open(&context)?;
+    if let Some(allocation) = next {
+        let result = catalog.destroy_child(&context, &allocation).await;
+        context.check_binding_turn()?;
+        crate::storage::sandbox_shared::refresh(&history)?;
+        // The work result proves refresh. Parent retirement is a separate
+        // bounded turn, already discoverable after the last child settles.
+        return result.map(|_| Output::Done);
+    }
+    if catalog
+        .parent(&context)?
+        .is_some_and(|parent| parent.state == super::SandboxParentState::Deleting)
+        && catalog.cleanup(&context, None, 1)?.allocations.is_empty()
+    {
+        catalog.finish_retirement(&context).await?;
+    }
+    if let Some(parent) = catalog
+        .parent(&context)?
+        .filter(|p| p.state == super::SandboxParentState::Deleted)
+    {
+        // Reuse an unchanged proof; dirty/newly observed metadata must pass the
+        // mandatory gate. Another parked callback cannot lend us its authority.
+        // An expired/failed proof leaves exact confirmation work installed.
+        storage.confirm_checkpoint().await?;
+        ensure_terminal(&catalog, &context, &parent)?;
+        crate::storage::sandbox_shared::confirm_retirement(&history, &parent)?;
+    }
+    Ok(Output::Done)
+}
+
+fn ensure_terminal(
+    catalog: &SandboxCatalog,
+    context: &Context,
+    parent: &super::SandboxParent,
+) -> Result<()> {
+    anyhow::ensure!(
+        catalog.parent(context)?.as_ref() == Some(parent),
+        "sandbox terminal revision changed while proving cleanup"
+    );
+    Ok(())
 }

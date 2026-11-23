@@ -1,0 +1,386 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+use super::*;
+use crate::application::consensus::{CellId, ClusterId, IncarnationId, NamespaceId};
+
+// Framework schema creation belongs to the current private image transaction.
+fn database() -> Result<Connection> {
+    let db = Connection::open_in_memory()?;
+    db.execute_batch("BEGIN IMMEDIATE")?;
+    Ok(db)
+}
+
+fn history(incarnation: u8) -> Result<CellHistory> {
+    Ok(CellHistory {
+        cluster: ClusterId::new([1; 16])?,
+        namespace: NamespaceId::new([2; 16])?,
+        cell: CellId::new("Parent:shared")?,
+        incarnation: IncarnationId::new([incarnation; 16])?,
+    })
+}
+
+fn reserve_at(db: &Connection, h: &CellHistory) -> Result<SandboxReservation> {
+    Ok(super::super::sandbox_catalog::reserve_at(
+        db,
+        h.cell.as_str(),
+        &"a".repeat(32),
+        "job",
+        "SANDBOX",
+        &"b".repeat(64),
+        &|name| format!("Sandbox:{name}"),
+    )?
+    .1)
+}
+
+#[test]
+fn shared_sandbox_cannot_replace_a_retained_history_or_parent_pin() -> Result<()> {
+    let db = database()?;
+    let h = history(3)?;
+    owner(&db, &h, None, true)?;
+    assert!(owner(&db, &history(4)?, None, true).is_err());
+    assert!(owner(&db, &h, Some([5; 32]), true).is_err());
+    owner(&db, &h, None, false)?;
+    let child = database()?;
+    owner(&child, &h, Some([5; 32]), true)?;
+    assert!(owner(&child, &h, Some([6; 32]), true).is_err());
+    owner(&child, &h, Some([5; 32]), false)?;
+    // A lost authority record cannot be replaced from otherwise valid metadata.
+    let retained = database()?;
+    reserve_at(&retained, &h)?;
+    assert!(owner(&retained, &h, None, false).is_err());
+    assert!(owner(&retained, &h, None, true).is_err());
+    // Wrongly scoped development work cannot be reinterpreted as an idle cell.
+    let wrong_work = database()?;
+    owner(&wrong_work, &h, None, true)?;
+    wrong_work.execute_batch(super::super::work::SCHEMA)?;
+    super::super::work::set_in(
+        &wrong_work,
+        h.cell.as_str(),
+        cellar_logic::work::Reason::SandboxCleanup,
+        0,
+    )?;
+    assert!(check_schema(&wrong_work).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn shared_cleanup_retry_uses_its_exact_claim_and_preserves_proof_floor() -> Result<()> {
+    use crate::application::consensus::native_work;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            for lease_ms in [4_000, 91_000] {
+                let db = database()?;
+                let h = history(3)?;
+                owner(&db, &h, None, true)?;
+                db.execute_batch(super::super::work::SCHEMA)?;
+                let allocation = reserve_at(&db, &h)?.allocation;
+                super::super::sandbox_work::register_in(
+                    &db,
+                    h.cell.as_str(),
+                    &allocation,
+                    &"c".repeat(64),
+                )?;
+                let (_, deleting) = super::super::sandbox_catalog::transition_at(
+                    &db,
+                    h.cell.as_str(),
+                    &allocation,
+                    SandboxAllocationState::Deleting,
+                )?;
+                strengthen_minimum(&db, Durability::S3)?;
+                native_work::arm(&db, "sandbox-cleanup", 0)?;
+                let mut work = native_work::due(&db, 100)?.context("cleanup wake missing")?;
+                work.lease_ms = lease_ms;
+                let until = 100 + lease_ms;
+                assert!(native_work::claim(&db, &work, 100)?);
+                assert!(claim_in(&db, &h, 100, Durability::Quorum, &work, until).is_err());
+                let mut stale = work.clone();
+                stale.generation[0] ^= 1;
+                assert!(claim_in(&db, &h, 100, Durability::S3, &stale, until).is_err());
+                stale = work.clone();
+                stale.attempts += 1;
+                assert!(claim_in(&db, &h, 100, Durability::S3, &stale, until).is_err());
+                assert!(claim_in(&db, &h, 100, Durability::S3, &work, until + 1).is_err());
+                assert!(
+                    claim_in(&db, &h, until.try_into()?, Durability::S3, &work, until).is_err()
+                );
+                let due = || -> Result<i64> {
+                    Ok(db.query_row(
+                        "SELECT due_ms FROM __sys_sandbox_managed WHERE name='job'",
+                        [],
+                        |row| row.get(0),
+                    )?)
+                };
+                assert_eq!(due()?, 0);
+                assert_eq!(
+                    native_work::get(&db, "sandbox-cleanup")?,
+                    Some(until.try_into()?)
+                );
+
+                db.execute_batch("SAVEPOINT retry_claim")?;
+                assert_eq!(
+                    claim_in(&db, &h, 100, Durability::S3, &work, until)?,
+                    Some(deleting.clone())
+                );
+                assert_eq!(due()?, i64::try_from(until)?);
+                db.execute_batch("ROLLBACK TO retry_claim; RELEASE retry_claim")?;
+                assert_eq!(due()?, 0);
+                native_work::require_claim(&db, &work, until, 100)?;
+
+                assert_eq!(
+                    claim_in(&db, &h, 100, Durability::S3, &work, until)?,
+                    Some(deleting)
+                );
+                assert_eq!(due()?, i64::try_from(until)?);
+                native_work::complete(&db, &work, until)?;
+                assert!(native_work::due(&db, until - 1)?.is_none());
+                let next = native_work::due(&db, until)?
+                    .context("cleanup retry was consumed by old completion")?;
+                assert_ne!(next.generation, work.generation);
+                assert_eq!(next.attempts, 0);
+                assert_eq!(next.due, until);
+                assert!(native_work::require_claim(&db, &work, until, 100).is_err());
+                assert_eq!(next_minimum(&db)?, Durability::S3);
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn terminal_sandbox_keeps_confirmation_work_and_rolls_back_stale_completion() -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let db = database()?;
+            let h = history(3)?;
+            owner(&db, &h, None, true)?;
+            db.execute_batch(super::super::work::SCHEMA)?;
+            let allocation = reserve_at(&db, &h)?.allocation;
+            super::super::sandbox_work::register_in(
+                &db,
+                h.cell.as_str(),
+                &allocation,
+                &"c".repeat(64),
+            )?;
+            let (_, deleting) = super::super::sandbox_catalog::transition_at(
+                &db,
+                h.cell.as_str(),
+                &allocation,
+                SandboxAllocationState::Deleting,
+            )?;
+            super::super::sandbox_catalog::transition_at(
+                &db,
+                h.cell.as_str(),
+                &deleting,
+                SandboxAllocationState::Deleted,
+            )?;
+            super::super::sandbox_catalog::retire_at(&db, h.cell.as_str(), &"a".repeat(32), false)?;
+            let terminal = super::super::sandbox_catalog::retire_at(
+                &db,
+                h.cell.as_str(),
+                &"a".repeat(32),
+                true,
+            )?;
+            assert!(confirmation_pending(&db, &terminal)?);
+            assert_eq!(
+                crate::application::consensus::native_work::get(&db, "sandbox-cleanup")?,
+                Some(0)
+            );
+            let mut wrong = terminal.clone();
+            wrong.revision += 1;
+            assert!(
+                super::super::sandbox_catalog::transaction(&db, |db| confirm_in(
+                    db,
+                    &h,
+                    &wrong,
+                    Durability::Quorum
+                ))
+                .is_err()
+            );
+            assert!(confirmation_pending(&db, &terminal)?);
+            let aborted: Result<()> = super::super::sandbox_catalog::transaction(&db, |db| {
+                confirm_in(db, &h, &terminal, Durability::Quorum)?;
+                anyhow::bail!("caller transaction rolls back")
+            });
+            assert!(aborted.is_err());
+            assert!(confirmation_pending(&db, &terminal)?);
+            assert_eq!(
+                crate::application::consensus::native_work::get(&db, "sandbox-cleanup")?,
+                Some(0)
+            );
+            assert!(
+                super::super::sandbox_catalog::transaction(&db, |db| confirm_in(
+                    db,
+                    &history(4)?,
+                    &terminal,
+                    Durability::Quorum
+                ))
+                .is_err()
+            );
+            super::super::sandbox_catalog::transaction(&db, |db| {
+                confirm_in(db, &h, &terminal, Durability::Quorum)
+            })?;
+            assert!(!confirmation_pending(&db, &terminal)?);
+            assert!(!query_cleanup_pending(&db, &h)?);
+            assert_eq!(
+                crate::application::consensus::native_work::get(&db, "sandbox-cleanup")?,
+                None
+            );
+            // Strengthening an already proved Quorum tombstone creates new
+            // S3 proof debt. Stale Quorum work cannot claim or clear that debt.
+            super::super::sandbox_catalog::transaction(&db, |db| {
+                assert!(strengthen_minimum(db, Durability::S3)?);
+                super::super::sandbox_work::rearm(db, h.cell.as_str())
+            })?;
+            assert_eq!(next_minimum(&db)?, Durability::S3);
+            assert!(query_cleanup_pending(&db, &h)?);
+            let wake = crate::application::consensus::native_work::get(&db, "sandbox-cleanup")?;
+            assert!(wake.is_some());
+            assert!(check_work_minimum(&db, Durability::Quorum).is_err());
+            assert!(
+                super::super::sandbox_catalog::transaction(&db, |db| confirm_in(
+                    db,
+                    &h,
+                    &terminal,
+                    Durability::Quorum
+                ))
+                .is_err()
+            );
+            assert_eq!(
+                crate::application::consensus::native_work::get(&db, "sandbox-cleanup")?,
+                wake
+            );
+            assert!(query_cleanup_pending(&db, &h)?);
+            let aborted: Result<()> = super::super::sandbox_catalog::transaction(&db, |db| {
+                confirm_in(db, &h, &terminal, Durability::S3)?;
+                anyhow::bail!("caller rolls back S3 confirmation")
+            });
+            assert!(aborted.is_err());
+            assert_eq!(next_minimum(&db)?, Durability::S3);
+            assert!(query_cleanup_pending(&db, &h)?);
+            super::super::sandbox_catalog::transaction(&db, |db| {
+                confirm_in(db, &h, &terminal, Durability::S3)
+            })?;
+            assert!(!query_cleanup_pending(&db, &h)?);
+            assert!(!strengthen_minimum(&db, Durability::Quorum)?);
+            assert_eq!(next_minimum(&db)?, Durability::S3);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn idle_sandbox_turn_preserves_its_successor_discovery() -> Result<()> {
+    use crate::application::consensus::native_work;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let db = database()?;
+            let h = history(3)?;
+            owner(&db, &h, None, true)?;
+            db.execute_batch(super::super::work::SCHEMA)?;
+            let allocation = reserve_at(&db, &h)?.allocation;
+            super::super::sandbox_work::register_in(
+                &db,
+                h.cell.as_str(),
+                &allocation,
+                &"c".repeat(64),
+            )?;
+            // An already due installation makes the real callback claim explicit,
+            // without sleeping for the idle interval or changing domain time.
+            super::super::work::set_in(
+                &db,
+                RAFT_STORAGE_SCOPE,
+                cellar_logic::work::Reason::SandboxCleanup,
+                0,
+            )?;
+            native_work::arm_maintenance(&db, "sandbox-cleanup", 0)?;
+            let old = native_work::due(&db, 0)?.context("idle Sandbox wake missing")?;
+            assert!(native_work::claim(&db, &old, 0)?);
+            assert!(super::super::sandbox_work::claim_at(&db, h.cell.as_str(), 0)?.is_none());
+            native_work::complete(&db, &old, old.lease_ms)?;
+            assert!(native_work::get(&db, "sandbox-cleanup")?.is_some());
+            assert!(native_work::due(&db, crate::asyncrt::wall_ms().try_into()?)?.is_none());
+            assert!(!native_work::claim(&db, &old, 0)?);
+            assert_eq!(
+                super::super::sandbox_catalog::read_parent(&db)?
+                    .context("parent missing")?
+                    .state,
+                SandboxParentState::Active
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn shared_sandbox_retirement_is_visible_to_the_storage_callback_gateway() -> Result<()> {
+    use cellar_logic::work::Reason;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let root = tempfile::tempdir()?;
+            let mut database = crate::storage::CommandDatabase::open(
+                &root.path().join("sandbox-work.sqlite"),
+                None,
+                4 << 20,
+            )?;
+            let h = history(3)?;
+            database.transaction(
+                crate::storage::CommandInputs {
+                    now_unix_millis: 1,
+                    random: [8; 32],
+                },
+                |transaction| {
+                    let storage = transaction.storage()?;
+                    {
+                        let db = transaction.framework()?;
+                        super::super::as_framework_sql(|| {
+                            owner(&db, &h, None, true)?;
+                            db.execute_batch(super::super::work::SCHEMA)?;
+                            let allocation = reserve_at(&db, &h)?.allocation;
+                            super::super::sandbox_work::register_in(
+                                &db,
+                                h.cell.as_str(),
+                                &allocation,
+                                &"c".repeat(64),
+                            )?;
+                            super::super::sandbox_catalog::retire_at(
+                                &db,
+                                h.cell.as_str(),
+                                &"a".repeat(32),
+                                false,
+                            )?;
+                            Ok::<_, anyhow::Error>(())
+                        })?;
+                    }
+                    // This is the exact lookup used by the framework callback before
+                    // entering maintain_shared, not a query under the logical cell key.
+                    let installation = storage
+                        .work_installation(Reason::SandboxCleanup)?
+                        .context("retirement was invisible to the shared Storage callback")?;
+                    assert_eq!(installation.at_ms, 0);
+                    let db = transaction.framework()?;
+                    super::super::as_framework_sql(|| {
+                        assert_eq!(
+                            super::super::sandbox_catalog::read_parent(&db)?
+                                .context("parent missing")?
+                                .scope,
+                            h.cell.as_str()
+                        );
+                        assert!(crate::application::consensus::native_work::due(&db, 1)?.is_some());
+                        Ok::<_, anyhow::Error>(())
+                    })
+                },
+            )
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}

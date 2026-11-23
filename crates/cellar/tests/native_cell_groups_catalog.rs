@@ -8,12 +8,32 @@ use cellar::application::consensus::{
     NamespaceId, ProposalId,
 };
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 #[path = "support/cell_group_directory.rs"]
 mod directory;
 #[path = "support/raft_catalog_fault.rs"]
 #[allow(dead_code)]
 mod fault;
+
+#[path = "support/cell_group_rustfs.rs"]
+#[allow(dead_code)]
+mod rustfs;
+
+#[tokio::test]
+async fn current_birth_validation_overlaps_reads_and_joins_failures() -> anyhow::Result<()> {
+    directory::current_birth_reads_overlap(Arc::new(fault::Store::default())).await
+}
+
+#[tokio::test]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_current_birth_validation_overlaps_reads_and_joins_failures() -> anyhow::Result<()> {
+    directory::current_birth_reads_overlap(Arc::new(fault::Store::around(rustfs::store(
+        "birth-validation-window",
+        false,
+    )?)))
+    .await
+}
 
 #[tokio::test]
 async fn seal_authorization_cancel_race() -> anyhow::Result<()> {

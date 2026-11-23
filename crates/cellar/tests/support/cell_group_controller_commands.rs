@@ -286,6 +286,17 @@ pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
         } else {
             Duration::from_secs(15)
         };
+        let publications = || {
+            let sample = fixture.cluster.voters[0].log.performance_snapshot();
+            assert!(sample.available && !sample.saturated);
+            sample
+                .operations
+                .iter()
+                .find(|operation| operation.name == "sql_publish")
+                .expect("SQL publication counter")
+                .started
+        };
+        let before_publications = publications();
         let call = controllers[0].dispatch_command(
             &dispatcher,
             a.clone(),
@@ -307,10 +318,16 @@ pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
         assert_eq!(pool.usage()?.active_cells, 1);
         assert_eq!(controllers[0].usage().retained_commands, 1);
         assert_eq!(dispatcher.usage().1, 1);
-        if phase == 1 {
+        let premature_publications = if phase == 1 {
             let status = fixture.runtimes[0].status(route.history).await?;
             assert!(status.committed > status.applied.index);
-        }
+            // Hold actual committed apply across many five-millisecond controller
+            // ticks. No SQL receipt can cover this accepted entry yet.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Some(publications() - before_publications)
+        } else {
+            None
+        };
         let rejected = controllers[0]
             .command(
                 invocation(
@@ -493,6 +510,12 @@ pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
         }
         drop(controllers);
         fixture.close().await?;
+        if let Some(premature) = premature_publications {
+            assert_eq!(
+                premature, 0,
+                "accepted command polled SQL before its committed apply: rooted={rooted}"
+            );
+        }
     }
     Ok(())
 }
@@ -569,10 +592,15 @@ pub(crate) async fn owned_command_failure(lost_reply: bool) -> Result<()> {
         assert!(error.ambiguous);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         if lost_reply {
-            assert!(matches!(
-                error.cause.as_ref(),
-                CellDispatchError::Execution(ExecutionError::Refused(CommandFailure::Unavailable))
-            ));
+            assert!(
+                matches!(
+                    error.cause.as_ref(),
+                    CellDispatchError::Execution(ExecutionError::Refused(
+                        CommandFailure::Unavailable
+                    ))
+                ),
+                "lost SQL reply returned {error:?}"
+            );
             assert!(matches!(
                 tokio::time::timeout(Duration::from_secs(5), controllers[0].wait()).await?,
                 Err(CellGroupControllerError::Command(_))

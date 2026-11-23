@@ -411,7 +411,7 @@ impl Pool {
                             if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
                                 break;
                             }
-                            let wait = if shared.poll_suspended(&owner, &stopped, &performance) {
+                            let wait = if shared.poll_suspended(&owner, &stopped, &performance)? {
                                 // Give queued work its turn before trying the next
                                 // ready continuation without the idle tick delay.
                                 Duration::ZERO
@@ -448,7 +448,7 @@ impl Pool {
                     // Join physical apply before retiring callbacks, image
                     // custody or the physical SQL-owner count, even on errors.
                     let applied = applying.join();
-                    let closed = shared.close();
+                    let closed = shared.close(result.is_err());
                     result.and(applied).and(closed)
                 })
                 .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;

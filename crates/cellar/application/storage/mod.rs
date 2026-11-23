@@ -28,6 +28,8 @@ pub(crate) struct Resources {
     /// Plain registered SQL callbacks retain the default compatibility policy.
     pub(crate) delete_all_deletes_alarm: AtomicBool,
     pub(crate) durable_callbacks: AtomicBool,
+    pub(crate) sandbox_catalog: AtomicBool,
+    pub(crate) sandbox_execution: AtomicBool,
     pub(crate) provider_lifecycle: super::container_bindings::LifecycleLocks,
     pub(crate) retired: AtomicBool,
     /// A completed handler requests retirement after its final image commits.
@@ -350,6 +352,12 @@ impl Storage {
         at_ms: i64,
     ) -> Result<()> {
         if self.is_raft() {
+            if reason == cellar_logic::work::Reason::SandboxCleanup {
+                anyhow::ensure!(
+                    self.resources().sandbox_catalog.load(Ordering::Acquire),
+                    consensus::CommandFailure::UnsupportedCapability
+                );
+            }
             anyhow::ensure!(
                 self.resources().durable_callbacks.load(Ordering::Acquire),
                 consensus::CommandFailure::UnsupportedCapability

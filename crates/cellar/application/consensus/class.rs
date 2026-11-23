@@ -276,9 +276,54 @@ pub struct QueryContext<'a> {
     blobs: Option<super::RaftBlobLimits>,
     outbox: Option<&'a super::RaftOutbox>,
     schema: [u8; 32],
+    sandbox_catalog: bool,
 }
 
 impl QueryContext<'_> {
+    /// Read parent lifecycle metadata from this exact immutable image without
+    /// constructing a business cell or granting child execution authority.
+    pub fn sandbox_parent(
+        &self,
+    ) -> anyhow::Result<Option<crate::application::containers::SandboxParent>> {
+        anyhow::ensure!(
+            self.sandbox_catalog,
+            super::CommandFailure::UnsupportedCapability
+        );
+        crate::storage::sandbox_shared::query_parent(
+            self.frame.database().connection(),
+            self.identity,
+        )
+    }
+
+    /// Whether deletion or terminal durability confirmation still needs work.
+    /// Periodic observation of a healthy active parent is not cleanup debt.
+    pub fn sandbox_cleanup_pending(&self) -> anyhow::Result<bool> {
+        anyhow::ensure!(
+            self.sandbox_catalog,
+            super::CommandFailure::UnsupportedCapability
+        );
+        crate::storage::sandbox_shared::query_cleanup_pending(
+            self.frame.database().connection(),
+            self.identity,
+        )
+    }
+
+    /// Read one retained named generation from the same committed image.
+    pub fn sandbox_allocation(
+        &self,
+        name: &str,
+    ) -> anyhow::Result<Option<crate::application::containers::SandboxAllocation>> {
+        anyhow::ensure!(
+            self.sandbox_catalog,
+            super::CommandFailure::UnsupportedCapability
+        );
+        crate::storage::sandbox_shared::query_allocation(
+            self.frame.database().connection(),
+            self.identity,
+            name,
+        )
+    }
+
     pub(super) fn result_limit(&self) -> usize {
         self.frame.database().result_limit()
     }
@@ -444,6 +489,8 @@ pub struct RaftClass {
     providers: Arc<crate::application::container_bindings::ProviderDeclarations>,
     provider_supervision: Option<Arc<crate::application::container_supervision::Supervision>>,
     container_adapter: Option<Arc<crate::application::containers::backend::Binding>>,
+    sandbox_catalog: bool,
+    sandbox_execution: bool,
 }
 
 impl RaftClass {
@@ -576,6 +623,8 @@ impl RaftClass {
             filesystem: None,
             providers: Arc::default(),
             container_adapter: None,
+            sandbox_catalog: false,
+            sandbox_execution: false,
             provider_supervision: None,
         };
         class.bind_command_manifest();
@@ -770,6 +819,96 @@ impl RaftClass {
         self.container_adapter = Some(binding);
         self.bind_command_manifest();
         Ok(self)
+    }
+
+    /// Enable named sandbox metadata and constructor-independent cleanup on
+    /// the shared scheduler. Execution classes require `sandbox_execution`.
+    pub fn sandbox_catalog(mut self) -> Result<Self, RegistrationError> {
+        if self.sandbox_catalog || self.sandbox_execution {
+            return Err(RegistrationError::Invalid(
+                "duplicate/incompatible sandbox catalog",
+            ));
+        }
+        self.sandbox_catalog = true;
+        self.install_native_callbacks();
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    /// A dedicated execution namespace. Only authenticated parent bindings may
+    /// invoke it; ordinary RPC/fetch cannot construct its execution cell.
+    /// Install an independently fenced native Container adapter first.
+    pub fn sandbox_execution(mut self) -> Result<Self, RegistrationError> {
+        if self.sandbox_catalog
+            || self.sandbox_execution
+            || self.cell_factory.is_some()
+            || self.initializer.is_some()
+            || !self.commands.is_empty()
+            || !self.queries.is_empty()
+        {
+            return Err(RegistrationError::Invalid(
+                "sandbox execution requires a dedicated class",
+            ));
+        }
+        let binding = self
+            .container_adapter
+            .as_ref()
+            .ok_or(RegistrationError::Invalid(
+                "sandbox requires a native container adapter",
+            ))?;
+        if !binding.supports_bounded_sandbox() {
+            return Err(RegistrationError::Invalid(
+                "sandbox requires independently fenced bounded execution",
+            ));
+        }
+        let configuration = binding.identity.configuration_digest.clone();
+        self = self.provider_binding(
+            "sandbox-execution",
+            "cellar-sandbox-control",
+            Sha256::digest(configuration.as_bytes()).into(),
+        )?;
+        // Enrollment creates an empty private image. Only a later authenticated
+        // parent dispatch may install its retained history/parent authority.
+        // This dedicated framework class never runs an application initializer.
+        self = self.initializer(
+            Sha256::digest(b"cellar-shared-sandbox-execution-initializer-1").into(),
+            |_, _| Ok(()),
+        )?;
+        self.sandbox_execution = true;
+        self.install_native_callbacks();
+        let contract = super::native_event_rpc::contract(&self.name);
+        self.system_commands.insert(
+            contract.operation,
+            Command {
+                digest: contract.digest,
+                handler: CommandHandler::NativeEventRpc,
+            },
+        );
+        self.cell_factory = Some(NativeCellFactory::bind(
+            &self.name,
+            Arc::new(|_, _| {
+                Ok(Arc::new(
+                    crate::application::sandbox_catalog::shared::ExecutionCell,
+                ))
+            }),
+            true,
+        ));
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    pub(crate) fn has_sandbox_catalog(&self) -> bool {
+        self.sandbox_catalog
+    }
+
+    pub(crate) fn sandbox_configuration(&self) -> Option<&str> {
+        self.sandbox_execution
+            .then(|| {
+                self.container_adapter
+                    .as_ref()
+                    .map(|b| b.identity.configuration_digest.as_str())
+            })
+            .flatten()
     }
 
     pub fn alarms(mut self, limits: super::RaftAlarmLimits) -> Result<Self, RegistrationError> {
@@ -1229,6 +1368,21 @@ impl RaftClass {
             .and_then(|factory| factory.configuration_digest())
     }
 
+    pub(crate) fn validate_cell_rpc_identity(
+        &self,
+        scope: &str,
+        name: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let factory = self
+            .cell_factory
+            .as_ref()
+            .ok_or(super::CommandFailure::UnsupportedCapability)?;
+        // Private events can target application-owned classes, whose IDs are
+        // authenticated with the compiled application namespace as well as
+        // their class. Reserved service namespaces remain shared by design.
+        super::native_rpc::validate_identity(factory.script(), &self.name, scope, name)
+    }
+
     pub(crate) fn cell_binding_classes(&self) -> Option<&BTreeSet<String>> {
         self.cell_factory
             .as_ref()
@@ -1282,6 +1436,8 @@ impl RaftClass {
             providers: self.providers.clone(),
             provider_supervision: self.provider_supervision.clone(),
             container_adapter: self.container_adapter.clone(),
+            sandbox_catalog: self.sandbox_catalog,
+            sandbox_execution: self.sandbox_execution,
         }
     }
 
@@ -1367,6 +1523,17 @@ impl RaftClass {
     }
 
     pub(crate) fn validate_cell_factory(&self) -> Result<(), RegistrationError> {
+        if self.sandbox_execution
+            && (!self.commands.is_empty()
+                || self
+                    .queries
+                    .keys()
+                    .any(|q| q != super::sql_ingress_identity::OPERATION))
+        {
+            return Err(RegistrationError::Invalid(
+                "sandbox class cannot expose business RPC or queries",
+            ));
+        }
         if self.uses_cell_factory() && self.cell_factory.is_none() {
             return Err(RegistrationError::UnsupportedFactory(self.name.clone()));
         }
@@ -1509,6 +1676,14 @@ impl RaftClass {
             }
         }
         let storage = transaction.storage()?;
+        storage
+            .resources()
+            .sandbox_catalog
+            .store(self.sandbox_catalog, std::sync::atomic::Ordering::Release);
+        storage
+            .resources()
+            .sandbox_execution
+            .store(self.sandbox_execution, std::sync::atomic::Ordering::Release);
         match &self.container_adapter {
             Some(binding) => {
                 let installed = storage
@@ -2116,6 +2291,7 @@ impl RaftClass {
                     blobs: self.blobs,
                     outbox: self.outbox.as_deref(),
                     schema: self.schema_digest,
+                    sandbox_catalog: self.sandbox_catalog,
                 };
                 match admission {
                     QueryAdmission::Public => (self
@@ -2148,8 +2324,17 @@ impl RaftClass {
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
+        if self.sandbox_catalog {
+            hash.update(b"shared-sandbox-catalog-1");
+            hash.update(b"shared-sandbox-owner-minimum-1");
+        }
+        if self.sandbox_execution {
+            hash.update(b"shared-sandbox-execution-1");
+            hash.update(b"shared-sandbox-owner-minimum-1");
+        }
         if let Some(binding) = &self.container_adapter {
             hash.update(b"native-container-adapter-1");
+            hash.update(b"native-container-bounded-execution-1");
             hash.update((binding.max_body_bytes as u64).to_be_bytes());
         }
         if let Some(supervision) = &self.provider_supervision {

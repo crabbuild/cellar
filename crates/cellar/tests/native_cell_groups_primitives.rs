@@ -343,6 +343,16 @@ async fn private_image_preparation_releases_the_single_sql_worker() -> Result<()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_private_image_tasks_join_and_fence_rpc_owners() -> Result<()> {
+    for rooted in [false, true] {
+        for checkpoint in [false, true] {
+            rpc_progress::failed_preparation(rooted, checkpoint).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_private_image_preparation_releases_the_single_sql_worker() -> Result<()> {
     for rooted in [false, true] {
@@ -3353,6 +3363,17 @@ async fn rustfs_controller_retirement_confirmation_survives_lost_s3_proof() -> R
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_retirement_confirmation_waits_for_independent_fence() -> Result<()> {
+    controller_provider::qualify_retirement_order(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_retirement_confirmation_waits_for_independent_fence() -> Result<()> {
+    controller_provider::qualify_retirement_order(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_controller_provider_sessions_preserve_shared_group_durability() -> Result<()> {
     controller_provider::qualify(true, false).await
@@ -3417,6 +3438,29 @@ async fn rustfs_controller_lifecycle_wait_reuses_unchanged_command_proof() -> Re
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_controller_lifecycle_wait_proves_dirty_work_before_parking() -> Result<()> {
     controller_provider::qualify_lifecycle_wait(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_routine_inspection_yields_after_fencing_to_foreground() -> Result<()> {
+    controller_provider::qualify_inspection_handoff(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controller_routine_inspection_yields_after_overlapping_s3_checkpoint() -> Result<()> {
+    controller_provider::qualify_inspection_archive_overlap(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_routine_inspection_yields_after_overlapping_s3_checkpoint() -> Result<()>
+{
+    controller_provider::qualify_inspection_archive_overlap(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_controller_routine_inspection_yields_after_fencing_to_foreground() -> Result<()> {
+    controller_provider::qualify_inspection_handoff(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

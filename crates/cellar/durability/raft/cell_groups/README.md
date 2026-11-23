@@ -556,6 +556,9 @@ confirmation remains unconfirmed; reopen and decode the original request before
 retrying. A retired or replaced range cannot materialize again. A birth observation
 is bound to its catalog owner; `require_current_group_birth` checks current route,
 reservation and selected immutable bytes, and refuses missing or changed state.
+Fresh selection and immutable records use two concurrent read chains under the
+same operation deadline. Both chains join before returning a validation result;
+neither alone grants authority. Foreign catalog observations refuse before I/O.
 
 These metadata methods expose no voter-start capability and write no permanent
 member disk claim. The bootstrap path below connects the verified birth to real

@@ -95,6 +95,7 @@ pub struct Store {
     pub gets: AtomicUsize,
     pub chunk_gets: AtomicUsize,
     pub chunk_get_entered: Notify,
+    pub object_gets: Mutex<std::collections::BTreeMap<Path, usize>>,
     pub immutable_missing_gets: AtomicUsize,
     pub immutable_creates: AtomicUsize,
     pub immutable_create_conflicts: AtomicUsize,
@@ -137,6 +138,7 @@ impl Store {
             gets: AtomicUsize::new(0),
             chunk_gets: AtomicUsize::new(0),
             chunk_get_entered: Notify::new(),
+            object_gets: Mutex::new(Default::default()),
             immutable_missing_gets: AtomicUsize::new(0),
             immutable_creates: AtomicUsize::new(0),
             immutable_create_conflicts: AtomicUsize::new(0),
@@ -430,6 +432,14 @@ impl ObjectStore for Store {
         if !opts.head && path.as_ref().contains("/chunks/") {
             self.chunk_gets.fetch_add(1, Ordering::AcqRel);
             self.chunk_get_entered.notify_one();
+        }
+        if path.as_ref().contains("/generations/") {
+            *self
+                .object_gets
+                .lock()
+                .unwrap()
+                .entry(path.clone())
+                .or_default() += 1;
         }
         if !opts.head
             && path.as_ref().contains("/cell-payloads-1/")

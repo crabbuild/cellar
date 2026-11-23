@@ -27,6 +27,20 @@ impl BindingHost {
 }
 
 impl Host for BindingHost {
+    fn sandbox_configuration(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+    ) -> anyhow::Result<String> {
+        Ok(self
+            .owner()?
+            .handle
+            .core
+            .host
+            .sandbox_configuration(source, configuration, scope)?)
+    }
+
     fn event_route(
         &self,
         source: &CellHistory,

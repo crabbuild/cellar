@@ -534,6 +534,11 @@ async fn controller_owned_commands_join_cancelled_shutdown() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_owned_commands_join_accepted_shutdown() -> Result<()> {
+    runtime_fixture::owned_commands(1, 2).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_owned_commands_release_completed_callback_errors() -> Result<()> {
     runtime_fixture::owned_command_failure(false).await
 }
@@ -1689,6 +1694,11 @@ async fn controller_enrollment_resolves_after_deadline() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_enrollment_joins_cancelled_shutdown() -> Result<()> {
     Box::pin(runtime_fixture::owned_enrollment(0, 2)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_joins_accepted_shutdown() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment(1, 2)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]

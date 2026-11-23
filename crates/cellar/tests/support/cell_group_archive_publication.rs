@@ -9,6 +9,45 @@ use std::collections::BTreeMap;
 mod registry_window;
 pub(super) use registry_window::registry_reads_overlap_and_preserve_validation;
 
+pub(super) async fn dependency_reads_once(
+    rooted: bool,
+    remote: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let s = Scenario::with_store(
+        rooted,
+        Default::default(),
+        archive_store::Store::around(remote),
+    )
+    .await?;
+    let checkpoint = s.checkpoint(&s.upload).await?;
+    let uploaded = s.tail(&s.upload, &checkpoint).await?;
+    s.remote.object_gets.lock().unwrap().clear();
+    let coverage = s.publish(&s.upload, &uploaded).await?;
+    tail_fixture::check_images(&s.cluster, coverage.recovery().manifest(), &s.expected).await?;
+    {
+        let reads = s.remote.object_gets.lock().unwrap();
+        for kind in ["tails", "indexes", "chunks"] {
+            let selected = reads
+                .iter()
+                .filter(|(path, _)| path.as_ref().contains(&format!("/{kind}/")))
+                .collect::<Vec<_>>();
+            anyhow::ensure!(!selected.is_empty(), "physical verification skipped {kind}");
+            anyhow::ensure!(
+                selected.iter().all(|(_, count)| **count == 1),
+                "publication reread verified {kind} dependencies: {selected:?}"
+            );
+        }
+        anyhow::ensure!(
+            reads
+                .iter()
+                .any(|(path, count)| path.as_ref().contains("/roots/") && *count >= 2),
+            "publication did not independently read back its new root"
+        );
+    }
+    drop(coverage);
+    s.finish().await
+}
+
 pub(super) async fn create_then_confirm(rooted: bool, remote: Arc<dyn ObjectStore>) -> Result<()> {
     for confirmation_denied in [false, true] {
         let store = archive_store::Store::around(Arc::new(object_store::prefix::PrefixStore::new(
