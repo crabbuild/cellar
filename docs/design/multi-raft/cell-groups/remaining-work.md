@@ -1521,6 +1521,14 @@ Read6 typed refusal and public Consume ingress deadline alongside the ordinary
 Container/Sandbox deadlines. Failure-only Read diagnostics preserve the original
 cause before selecting a production change. Separate successful traces and
 pre-#167 results cannot clear canonical failures.
+On `1b6dfb3f7`, canonical public SQL passes 3/3 real-RustFS functions and KV passes
+2/2, including native SDK/actual CLI and Axum, both image modes, original recovery
+budgets and quorum refusal. SQL interrupted binding recovery and large KV
+payload/condition/expiry paths pass. Independent constrained Linux daemon
+qualification is next for this basic path. The exact EventStream read replay
+passes with unchanged production, while activation/Consume reproduces its
+deadline failure; neither earlier failure is considered fixed. Verified source,
+executables, raw results and failed media are retained separately.
 All [32 required cases](primitive-acceptance-cases.md) remain in scope.
 
 Deliver and close these milestones in order:

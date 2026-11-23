@@ -87,7 +87,29 @@ returning HTTP 503 with an ambiguous ingress deadline. The remaining cohort was
 stopped to diagnose these owning boundaries. No whole-primitive acceptance or
 retry-policy change follows from the partial baseline. Failure-only capture now
 preserves the original read error before private execution converts its refusal;
-that diagnostic source still needs its exact owning run.
+the exact read/outbox replay passes on `1b6dfb3f7` in 145.319s with unchanged
+production. The separate activation/Consume function reproduces its original
+deadline failure in 56.497s on that source. Two child responses return and source
+checkpoints complete before the enclosing request expires. This narrows the
+failure boundary without establishing a runtime cause or repair. Both original
+failures remain open.
+
+The canonical public SQL suite passes **3/3 exact real-RustFS functions** on
+`1b6dfb3f7`: native SDK/actual CLI, Axum/operator access, and interrupted binding
+recovery without replaying business calls. Both image modes and Quorum/S3 source
+recovery are exercised; destination recovery uses its declared Quorum minimum.
+The canonical public KV suite passes **2/2 functions** on the same source,
+including native/Axum and actual CLI, conditions, expiry, 1-MiB/25-MiB payloads,
+retained restart, receipt replay, archive outage and quorum refusal. Original
+deadlines, quotas, IDs and minima are unchanged. These are host-native voters
+sharing one process; independent Linux daemon qualification remains required.
+
+Evidence **`CG-17-public-sql-kv-1b6dfb3f7-2979`** has **6,145 verified files**,
+frozen source, test/CLI executables and a verified second copy. SQL's test runner
+and VM shutdown both succeed; its wrapper subsequently fails copying a misnamed
+evidence script. The original wrapper and explicit packaging-only repair are
+retained, with no rerun or result change. The separate failed activation replay
+retains all three voter disks in **`CG-17-event-activation-1b6dfb3f7-2981`**.
 
 Evidence **`CG-17-archive-cut-baseline-bd238f365-2969`** has **7,370 verified
 files, 17 available native roots**, including all six explicitly retained failed

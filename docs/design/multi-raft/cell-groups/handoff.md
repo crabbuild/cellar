@@ -39,7 +39,21 @@ interruption. Diagnose extent-mode `Counter:event-sink Read6` returning ambiguou
 `Execution(Refused(Unavailable))` after recovery and public Consume HTTP 503 with
 an ambiguous ingress deadline. The diagnostic only captures the original Read
 error before private execution maps its refusal; no retry/budget/identity/proof
-rule changes. Finish its owning run before selecting a runtime fix.
+rule changes. On `1b6dfb3f7` the exact read/outbox replay passes in 145.319s;
+production is unchanged, so the earlier refusal is not considered fixed. The
+activation/Consume deadline reproduces in 56.497s, after two child responses
+return and source checkpoints complete. All three failed voter disks are sealed
+in `CG-17-event-activation-1b6dfb3f7-2981`. Select a production repair only from a
+causal owning regression.
+
+The canonical real-RustFS public SQL suite now passes 3/3 functions and KV passes
+2/2 at `1b6dfb3f7`. Native SDK/actual CLI and Axum, both images, SQL interrupted
+binding recovery, large KV payloads, conditions/expiry, retained restart, archive
+outage and quorum refusal retain their original assertions and budgets. Evidence
+`CG-17-public-sql-kv-1b6dfb3f7-2979` has 6,145 verified files plus a verified
+second copy. SQL's original wrapper fails only during final script packaging,
+after the runner and shutdown succeed; its explicit repair changes no result.
+These scoped passes do not qualify independent Linux voters or full primitives.
 
 Evidence `CG-17-archive-cut-baseline-bd238f365-2969` has 7,370 verified files,
 17 available native roots, all six explicitly retained failed EventStream voter
@@ -47,7 +61,9 @@ roots, separate RustFS proof results, three frozen executables/full source and a
 verified second copy. The earlier source-specific evidence remains separately
 sealed. See the [current checkpoint](progress.md#cg-17-independent-publication-during-archive-retirement).
 
-Then close ordinary public Storage/SQL/KV paths and inventory acceptance, all
+Next qualify the basic SQL/KV daemon with independent constrained Linux voters
+and real RustFS, while retaining native EventStream and Container/Sandbox failures
+as separate open gates. Then close ordinary public Storage and inventory acceptance, all
 primitive public/recovery contracts, managed transitions and independent
 Linux-voter/load/crash/disk-loss qualification. All 32 full cases remain required.
 CG-16 cutover and legacy removal follow the complete release gates. Preserve
