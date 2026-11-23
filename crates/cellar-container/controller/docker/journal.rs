@@ -5,6 +5,7 @@ use super::DockerOptions;
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::containers::{
     ExecutionClaim, ExecutionControllerFailure, ExecutionOperation, ExecutionOutcome,
+    ExecutionPendingOperation,
 };
 use cellar_ltx::{FileSystem, HostFileLock};
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,64 @@ pub(super) struct State {
     pub revoked: BTreeSet<String>,
     pub incarnations: BTreeMap<String, String>,
     pub recoveries: BTreeMap<String, String>,
+}
+
+impl State {
+    pub fn check(&self, claim: &ExecutionClaim) -> Result<()> {
+        ensure!(
+            !self.revoked.contains(&history(claim)?),
+            ExecutionControllerFailure::RevokedHistory
+        );
+        let logical = logical(claim.history(), claim.binding())?;
+        ensure!(
+            self.incarnations.get(&logical) == Some(&history(claim)?),
+            ExecutionControllerFailure::RevokedHistory
+        );
+        ensure!(
+            !self.recoveries.contains_key(&logical),
+            ExecutionControllerFailure::RecoveryPending
+        );
+        let slot = self
+            .slots
+            .get(&key(claim))
+            .ok_or(ExecutionControllerFailure::StaleClaim)?;
+        ensure!(slot.high == *claim, ExecutionControllerFailure::StaleClaim);
+        ensure!(slot.active, ExecutionControllerFailure::RecoveryPending);
+        Ok(())
+    }
+
+    pub fn original_operation(
+        &self,
+        current: &ExecutionClaim,
+        original: &ExecutionPendingOperation,
+    ) -> Result<Option<&PhysicalOperation>> {
+        self.check(current)?;
+        ensure!(
+            logical(current.history(), current.binding())?
+                == logical(original.claim.history(), original.claim.binding())?
+                && original.operation.id != [0; 16]
+                && original.operation.expires_unix_ms > 0,
+            ExecutionControllerFailure::ConflictingRequest
+        );
+        let slot = self
+            .slots
+            .get(&key(&original.claim))
+            .context("original Docker history missing")?;
+        ensure!(
+            original.claim.sequence() <= slot.high.sequence()
+                && (original.claim.sequence() != slot.high.sequence()
+                    || original.claim == slot.high),
+            ExecutionControllerFailure::ConflictingRequest
+        );
+        let operation = slot.operations.get(&super::hex(&original.operation.id));
+        if let Some(operation) = operation {
+            ensure!(
+                operation.claim == original.claim && operation.operation == original.operation,
+                ExecutionControllerFailure::ConflictingRequest
+            );
+        }
+        Ok(operation)
+    }
 }
 
 pub(super) struct Journal {
@@ -199,28 +258,7 @@ impl Journal {
     }
 
     pub fn check(&self, claim: &ExecutionClaim) -> Result<()> {
-        self.view(|state| {
-            ensure!(
-                !state.revoked.contains(&history(claim)?),
-                ExecutionControllerFailure::RevokedHistory
-            );
-            let logical = logical(claim.history(), claim.binding())?;
-            ensure!(
-                state.incarnations.get(&logical) == Some(&history(claim)?),
-                ExecutionControllerFailure::RevokedHistory
-            );
-            ensure!(
-                !state.recoveries.contains_key(&logical),
-                ExecutionControllerFailure::RecoveryPending
-            );
-            let slot = state
-                .slots
-                .get(&key(claim))
-                .ok_or(ExecutionControllerFailure::StaleClaim)?;
-            ensure!(slot.high == *claim, ExecutionControllerFailure::StaleClaim);
-            ensure!(slot.active, ExecutionControllerFailure::RecoveryPending);
-            Ok(())
-        })
+        self.view(|state| state.check(claim))
     }
 
     pub fn change<T>(&self, update: impl FnOnce(&mut State) -> Result<T>) -> Result<T> {

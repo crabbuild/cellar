@@ -36,6 +36,15 @@ reconciled from its exact retained outcome. Unknown create, command or write
 outcomes are never inferred from a missing response or replayed. Missing,
 corrupt, incompatible or ambiguous mutation state refuses reopening.
 
+An expired controller submission may have been cancelled before reaching this
+backend. Reconciliation serializes with physical admission and checks the exact
+current fence and original history. If the original operation is absent, it
+syncs an immutable `ExpiredBeforeSubmission` receipt before returning that
+proof. Delayed delivery and retained restart must encounter the same receipt.
+A live absent request remains uncertain. Any existing physical operation keeps
+its original outcome, including unknown state; container absence or expiry
+cannot turn it into a refusal or authorize replay.
+
 Backend shutdown closes admission and attempts process termination, job joining
 and a final process scan even if journal deactivation or an earlier cleanup
 step fails. A storage failure is still returned after these attempts; successful
