@@ -107,6 +107,9 @@ impl SandboxCatalog {
     /// Reserve and start one named child in a host-configured execution class.
     /// A repeated call consults the child's durable creation intent; it cannot
     /// replay an entered create. Proven capacity refusal permits a later retry.
+    /// Shared-group Ready metadata remains private to the calling command until
+    /// its next gated source effect, explicit checkpoint or final output proof.
+    /// Use `confirm_ready` when a separate parent checkpoint is required.
     pub fn start_child(
         &self,
         context: &Context,
@@ -156,7 +159,21 @@ impl SandboxCatalog {
                 current.generation == reserved.generation,
                 "sandbox generation changed during startup"
             );
-            catalog.confirm_ready(&context, &current).await
+            if context.raft_storage.is_some() {
+                // The child receipt and private binding completion are already
+                // verified. Prove Ready with the next source effect or final
+                // command output, rather than forcing a second S3 gate first.
+                // Explicit confirm_ready retains its independently awaited sync.
+                let (parent, allocation) = catalog.prepare_transition(
+                    &context,
+                    &current,
+                    SandboxAllocationState::Ready,
+                )?;
+                catalog.current(&context, &parent, Some(&allocation))?;
+                Ok(allocation)
+            } else {
+                catalog.confirm_ready(&context, &current).await
+            }
         })
     }
 

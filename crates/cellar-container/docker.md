@@ -83,6 +83,15 @@ execution policy. Both namespaces prove their own minimum before effects or
 results. Changed or missing history pins refuse admission. This does not yet
 provide managed fresh-history Sandbox recovery.
 
+High-level shared `SandboxCatalog::start_child` proves its reservation and exact
+child-call intent before target I/O. After verifying the durable child receipt,
+it stages Ready together with private binding completion. The next gated source
+effect, explicit checkpoint or final command output proves that source metadata;
+an unavailable final S3 proof still refuses public success. Explicit
+`reserve`/`confirm_ready` calls and Fleet retain their separately awaited
+checkpoints. Receipt-only recovery must preserve the original allocation without
+replaying the callback or provider Create.
+
 Parent cleanup runs bounded shared work independently of business construction.
 It retains exact deletion identities and confirmation debt until a mandatory
 source proof covers the terminal parent revision. Cleanup retains the strongest

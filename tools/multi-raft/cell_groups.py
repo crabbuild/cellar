@@ -64,9 +64,10 @@ SUITES = {
             "rustfs_native_sandboxes_refuse_unproved_parent_dispatch",
             "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum",
             "rustfs_native_sandbox_deletion_preserves_input_proof",
+            "rustfs_native_sandbox_start_shares_parent_output_proof",
         ),
         "Bounded normal native Container/Sandbox execution against an explicitly selected Linux Engine and real RustFS, including physical fencing, original receipts and source Quorum/S3 admission.",
-        "The three standalone backend cases use trusted metadata, including failed-journal shutdown and durable expiry seals for controller submissions that never reach physical admission; four public cases each cover both images and minima; two more cover explicit S3 retirement and Delete input proof in a Quorum namespace in both images. Delete must coalesce its parent input, refuse actual physical entry during a source archive cut, and recover after retained restart without business construction. Sandbox additionally checks authenticated parent/child dispatch, generation replacement, retained restart and terminal confirmation without business construction. RF3 shares one native process. The fixed read-only idle scaffold is not an application entrypoint. Interactive/port APIs, physical namespace erasure, independent voters, sustained load and provider-volume/fresh-history disaster recovery remain unqualified.",
+        "The three standalone backend cases use trusted metadata, including failed-journal shutdown and durable expiry seals for controller submissions that never reach physical admission; four public cases each cover both images and minima; three more cover explicit S3 retirement, Delete input proof in a Quorum namespace, and S3 Start output proof in both images. Delete must coalesce its parent input, refuse actual physical entry during a source archive cut, and recover after retained restart without business construction. Start must share its parent output proof while explicit confirm_ready remains independently durable, then recover the original receipt without callback or provider replay. Sandbox additionally checks authenticated parent/child dispatch, generation replacement, retained restart and terminal confirmation without business construction. RF3 shares one native process. The fixed read-only idle scaffold is not an application entrypoint. Interactive/port APIs, physical namespace erasure, independent voters, sustained load and provider-volume/fresh-history disaster recovery remain unqualified.",
     ),
     "controller-provider": (
         "native_cell_groups_primitives",
@@ -970,7 +971,7 @@ def main():
     try:
         if args.suite == "native-docker":
             record["docker_backend"] = docker_configuration(remote["profile"], os.environ)
-            record["planned_configurations"] = dict(zip(cases, (1, 1, 1, 4, 4, 4, 4, 2, 2), strict=True))
+            record["planned_configurations"] = dict(zip(cases, (1, 1, 1, 4, 4, 4, 4, 2, 2, 2), strict=True))
             record["limitations"] = ("Three standalone physical-backend cases and six host-native RF3 suites. "
                                      + limitations)
         bucket = remote["owner"] + "-cg-" + secrets.token_hex(4)

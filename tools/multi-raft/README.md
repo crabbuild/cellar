@@ -176,7 +176,11 @@ a Quorum-default namespace, cuts actual parent archive writes after physical
 Delete, and checks retained autonomous confirmation with business construction
 unavailable. A further two-image case interrupts Delete input proof, restarts
 the retained voters and requires autonomous recovery after archive restoration.
-The planned total is 23 configurations across nine fixed test
+A further two-image S3 case cuts parent archive writes after physical Create.
+High-level Start must return to its callback without an extra Ready checkpoint,
+while the final public output and explicit `confirm_ready` remain S3 gated.
+Restoration must recover the original receipt without callback or provider replay.
+The planned total is 25 configurations across ten fixed test
 functions; any failed selection leaves the whole campaign failed.
 
 RF3 shares one native process; this is not independent-voter, sustained-load,

@@ -127,7 +127,7 @@ class SqlCampaignTests(unittest.TestCase):
                                  0 if suite == "immutable-payloads" else
                                  1 if suite == "binding-settlement-diagnostic" else 2)
                 if suite == "native-docker":
-                    self.assertEqual(summary["rustfs_cases"], 6)
+                    self.assertEqual(summary["rustfs_cases"], 7)
                     self.assertEqual(record["planned_configurations"], {
                         "docker_backend_joins_processes_and_retains_original_receipts": 1,
                         "docker_backend_shutdown_fences_processes_when_journal_fails": 1,
@@ -138,6 +138,7 @@ class SqlCampaignTests(unittest.TestCase):
                         "rustfs_native_sandboxes_refuse_unproved_parent_dispatch": 4,
                         "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum": 2,
                         "rustfs_native_sandbox_deletion_preserves_input_proof": 2,
+                        "rustfs_native_sandbox_start_shares_parent_output_proof": 2,
                     })
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
@@ -328,6 +329,7 @@ class ProviderJournalCampaignTests(unittest.TestCase):
             "rustfs_native_sandboxes_refuse_unproved_parent_dispatch",
             "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum",
             "rustfs_native_sandbox_deletion_preserves_input_proof",
+            "rustfs_native_sandbox_start_shares_parent_output_proof",
         ))
         self.campaign(suite="native-docker")
 
