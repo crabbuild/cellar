@@ -1512,11 +1512,15 @@ extent explicit-Ready oracle remain open. Remote enrollment's original 800-ms
 control still fails before the retained-S3 precondition. See
 [exact results and custody](progress.md#cg-17-independent-publication-during-archive-retirement).
 
-The immediate qualification correction selects the actual parent group's archive
-keys. Payload-marker matching can miss extent deltas that omit unchanged scope
-metadata. Require the stronger fault-selection regression and original real
-floor/Delete/Start oracles before interpreting the explicit-Ready result.
-Separate successful traces and pre-#167 results cannot clear canonical failures.
+The archive-key correction at `bd238f365` passes five owning tests and all six
+real RustFS floor/Delete/Start configurations. It preserves every original proof,
+identity, minimum and budget. The wider native baseline has 25 passing functions
+(including all 22 storage persistence/crash functions and Axum KV), two failing
+EventStream functions and 135 unrun functions. Prioritize the recovered extent
+Read6 typed refusal and public Consume ingress deadline alongside the ordinary
+Container/Sandbox deadlines. Failure-only Read diagnostics preserve the original
+cause before selecting a production change. Separate successful traces and
+pre-#167 results cannot clear canonical failures.
 All [32 required cases](primitive-acceptance-cases.md) remain in scope.
 
 Deliver and close these milestones in order:

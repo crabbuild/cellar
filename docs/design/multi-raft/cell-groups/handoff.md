@@ -27,16 +27,25 @@ Start1 calls and extent S3 explicit Ready confirmation. All eight source-proof
 refusal profiles and both interrupted-Delete profiles pass. Separate trace
 successes do not clear these failures.
 
-The next fixture correction targets the actual parent archive-key prefix rather
-than searching extent payloads for unchanged scope bytes. Run its pure fault
-selection oracle and all affected RustFS floor/Delete/Start functions without
-changing any original assertion or budget. Do not attribute the earlier explicit
-Ready failure to a production proof bypass until its phase/counters are known.
+The archive-cut correction at `bd238f365` selects the exact parent group keys,
+including extent deltas without unchanged scope bytes. All five owning tests and
+six actual Docker/RustFS proof configurations pass. Production remains identical
+to `0adc0eb8d`; ordinary deadline failures remain open.
 
-Evidence `CG-17-retirement-main-rustfs-0adc0eb8d-2950` has 10,416 verified files,
-91 canonical roots, 31 available native roots, three frozen executables/full
-source and a verified second copy. Pre-#167 evidence remains separately sealed.
-See the [current-source checkpoint](progress.md#cg-17-independent-publication-during-archive-retirement).
+The stopped native baseline has 25 passing functions, two EventStream failures
+and 135 unrun functions. All 22 storage persistence/crash functions pass; the
+unchanged independent Axum KV replacement passes after an explicitly uncredited
+interruption. Diagnose extent-mode `Counter:event-sink Read6` returning ambiguous
+`Execution(Refused(Unavailable))` after recovery and public Consume HTTP 503 with
+an ambiguous ingress deadline. The diagnostic only captures the original Read
+error before private execution maps its refusal; no retry/budget/identity/proof
+rule changes. Finish its owning run before selecting a runtime fix.
+
+Evidence `CG-17-archive-cut-baseline-bd238f365-2969` has 7,370 verified files,
+17 available native roots, all six explicitly retained failed EventStream voter
+roots, separate RustFS proof results, three frozen executables/full source and a
+verified second copy. The earlier source-specific evidence remains separately
+sealed. See the [current checkpoint](progress.md#cg-17-independent-publication-during-archive-retirement).
 
 Then close ordinary public Storage/SQL/KV paths and inventory acceptance, all
 primitive public/recovery contracts, managed transitions and independent

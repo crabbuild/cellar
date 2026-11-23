@@ -71,9 +71,30 @@ The explicit-Ready failure also exposes a qualification weakness: the parent
 archive cut searches payloads for a scope marker. An extent delta need not repeat
 unchanged parent metadata. The follow-up selects the actual parent group's
 archive-key prefix, blocks opaque chunks and control writes, and leaves child
-archives available. It retains the original business assertions and adds the
-actual confirmation counters to failures. That fixture correction requires its
-own owning and real-RustFS qualification; it is not a production deadline repair.
+archives available. On **`bd238f365`**, all five owning tests and all six real
+RustFS configurations pass: Start final output/explicit Ready/original receipt,
+Delete input/restart/restore and requested-S3 retirement floor. Original business
+assertions, IDs, minima and budgets remain unchanged. Production runtime inputs
+match `0adc0eb8d`; this is stronger qualification, not a general deadline repair.
+
+The wider native baseline is **FAILED and incomplete: 25 passing functions,
+two failures and 135 not executed**. All 22 storage persistence/crash functions
+pass. The Axum KV binding function passes separately after an interrupted attempt
+was explicitly recorded without result credit. The original two EventStream
+failures are extent-mode `Counter:event-sink Read6` returning ambiguous
+`Execution(Refused(Unavailable))` after retained recovery, and public consumption
+returning HTTP 503 with an ambiguous ingress deadline. The remaining cohort was
+stopped to diagnose these owning boundaries. No whole-primitive acceptance or
+retry-policy change follows from the partial baseline. Failure-only capture now
+preserves the original read error before private execution converts its refusal;
+that diagnostic source still needs its exact owning run.
+
+Evidence **`CG-17-archive-cut-baseline-bd238f365-2969`** has **7,370 verified
+files, 17 available native roots**, including all six explicitly retained failed
+EventStream voter roots, the separate RustFS campaign, three frozen executables,
+full source and a verified second copy. The interrupted KV attempt has no retained
+result or available root and earns no pass; its unchanged independent replacement
+is separately recorded.
 
 The locked optimized build, **1,411 library tests / two existing ignores**,
 strict all-target/all-feature Clippy, **76 runner tests**, formatting, layout,
