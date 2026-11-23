@@ -122,6 +122,7 @@ class SqlCampaignTests(unittest.TestCase):
                     self.assertEqual(record["planned_configurations"], {
                         "docker_backend_joins_processes_and_retains_original_receipts": 1,
                         "docker_backend_shutdown_fences_processes_when_journal_fails": 1,
+                        "docker_backend_seals_expired_unsubmitted_deletes_without_replay": 1,
                         "rustfs_native_docker_executes_and_recovers_shared_quorum": 4,
                         "rustfs_native_docker_refuses_execution_without_source_proof": 4,
                         "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum": 4,
@@ -311,6 +312,7 @@ class ProviderJournalCampaignTests(unittest.TestCase):
         self.assertEqual(cases, (
             "docker_backend_joins_processes_and_retains_original_receipts",
             "docker_backend_shutdown_fences_processes_when_journal_fails",
+            "docker_backend_seals_expired_unsubmitted_deletes_without_replay",
             "rustfs_native_docker_executes_and_recovers_shared_quorum",
             "rustfs_native_docker_refuses_execution_without_source_proof",
             "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum",

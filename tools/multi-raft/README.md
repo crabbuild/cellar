@@ -157,7 +157,11 @@ case uses trusted host metadata and checks backend/controller restart, original
 receipts, actual kernel limits, deadline termination, detached-process fencing
 and rejection of unfenced incarnations. A second standalone case injects an
 actual backend journal-write failure and requires the process to be stopped
-before test cleanup, while shutdown still reports the storage error. Each public
+before test cleanup, while shutdown still reports the storage error. A third
+standalone case holds a controller-submitted Delete before physical admission
+until its original deadline, then requires a durable no-submission receipt,
+retained restart, refusal of late original delivery and a successful new Delete.
+Live absence and entered uncertainty cannot authorize replay. Each public
 case runs both image modes and Quorum/S3 minima against real RustFS: normal Context/Container execution,
 lost replies, retained voter restart, leader transfer, stale claims and actual
 source-archive refusal before provider entry. Two additional Sandbox cases check
@@ -167,7 +171,9 @@ business constructor refuses. Independent target S3 minima must refuse
 unproved work. A separate two-image case performs explicit S3 retirement in
 a Quorum-default namespace, cuts actual parent archive writes after physical
 Delete, and checks retained autonomous confirmation with business construction
-unavailable. The planned total is 19 configurations across six fixed test
+unavailable. A further two-image case interrupts Delete input proof, restarts
+the retained voters and requires autonomous recovery after archive restoration.
+The planned total is 23 configurations across nine fixed test
 functions; any failed selection leaves the whole campaign failed.
 
 RF3 shares one native process; this is not independent-voter, sustained-load,
