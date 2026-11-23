@@ -497,6 +497,33 @@ impl CellGroupArchiveRegistry {
             .map_err(|_| CellGroupArchiveError::Stopped)?
     }
 
+    /// Prepare a successor only when fresh registry state proves that the old
+    /// reservation cannot allocate now or through a delayed CAS. This grants
+    /// no permission to replace a ticket or an uncertain publication.
+    pub(in crate::raft::cell_groups) async fn renew_superseded_upload(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        original: &CellGroupArchiveIntent,
+    ) -> Result<Option<CellGroupArchiveIntent>> {
+        domain
+            .run(async {
+                let _io = self.archive.admit()?;
+                let state = self.load().await?.0;
+                if !state.reservation_superseded(original)? {
+                    return Ok(None);
+                }
+                self.intent(
+                    &state,
+                    Action::Reserve {
+                        parent: state.selected.clone(),
+                    },
+                )
+                .map(Some)
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     pub async fn reserve(
         &self,
         domain: &impl CellGroupArchiveExecution,
