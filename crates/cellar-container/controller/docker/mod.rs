@@ -637,9 +637,8 @@ impl DockerBackend {
         current: ExecutionClaim,
         original: ExecutionPendingOperation,
     ) -> Result<Option<ExecutionOutcome>> {
-        // Serialize with physical reservation and job installation, not with
-        // an Engine inventory. Absence alone cannot authorize another effect.
-        let _admission = self.admission.lock().await;
+        // Existing immutable receipts are read-only and remain available while
+        // unrelated physical fencing holds admission. Unknown stays unknown.
         let existing = self
             .journal
             .view(|state| Ok(state.original_operation(&current, &original)?.cloned()))?;
@@ -651,6 +650,9 @@ impl DockerBackend {
         if u64::try_from(cellar::asyncrt::wall_ms())? < original.operation.expires_unix_ms {
             return Ok(None);
         }
+        // Only sealing absence must exclude physical reservation and job
+        // installation. Engine inventory is never authoritative here.
+        let _admission = self.admission.lock().await;
         self.update(move |state| {
             // Validate again in the durable transition. A cancelled waiter can
             // release admission while its owned journal write is still joining.

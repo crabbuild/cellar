@@ -44,6 +44,8 @@ proof. Delayed delivery and retained restart must encounter the same receipt.
 A live absent request remains uncertain. Any existing physical operation keeps
 its original outcome, including unknown state; container absence or expiry
 cannot turn it into a refusal or authorize replay.
+Existing receipt reads remain concurrent with physical admission and fencing;
+only sealing absence takes that admission lock and syncs a new record.
 
 Backend shutdown closes admission and attempts process termination, job joining
 and a final process scan even if journal deactivation or an earlier cleanup
