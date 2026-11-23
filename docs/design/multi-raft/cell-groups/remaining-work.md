@@ -9,10 +9,36 @@ Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
 The current delivery is [PR #182](https://github.com/crabbuild/cellar/pull/182),
-based on main `0f3b18e79` after merged #181 and #167. Its current-source
-[qualification](progress.md#cg-17-independent-publication-during-archive-retirement)
-remains failed; follow the [full delivery milestones](#primitive-delivery-priority).
-No default cutover or full primitive acceptance is claimed.
+based on main `0f3b18e79` after merged #181 and #167. Runtime `37d53e781`
+adds original-invocation checks after SDK polling and at queued reply delivery.
+The public RF3 regression passes both image forms; 1,417 library tests pass.
+The [current qualification](progress.md#cg-17-sdk-replies-retain-original-invocation-authority)
+still has request deadline failures. Default cutover and full primitive
+acceptance remain open.
+
+The immediate delivery order is:
+
+1. Close ordinary request deadlines: EventStream Consume and extent Workflow
+   `create/delete-held` retain their original three-second failures. Real RustFS
+   Sandbox still fails materialized S3 `Create9`, extent S3 `DestroyJob8`, and
+   materialized interrupted `Delete2` within the original five-second contract.
+   Preserve exact identities, source/target minima and uncertain outcomes.
+2. Complete the primitive API inventory and public/recovery contracts. Current
+   native filesystem, alarms and Queue gates pass, but their full lifecycle
+   matrix remains required. Close Container/provider scope, WebSocket/session
+   ownership and remaining callback/binding coverage before full CG-17 acceptance.
+3. Qualify every primitive through managed replacement, movement, split/merge,
+   wake, archive outage, reclamation and fenced zero-quorum recovery. Managed
+   Workflow S3 replacement, public wake and retained restart pass both image
+   forms; `bf5056b33` also retains eight closed voter directories. The complete
+   cross-primitive and fresh-incarnation matrix remains open.
+4. Run the unified public daemon, independent Linux voter, load, crash and
+   disk-loss matrix on one final source. Earlier Linux SQL/KV qualification
+   remains pinned to `41e68a7bf`; it does not qualify subsequent runtime edits.
+   Default backend cutover and removal of legacy Raft paths follow these gates.
+
+The [full delivery milestones](#primitive-delivery-priority) and task acceptance
+definitions retain their original requirements; no acceptance case is waived.
 
 ## Earlier optimization checkpoints
 

@@ -4,7 +4,48 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current archive retirement and combined-main delivery
+## Current SDK reply authority and managed recovery checkpoint
+
+Continue draft PR #182 on `codex/cg17-archive-retirement`; origin/main remains
+`0f3b18e79` after #181/#167. Runtime `37d53e781` validates source authority after
+each owned SDK poll and when a completed queued reply reaches its application.
+The public cached-cell regression reproduces the old cross-invocation escape
+and passes both image forms after the fix. Preserve original deadlines,
+identity, receipts and ambiguity; a refused reply never authorizes replay.
+
+The full library passes 1,417 tests / two existing ignores. Current native
+filesystem, alarms and Queue functions pass both forms. Workflow fails extent
+`create/delete-held` after large-stream operations at its three-second binding
+deadline. Public EventStream Consume fails its original three-second deadline;
+the separate full traced replay passes and does not clear that failure.
+
+The seven affected real-RustFS Docker/Sandbox functions finish **FAILED:
+5/7 functions, 19/22 configuration markers**. All four Container recovery and
+all eight source-proof refusal profiles pass. Both Quorum Sandbox lifecycles
+pass. Remaining unexpected five-second failures are materialized S3 `Create9`,
+extent S3 `DestroyJob8`, and materialized interrupted `Delete2`. Requested-S3
+cleanup custody and Start output/Ready recovery pass both forms.
+
+Managed Workflow S3 voter replacement, durable streams, completed-step
+non-replay, public park/wake and retained restart pass both image forms.
+Follow-up `bf5056b33` changes only fixture retention; its unchanged drill also
+passes and retains all eight closed voter directories. This is host-native RF3
+with a standby and one Workflow group. Full independent Linux, multi-primitive
+and zero-quorum qualification remains open.
+
+Runtime `37d53e781` passes strict all-target/all-feature host/container Clippy,
+formatting, layout, docs and native dependencies. The retention follow-up
+passes its locked build, strict affected-target Clippy and formatting.
+All owned runtimes and labs stop and join. Current evidence has verified second
+copies; see [exact pins and custody](progress.md#cg-17-sdk-replies-retain-original-invocation-authority).
+
+Next resolve the exact request deadlines, complete primitive API/callback and
+session/provider coverage, then execute the combined managed transitions,
+Linux load/crash/disk-loss and fresh-incarnation recovery matrix. CG-16 default
+cutover and legacy removal remain gated. Task counts and acceptance requirements
+are unchanged.
+
+## Archive retirement baseline before SDK reply fencing
 
 Continue on `codex/cg17-archive-retirement`, draft PR #182, based on main
 `0f3b18e79` after merged #181 and #167. Runtime `0adc0eb8d` preserves verification
@@ -12,7 +53,7 @@ cohorts, reuse/capacity handling and physical proof custody while adding one
 bounded quiet-retirement lane. All owned test processes and the RustFS VM have
 stopped and joined.
 
-Current-source checks pass: optimized build, 1,411 library tests / two existing
+Baseline `0adc0eb8d` checks pass: optimized build, 1,411 library tests / two existing
 ignores, strict all-target/all-feature Clippy, 76 runner tests, formatting, layout,
 docs and native dependencies. Four real archive functions pass both images.
 Native archive controls finish 53 pass / one fail / 45 ignored; original remote

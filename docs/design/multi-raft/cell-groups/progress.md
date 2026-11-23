@@ -32,6 +32,78 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 SDK replies retain original invocation authority
+
+Runtime `37d53e781`, on main `0f3b18e79`, closes two reply-authority defects.
+An owned SDK poll previously checked its source permit only before polling;
+a poll could finish after revocation or the original deadline. A completed
+reply could also remain queued until a later invocation of the same cached
+cell consumed it. Entry, poll return and queued delivery now validate the same
+original invocation, activation fence and deadlines. Temporary framework
+privileges are restored before return validation. Refusal preserves entered
+target work, original identities, retained receipts and uncertain outcomes.
+
+The public RF3 regression reproduces the queued-value escape on the preceding
+runtime: one constructor, one target query and one value delivered into the
+next invocation. The corrected source passes both image forms with one
+constructor, one refused stale reply, two target queries and one successful
+fresh query. Replaying the source receipt repeats no SDK work. The initial
+functional red uses opt0; current gates use locked opt1 with assertions,
+overflow checks and unchanged API budgets. No latency gain is inferred.
+
+| Current-source gate | Result |
+| --- | --- |
+| Host library, including six reply-authority regressions | 1,417 pass; two existing ignores |
+| Public queued SDK reply regression | Both image forms pass |
+| Filesystem transactions and descriptor recovery | Both image forms pass |
+| Ordinary alarms | Both image forms pass |
+| Ordinary Queue callbacks, leases and retained recovery | Both image forms pass; earlier intermittent failures remain open |
+| Ordinary Workflow | Materialized passes; extent `create/delete-held` fails its original three-second binding deadline after large-stream operations |
+| Public EventStream activation/Consume | Materialized Consume fails its original three-second deadline; the later image form is unrun |
+| Seven affected Docker/Sandbox functions with real RustFS | **FAILED: 5/7 complete functions, 19/22 configuration markers** |
+| Managed Workflow S3 voter replacement, park/wake and retained restart | Both image forms pass |
+
+All four Container recovery configurations and all eight Container/Sandbox
+source-proof refusal configurations pass. Both Quorum Sandbox configurations
+complete files, generation replacement, interrupted Exec/Delete, retained
+restart and autonomous cleanup. Requested-S3 cleanup custody and Start final
+output/Ready recovery pass both forms. Unexpected five-second failures remain
+materialized S3 Sandbox `Create9`, extent S3 `DestroyJob8`, and materialized
+interrupted `Delete2` in the requested-S3 deletion profile. A completed physical
+operation alone supplies no successful public result.
+
+The failing EventStream trace shows the first child returning and its source
+writer resuming immediately. Explicit business sync and the next intent proof
+precede ACK submission with approximately 1,078 ms remaining; ACK has not
+returned at the original deadline. The separate complete traced replay passes
+in 48.543 seconds. This narrows the timing boundary without repairing or
+clearing the canonical failure. Workflow fails at `create/delete-held` after
+3,135 ms, following its large-stream phase; its original ambiguous result is
+retained.
+
+Managed Workflow additionally passes twice on identical production inputs,
+including real S3 image fetch, local replacement reads, durable stream bytes,
+completed-step non-replay, public wakeup and joined shutdown. The fixture-only
+follow-up `bf5056b33` retains successful real-RustFS voter disks. Its unchanged
+drill passes both image forms and preserves all eight closed voter directories.
+This is one Workflow group with host-native RF3 and a replacement standby;
+independent Linux and the complete multi-primitive recovery matrix remain open.
+
+Full all-target/all-feature host/container Clippy, canonical formatting,
+layout, docs and native-dependency checks pass at runtime `37d53e781`.
+The retention-only follow-up also passes its locked build, strict affected
+target Clippy and canonical formatting. Production inputs remain unchanged.
+All owned test processes and qualification VMs stop and join.
+
+Verified evidence and second copies include
+`CG-17-sdk-reply-37d53e781-3022` (4,345 files and 44 retained roots),
+`CG-17-queued-reply-public-red-a76006be0-3009` (98 files),
+`CG-17-submission-seal-reply-current-37d53e781-3024` (6,480 files), and
+`CG-17-submission-seal-reply-closed-media-bf5056b33-3036` (427 files and
+eight closed voter directories). Earlier source-specific results below retain
+their scope. CG-17, combined recovery/load/disk-loss qualification, default
+cutover and legacy removal remain open.
+
 ### CG-17 independent publication during archive retirement
 
 Draft [PR #182](https://github.com/crabbuild/cellar/pull/182) is based on main
