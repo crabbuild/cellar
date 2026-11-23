@@ -21,6 +21,17 @@ pub(super) struct State {
 }
 
 impl State {
+    /// Absence is conclusive only after another allocation consumed the exact
+    /// revision. A live or ambiguously submitted reservation must reconcile.
+    pub fn reservation_superseded(&self, intent: &CellGroupArchiveIntent) -> Result<bool> {
+        if !matches!(intent.action, Action::Reserve { .. }) || intent.revision < 2 {
+            return Err(CellGroupArchiveError::Invalid(
+                "reservation renewal purpose/revision",
+            ));
+        }
+        Ok(self.reconcile(intent)?.is_none() && self.revision >= intent.revision)
+    }
+
     pub fn acquire_outcome(
         &self,
         intent: &CellGroupArchiveIntent,

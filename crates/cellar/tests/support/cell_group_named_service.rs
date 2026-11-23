@@ -171,11 +171,15 @@ pub async fn restart_after_close(
         &old_hosts,
         1 + cluster.fixtures[0].additional_namespaces.len(),
     )
-    .await?;
+    .await
+    .context("close retained service voters before restart")?;
     closed();
     cluster.peers.clear();
     for (index, fixture) in cluster.fixtures.iter().enumerate() {
-        let node = fixture.start_node(cluster.roots[index].path()).await?;
+        let node = fixture
+            .start_node(cluster.roots[index].path())
+            .await
+            .with_context(|| format!("start retained service voter {index}"))?;
         let started = async {
             let (mut config, services) = fixture
                 .config(
@@ -185,10 +189,16 @@ pub async fn restart_after_close(
                         .checked_add(u8::try_from(index)?)
                         .context("retained service process generation exhausted")?,
                 )
-                .await?;
+                .await
+                .with_context(|| format!("configure retained service voter {index}"))?;
             managed_fixture::archives::configure(&mut config);
             let peer = config.peers[0].clone();
-            Ok::<_, anyhow::Error>((node.start_raft_cells(config, services).await?, peer))
+            Ok::<_, anyhow::Error>((
+                node.start_raft_cells(config, services)
+                    .await
+                    .with_context(|| format!("start retained service Raft voter {index}"))?,
+                peer,
+            ))
         }
         .await;
         let (host, peer) = match started {
@@ -202,6 +212,8 @@ pub async fn restart_after_close(
         cluster.hosts.push(host);
         cluster.peers.push(peer);
     }
-    grant(cluster).await?;
+    grant(cluster)
+        .await
+        .context("grant retained service peers after restart")?;
     Ok(())
 }

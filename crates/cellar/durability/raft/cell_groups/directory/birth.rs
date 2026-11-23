@@ -630,19 +630,29 @@ impl RangeDirectory {
             return Err(CatalogError::Conflict("foreign group birth observation"));
         }
         self.bounded(async {
-            self.selected_birth_route(birth.route()).await?;
-            self.verify_birth_reservation(birth.route()).await?;
-            let bytes = self
-                .namespace
-                .inner
-                .read_versioned_bounded(&self.group_birth_key(birth.route()), wire::LIMIT)
-                .await?
-                .ok_or(CatalogError::Corrupt("missing selected group birth"))?
-                .0;
-            if bytes != birth.request.encode() {
-                return Err(CatalogError::Corrupt("selected group birth changed"));
-            }
-            Ok(())
+            // Reservation and birth are immutable, so their exact-byte checks
+            // can overlap fresh selection. Keep a fixed two-read window and
+            // join both chains before returning, including on validation error.
+            // Neither chain alone grants authority; selection errors keep their
+            // precedence and the original outer deadline bounds the whole check.
+            let records = async {
+                self.verify_birth_reservation(birth.route()).await?;
+                let bytes = self
+                    .namespace
+                    .inner
+                    .read_versioned_bounded(&self.group_birth_key(birth.route()), wire::LIMIT)
+                    .await?
+                    .ok_or(CatalogError::Corrupt("missing selected group birth"))?
+                    .0;
+                if bytes != birth.request.encode() {
+                    return Err(CatalogError::Corrupt("selected group birth changed"));
+                }
+                Ok(())
+            };
+            let (selected, records) =
+                futures_util::join!(self.selected_birth_route(birth.route()), records);
+            selected?;
+            records
         })
         .await
     }

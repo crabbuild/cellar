@@ -191,8 +191,7 @@ fn stale_quorum_discovery_cannot_claim_a_strengthened_s3_obligation() -> anyhow:
     let task = tasks(&db)?.remove(0);
     assert_eq!(task.minimum, Durability::S3);
     let error = claim_in(&db, RAFT_STORAGE_SCOPE, &task, 1100, Durability::Quorum)
-        .err()
-        .expect("stale Quorum admission must refuse the S3 task");
+        .expect_err("stale Quorum admission must refuse the S3 task");
     assert_eq!(
         error.downcast_ref::<crate::application::consensus::CommandFailure>(),
         Some(&crate::application::consensus::CommandFailure::Unavailable)
@@ -208,6 +207,44 @@ fn stale_quorum_discovery_cannot_claim_a_strengthened_s3_obligation() -> anyhow:
     assert_eq!(claimed.minimum, Durability::S3);
     assert_eq!(claimed.version, task.version + 1);
     assert_eq!(next_minimum(&db)?, Durability::S3);
+    Ok(())
+}
+
+#[test]
+fn deferred_inspection_preserves_task_and_successor_discovery() -> anyhow::Result<()> {
+    let db = Connection::open_in_memory()?;
+    let initial = shared_change(&db, None, record(), 1000)?;
+    let mut running = initial.record;
+    running.resource_id = Some("original-resource".into());
+    running.observation = BindingObservation::Confirmed;
+    shared_change(&db, Some(initial.revision), running, 1000)?;
+    let before = tasks(&db)?.remove(0);
+    let work = crate::application::consensus::native_work::due(&db, 1100)?.unwrap();
+    db.execute_batch("BEGIN")?;
+    assert!(crate::application::consensus::native_work::claim(
+        &db, &work, 1100
+    )?);
+    let reserved = claim_in(&db, RAFT_STORAGE_SCOPE, &before, 1100, Durability::S3)?.unwrap();
+    db.execute_batch("COMMIT")?;
+    assert_eq!(reserved.failures, 0);
+    assert_eq!(reserved.minimum, Durability::S3);
+    assert_eq!(reserved.due_ms, 1200);
+    // Deferral performs no provider settlement. Re-arm the retained reservation
+    // through the same production helper as refresh, then complete the old wake.
+    db.execute_batch("BEGIN")?;
+    rearm(&db, RAFT_STORAGE_SCOPE)?;
+    crate::application::consensus::native_work::complete(&db, &work, 1100 + work.lease_ms)?;
+    db.execute_batch("COMMIT")?;
+    assert_eq!(tasks(&db)?, vec![reserved.clone()]);
+    assert_eq!(next_minimum(&db)?, Durability::S3);
+    assert_eq!(
+        crate::application::consensus::native_work::get(&db, "resource-reconciliation")?,
+        Some(1200)
+    );
+    assert!(crate::application::consensus::native_work::due(&db, 1200)?.is_some());
+    assert!(claim_in(&db, RAFT_STORAGE_SCOPE, &reserved, 1200, Durability::Quorum).is_err());
+    assert_eq!(tasks(&db)?, vec![reserved]);
+    check_schema(&db)?;
     Ok(())
 }
 

@@ -21,6 +21,7 @@ pub(crate) enum Authority {
     Event(event_stream::Authority),
     Name(event_stream::name_resolution::NameAuthority),
     Catalog(crate::runtime::rpc_authority::CatalogAuthority),
+    Sandbox(crate::application::sandbox_catalog::shared::Authority),
 }
 
 impl From<event_stream::Authority> for Authority {
@@ -65,6 +66,7 @@ impl Authority {
                 authority.validate_target(scope, method)?;
                 authority.namespace().name()?
             }
+            Self::Sandbox(authority) => authority.target_name(scope, method)?,
             Self::Catalog(authority) => {
                 authority.validate_target(scope, method)?;
                 authority.namespace().name()?
@@ -77,6 +79,7 @@ impl Authority {
             Self::Event(authority) => context.event_authority = Some(authority),
             Self::Name(authority) => context.name_authority = Some(authority),
             Self::Catalog(authority) => context.catalog_authority = Some(authority),
+            Self::Sandbox(authority) => context.sandbox_authority = Some(authority),
         }
     }
 }

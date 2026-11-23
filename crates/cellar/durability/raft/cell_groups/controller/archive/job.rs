@@ -3,6 +3,7 @@
 //! Each remote mutation follows its exact durable intent. Restart either finds
 //! that publication or fences its pending ticket before allocating again.
 use super::*;
+use crate::raft::cell_groups::archive::CellGroupArchiveReservationRenewal;
 use journal::{Journal, Pending, Record};
 
 #[derive(Clone)]
@@ -273,6 +274,41 @@ pub(super) async fn finish(context: &Context, execution: &ControllerExecution) -
     Ok(())
 }
 
+/// Initial acquisition and a renewed reservation use the same exact intent,
+/// supersession handling and independent physical verification.
+async fn acquire(
+    context: &Context,
+    registration: &CellGroupArchiveRegistration,
+    execution: &ControllerExecution,
+    record: &mut Record,
+    intent: &CellGroupArchiveIntent,
+) -> Result<Driven> {
+    let hold = match context.registry.acquire(execution, intent).await {
+        Ok(hold) => hold,
+        Err(error @ (CellGroupArchiveError::Expired | CellGroupArchiveError::Conflict)) => {
+            if matches!(
+                context.registry.acquire_outcome(execution, intent).await?,
+                CellGroupArchiveAcquireOutcome::Superseded
+            ) {
+                record.pending = Pending::None;
+                store(context, execution, record).await?;
+            }
+            return Err(error.into());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let coverage = context
+        .registry
+        .verify_hold(
+            execution,
+            &hold,
+            &registration.tails,
+            receiver(registration)?,
+        )
+        .await?;
+    select(context, execution, record, coverage).await
+}
+
 pub(super) async fn drive(
     context: &Context,
     registration: &CellGroupArchiveRegistration,
@@ -486,41 +522,50 @@ pub(super) async fn drive(
         };
         store(context, execution, &record).await?;
     }
-    if let Pending::Acquire(intent) = &record.pending {
-        let hold = match context.registry.acquire(execution, intent).await {
-            Ok(hold) => hold,
-            Err(error @ (CellGroupArchiveError::Expired | CellGroupArchiveError::Conflict)) => {
-                if matches!(
-                    context.registry.acquire_outcome(execution, intent).await?,
-                    CellGroupArchiveAcquireOutcome::Superseded
-                ) {
-                    record.pending = Pending::None;
-                    store(context, execution, &record).await?;
-                }
-                return Err(error.into());
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let coverage = context
-            .registry
-            .verify_hold(
-                execution,
-                &hold,
-                &registration.tails,
-                receiver(registration)?,
-            )
-            .await?;
-        return select(context, execution, &mut record, coverage)
+    if let Pending::Acquire(intent) = record.pending.clone() {
+        return acquire(context, registration, execution, &mut record, &intent)
             .await
             .map(Outcome::Verified);
     }
-    if let Pending::Reserve(intent) = &record.pending {
-        match context.registry.reserve(execution, intent).await {
+    // One fresh slot per fair turn; further contention keeps its exact intent
+    // and returns to the ordinary retry cadence instead of spinning.
+    let mut renewed = false;
+    while let Pending::Reserve(intent) = record.pending.clone() {
+        match context.registry.reserve(execution, &intent).await {
             Ok(ticket) => record.pending = Pending::Upload(ticket),
-            Err(CellGroupArchiveError::Expired | CellGroupArchiveError::Conflict) => {
-                record.pending = Pending::None;
+            Err(error @ (CellGroupArchiveError::Expired | CellGroupArchiveError::Conflict))
+                if !renewed =>
+            {
+                context.authority.require_current().await?;
+                let current = runtime
+                    .log()
+                    .cell_group(&registration.birth.route().history)
+                    .and_then(|group| group.group_manifest())
+                    .map_err(|error| Error::Runtime(error.into()))?
+                    .ok_or(Error::Runtime(RuntimeError::NotReady))?;
+                let Some(successor) = context
+                    .registry
+                    .renew_superseded_reservation(execution, &intent, &current)
+                    .await?
+                else {
+                    // Still pending or already allocated: preserve the exact
+                    // original intent for reconciliation, including lost replies.
+                    return Err(error.into());
+                };
+                record.pending = match successor {
+                    CellGroupArchiveReservationRenewal::Acquire(intent) => Pending::Acquire(intent),
+                    CellGroupArchiveReservationRenewal::Upload(intent) => Pending::Reserve(intent),
+                };
+                // Journal before the successor CAS. A crash can replay only
+                // this exact allocation; the superseded slot stays consumed.
                 store(context, execution, &record).await?;
-                return Err(CellGroupArchiveError::Expired.into());
+                if let Pending::Acquire(intent) = record.pending.clone() {
+                    return acquire(context, registration, execution, &mut record, &intent)
+                        .await
+                        .map(Outcome::Verified);
+                }
+                renewed = true;
+                continue;
             }
             Err(error) => return Err(error.into()),
         }
@@ -529,6 +574,7 @@ pub(super) async fn drive(
         // second local checkpoint of that derived result. Failure/restart can
         // replay Reserve; publication still persists its ticket and intent
         // before CAS, then journals the selected head and predecessor debt.
+        break;
     }
     let Pending::Upload(ticket) = record.pending else {
         return Err(Error::Invalid("archive upload stage"));

@@ -743,6 +743,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/primitive-acceptance-cases.md",
+      "title": "CG-17 full primitive acceptance cases",
+      "summary": "Explain the 32 required primitive compatibility cases and how their acceptance differs from focused test results.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",

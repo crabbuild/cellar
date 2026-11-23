@@ -18,6 +18,13 @@ const INTENT_DOMAIN: &str = "cellar-cell-group-archive-intent-1";
 const MAX_CONTROL_BYTES: usize = 64 * 1024;
 const MAX_INTENT_BYTES: usize = 8192;
 
+/// A fresh allocation after the original reservation slot is proven consumed.
+/// Peer coverage must be acquired instead of redundantly uploading its cut.
+pub(crate) enum CellGroupArchiveReservationRenewal {
+    Acquire(CellGroupArchiveIntent),
+    Upload(CellGroupArchiveIntent),
+}
+
 /// Persist before creation. Retry reconciles an already complete creation.
 /// An incomplete identity requires authority recovery; counters never reset.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -492,6 +499,45 @@ impl CellGroupArchiveRegistry {
                         parent: state.selected.clone(),
                     },
                 )
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
+    /// Prepare a successor only when fresh registry state proves that the old
+    /// reservation cannot allocate now or through a delayed CAS. This grants
+    /// no permission to replace a ticket or an uncertain publication.
+    pub(in crate::raft::cell_groups) async fn renew_superseded_reservation(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        original: &CellGroupArchiveIntent,
+        current: &GroupManifest,
+    ) -> Result<Option<CellGroupArchiveReservationRenewal>> {
+        domain
+            .run(async {
+                let _io = self.archive.admit()?;
+                let state = self.load().await?.0;
+                if !state.reservation_superseded(original)? {
+                    return Ok(None);
+                }
+                if let Some(root) = state
+                    .selected
+                    .as_ref()
+                    .filter(|root| &root.marker == current)
+                {
+                    self.intent(&state, Action::Acquire { root: root.clone() })
+                        .map(CellGroupArchiveReservationRenewal::Acquire)
+                        .map(Some)
+                } else {
+                    self.intent(
+                        &state,
+                        Action::Reserve {
+                            parent: state.selected.clone(),
+                        },
+                    )
+                    .map(CellGroupArchiveReservationRenewal::Upload)
+                    .map(Some)
+                }
             })
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?

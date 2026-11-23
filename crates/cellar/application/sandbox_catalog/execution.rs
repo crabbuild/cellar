@@ -75,6 +75,34 @@ pub(crate) fn digest(parameters: &Value) -> Result<String> {
     Ok(hex::encode(Sha256::digest(encoded)))
 }
 
+pub(super) fn registration(context: &Context, scope: &str) -> Result<(String, bool)> {
+    if context.raft_storage.is_some() {
+        let source = crate::storage::capture_raft_dispatch()?
+            .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?
+            .binding_source()?;
+        return Ok((
+            source
+                .host
+                .sandbox_configuration(&source.history, source.configuration, scope)?,
+            false,
+        ));
+    }
+    let class = scope
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("sandbox target has no class"))?
+        .0;
+    let executor = context
+        .worker_config
+        .native_application
+        .as_ref()
+        .and_then(|app| app.sandbox_executor(class))
+        .ok_or_else(|| anyhow::anyhow!("sandbox executor is not registered"))?;
+    Ok((
+        executor.configuration_digest().into(),
+        executor.requires_native_capacity(),
+    ))
+}
+
 impl SandboxCatalog {
     /// Reserve and start one named child in a host-configured execution class.
     /// A repeated call consults the child's durable creation intent; it cannot
@@ -96,26 +124,26 @@ impl SandboxCatalog {
                 .namespace(&binding)?
                 .id_from_name("configuration")
                 .scope();
-            let class = target
-                .split_once(':')
-                .ok_or_else(|| anyhow::anyhow!("sandbox namespace has no class"))?
-                .0;
-            let executor = context
-                .worker_config
-                .native_application
-                .as_ref()
-                .and_then(|app| app.sandbox_executor(class))
-                .ok_or_else(|| anyhow::anyhow!("sandbox executor is not registered"))?;
-            let reserved = catalog
-                .reserve_registered(
+            let (configuration, _) = registration(&context, &target)?;
+            let reserved = if context.raft_storage.is_some() {
+                // No reservation has escaped to application code. The owned
+                // binding gate below proves it together with the original RPC
+                // intent, at the source minimum, before any target I/O.
+                let (parent, reservation) = catalog.prepare_reservation(
                     &context,
                     &name,
                     &binding,
                     &digest,
-                    Some(executor.configuration_digest()),
-                )
-                .await?
-                .allocation;
+                    Some(&configuration),
+                )?;
+                catalog.current(&context, &parent, Some(&reservation.allocation))?;
+                reservation.allocation
+            } else {
+                catalog
+                    .reserve_registered(&context, &name, &binding, &digest, Some(&configuration))
+                    .await?
+                    .allocation
+            };
             catalog
                 .call_child(&context, &reserved, Action::Start, parameters)
                 .await?;
@@ -172,7 +200,21 @@ impl SandboxCatalog {
         let expected = expected.clone();
         Box::pin(async move {
             let result = async {
-                let deleting = catalog.begin_delete(&context, &expected).await?;
+                let deleting = if context.raft_storage.is_some() {
+                    // Include deletion intent and any maintenance retry claim
+                    // in the binding's original source input proof. Nothing
+                    // escapes this owned call before that gate; a lost proof
+                    // retains the same discovery and minimum durability.
+                    let (parent, allocation) = catalog.prepare_transition(
+                        &context,
+                        &expected,
+                        SandboxAllocationState::Deleting,
+                    )?;
+                    catalog.current(&context, &parent, Some(&allocation))?;
+                    allocation
+                } else {
+                    catalog.begin_delete(&context, &expected).await?
+                };
                 catalog
                     .call_child(&context, &deleting, Action::Destroy, serde_json::json!({}))
                     .await?;
@@ -232,33 +274,39 @@ impl SandboxCatalog {
             );
             action.validate()?;
             digest(&input)?;
-            let class = expected
-                .execution_scope
-                .split_once(':')
-                .ok_or_else(|| anyhow::anyhow!("sandbox target missing class"))?
-                .0;
-            let executor = context
-                .worker_config
-                .native_application
-                .as_ref()
-                .and_then(|app| app.sandbox_executor(class))
-                .ok_or_else(|| anyhow::anyhow!("sandbox execution class is not registered"))?;
-            let identity =
-                Identity::new(scope, &parent, expected, executor.configuration_digest())?;
+            let (configuration, native_capacity) =
+                registration(context, &expected.execution_scope)?;
+            let identity = Identity::new(scope, &parent, expected, &configuration)?;
+            let storage_scope = if context.raft_storage.is_some() {
+                crate::storage::RAFT_STORAGE_SCOPE
+            } else {
+                scope
+            };
             crate::storage::sandbox_work::check_registration(
-                scope,
+                storage_scope,
                 expected,
-                executor.configuration_digest(),
+                &configuration,
             )?;
-            let authority = Authority::new(identity, action, executor.requires_native_capacity())?;
-            Ok((authority, context.storage()?.sync()))
+            let authority = Authority::new(identity, action, native_capacity)?;
+            // Shared event_rpc stages its exact binding intent and proves all
+            // source writes before constructing target I/O. An earlier flush
+            // would split that atomic input into two S3 checkpoints. Fleet
+            // dispatch retains its explicit parent checkpoint.
+            let flush = if context.raft_storage.is_some() {
+                None
+            } else {
+                Some(context.storage()?.confirm_checkpoint())
+            };
+            Ok((authority, flush))
         })();
         let catalog = self.clone();
         let context = context.clone();
         let expected = expected.clone();
         Box::pin(async move {
             let (authority, flush) = prepared?;
-            flush.await?;
+            if let Some(flush) = flush {
+                flush.await?;
+            }
             catalog.check(&context)?;
             ensure!(
                 catalog.get(&context, &expected.name)?.as_ref() == Some(&expected),
@@ -273,13 +321,26 @@ impl SandboxCatalog {
                 );
             }
             let cleanup = matches!(authority.action(), Action::Destroy);
-            let result = crate::native_worker::sandbox_rpc(
-                &context,
-                authority,
-                expected.execution_name.clone(),
-                input,
-            )
-            .await?;
+            let result = if let Some(history) = super::shared::parent_history(&context)? {
+                let shared = super::shared::Authority::new(&history, authority)?;
+                crate::application::cell_bindings::event_rpc(
+                    &context,
+                    expected.execution_scope.clone(),
+                    Some(expected.execution_name.clone()),
+                    crate::runtime::sandbox_execution::METHOD.into(),
+                    crate::engine_api::RpcData::Json(serde_json::to_string(&input)?),
+                    crate::application::consensus::native_event_rpc::Authority::Sandbox(shared),
+                )
+                .await?
+            } else {
+                crate::native_worker::sandbox_rpc(
+                    &context,
+                    authority,
+                    expected.execution_name.clone(),
+                    input,
+                )
+                .await?
+            };
             catalog.check(&context)?;
             ensure!(
                 catalog.get(&context, &expected.name)?.as_ref() == Some(&expected),

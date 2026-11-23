@@ -4,7 +4,60 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current durable controller delivery
+## Current shared Sandbox and completion delivery
+
+Continue on `codex/cg17-s3-completion`; open PR #180 uses
+`codex/cg17-shared-sandbox-bridge`. Latest fetched main `09cdcf423` is included.
+Runtime **`f71e467f0`** renews a reservation only after a fresh registry read
+proves it unallocated and permanently superseded. It journals at most one
+successor per fair turn. An exact peer cut is acquired and physically recovered;
+otherwise the successor reserves against the current selected parent. Unknown
+or committed allocations keep their original identity. The earlier exact-lease
+Sandbox cleanup fix and all ownership, minimum, proof and budget checks remain.
+
+The contention oracle fails on pre-change `0e134bdf6` and passes in both modes
+natively and against real RustFS. Qualification caught and corrected an
+intermediate peer-replay regression. Preserve that failed `0ea8020ec` control;
+the final unchanged peer oracle passes even with new uploads denied.
+
+**Native aggregate remains FAILED.** Full archive (41/0/17 ignored), full
+controller (33/0/34 ignored), both six-cut seed modes and ordinary named bindings
+pass. A separate unchanged 800ms admission control fails after passing in the
+full suite. Strict affected Clippy and the locked optimized build pass. The
+earlier 62 unit passes belong to intermediate `0ea8020ec`, not the final source.
+
+**Real RustFS remains FAILED: 6/9 functions, 20/24 configuration markers.**
+All three archive protocols, interrupted deletion/restart/restore, parent-proof
+refusal and physical outage pass both modes. Both Quorum Sandbox profiles now
+pass the full file/generation/lost-Exec/lost-Delete/autonomous-cleanup oracle.
+Extent requested-S3 retirement also passes. Do not infer an exclusive cause for
+historical deadline variability or accept a full primitive family.
+
+Next correct the exact remaining calls: materialized S3 named-binding command 7
+and both Sandbox S3 Create1 requests miss their original 5s limit; materialized
+retirement Create/Retire succeed but no physical Delete occurs before the test
+limit. Inspect retained operation/claim journals and phase timestamps, preserve
+ambiguity and original IDs, and establish a causal regression before changing
+the response or reconciliation path. Retain the separate 800ms native failure.
+Do not increase 5s/3s/60s budgets or run another broad timing campaign without a
+measured implementation change.
+
+Evidence **`CG-17-peer-selection-real-f71e467f0-2835`** has frozen source/five
+current executables, raw logs, real/native roots, controller state, separate
+causal/intermediate controls and a checksum-verified second copy. The owned
+4-CPU/8-GiB VM and all processes are stopped/joined; RustFS objects and volumes
+remain retained at 1 CPU/2 GiB. RF3 uses one macOS process and one SQL worker per
+voter. See [current results](progress.md#cg-17-bounded-archive-reservation-renewal)
+and [priorities](remaining-work.md#primitive-delivery-priority).
+
+All 32 full CG-17 cases remain required and unaccepted. Complete the real public
+acceptance drivers and ordinary application execution, interactive APIs, ports,
+HTTP/WebSocket, provider volumes and full feature/recovery ledgers. CG-13/15/16,
+independent constrained voters, load, disk-loss/volume recovery and cutover
+remain open. Keep the full design goal active; scoped passes are not full-case
+acceptance. The generated index remains current with unchanged task credit.
+
+## Previous durable controller delivery
 
 PR #174 is merged in main `5ae2b21f4`. Continue on
 `codex/cg17-durable-execution-controller`, based directly on that main.

@@ -8,6 +8,7 @@ pub(super) struct Wait {
     held: Notify,
     waiting: Notify,
     release: Notify,
+    pub(super) inspection: Arc<inspection::Gate>,
 }
 
 pub(super) async fn hold(
@@ -206,6 +207,9 @@ async fn selected(real: bool, dirty: bool, profile: bool) -> Result<()> {
                             TIMEOUT,
                         )
                         .await?;
+                    let before = profile.then(|| {
+                        cluster.hosts.iter().map(|host| host.performance()).collect::<Vec<_>>()
+                    });
                     let started = cellar::asyncrt::mono_ms();
                     if profile {
                         eprintln!("provider_create_profile_start {}", json!({"client_byte":121,"sequence":1,"at_ms":started,"real":real,"extents":rooted,"minimum":format!("{minimum:?}")}));
@@ -213,6 +217,13 @@ async fn selected(real: bool, dirty: bool, profile: bool) -> Result<()> {
                     let created = call(&cluster, &history, minimum, 1, "Create").await;
                     if profile {
                         eprintln!("provider_create_profile_end {}", json!({"sequence":1,"elapsed_ms":cellar::asyncrt::mono_ms().saturating_sub(started),"ok":created.is_ok(),"creates":peer.creates.load(Ordering::Acquire),"version":created.as_ref().ok().map(|r|r.version.sequence.get())}));
+                        // Keep each node's source and clock identity. The
+                        // operation sums overlap; they are not a critical-path
+                        // duration and must not be added across nodes.
+                        eprintln!("provider_create_profile_performance {}", json!({
+                            "before":before,
+                            "after":cluster.hosts.iter().map(|host|host.performance()).collect::<Vec<_>>()
+                        }));
                     }
                     let created = created?;
                     if profile {

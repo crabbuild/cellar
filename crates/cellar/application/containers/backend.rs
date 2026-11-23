@@ -2,7 +2,8 @@
 
 //! Host-selected container adapters and exact invocation observations.
 use super::{
-    BackendIdentity, BindingJournal, BindingLifecycleGuard, FileMetadata, FilePath, StartOptions,
+    BackendIdentity, BindingJournal, BindingLifecycleGuard, ExecOptions, ExecOutput, FileMetadata,
+    FilePath, StartOptions,
 };
 use crate::application::{
     consensus::CommandFailure, storage::RaftStorageAuthority, Context, HandlerFuture,
@@ -27,6 +28,10 @@ pub enum ContainerRequest {
     Monitor,
     Signal(u32),
     SetInactivityTimeout(Duration),
+    ExecOutput {
+        options: ExecOptions,
+        max_bytes: usize,
+    },
     ReadFile {
         path: FilePath,
         max_bytes: usize,
@@ -53,6 +58,7 @@ pub enum ContainerReply {
     Bytes(Vec<u8>),
     Metadata(FileMetadata),
     Entries(Vec<FileMetadata>),
+    Execution(ExecOutput),
 }
 
 pub type ContainerFuture<'a> = Pin<Box<dyn Future<Output = Result<ContainerReply>> + Send + 'a>>;
@@ -72,6 +78,13 @@ pub trait ContainerAdapter: Send + Sync {
 
     fn max_body_bytes(&self) -> usize;
 
+    /// Opt in to bounded Linux Sandbox execution, including joined physical
+    /// process fencing and retained original outcomes. Port/interactive APIs
+    /// remain outside this profile; metadata durability alone is insufficient.
+    fn supports_bounded_sandbox(&self) -> bool {
+        false
+    }
+
     fn prepare<'a>(
         &'a self,
         context: &'a Context,
@@ -87,6 +100,10 @@ pub(crate) struct Binding {
 }
 
 impl Binding {
+    pub(crate) fn supports_bounded_sandbox(&self) -> bool {
+        self.adapter.supports_bounded_sandbox()
+    }
+
     pub(crate) fn new(adapter: Arc<dyn ContainerAdapter>) -> Result<Arc<Self>> {
         let identity = adapter.identity();
         crate::storage::container_bindings::validate_name(&identity.binding)?;

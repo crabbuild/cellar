@@ -922,8 +922,8 @@ pub(super) use sql::{
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_controller_payload_outage, archive_controller_publish_store,
-    archive_controller_reconcile_store, archive_reservation_retries_from_durable_intent,
-    archive_retirement_joins_next_intent,
+    archive_controller_reconcile_store, archive_reservation_renews_known_superseded_intent,
+    archive_reservation_retries_from_durable_intent, archive_retirement_joins_next_intent,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{

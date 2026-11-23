@@ -4,7 +4,6 @@
 use super::*;
 use crate::application::sandbox_catalog::values::*;
 use anyhow::{ensure, Result};
-use sha2::{Digest, Sha256};
 
 const SCHEMA: event_schema::Schema = event_schema::Schema {
     marker: "__sys_sandbox_schema",
@@ -35,14 +34,12 @@ fn next(value: u64) -> Result<u64> {
 }
 
 fn execution_name(parent: &SandboxParent, name: &str, generation: u64) -> Result<String> {
-    let identity = serde_json::to_vec(&(
-        "cellar-sandbox-v1",
+    crate::application::sandbox_catalog::values::execution_name(
         &parent.scope,
         &parent.incarnation,
         name,
         generation,
-    ))?;
-    Ok(format!("sandbox-{}", hex::encode(Sha256::digest(identity))))
+    )
 }
 
 fn encode(value: &impl serde::Serialize) -> Result<String> {
@@ -247,7 +244,7 @@ pub(crate) fn load(scope: &str, name: &str) -> Result<Option<SandboxAllocation>>
     })
 }
 
-fn reserve_at(
+pub(super) fn reserve_at(
     connection: &Connection,
     scope: &str,
     incarnation: &str,
@@ -344,7 +341,7 @@ pub(crate) fn reserve(
     })
 }
 
-fn transition_at(
+pub(super) fn transition_at(
     connection: &Connection,
     scope: &str,
     expected: &SandboxAllocation,
@@ -401,7 +398,7 @@ pub(crate) fn transition(
     })
 }
 
-fn retire_at(
+pub(super) fn retire_at(
     connection: &Connection,
     scope: &str,
     incarnation: &str,
@@ -438,7 +435,7 @@ pub(crate) fn retire(scope: &str, incarnation: &str, finish: bool) -> Result<San
     })
 }
 
-fn page_at(
+pub(super) fn page_at(
     connection: &Connection,
     parent: &SandboxParent,
     after: Option<&str>,

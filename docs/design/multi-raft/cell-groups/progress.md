@@ -32,6 +32,1137 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 bounded archive reservation renewal
+
+Runtime `f71e467f0` closes a reproduced archive coordination stall. A competing
+allocation can consume a reservation's monotonic registry slot permanently.
+Previously that definitive failure waited for the configured outage retry.
+The coordinator now reads the registry again and permits one replacement per
+fair turn only after proving the original is both unallocated and superseded.
+It journals the replacement before its CAS. Pending intents and committed
+tickets, including lost replies, retain their original identity.
+
+If the selected peer archive exactly matches the current local cut, renewal
+acquires that archive and runs independent physical recovery rather than
+uploading again. Otherwise it reserves against the current selected parent.
+Ownership checks, complete durability proofs, admission limits, format 1,
+reclamation coverage and original request/maintenance/restoration budgets remain.
+
+The new contention oracle fails on pre-change `0e134bdf6`: a paused reservation
+loses to an independent acquisition, then misses its unchanged 5s publication
+bound with a 10s outage cadence. The corrected implementation passes both image
+modes natively and against real RustFS. Qualification also caught an intermediate
+regression in `0ea8020ec`, which uploaded despite an available peer cut. The
+unchanged peer-replay oracle passes on the old source, fails on that intermediate
+source and passes on `f71e467f0`, including real RustFS with new uploads denied.
+Both failed sources, executables and retained disks remain separate controls.
+
+Strict affected Clippy and the locked five-target optimized build pass. The
+current native archive suite passes **41/0/17 ignored**, and the controller suite
+passes **33/0/34 ignored**. Both six-cut SIGKILL seed modes and all four ordinary
+named-binding configurations pass. However, the native aggregate remains
+**FAILED**: a separate repetition of the unchanged 800ms S3 command-admission
+control fails after passing in the full controller suite. No budget was raised
+or failure waived. Earlier 62 focused units passed on intermediate `0ea8020ec`;
+they are not presented as current-source unit qualification.
+
+Real RustFS remains **FAILED: 6/9 complete functions, 20/24 configuration success
+markers**:
+
+| Case | Result on `f71e467f0` |
+| --- | --- |
+| Reservation contention | Both image modes pass the original bounded-progress and old-intent fencing oracle |
+| Failed chunk recovery | Both modes preserve the original committed reservation ticket |
+| Peer archive replay | Both modes pass with new generation uploads denied |
+| Ordinary named bindings | Both Quorum modes and extent S3 pass; materialized S3 command 7 returns an ambiguous 5s deadline failure |
+| Interrupted Delete input/restart/restore | Both modes pass the complete proof-refusal and autonomous recovery oracle |
+| Requested-S3 retirement floor | Extent passes; materialized Create and Retire succeed, but physical Delete is not entered before the original test limit |
+| Ordinary Sandbox recovery | Both Quorum modes pass the entire lost-Exec/file/generation/lost-Delete/restart/terminal-cleanup oracle; both S3 Create1 requests expire at 5s after physical Create |
+| Unproved parent dispatch | All four image/minimum profiles refuse before effects as required |
+| Bounded archive outage | Both modes pass, including four physical RustFS stop/start transitions and restored reclamation |
+
+The complete Quorum Sandbox passes are progress, not evidence that this change
+caused every historical timing improvement. Earlier deadline and retirement
+failures remain retained. The first-Create phase diagnostics exposed actual
+archive contention but do not establish it as the sole public-response delay.
+Their temporary archive-error observer is removed from production/test source.
+
+Evidence `CG-17-peer-selection-real-f71e467f0-2835` retains five current frozen
+executables, full Git source, selected source hashes, 57 real and 55 native
+retained roots, controller journals and separate causal/intermediate sources.
+All 10,999 manifest files and the second copy are verified. The owned 4-CPU/8-GiB VM and
+all processes are stopped/joined; RustFS objects and volumes remain retained at
+1 CPU/2 GiB. RF3 shares one macOS process with one SQL worker per voter. No own
+compiler, formatter or evidence copy overlapped the real runtime. Latest fetched
+main `09cdcf423` remains included.
+
+Next close the exact materialized binding/S3 Sandbox response failures and
+materialized retirement reconciliation before another combined gate. Preserve
+the separate 800ms native failure and all original identities, minima and
+5s/3s/60s limits. Then complete ordinary application execution and full public
+primitive drivers. All **32 full CG-17 cases remain unaccepted**; CG-13/15/16,
+independent voters, load, provider-volume recovery and cutover remain required.
+The generated implementation index and acceptance oracles are unchanged.
+
+### CG-17 lease-fenced cleanup and restored safety controls
+
+Runtime `ee8c87e57` binds shared Sandbox cleanup retry to its exact claimed
+native-work lease, replacing the unrelated fixed 30-second delay. The claim
+must match reason, generation, attempt, due time and claimed state, and remain
+unexpired. The strongest requested minimum is checked first. Installing the
+successor wake and allocation retry remains one private SQL transaction;
+completing the old claim cannot erase that successor. Input/output proofs,
+original operation identities, unknown-outcome reconciliation and 5s request,
+3s maintenance and 60s restoration limits are unchanged. Fleet keeps its
+existing retry policy.
+
+Five shared Sandbox SQL units and twelve native-work units pass, including
+4s/91s lease boundaries, stale generation/attempt/expiry refusal, minimum
+custody, rollback and successor-wake retention. All 35 Container library units,
+strict affected Clippy, canonical formatting and the locked optimized build pass.
+
+The full native archive matrix now **passes: 41 passed, 0 failed, 17 RustFS-only
+cases ignored**. Both six-cut SIGKILL seed matrices also pass. The two prior
+safety failures required corrections to obsolete test boundaries:
+
+- Cancellation now holds the actual final image sync, rather than the disposable
+  receive spool. It checks the selected durable image/extent path and nonempty
+  bytes, retained physical admission while I/O is held, and joined cleanup.
+  Materialized seed recovery checks that same durable image; extent and prefix
+  crash assertions retain their existing boundaries.
+- Outage coverage now separates cold originating discovery, which refuses
+  without S3, from an authenticated known route, which may continue at Quorum
+  without another catalog GET. This follows the canonical routing contract.
+  Original receipt deduplication, six callbacks, the nine-entry debt ceiling,
+  S3 refusal, physical checkpoint release and restored bytes remain asserted.
+  Five quiet repetitions pass both modes. An earlier `da4aba12b` post-reclamation
+  Quorum write missed its original 15s limit, then passed an unchanged repeat;
+  that intermittent failure remains retained and is not declared cured by the
+  Sandbox lease change.
+
+The real RustFS run remains **FAILED: 3/5 complete functions, 8/14 configuration
+success markers**:
+
+| Case | Result on `ee8c87e57` |
+| --- | --- |
+| Bounded Quorum archive outage | Both modes pass, including all four physical RustFS stop/start transitions and restored reclamation |
+| Delete input/restart/restore | Both modes pass the complete oracle: exact S3 input refusal, retained restart, autonomous terminal proof within 60s, no unavailable parent construction and exactly two resource deletions |
+| Requested-S3 retirement floor | Both initial S3 Create1 requests expire at 5s before reaching the intended archive-cut scenario; materialized entered physical Create, extent did not |
+| Ordinary Sandbox recovery | Materialized Quorum FileStat3 and both S3 Create1 requests expire at 5s; extent Quorum reaches retirement after generation replacement but returns a generic elapsed error, whose restart-versus-terminal-confirmation phase is unresolved |
+| Source-proof refusal | All four image/minimum profiles pass |
+
+The prior quiet materialized restoration failure is retained. An older
+`da4aba12b` diagnostic passed that materialized oracle but left about 23s before
+the first observed post-restore callback, motivating removal of the unrelated
+30s delay. The current two-mode pass supports this scoped recovery delivery;
+it does not establish an exclusive cause for every historical timeout or close
+retirement, ordinary response paths or a complete primitive family.
+
+Evidence `CG-17-sandbox-lease-real-ee8c87e57-2771` is sealed with 6,426 manifest
+files, six current frozen executables, full Git source, 50 real and 24 native
+retained roots and a checksum-verified second copy. Older diagnostic/control
+sources are explicitly separate. The owned 4-CPU/8-GiB VM and all test processes
+are stopped/joined; RustFS objects and volumes remain retained at 1 CPU/2 GiB.
+Native RF3 still shares one macOS process and one SQL worker per voter. No own
+compiler, formatter or evidence copy overlapped the real runtime. Latest fetched
+main `09cdcf423` is included.
+
+Next locate the exact failed retirement phase and correct the measured foreground
+deadline path, preserving every original budget and proof. Then rerun the full
+input/floor/recovery oracles on one source and complete the ordinary execution
+and public-family drivers. All **32 full CG-17 cases remain unaccepted**;
+CG-13/15/16, independent voters, load, provider-volume recovery and cutover remain
+required. The implementation index and full acceptance oracles are unchanged.
+
+### CG-17 archive descriptors and remaining safety failures
+
+Qualifier `3a3de9949` removes two repeated immutable-index GETs from each new
+archive publication. Independent physical recovery records its exact tail,
+entry, checkpoint-index and chunk descriptors in the upload's bounded graph.
+Root confirmation requires the recovered-state capability and still reads back
+the new root, checks its exact marker/tail and validates every dependency's
+registry, generation and inherited protection. Source checks, payload pins,
+publishing CAS/readback, cancellation ownership and cold-owner recovery remain.
+No persisted proof cache or new archive format is introduced.
+
+The focused regression fails on pre-change executable `79cce343d`: publication
+reads the tail twice. It passes in both image modes on `3a3de9949`, including
+independently restored bytes and fresh root readback. The same both-image case
+passes against actual RustFS. This establishes the removed reads; it does not
+establish a cure for the public S3 deadlines. Strict affected Clippy, canonical
+formatting and the locked optimized archive/Docker build pass.
+
+The full native archive matrix is **FAILED: 39 passed, 2 failed, 17 ignored**.
+Both failures reproduce on the frozen pre-change executable, with its own
+source archive/hash retained separately from the invocation checkout:
+
+- `group_recovery_cancelled_import_retains_physical_admission`: import finishes
+  before the expected physical dependency-sync gate. Determine the underlying
+  result and preserve the cancellation/admission assertions.
+- `quorum_continues_bounded_s3_outage`: remote reception succeeds where the test
+  requires fresh catalog discovery to refuse. Resolve the authority contract and
+  actual admission path without weakening the assertion.
+
+These remain release blockers. Passing scoped checks cannot waive them.
+
+The five-function actual Docker/RustFS characterization is **FAILED: 2/5 complete
+functions, 8/14 configuration success markers**:
+
+| Case | Result on `3a3de9949` |
+| --- | --- |
+| Verified dependency descriptors | Both image modes pass physical recovery, one read per dependency and fresh root readback |
+| Full Sandbox recovery | Both Quorum modes pass the complete bounded oracle; materialized S3 Create1 and extent S3 FileWrite1 expire at the original 5s limit |
+| Source-proof refusal | All four image/minimum profiles pass |
+| Requested-S3 cleanup floor | Both floor Create1 requests expire before the intended archive-cut fault |
+| Delete input/restart/restore | Materialized mode reaches the fault but fails autonomous recovery within 60s after source archive restoration; extent mode fails the floor cell's Create1 after successful seed-parent Create/Destroy |
+
+The last row exposes a recovery gap previously hidden by initial request
+failures. Do not treat a physical Delete count as terminal source confirmation,
+weaken its 60s oracle or claim that counter fixes close this restoration failure.
+Generic command sequence 1 also identifies file operations: use the actual
+request label, not the sequence alone, when reporting the extent FileWrite1
+failure. Original identities, minima, ambiguity and 5s/3s/60s limits remain.
+
+All **32 full CG-17 cases remain unaccepted**. On this source the declared
+primitive target file contains 262 focused function definitions and none of the
+32 planned full entry-point definitions. The full acceptance drivers and
+API/configuration/recovery evidence are unfinished deliverables, in addition to
+missing runtime features. This is not a claim that zero focused checks pass.
+The [full definitions](primitive-acceptance-cases.md) and generated acceptance
+index are unchanged; focused helpers must not be renamed to manufacture passes.
+
+Evidence `CG-17-archive-descriptors-real-3a3de9949-2730` is sealed with 4,872
+manifest files, 48 real-run roots, 12 retained native roots, frozen executables
+and source, causal red/green results, baseline comparisons and a checksum-verified
+second copy. Raw RustFS volume bytes remain in the retained VM volume. The owned
+4-CPU/8-GiB VM and test processes are stopped/joined; RustFS remains 1 CPU/2 GiB.
+Native RF3 still shares one host process with one SQL worker per voter. No own
+build, formatter or evidence copy overlapped the real runtime. Latest fetched
+main `09cdcf423` is included. Independent Linux voters, full primitive families,
+load, volume/disk-loss recovery and CG-13/15/16 remain required.
+
+Next close the two native safety controls and autonomous post-restoration
+cleanup, then the S3 response path and real full acceptance drivers. Preserve
+actual proof custody and every original deadline; avoid further speculative
+metadata optimizations as substitutes for these correctness and feature gaps.
+
+### CG-17 reconciled completion observations
+
+Qualifier `8dcd2314f` corrects a false Sandbox cleanup failure and strengthens
+its physical-generation oracle. In the retained `f5027c3bb` materialized/Quorum
+case, the public terminal-state loop already succeeded. The checksum-verified
+backend journal contains three completed Create/Delete pairs across three child
+histories, each deleting the exact created resource. The fixture counted only
+two completed execute returns; it ignored a completion learned by reconciliation.
+This evidence does not justify a production cleanup rewrite.
+
+The actual fixture Peer now records known completions by resource key and original
+operation ID. Execute and reconciliation share the observer; repeated receipts
+count once, and changed original metadata/result bytes refuse. Unknown, Refused
+and ExpiredBeforeSubmission outcomes cannot count as completion. Lost-reply and
+archive-outage cuts apply to the first known result on either path and cannot
+rearm after restoration. The notification waiter registers before checking the
+cut. The existing exact three-Create/three-Delete requirement remains, with new
+per-generation resource-ID pairing and the independent zero-resource Engine check.
+Production fencing, Raft or durability behavior is unchanged.
+
+A focused regression through the actual Peer fails in 153ms before the fix:
+the original completed Delete is returned by reconciliation but counted zero.
+Both corrected regressions pass, including lost execute returns, repeated receipt
+lookup, conflicting metadata/bytes, non-completions and a lost first reconciled
+reply. The latter also checks original identity, hidden receipt refusal and
+archive restoration without rearming. Strict affected Clippy, canonical formatting,
+locked build, layout and native dependency checks pass.
+
+All four affected public Sandbox functions ran against actual Docker and RustFS,
+covering 12 planned configurations with original identities and 5s/3s/60s limits.
+The campaign is **FAILED, 1/4 complete functions**; scoped results are:
+
+| Case | Result on `8dcd2314f` |
+| --- | --- |
+| Full Sandbox recovery | Both Quorum image modes pass lost Exec/Delete replies, retained voter restart, file operations, stale authority refusal, three exact generation pairs, constructor-independent terminal cleanup and zero remaining Engine resources; materialized S3 Create1 and extent S3 FileRead2 time out |
+| Source-proof refusal | All four image/minimum profiles pass |
+| Requested-S3 cleanup floor | Both initial Create1 requests time out before the intended fault |
+| Delete input/restart/restore | Both initial Create1 requests time out before the intended fault |
+
+Quorum cleanup is now qualified for this bounded execution profile. S3 cleanup
+input/floor qualification remains blocked by earlier request deadlines; neither
+that statement nor passing Quorum recovery establishes complete Container/Sandbox
+support. The earlier integrated `f5027c3bb` run remains FAILED, 4/11 functions.
+No new Container-only, full primitive, independent-voter, load, disk-loss,
+provider-volume or cutover result is claimed.
+
+Evidence `CG-17-sandbox-observer-real-8dcd2314f-2709` retains frozen source and
+executables, the original failing observer, corrected checks, raw logs, forensic
+journal summaries and 48 roots, with a checksum-verified second copy. No own
+compiler, formatter or evidence copy overlapped runtime. All owners and the
+4-CPU/8-GiB VM are stopped and joined; RustFS remains 1 CPU/2 GiB with retained
+objects/volumes. RF3 still shares one native host process with one SQL worker per
+voter. Latest fetched main remains `09cdcf423`, already included.
+
+The next critical feature gap is S3 request completion latency. Use ingress,
+checkpoint and archive stages to separate initialization, publication,
+verification and SQL resumption; retain every proof and original deadline.
+Then run S3 cleanup/floor scenarios and complete ordinary execution/network,
+interactive/HTTP/WebSocket, provider-volume and other primitive adapters.
+All 32 full CG-17 cases and CG-13/15/16 remain required. The generated index and
+acceptance counts are unchanged.
+
+### CG-17 bounded birth validation
+
+Production `64b649bbf` overlaps fresh directory selection with immutable
+reservation/birth validation in a fixed two-read window. Both chains join before
+returning a validation result; the original outer deadline bounds the entire
+check. Foreign observations still refuse before I/O. Recovery fencing, exact
+route/reservation/birth checks and selection-error precedence remain required.
+No authority cache, extra task, weaker minimum or longer deadline is introduced.
+
+Qualifier `d578b421e` passes **all 31 native catalog tests** and the complete new
+held-read oracle against **real RustFS**. The latter covers both gate release
+orders, changed birth bytes, a missing reservation, joined error paths, foreign
+ownership, cancellation, the five-second deadline and retired-route fencing.
+Locked builds, strict affected Clippy and canonical formatting pass. The final
+fixture correction leaves the public primitive and Docker executables
+byte-identical to the integrated `f5027c3bb` run.
+
+Retain two fixture failures: the original negative control used `/groups/...`
+against an actual `groups/...` key, making that failure inconclusive. The first
+RustFS run passed its overlap checks, then failed because corruption setup read
+`Store.inner`, which is always memory. Setup now uses the selected adapter;
+all assertions and original identities remain. Neither failed fixture is credited
+as a passing complete test or a causal old-order reproduction.
+
+The integrated `f5027c3bb` campaign remains **FAILED: 4/11 functions**, covering
+29 planned configurations. Correcting and separately rerunning the catalog
+fixture does not turn that historical campaign into a pass.
+
+| Integrated case | Result |
+| --- | --- |
+| Physical process/fence/receipt controls | Both complete functions pass |
+| Container source-proof refusal | All four profiles pass |
+| Sandbox source-proof refusal | All four profiles pass |
+| Public Container recovery | Both Quorum image modes pass; materialized S3 Create1 and extent S3 Read5 time out |
+| Public Sandbox recovery | No complete profile passes: materialized Quorum fails its terminal cleanup oracle with two Deletes; other profiles hit original deadlines |
+| Delete input/restart/restore and requested-S3 cleanup floor | Both functions stop at initial Create deadlines before their intended fault cuts |
+| Original inspection handoff | Three profiles complete; materialized S3 Create1 fails before handoff |
+| Forced checkpoint-overlap handoff | Both handoff observations pass; materialized S3 Destroy3 then times out |
+| Direct catalog oracle | First run fails corruption setup; complete corrected oracle passes separately at `d578b421e` |
+
+Native public controls at `f5027c3bb` pass both inspection functions/six profiles;
+the ordinary provider function fails extent/S3 Data2, with its other three
+profiles passing. That failed request continues its first input checkpoint
+1611ms after apply; all four explicit data operations complete, but its last
+Execute has only 533ms left on its operation deadline. The logged `Inspect` is
+the explicit ReadFile in Data2, not evidence of an extra background inspection.
+The timings guide further proof/continuation latency work without establishing
+one exclusive cause or a measured improvement from this change.
+
+Evidence `CG-17-birth-window-native-f5027c3bb-2684` retains 40 roots;
+`CG-17-birth-window-real-f5027c3bb-2678` retains 110 roots;
+`CG-17-birth-window-catalog-d578b421e-2693` retains the corrected catalog result.
+All three bundles have checksum-verified second copies. No own compilation,
+formatter or artifact copying overlapped the real campaign. The observed owned
+VM is 4 CPU/8 GiB, with RustFS limited to 1 CPU/2 GiB. RF3 remains one native
+host process. The VM and all runtime processes are stopped and joined; backend
+objects and volumes remain retained. Latest fetched main is `09cdcf423` and is
+already included.
+
+Next close S3 request/proof latency and exact-generation Sandbox cleanup, then
+complete the public primitive families and independent-voter/recovery/load gates.
+The missing features, all 32 full CG-17 cases and CG-13/15/16 remain required.
+The generated index is unchanged; no hard cutover or full-family acceptance is
+claimed. Earlier source-specific passes and failures below remain separate.
+
+### CG-17 cooperative inspection and current-source RustFS
+
+Runtime `865c4064b` releases healthy inspection lifecycle admission at the joined
+fence I/O boundary, before its SQL continuation needs a writer. All retained
+local guards become invalid together. A deferred continuation receives no
+execution grant and only refreshes work discovery. Unknown fencing results,
+expiry and required cleanup retain their admission rules. Source/target proofs,
+original operation identities and the 5s/3s/60s limits remain unchanged.
+
+The actual lifecycle module passes **12 focused tests**, covering handoff,
+unknown-result custody and expired/required work. The failing old-order control
+is retained separately. These are direct module tests, not the complete Cellar
+unit suite. Strict
+Clippy for both libraries and both public test targets, canonical formatting and
+the locked optimized build pass. Three public native functions pass all **ten
+profiles**: ordinary provider sessions, original inspection handoff and forced
+S3-checkpoint overlap.
+Both RustFS inspection controls now belong to the canonical `controller-provider`
+suite; all 44 runner tests pass. The complete expanded nine-case controller
+campaign still requires a current-source pass.
+
+The complete current-source RustFS/Engine gate is **FAILED: 4/10 functions**.
+It runs the eight physical Container/Sandbox functions plus both inspection
+controls, covering 28 planned profiles. Configuration markers alone are not
+whole-profile success: both inspection functions emit their handoff markers and
+then fail a later Delete request.
+
+| Case | Result on `865c4064b` |
+| --- | --- |
+| Delete input/restart/restore | Both image modes pass three source cuts, the requested-S3 input refusal, retained restart and autonomous cleanup after archive restoration |
+| Physical fencing/receipts and failed-journal shutdown | Both complete functions pass |
+| Public Sandbox recovery | Materialized Quorum and S3 pass the entire exec/file, lost-reply, generation, restart and autonomous-cleanup oracle; extent Quorum misses the intended lost-Exec cut, and extent S3 Create1 times out |
+| Public Container recovery | Materialized Quorum and S3 pass; extent Quorum `docker-b Destroy4` times out, and extent S3 fails managed startup |
+| Container source-proof refusal | Both extent profiles pass; materialized Quorum fails startup and materialized S3 fails enrollment before the fault cut |
+| Sandbox source-proof refusal | All four profiles pass |
+| Requested-S3 cleanup floor in a Quorum namespace | Both initial Create1 requests time out after physical Create; the cleanup-floor fault is not reached |
+| Original and forced-overlap RustFS inspection | All six handoff observations preserve fence-before-foreground-before-inspection and autonomous discovery; both complete functions fail subsequent extent/S3 Destroy3 |
+
+The closed extent/Quorum Sandbox controller retains the second Exec as
+`submitted=false`; the backend has no corresponding operation. The intended
+lost-result cut was not reached. This is not evidence of replay. The earlier
+`6ffd1e3d5` extent Delete has an unresolved physical reservation and still-owned,
+stopped container/workspace on the original engine. Neither record permits
+inventing an outcome or replaying a mutation.
+
+One unchanged extent/S3 Start trace also fails. Its parent input checkpoint
+continues at 1624ms and child input at 3125ms; physical Create finishes at 4327ms,
+leaving **673ms** of the original budget for the remaining completion proofs.
+The trace establishes cumulative request pressure, not one exclusive cause.
+Fresh route/reservation/birth checks and the mandatory source/target output
+proofs remain required. The next implementation should overlap independent
+birth-validation reads within an explicit bounded window, then address cold
+startup/enrollment and remaining output latency. Never lower a namespace minimum
+or replace terminal proof with a completed-return counter.
+
+Evidence `CG-17-lifecycle-handoff-native-865c4064b-2651` retains both frozen
+executables, exact source, raw logs and 40 native roots. The real bundle
+`CG-17-lifecycle-handoff-real-865c4064b-2645` retains 110 roots, the failed Start
+trace and read-only journal/process observations. Both have verified second
+copies. Native artifact copying overlapped part of the physical Container
+function; its interval is recorded without attributing the failures to it.
+Future copies must wait until runtime gates join. The owned VM is stopped and
+all processes are joined. RF3 still shares one native process; real RustFS uses
+1 CPU/2 GiB and physical execution uses the owned 4-CPU/8-GiB VM.
+
+All 32 full CG-17 cases, complete interactive/port/HTTP/WebSocket/provider-volume
+contracts and independent-voter/load/disk-loss qualification remain required.
+The generated task index is unchanged; these scoped passes do not authorize
+cutover. Earlier source-specific passes and failures below remain retained.
+
+### CG-17 shared Delete input and completion qualification
+
+Runtime `6ffd1e3d5` removes unused entry observations from authenticated private
+Sandbox exec/file/capability calls. Running-state consumers retain observation;
+every effect still proves its original intent and uses the independent execution
+fence. The admitted submission closure reconciles original pending receipts
+before new work, without replay. Initial controller registration now persists
+its inactive high-water claim directly through the crash-safe registration
+protocol. Failed first activation cannot reset that fence after restart.
+
+The complete real RustFS/Engine campaign has joined **FAILED: 5/8 functions,
+16/22 profiles** on this source, with all original 5s/3s/60s limits and identities.
+
+| Case | Current result |
+| --- | --- |
+| Physical fencing/receipt and failed-journal shutdown | Both functions pass |
+| Public Sandbox recovery | Both Quorum image modes pass the entire exec/file, lost-reply, generation, retained-restart and autonomous-cleanup oracle; both S3 modes fail Start1 at 5s |
+| Public Container recovery | Materialized/Quorum passes; materialized/S3 Write2, extent/Quorum Write2 and extent/S3 enrollment exceed their original deadlines |
+| Container and Sandbox source-proof refusal | Both functions pass all eight profiles |
+| Explicit requested-S3 cleanup floor in a Quorum namespace | Both image modes pass, including the archive cut and autonomous proof recovery |
+| Delete input/restart recovery | Materialized passes the full input cut, retained restart and restored-archive cleanup oracle; extent verifies three cuts but fails 60s autonomous cleanup after restoration |
+
+Ordinary Delete verifies **three source cuts in both image modes**, preserving
+its public terminal sync. These results establish the passing profile behavior;
+they do not establish a single cause for the remaining latency failures.
+Completed-return counters do not prove absence of physical entry.
+
+All **71 focused tests** pass: 19 controller, 36 Container and 16 core
+lifecycle/Sandbox tests. The compiler-concurrent command selection is retained
+as FAILED, 26/27; its sole extent readiness failure passes an unchanged quiet
+replay. All three private-image preparation controls pass. The ordinary provider
+SDK control passes four profiles; inspection handoff passes both Quorum profiles
+but both S3 profiles time out at `WaitInspectionLifecycle` request 2. That failure
+remains open; the quiet readiness pass does not establish its earlier cause.
+Strict affected Clippy, the locked six-target build, canonical formatting,
+documentation, layout and native dependency checks pass.
+
+The owned VM is stopped and all processes have joined. Verified second copies
+retain the 3,052 source inputs, six frozen executables, raw results and available
+controller/voter state in `CG-17-sandbox-direct-native-6ffd1e3d5-2629` (1,710 files)
+and `CG-17-sandbox-direct-real-6ffd1e3d5-2620` (5,505 files). RF3 still shares one
+native process; real RustFS and bounded Docker execution use the owned 4-CPU,
+8-GiB VM, with RustFS limited to 1 CPU/2 GiB. Independent voter crashes, load,
+disk loss, provider-volume recovery and full primitive compatibility remain open.
+
+Next close S3 foreground handoff/completion, initial Start and Container Write2
+deadlines, then extent interrupted-Delete recovery. Preserve source/target proofs, original operation
+identities, safe sequence sealing, terminal sync and the required custody floor.
+Do not extend deadlines or infer no effect from a missing counter or receipt.
+All 32 full CG-17 acceptance cases remain required; no cutover is authorized by
+these scoped passes. The generated task index remains unchanged.
+
+### CG-17 previous Delete input and recovery diagnostic
+
+The full recovery diagnostic `e8aa22970` has now joined **FAILED, 1/4
+profiles**. Extent/Quorum passes the complete original lost-Exec, file,
+generation-replacement, lost-Delete/restart and autonomous-cleanup oracle.
+Materialized/Quorum and both S3 profiles fail Start1 at the original five-second
+deadline after actual physical Create completion. The owned VM is stopped;
+source, executable, phase trace and retained state have a verified second copy
+in `CG-17-recovery-profile-e8aa22970-2609`. This diagnostic does not replace the
+fixed eight-function acceptance campaign below.
+
+Runtime `fad389bf3` combines private shared-Sandbox deletion intent and its
+maintenance retry claim with the exact child-call intent in the mandatory input
+checkpoint. Provider I/O still follows that proof. Public manual transitions and
+terminal confirmations retain their sync and current-checkpoint checks.
+
+The new required real-Docker/RustFS Delete test expands the fixed campaign from
+seven functions/20 profiles to **eight functions/22 profiles**. It checks the
+ordinary Delete checkpoint count, an actual S3 parent-input cut after Quorum
+Create, retained restart and constructor-independent cleanup after restoration.
+Its original 5s/3s/60s limits, identities and effect counts remain enforced.
+
+The pre-change `00bb5aed1` run records four materialized source cuts, then fails
+60s cleanup after archive restoration; its applied image retains the stronger
+S3 floor and managed/native discovery while the child remains Ready. Extent
+mode fails its original Quorum Delete2 deadline after physical deletion. These
+are distinct failures, not a pure two-image checkpoint-count control.
+
+The current materialized ordinary Delete completes with **three source cuts**,
+but the new test is still FAILED: its subsequent Quorum Create times out after
+physical creation, before the S3 fault phase. Extent times out at its first
+Quorum Create. The input/restart recovery oracle is not qualified on this source.
+
+All **27 ownership tests, three preparation tests and both SDK controls/eight
+profiles pass**. Strict affected Clippy, formatting, layout, native dependency
+checks and all 44 qualification-runner tests pass. The full real campaign is
+**FAILED: 4/8 functions, 12/22 profiles**, including two profiles in a failed
+function.
+
+| Current-source case | Result |
+| --- | --- |
+| Journal-failure shutdown and physical fence/receipt control | Both pass |
+| Public Container recovery | Both materialized profiles pass; extent/Quorum docker-b Destroy4 and extent/S3 docker-b Status2 exceed 5s |
+| Container source-proof refusal/recovery | All four profiles pass |
+| Public Sandbox recovery | Materialized/Quorum Read5 exceeds 5s; the other three profiles fail Start1. Retained journals show materialized/S3 Create pending, extent/Quorum Create completed, and no physical operation in extent/S3 |
+| Sandbox source-proof refusal | All four profiles pass the Reserved-generation oracle |
+| Explicit S3 cleanup floor | Both Start1 requests exceed 5s before the fault cut; both retained backend journals show physical Create completed |
+| Delete input/restart recovery | Materialized verifies three cuts, then its second cell's Create1 expires; extent's first Create1 expires |
+
+Read-only backend-journal observations bound one failed Quorum Create's durable
+physical completion at least 1,127 ms before its public deadline. The response
+still expires. This narrows investigation to the remaining completion path; it
+does not establish one cause. Host resource observations are retained as context.
+The documented terminal sync is preserved. A separate diagnostic mode now traces
+the entire original Sandbox recovery flow using existing binding/checkpoint/
+archive/publication and real-adapter timing; it is not an acceptance substitute.
+
+The lab and observer are stopped and joined. Verified source/binary/log/state
+copies are retained in `CG-17-delete-input-native-fad389bf3-2606` and
+`CG-17-delete-input-real-fad389bf3-2604`. The failed pre-change test is retained in
+`CG-17-delete-input-red-00bb5aed1-2599`, also with a verified second copy.
+Earlier `a99ddd9d3` passes remain pinned to that source. Native RF3 still shares
+one macOS process; bounded physical execution and real RustFS use the owned
+constrained Linux VM. All 32 full CG-17 cases, independent-voter/load/disk-loss
+qualification and hard cutover remain open. The generated implementation index
+is unchanged; historical CG-01 evidence is still missing from full validation.
+
+### CG-17 joined capture failures and Sandbox input batching
+
+Runtime `a99ddd9d3` closes the lost-SQL-reply shutdown contract. A failed
+intermediate or final image-capture task now stops its SQL worker while retaining
+the original reply, activation and private producer through physical joins.
+Fatal closure drops the reply after cleanup, preserving unresolved origin custody
+and the controller's joined node fence. It cannot turn a lost task into an
+ordinary storage refusal or a known non-effect. Graceful closure retains its
+existing typed refusal.
+
+All **27 ownership/reconciliation tests pass**, including the previously failing
+`controller_owned_commands_join_a_lost_sql_reply` with unchanged assertions.
+Three public preparation tests also pass: injected physical capture-task failure,
+normal preparation with one SQL worker, and cancellation retaining physical
+custody until close. Each covers both image modes and intermediate/final capture.
+The basic SDK provider and inspection-handoff controls pass all **eight**
+image/minimum profiles. The earlier `a96511f7d` and `a502e86f3` failures remain
+retained; the latter exposed origin loss after an ordinary cleanup reply.
+
+Shared Sandbox Start now stages its private reservation with the exact child-call
+intent in the mandatory binding input checkpoint. That proof covers the original
+source writes, receipt, identity and minimum before target enrollment or provider
+I/O. Public reservation still awaits its original sync; Fleet dispatch retains
+its explicit checkpoint. This removes a separate parent input cut without
+changing output proof, fencing or deadlines. The separate extent/S3 single-Start
+diagnostic passes in 4,802 ms; the full run below still fails that profile. Neither
+the diagnostic nor differing historical results establishes a latency cure.
+
+**The complete real RustFS/Engine campaign is FAILED: 5/7 whole functions,
+17/20 required configurations.** Fourteen passing configurations belong to
+passing functions; three belong to failed functions.
+
+| Current-source case | Result |
+| --- | --- |
+| Journal-failure shutdown | Pass; original error retained and process stopped |
+| Physical restart/fence/receipt control | Pass |
+| Public native Container recovery | All four Quorum/S3 image profiles pass |
+| Container archive refusal and recovery | All four profiles pass |
+| Public Sandbox execution/recovery/cleanup | Both Quorum image profiles pass; materialized/S3 DestroyJob8 and extent/S3 Start1 exceed 5s |
+| Sandbox archive refusal | All four profiles pass the exact Reserved-generation oracle |
+| Explicit S3 retirement floor | Materialized passes archive interruption and autonomous terminal-proof recovery; extent fails Start1 before the fault cut |
+
+The two failing extent/S3 Starts entered actual Create and retain their original
+ambiguous outcomes. The materialized floor control denies 406 parent archive
+writes after physical deletion, then requires autonomous recovery at the persisted
+S3 minimum despite a Quorum-default namespace. Its pass does not qualify extent
+mode. Original IDs, payloads, proofs and 5s/3s/60s limits are unchanged.
+
+Source, frozen executables, raw results and retained state are preserved in
+`CG-17-completion-final-native-a99ddd9d3-2596` and
+`CG-17-completion-final-real-a99ddd9d3-2594b`, with verified second copies.
+The pre-change trace and lost-reply control remain in
+`CG-17-sandbox-input-red-a96511f7d-2582`. The owned lab is stopped and joined.
+Locked builds, strict affected Clippy, formatting, layout, native dependency and
+documentation checks pass. The generated implementation index is unchanged;
+full plan validation still lacks historical CG-01 evidence.
+
+Next close the three remaining Sandbox S3 deadlines using actual archive/input/
+completion waits, then finish the public primitive inventory and family recovery/
+GC matrix. Native RF3 shares one macOS process; real RustFS (1 CPU/2 GiB) and
+bounded physical execution run in the owned Linux VM (4 CPU/8 GiB). Independent
+voters, load, disk loss, provider-volume recovery, interactive/port/WebSocket
+contracts and all 32 full CG-17 acceptance cases remain required before cutover.
+
+### CG-17 accepted-apply scheduling and remaining completion gates
+
+Runtime `515bbd4e5` retains the exact accepted position for commands and
+enrollment. While the same local leader/term has not applied that position, the
+existing owner waits on controller progress instead of probing SQL. Apply,
+leadership change or a failed status sample returns to fresh receipt/term/route
+reconciliation. Status cannot acknowledge a write or retire a producer; unknown
+acceptance keeps normal reconciliation. Original deadlines and joined ownership
+remain intact, with no additional per-cell worker or timer.
+
+The unchanged held-manifest test fails on `49a37a4f0`: 23 SQL publication attempts
+occur during 100 ms of unapplied committed work. Commands and enrollment now
+assert zero premature attempts in both image modes, including disconnect,
+response expiry and accepted shutdown. The broader owning selection is
+**FAILED, 26/27**. Its lost-SQL-reply case fails the expected Unavailable-error
+assertion in both the pre-change and current executables; its typed-error and
+shutdown contract remains unresolved. Explicit compiled/observer source pins
+prevent treating that baseline failure as a current-source pass.
+
+The ordinary public SDK provider control passes **4/4** Quorum/S3 image profiles.
+The native inspection control remains **FAILED** at extent/S3 Destroy3's original
+5s deadline. Separate single-Create diagnostics pass in 1,615 ms native and
+2,046 ms with real RustFS, each recording one SQL publication operation. They
+record 57 and 103 SQL stage operations respectively. That counter also includes
+woken async continuation polls; it does not establish redundant SQL staging.
+These observations establish neither an end-to-end speedup nor deadline closure.
+
+**The fixed real RustFS/Engine campaign is FAILED: 3/7 whole functions.**
+
+| Current-source case | Result |
+| --- | --- |
+| Journal-failure shutdown | Pass; original error retained and process stopped |
+| Physical restart/fence/receipt control | Pass |
+| Public native Container recovery | Extent/Quorum passes; materialized/Quorum docker-a Read5, materialized/S3 startup and extent/S3 docker-b Status3 fail |
+| Container archive refusal | Three profiles pass; materialized/Quorum cleanup Destroy2 exceeds 5s |
+| Public Sandbox execution/recovery/cleanup | Materialized/Quorum passes; materialized/S3 and extent/Quorum Start1 exceed 5s after Create; extent/S3 enrollment expires |
+| Sandbox archive refusal | All four profiles pass the Reserved-generation oracle |
+| Explicit S3 retirement floor | Both profiles fail Start1 after Create, before the retirement fault cut |
+
+All seven functions and 20 required configurations ran. There are 11 success
+markers: six configurations in passing functions and five in failed functions.
+Earlier passes remain source-specific; this run cannot establish a performance
+cause or full family acceptance. Original IDs, payloads, minima and 5s/3s/60s
+budgets are unchanged. Native RF3 still shares one macOS process; RustFS and the
+physical backend run in the owned constrained Linux VM. Independent voters,
+load, disk loss, provider-volume recovery and full primitive APIs remain open.
+
+Locked optimized builds, affected strict Clippy, canonical formatting, layout,
+native dependency and documentation checks pass. Source, binaries, raw logs and
+retained state are preserved in `CG-17-accepted-apply-native-515bbd4e5-2577`,
+`CG-17-accepted-apply-real-515bbd4e5-2575` and the pre-change negative-control
+bundle `CG-17-accepted-apply-red-49a37a4f0-2571`, with verified second copies.
+The lab is stopped and joined. Next trace actual checkpoint/proof and startup
+waits, close the baseline lost-reply contract, then repeat combined primitive
+qualification. All 32 full CG-17 cases and default cutover remain open.
+
+### CG-17 journal-failure shutdown and current completion
+
+The physical Docker shutdown path previously returned immediately when its
+inactive-fence journal write failed, before stopping or joining processes.
+The new unchanged-oracle negative control at `ecfdad90b` injects a real
+`state.next` directory/write failure after a known Create. Shutdown returns the
+original I/O error, but Engine inspection still reports Running=true and PID
+1803. Only separate exact-owner test cleanup stops and joins that process.
+The control fails its physical fence assertion, not setup or a deadline. Source,
+executable, raw logs and retained state are sealed in
+`CG-17-docker-shutdown-red-ecfdad90b-2559` with a verified second copy; the owned
+lab is stopped and joined.
+
+Shutdown now attempts deactivation, physical stop, owned-job join and a second
+stop before returning the first failure. It preserves closed admission, the
+journal error, unknown operations and original receipts. The new physical control
+is required in the native-Docker runner, alongside every earlier public case:
+seven functions and 20 configurations. At `4240bc404`, the identical physical
+control passes in 0.742 seconds: the original journal error remains, Running is
+false and PID is zero before any test cleanup. Forced test cleanup is false.
+The earlier physical restart/fence case also passes. All 35 Container library
+checks, 44 qualification-runner tests, affected strict Clippy, canonical format,
+documentation and locked public/unit builds pass.
+
+**The complete real RustFS/Engine selection remains FAILED: 5/7 functions.**
+
+| Current-source case | Result |
+| --- | --- |
+| Journal-failure shutdown | Pass; actual stopped process and retained I/O error |
+| Physical restart/fence/receipt control | Pass |
+| Public native Container recovery | Pass in all four image/minimum configurations |
+| Container archive refusal | Pass in all four configurations |
+| Sandbox archive refusal | Pass in all four configurations |
+| Public Sandbox execution/recovery/cleanup | Both Quorum images pass the entire oracle; both S3 Start1 requests exceed the original 5s deadline after physical Create |
+| Explicit S3 retirement floor in a Quorum namespace | Both images fail S3 Start1 before the retirement fault cut; floor recovery remains unqualified |
+
+There are 14 configurations in wholly passing functions and two Quorum success
+markers in the failed Sandbox function. Those Quorum paths include lost Exec,
+file read/write/stat/list, generation replacement, lost Delete, retained restart
+and autonomous terminal confirmation with business construction refused. They do
+not accept the full Sandbox family. All original IDs, inputs, minima and
+5s/3s/60s budgets remain unchanged. No causal latency cure follows from the
+Container pass. The source/executables, raw logs and retained state are sealed
+in `CG-17-docker-shutdown-fixed-4240bc404-2563`: 5,271 files / 402,622,478 bytes,
+with a checksum-verified second copy. The owned lab is stopped and joined.
+
+The separate real-RustFS single Create diagnostic passes in 2,050 ms. Its stable
+per-node windows record 153–198 object GETs, totaling 160,007–205,517 microseconds
+inside those operations per node; the leader records 18 SQL publication attempts
+and 77 SQL stage attempts. These overlapping observations are not a benchmark,
+a critical-path sum or proof of an exclusive latency cause.
+
+Separately, combined source `06afc4ec2` passes the locked optimized public build,
+strict primitive-target Clippy and all four native handoff profiles. Its ordinary
+SDK basic function remains FAILED: three profiles pass; extent/S3 Create1 takes
+5,004 ms and fails after physical Create completed with 2,137 ms remaining.
+No loss cut, altered ID or replacement response excuses that failure. Evidence
+`CG-17-combined-native-06afc4ec2-2565` has a verified second copy. The primitive
+executable at `4240bc404` is byte-identical to that actually executed at
+`06afc4ec2`; no later native basic rerun is invented. The single
+extent/S3 diagnostic passes in 2,900 ms. Per-node stable-source snapshots report
+232,796–357,692 microseconds in engine file sync and 132,093–415,552 microseconds
+in SQL preparation; operation sums overlap and are not critical-path attribution.
+The logged object-store method bodies remain only a few milliseconds. The
+remaining latency must be measured at checkpoint/archive/receipt boundaries;
+no exclusive cause or performance improvement is established.
+
+Next close S3 nested-start and ordinary completion deadlines. Investigate
+repeated SQL settlement/stage probes while an accepted proposal remains
+unapplied; preserve fresh reconciliation after term, owner or route changes.
+Then repeat the full completion selection and required primitive-family gates.
+Full primitive APIs,
+retention/GC, managed recovery and independent-voter/load/disk-loss qualification
+remain required. All 32 full CG-17 cases and the default cutover stay open.
+
+### CG-17 public inspection handoff and combined source
+
+The cooperative handoff is now integrated with PR #180's shared Sandbox and
+physical Docker source (`410ab1640`). Required cleanup still uses its exclusive
+lock and original source/fence gates. Routine inspection checks for a waiting
+foreground request after its original proof and after any entered activation
+has completed. Deferral retains the exact task, minimum and failure count and
+refreshes autonomous discovery; it grants no success or retirement confirmation.
+
+The new public SDK regression at `4de0eade0` passes **4/4 native and 4/4 real
+RustFS profiles**, covering both image modes and Quorum/S3. It holds real
+framework activation, queues an original foreground request, refuses business
+construction and releases activation. Observed order is activation 1, foreground
+2, maintenance 3, inspection 4. Inspection resumes without further client
+traffic. Original request/attempt/recovery budgets remain 5s/3s/60s.
+
+The identical test on production parent `d8730e797` (test-only composite
+`1982a1520`) fails **all four ordering assertions**, with activation 1,
+maintenance 2 and foreground 4. Startup and foreground calls succeed; the actual
+ordering assertion is the failure. The negative control's locked build passes.
+Green evidence `CG-17-inspection-sdk-4de0eade0-2536` and red evidence
+`CG-17-inspection-public-parent-1982a1520-2542` retain exact source, executable,
+raw logs and controller/voter roots, with checksum-verified second copies.
+
+Combined source `0517738e1` passes strict Clippy for Cellar's library and both
+public primitive/Docker targets, plus the Container library. Canonical formatting,
+layout, native dependencies, documentation, 44 plan tests and 44 qualification
+runner tests pass. The generated implementation index matches. Check evidence
+`CG-17-inspection-integration-0517738e1-2546` has a verified second copy. Full
+plan validation still fails on the missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`; no evidence waiver is applied.
+
+These are scoped handoff results, not combined-source runtime acceptance. The
+broader `8e3dafe0a` completion campaign remains FAILED (4/10 functions), and the
+`a2fc2a15b` physical Container/Sandbox campaign remains FAILED (3/6 functions,
+13/19 success markers). The new combined source needs both gates rerun. All
+32 full CG-17 cases remain required and formally unaccepted. Historical sections
+below retain their original source and qualification boundaries.
+
+A separate single native extent/S3 Create diagnostic at `4de0eade0` succeeds in
+1,516 ms; 205 logged object-store calls total 3,649 microseconds inside their
+bodies across nodes (maximum 114 microseconds). That aggregate is not a
+critical-path duration or a RustFS benchmark. It supports measuring host
+checkpoint, apply and receipt/proof settlement before changing the protocol;
+no exclusive latency cause or performance improvement is established.
+
+Next close shared S3 completion deadlines and qualify this integrated source,
+then complete public primitive families, receipt/payload GC and the independent
+voter/load/disk-loss matrix. Default cutover remains gated.
+
+### CG-17 cooperative inspection handoff candidate
+
+Candidate `9bb7ec512` lets a healthy shared-group inspection yield to a waiting
+foreground request after its original source proof and before controller/provider
+I/O. It never abandons entered I/O. Deferral retains the reserved task, source
+minimum and failure count, refreshes discovery, and cannot confirm retirement.
+Expired resources, pending transitions, retired bindings and failed maintenance
+retain required admission. The later `8e3dafe0a` changes only the new storage
+fixture: it now reserves a pending Create before confirming the same generation.
+The original invalid-fixture failure is retained; assertions are unchanged.
+
+At `8e3dafe0a`, all **18 full-crate owning tests pass**: nine lifecycle cases and
+nine container-maintenance cases. They cover late waiter handoff, cancellation,
+entered unknown I/O, expiry, retained S3 minima and successor wake discovery.
+The actual standalone lifecycle leaf also passes all nine cases. Locked optimized
+build, strict affected library/test Clippy, canonical formatting, layout and
+native dependency checks pass. The owning bundle
+`CG-17-inspection-handoff-owning-8e3dafe0a-2525` has a verified second copy.
+
+**Public qualification is FAILED: 4/10 whole functions pass.** All ten original
+functions were selected with 36 required image/minimum configurations. Passing
+functions cover 16 configurations; failed functions contain seven additional
+success markers, with later profiles sometimes unreached after a failure.
+The passing functions cover basic provider durability, retained compute recovery,
+expiry/unused-sequence sealing, and dirty lifecycle waits. Failures remain:
+
+- Materialized/S3 live Write never reaches its intended loss cut.
+- Materialized/S3 live Exec recovery exceeds 5s on Destroy4.
+- Extent retirement misses its post-Delete archive cut.
+- Materialized autonomous retirement refuses DeleteIntent as Unavailable.
+- Materialized/S3 unchanged-proof lifecycle Hold exceeds 5s.
+- Extent/S3 native Container never reaches its Write loss cut.
+
+The original identities, inputs, minima and 5s/3s/60s limits are unchanged.
+The source, exact executable, raw logs and 116 retained controller/voter roots
+are sealed in `CG-17-inspection-handoff-8e3dafe0a-2515`: 4,439 files / 245,403,212
+bytes, with a verified second copy. This scope uses a controlled provider and
+one native RF3 process with one SQL worker per voter, plus real RustFS capped at
+1 CPU/2 GiB in the owned 4-CPU/8-GiB VM. It does not qualify physical Docker,
+shared Sandbox or independent Linux voter/load faults.
+
+The unchanged independent-retirement-fence function was then compared using
+frozen parent/candidate/parent executables. Parent `d8730e797` fails twice
+(Create deadline, then DeleteIntent deadline); candidate `8e3dafe0a` passes both
+image profiles in the intervening run. This does not establish an exclusive
+candidate regression, a causal latency improvement or whole-campaign closure.
+Both compiled sources are explicit in
+`CG-17-inspection-parent-control-8e3dafe0a-2527`; all inputs, logs and roots have
+a verified second copy. Both labs are stopped and joined, with data retained.
+
+At this earlier checkpoint the candidate was published on
+`codex/cg17-s3-completion` and was not integrated into draft PR #180. The public
+handoff control and integration are recorded above; combined runtime
+qualification and public S3 completion failures remain open. Full CG-17 acceptance remains **0/32**, with the full
+[case definitions](primitive-acceptance-cases.md) and existing dependencies intact.
+The current source is based on fetched `origin/main` `09cdcf423`.
+
+### CG-17 lifecycle admission and required cleanup
+
+Runtime `96af1bcd2` fixes a local admission race. A contended foreground
+lifecycle call proves its original invocation before constructing the real mutex
+waiter. Routine maintenance could reacquire the free lock during that proof.
+A cancellation-safe per-binding reservation now makes routine inspection yield.
+Expired resources, pending lifecycle transitions, retired bindings and failed
+maintenance can still try the free exclusive mutex; exact task, checkpoint,
+authority and provider proof gates remain mandatory.
+
+The owning negative control at `1e7e22a8d` passes five cases and fails the
+required-cleanup case. The unchanged six owning cases pass at `96af1bcd2`,
+compiled from the actual production leaf and its private sibling tests with the
+Cargo-locked optimized runtime dependencies. Full affected library/test Clippy,
+canonical formatting, layout and native dependency checks pass. Evidence:
+`CG-17-lifecycle-required-owning-96af1bcd2-2498` retains source, executable,
+results and a verified second copy. These are component results. The optimized
+public build at parent `20651c85e` predates the required-cleanup refinement.
+The later `d8730e797` build, using production `96af1bcd2`, passes 9/10 whole
+RustFS functions: 32 configurations in passing functions and three additional
+markers in the failed live-Exec function. Its extent/S3 Destroy4 exceeds the
+original 5s deadline. That sealed baseline does not qualify the later candidate.
+Plan unit tests
+pass 44/44; contract loading, source anchors and the generated index pass. Full
+plan validation still fails on missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json`; this custody gap is not waived.
+
+CG-17 still has **0/32 formally accepted cases**. The generated index credits
+cases through DONE tasks. At `96af1bcd2`, static audit also finds none of the 32
+planned acceptance entry points defined in the target file, an empty formal
+CG-17 evidence list and a partial SDK inventory (18 entries / 352 symbols).
+Passing focused tests have not delivered the complete public API, feature,
+provider and lifecycle matrix. All exact criteria remain in [tasks.json](tasks.json)
+and `plan.py show CG-17`, with a readable [32-case reference](primitive-acceptance-cases.md);
+this audit is separate from a raw behavioral test count.
+
+Next qualify the combined admission and Sandbox work-discovery fixes against
+real RustFS with the original IDs, Quorum/S3 minima and 5s/3s/60s budgets. Close
+S3 output deadlines and autonomous cleanup, then complete the public-family
+drivers, retention/GC, WebSockets and common recovery matrix. Full primitive
+acceptance and default cutover remain open.
+
+### CG-17 retirement work and independent controller fencing
+
+Runtime `ddc3ffb9a` fixes premature retirement completion. A successful SDK
+binding metadata proof previously removed the autonomous maintenance task before
+the independent controller had activated the retired fence. In the causal
+pre-fix control at `742ffd757`, the original S3 Stage request succeeds and the
+controlled backend completes Delete, but the retired controller fence never starts within
+the original 60-second wait. Retained images show retired binding revision four
+with its discovery task removed; the controller still holds revision three,
+Deleted/Pending, with no unknown operations.
+
+The SDK now retains that task. The framework confirms retirement only after
+proving the exact retired checkpoint and fencing the independent controller.
+The public regression holds that fence and requires confirmation to remain
+pending, then checks the exact retired claim and direct-controller refusal after
+release. The original Stage response must still succeed; observation of the fence
+cannot excuse its deadline failure. The earlier lost-S3-proof case retains its
+constructor refusal, original uncertain receipt and no-replay assertions.
+
+| Qualification at `ddc3ffb9a` | Result |
+| --- | --- |
+| Seven fixed native controller-provider functions | 7/7 pass; 24 configurations |
+| Same seven functions against real RustFS | 6 pass / 1 fail / 7 selected |
+| Additional ordinary native Container recovery | **Failed**: materialized/S3 Write loss cut not entered; one configuration passes and two remain unrun |
+| Additional ordinary Container recovery against RustFS | FAILED |
+| Combined native / RustFS selection | **FAILED** / **FAILED** |
+| Affected strict Clippy, canonical format, optimized build | Pass |
+| Controller-provider runner tests | 36/36 pass |
+
+The complete RustFS selection is 6 pass / 2 fail / 8 selected; failed functions: `rustfs_controller_provider_reconciles_live_exec_before_destroy`, `rustfs_native_container_uses_shared_group_fences_and_owned_invocation_entry`.
+In live Exec recovery, materialized/S3 Destroy4 expires after reconciliation;
+backend Delete starts with only 89 ms remaining and completes, but the original
+public response does not succeed. Its two extent profiles remain unrun. Ordinary
+Container recovery passes three configurations and fails extent/S3 with the
+original sequence-two ambiguous DeadlineExceeded during recovery. Both native-a Write2
+and native-b Status2 use that command ID, so the retained error does not establish
+which public call propagates it; the last checkpoint is from native-b. That call
+attribution remains unresolved. No new operation
+identity or successful response is substituted for either failure.
+Individual configuration results and any failure before the intended cut remain
+in the raw logs. A failed function receives no whole-function acceptance from
+its earlier successful configurations.
+
+The separate diagnostic at `b344a8ffa` changes only request timing/error logging.
+It does not reproduce the native materialized/S3 Write failure, but extent/S3
+Destroy6 completes at the controlled backend and its public response expires at 5,002 ms.
+That diagnostic is failed and supplies no fixed-source qualification. Original
+five-second requests, three-second maintenance attempts, 60-second waits,
+operation identities, captured inputs and Quorum/S3 minima remain unchanged.
+No exclusive latency cause or performance improvement is claimed.
+
+The causal failed control, earlier failures before the target cut, passing
+controls, exact sources/executables and voter/controller roots have
+checksum-verified second copies. Current evidence is in
+`CG-17-retirement-fence-ddc3ffb9a-retirement-order-green-2470`; the causal red is
+`CG-17-retirement-fence-742ffd757-retirement-order-red-2467`.
+RustFS has 1 CPU/2 GiB inside the owned 4-CPU/8-GiB VM. Voters share one native
+macOS process and the provider is controlled. These results do not qualify actual
+compute revocation, independent Linux voters, provider-volume recovery or the
+combined Sandbox implementation in follow-up PR
+[#180](https://github.com/crabbuild/cellar/pull/180). The lab is stopped with its
+objects and volumes retained.
+
+Next close original provider completion deadlines and qualify the integrated
+physical Container/Sandbox paths, then complete public primitive drivers,
+retention/GC and the full recovery matrix. CG-17 remains IN_PROGRESS, all 32 full
+cases remain required, and no default cutover is accepted.
+
+### CG-17 shared Sandbox bridge and physical execution
+
+The bounded shared Sandbox bridge is implemented in follow-up
+[PR #180](https://github.com/crabbuild/cellar/pull/180), based on `origin/main`
+`09cdcf423` (merged PR #179). Parent classes select `sandbox_catalog()`;
+dedicated child classes select `sandbox_execution()` with an independently
+fenced native adapter. Private dispatch authenticates source history, parent
+nonce, allocation generation, child identity and execution policy. Both
+namespaces retain independent Quorum/S3 proof requirements. Ordinary business
+ingress and changed/missing retained history authority refuse before effects.
+The child framework initializer creates an empty private image; only later
+authenticated dispatch installs parent authority.
+
+The bridge maps start, destroy, reconcile/running, bounded buffered exec and
+file read/write/stat/list through the existing Sandbox phase machine and
+Container controller. The physical Docker backend retains original receipts
+outside voter disks. A higher claim stops and joins the old process namespace,
+including detached children, before successor activation. Unknown mutators
+remain quarantined and are never replayed; a new incarnation additionally
+requires permanent old-host fencing.
+
+Cleanup uses bounded shared work without constructing the business cell. Exact
+terminal confirmation debt survives response loss and retained restart. The
+strongest requested minimum persists across the parent lifetime, including
+explicit S3 retirement in a Quorum-default namespace. A stale Quorum wake
+cannot consume strengthened S3 debt; strengthening a confirmed tombstone rearms
+its proof obligation. Idle discovery survives an older work completion.
+
+| Source-pinned check | Actual result |
+| --- | --- |
+| `a2fc2a15b` latest owning tests and public build | 27/27 pass: admission (1), lifecycle (6), private events (15), Sandbox storage/gateway (4), work atomicity/capability (1); locked public build, strict affected Clippy and canonical formatting pass |
+| `a2fc2a15b` full real RustFS/Docker rerun | FAILED: 3/6 complete functions and 13/19 profile success markers; extent/Quorum Sandbox passes its entire cleanup/recovery oracle |
+| `957564fe5` combined owning tests | 23/23 pass: configured/private admission (1), lifecycle waiting/cancellation (4), existing private-event protocol (15), Sandbox storage (3) |
+| `28ff0ab32` shared storage invariants | 3/3 pass: history pins, exact terminal/minimum custody and idle discovery |
+| `28ff0ab32` real RustFS, six functions/19 profiles | FAILED: 8 pass, one original deadline failure, ten missing-initializer refusals |
+| `a2a8eac03` integrated-main locked build and strict affected Clippy | Pass |
+| `a2a8eac03` real RustFS, six functions/19 profiles | FAILED: 12 success markers, six Sandbox capability refusals, one original deadline failure |
+| `cf25bbff8` exact Sandbox Start diagnostic | FAILED in all four profiles before reservation; backtrace locates the Fleet-only turn guard |
+| `db8e6a593` combined guard/retirement correction, real RustFS | FAILED: 8 success markers, six missing-target-range profiles, five Container startup/deadline profiles |
+| Two-group fixture `9c7a908b5` / import correction `f6ac53699` | Locked build, 35 Container units and corrected strict Clippy pass; real scoped Sandbox gate FAILED (2/10 configuration markers, 0/3 complete functions) |
+| `73f112c7e` real-adapter Start diagnostic | FAILED: three child capability refusals before adapter preparation and one original S3 deadline; no physical work |
+| `a323a13fb` configured-application namespace correction, real Start diagnostic | FAILED: all four profiles reach physical Create; materialized Quorum also reaches two Exec calls, then admission overload; three original Create deadlines remain |
+| `1a03df7d0` three-slot/foreground-admission real control | FAILED: both Quorum modes pass lost-Exec recovery, file operations and generation replacement, then autonomous Delete never enters within 60 seconds; two S3 Start deadlines remain |
+| `e9c9d9343` corrected work key plus urgent admission, full real six-function/19-profile campaign | FAILED: 3/6 complete functions and 11 configuration markers; physical fencing and all eight archive-refusal profiles pass |
+
+The latest campaign is `merged-a2fc2a15b-rustfs-03`, source unchanged and no
+own compiler or formatter running beside it. Its result remains **FAILED**:
+
+| Current-source real function | Result |
+| --- | --- |
+| Physical Docker fencing and original receipts | Pass, 1 profile |
+| Container recovery | Failed function; materialized Quorum/S3 and extent Quorum pass; extent S3 `Counter:docker-b` Destroy4 expires at 5000 ms |
+| Container source-proof/archive refusal | Pass, all 4 profiles |
+| Sandbox execution, retained recovery and autonomous cleanup | Failed function; extent Quorum passes the entire oracle; materialized Quorum Exec2 and both S3 Start1 calls expire after physical effect entry |
+| Sandbox source/target proof refusal | Pass, all 4 profiles, retaining the original Reserved generation and zero physical effects |
+| Explicit S3 retirement in a Quorum-default namespace | Failed in both images at S3 Start1; retirement and its archive cut are not reached |
+
+Nine profiles belong to the three passing functions. Four additional profile
+markers occur inside failed functions; they do not accept those functions or a
+full primitive case. The passing extent/Quorum Sandbox profile covers actual
+Create/Exec/file I/O, hidden original Exec receipt refusal, retained restart
+without replay, forged ordinary dispatch refusal, generation replacement, lost
+Delete reply/restart, and autonomous terminal cleanup with business construction
+unavailable. All three child generations are physically deleted exactly once;
+no old parent Context or retired parent can admit new work.
+
+The shared completion/S3 work is therefore not fully qualified. Fix the original
+materialized Quorum Exec and S3 Start/Destroy response paths, then rerun all six
+functions/19 profiles. Do not infer an exclusive cause or performance improvement
+from one changed profile. The original five-second request, three-second
+maintenance and sixty-second recovery budgets remain unchanged. The lab is
+stopped and joined; all failed roots and source/executable/log hashes are kept.
+
+The `a2a8eac03` gate passes physical fencing/restart, three Container recovery
+profiles and all eight Container/Sandbox archive-refusal profiles under its
+then-current assertions. Extent/S3 Container Destroy8 still exceeds its original
+five-second deadline. All four normal Sandbox profiles and both minimum-custody
+profiles refuse before physical work. The new Sandbox refusal oracle also now
+requires the exact retained Reserved generation: an early capability refusal
+must not masquerade as prepared Start/proof coverage. The earlier four Sandbox
+negative markers therefore establish no positive bridge execution qualification.
+
+The narrow diagnostic identifies `shared::history` calling the Fleet-only
+`Context::check_turn`. Correction `db8e6a593` uses invocation-aware validation at
+all five shared-capable Sandbox boundaries and removes the temporary diagnostic
+prints. It also integrates production retirement fix `ddc3ffb9a`: metadata
+proof alone cannot clear work before the independent controller acknowledges
+its retired fence. Delivery `c25c6a5f8` has the same runtime inputs as the combined
+qualification source. The corrected run passes the turn guard and retains its
+reservation, then fails because the generic fixture selected only the Counter
+namespace. Fixture `9c7a908b5` reuses managed named-service provisioning, grants
+and two-group retained restart/close for the Sandbox namespace. The existing
+Container campaign remains failed. The corrected fixture starts and grants both
+groups, then reaches the private child RPC. Its scoped ten-profile rerun has
+two refusal markers, no complete positive/floor function, and retains overload,
+startup and original deadline failures. A test-only forwarding probe at
+`73f112c7e` confirms that the child capability refusal occurs before the real
+Docker adapter is prepared. The temporary forwarding wrapper is removed in
+`233fefcda`; a focused private-execution debug event retains original error
+context for the next guard diagnosis. None of these scoped or diagnostic runs
+clears the failed full Container campaign.
+
+Correction `a323a13fb` (delivery `8315b90bf`) authenticates private event IDs
+with the compiled application namespace instead of an empty script name. The
+new admission regression retains configured-application, foreign-application and
+ordinary-ingress checks. The real four-profile diagnostic reaches physical
+Docker Create in all profiles and two Exec calls in materialized Quorum; the
+other three profiles miss original Start deadlines. The Quorum profile then
+correctly refuses a second-cell command because the generic two-command fixture
+is full with its interrupted parent and child. The Sandbox profile therefore
+uses three bounded ordinary slots, matching the existing binding-progress
+fixtures, while preserving its 64-KiB admission bytes and single SQL worker.
+This capacity change does not clear the historical two-slot refusal or any
+source deadline failure.
+
+The final combined source also includes foreground admission fix `67a9ccc63`
+and typed-result correction `421d12ad2`: background provider work yields while
+an original foreground proof waits, and cancellation releases only its own
+reservation. The 23 combined owning checks pass at `957564fe5`; their executable and logs
+are retained in `owning-957564fe5-01`. Only the Sandbox fixture capacity and a
+maintenance assertion spelling change after that owning source. Urgent expiry,
+deletion and interrupted-operation recovery also need a free-lock path while
+routine inspections yield; that fairness refinement and real combined
+qualification remain required. The `1a03df7d0` control passes 15 business callbacks in both Quorum image modes,
+including retained lost-Exec receipt recovery, independent-cell progress, file
+write/read/stat/list, forged authority refusal and generation replacement. It
+then fails the original autonomous Delete observer. Retained voter images show
+`__sys_work` due under the logical parent key while `__sys_raft_native_work` is
+empty: the shared callback reads work under the private-image key, skips
+maintenance and completes the wake. Correction `a3cce7803` uses the shared
+private-image key only for work bookkeeping, retains logical parent ownership,
+and adds the actual Storage callback lookup regression. Wrongly scoped
+development histories refuse validation; no migration or old-root rewriting is
+introduced. The existing undeclared Sandbox-work refusal also remains mandatory;
+the new shared reason requires the class's Sandbox catalog capability.
+
+Urgency refinement `96af1bcd2` is integrated: expiry, deletion and interrupted
+operation recovery may acquire a free lifecycle mutex; routine inspection yields
+to a pending foreground proof. Its six owning tests pass at the original source.
+The corrected combined source builds and its full real campaign remains FAILED
+at `e9c9d9343`, with unchanged source inputs. Physical fencing and both refusal
+functions pass (nine complete profiles); two additional Container recovery
+profiles pass within a failed function. Materialized Quorum Sandbox now enters
+the lost-Delete cut, restarts voters and recovers the job to Deleted, but the
+live spare remains Deleting with a proven Deleted/Pending intent and no final
+receipt. Its two entry checkpoints consume the same original cleanup budget.
+Extent Quorum instead misses Spare7's original deadline. Both normal S3 Start1
+profiles still fail. The minimum-custody gate fails before its actual Delete/
+parent-archive cut in materialized mode and at Start1 in extent mode. Ordinary
+Container materialized Quorum Read5 and extent S3 command2 also miss deadlines.
+
+Optimization `af44f1ef6` skips only the redundant running observation for an
+authenticated dedicated framework Sandbox Destroy. The framework constructor
+needs no running snapshot; the controller's Delete already reconciles old debt,
+uses the stable deletion ID and enforces the mandatory input proof and fence.
+Ordinary constructors retain their observation. A narrow opt-in failure event
+preserves the internal cause before the public Unknown response. This source passes all 27 selected owning checks, its locked public build,
+strict affected Clippy and canonical formatting. The real campaign above passes
+the entire extent/Quorum Sandbox cleanup oracle but remains failed overall;
+this is not an exclusive causal or measured performance claim.
+
+All original operation IDs, proof requirements and
+5-second/3-second/60-second budgets remain unchanged.
+
+Failed roots, raw logs, frozen executables, hashes and source snapshots remain
+in `cellar-native-docker-delivery-20261121-01`, including
+`merged-28ff0ab32-rustfs-01`, `merged-a2a8eac03-rustfs-01` and
+`sandbox-start-diagnostic-cf25bbff8-01`, plus the current
+`merged-a2fc2a15b-rustfs-03` campaign, its summary
+`merged-a2fc2a15b-rustfs-03-summary.json`, the failed
+`merged-db8e6a593-rustfs-01` campaign and
+`sandbox-namespace-a323a13fb-rustfs-01`. Actual RustFS is capped at 1 CPU/2 GiB
+in a 4-CPU/8-GiB VM. RF3 voters share one native macOS process; the Docker
+execution profile has explicit 0.25-CPU/128-MiB/64-process limits. Concurrent
+host builds remain outside those cgroups. Archive cuts use the store wrapper.
+No independent-voter or performance
+qualification is inferred.
+
+Provider workspace bytes retain a separate storage contract; metadata Quorum/S3
+does not replicate or archive them. Interactive exec, port/HTTP/WebSocket
+sessions, custom entrypoints, Internet access, inactivity configuration,
+physical namespace erasure, receipt/tombstone GC, positive fresh-history and
+provider-volume recovery, independent Linux voters and the complete
+feature/deployment/clock/load/fault matrix remain open. Shared `request_erasure`
+refuses until its managed protocol exists. The partial inventory has
+18 entries/397 public symbols. All 32 formal CG-17 cases and default-cutover
+gates remain required; no full primitive family is accepted. See the
+[bounded backend contract](../../../../crates/cellar-container/docker.md).
+
 ### CG-17 pending read recovery and covered S3 receipts
 
 Source `fb5925652` recovers a pending leader ReadIndex when its quorum heartbeat

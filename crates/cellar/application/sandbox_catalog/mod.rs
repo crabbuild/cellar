@@ -3,6 +3,8 @@
 //! Durable named allocation metadata for host-owned sandbox controllers.
 pub(crate) mod execution;
 pub(crate) mod maintenance;
+pub(crate) mod native;
+pub(crate) mod shared;
 pub(crate) mod values;
 use super::{containers::ProviderAuthority, Context, HandlerFuture};
 use crate::storage::sandbox_catalog as store;
@@ -36,14 +38,10 @@ impl SandboxCatalog {
     }
 
     pub(crate) fn check<'a>(&self, context: &'a Context) -> Result<&'a str> {
-        // Provider journals have a shared storage adapter; the native sandbox
-        // controller still owns Fleet admission and cleanup. Do not borrow its
-        // scope or suggest that journal authority enables that controller.
-        ensure!(
-            context.raft_storage.is_none(),
-            super::consensus::CommandFailure::UnsupportedCapability
-        );
         self.authority.check(context)?;
+        if let Some(history) = shared::parent_history(context)? {
+            crate::storage::sandbox_shared::check(&history)?;
+        }
         ensure!(
             context
                 .storage()?
@@ -58,12 +56,20 @@ impl SandboxCatalog {
     }
 
     pub fn parent(&self, context: &Context) -> Result<Option<SandboxParent>> {
-        store::parent(self.check(context)?)
+        let scope = self.check(context)?;
+        match shared::parent_history(context)? {
+            Some(h) => crate::storage::sandbox_shared::parent(&h),
+            None => store::parent(scope),
+        }
     }
 
     pub fn get(&self, context: &Context, name: &str) -> Result<Option<SandboxAllocation>> {
         values::name(name)?;
-        store::load(self.check(context)?, name)
+        let scope = self.check(context)?;
+        match shared::parent_history(context)? {
+            Some(h) => crate::storage::sandbox_shared::load(&h, name),
+            None => store::load(scope, name),
+        }
     }
 
     pub fn list(
@@ -73,7 +79,11 @@ impl SandboxCatalog {
         limit: usize,
     ) -> Result<SandboxAllocationPage> {
         values::page(after, limit)?;
-        store::list(self.check(context)?, after, limit, false)
+        let scope = self.check(context)?;
+        match shared::parent_history(context)? {
+            Some(h) => crate::storage::sandbox_shared::list(&h, after, limit, false),
+            None => store::list(scope, after, limit, false),
+        }
     }
 
     /// While active, list explicitly deleting children. After parent retirement
@@ -86,7 +96,11 @@ impl SandboxCatalog {
         limit: usize,
     ) -> Result<SandboxAllocationPage> {
         values::page(after, limit)?;
-        store::list(self.check(context)?, after, limit, true)
+        let scope = self.check(context)?;
+        match shared::parent_history(context)? {
+            Some(h) => crate::storage::sandbox_shared::list(&h, after, limit, true),
+            None => store::list(scope, after, limit, true),
+        }
     }
 
     /// Reserve a named execution cell in a configured namespace. Equal names
@@ -111,29 +125,9 @@ impl SandboxCatalog {
         parameters_digest: &str,
         profile: Option<&str>,
     ) -> HandlerFuture<SandboxReservation> {
-        let prepared: Result<_> = (|| {
-            let scope = self.check(context)?;
-            values::name(name)?;
-            values::name(binding)?;
-            ensure!(
-                values::hex(parameters_digest, 64),
-                "invalid sandbox parameters digest"
-            );
-            let namespace = context.namespace(binding)?;
-            let mut incarnation = [0; 16];
-            crate::asyncrt::rng("sandbox_parent_incarnation").fill_bytes(&mut incarnation);
-            let (parent, reservation) = store::reserve(
-                scope,
-                &hex::encode(incarnation),
-                name,
-                binding,
-                parameters_digest,
-                &|name| namespace.id_from_name(name).scope(),
-                profile,
-            )?;
-            maintenance::publish(context)?;
-            Ok((parent, reservation, context.storage()?.sync()))
-        })();
+        let prepared = self
+            .prepare_reservation(context, name, binding, parameters_digest, profile)
+            .and_then(|(parent, reservation)| Ok((parent, reservation, context.storage()?.sync())));
         let catalog = self.clone();
         let context = context.clone();
         Box::pin(async move {
@@ -142,6 +136,67 @@ impl SandboxCatalog {
             catalog.current(&context, &parent, Some(&reservation.allocation))?;
             Ok(reservation)
         })
+    }
+
+    // Only start_child may keep this reservation private: its binding input
+    // checkpoint must include both these rows and the exact child-call intent
+    // before target enrollment or execution. Public reserve still syncs.
+    fn prepare_reservation(
+        &self,
+        context: &Context,
+        name: &str,
+        binding: &str,
+        parameters_digest: &str,
+        profile: Option<&str>,
+    ) -> Result<(SandboxParent, SandboxReservation)> {
+        let scope = self.check(context)?;
+        values::name(name)?;
+        values::name(binding)?;
+        ensure!(
+            values::hex(parameters_digest, 64),
+            "invalid sandbox parameters digest"
+        );
+        let namespace = context.namespace(binding)?;
+        let shared_profile = if context.raft_storage.is_some() {
+            Some(
+                execution::registration(context, &namespace.id_from_name("configuration").scope())?
+                    .0,
+            )
+        } else {
+            None
+        };
+        if let (Some(expected), Some(current)) = (profile, shared_profile.as_deref()) {
+            ensure!(expected == current, "sandbox executor profile changed");
+        }
+        let profile = profile.or(shared_profile.as_deref());
+        let mut incarnation = [0; 16];
+        crate::asyncrt::rng("sandbox_parent_incarnation").fill_bytes(&mut incarnation);
+        let incarnation = hex::encode(incarnation);
+        let target = |name: &str| namespace.id_from_name(name).scope();
+        let (parent, reservation) = match shared::parent_history(context)? {
+            Some(history) => crate::storage::sandbox_shared::reserve(
+                &history,
+                crate::storage::sandbox_shared::Reservation {
+                    incarnation: &incarnation,
+                    name,
+                    binding,
+                    parameters: parameters_digest,
+                    profile,
+                },
+                &target,
+            )?,
+            None => store::reserve(
+                scope,
+                &incarnation,
+                name,
+                binding,
+                parameters_digest,
+                &target,
+                profile,
+            )?,
+        };
+        maintenance::publish(context)?;
+        Ok((parent, reservation))
     }
 
     /// Checkpoint a verified child acknowledgement. The host controller must
@@ -180,13 +235,9 @@ impl SandboxCatalog {
         expected: &SandboxAllocation,
         state: SandboxAllocationState,
     ) -> HandlerFuture<SandboxAllocation> {
-        let prepared: Result<_> = (|| {
-            let scope = self.check(context)?;
-            expected.validate()?;
-            let (parent, allocation) = store::transition(scope, expected, state)?;
-            maintenance::publish(context)?;
-            Ok((parent, allocation, context.storage()?.sync()))
-        })();
+        let prepared = self
+            .prepare_transition(context, expected, state)
+            .and_then(|(parent, allocation)| Ok((parent, allocation, context.storage()?.sync())));
         let catalog = self.clone();
         let context = context.clone();
         Box::pin(async move {
@@ -195,6 +246,25 @@ impl SandboxCatalog {
             catalog.current(&context, &parent, Some(&allocation))?;
             Ok(allocation)
         })
+    }
+
+    // An owned child call may combine this private transition and its exact
+    // binding intent in the mandatory input proof. Public transitions still
+    // await sync before returning an allocation to application code.
+    fn prepare_transition(
+        &self,
+        context: &Context,
+        expected: &SandboxAllocation,
+        state: SandboxAllocationState,
+    ) -> Result<(SandboxParent, SandboxAllocation)> {
+        let scope = self.check(context)?;
+        expected.validate()?;
+        let (parent, allocation) = match shared::parent_history(context)? {
+            Some(h) => crate::storage::sandbox_shared::transition(&h, expected, state)?,
+            None => store::transition(scope, expected, state)?,
+        };
+        maintenance::publish(context)?;
+        Ok((parent, allocation))
     }
 
     /// Atomically close future reservations and expose all remaining children
@@ -209,6 +279,10 @@ impl SandboxCatalog {
     pub fn request_erasure(&self, context: &Context) -> HandlerFuture<()> {
         let prepared = (|| {
             let scope = self.check(context)?.to_string();
+            ensure!(
+                context.raft_storage.is_none(),
+                super::consensus::CommandFailure::UnsupportedCapability
+            );
             let mut held = context.state.erasure_gate.lock().unwrap();
             let gate = match held.as_ref() {
                 Some(gate) => gate.clone(),
@@ -243,7 +317,12 @@ impl SandboxCatalog {
             let scope = self.check(context)?;
             let mut incarnation = [0; 16];
             crate::asyncrt::rng("sandbox_parent_incarnation").fill_bytes(&mut incarnation);
-            let parent = store::retire(scope, &hex::encode(incarnation), finish)?;
+            let parent = match shared::parent_history(context)? {
+                Some(h) => {
+                    crate::storage::sandbox_shared::retire(&h, &hex::encode(incarnation), finish)?
+                }
+                None => store::retire(scope, &hex::encode(incarnation), finish)?,
+            };
             maintenance::publish(context)?;
             Ok((parent, context.storage()?.sync()))
         })();

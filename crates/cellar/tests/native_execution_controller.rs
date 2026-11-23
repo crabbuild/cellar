@@ -534,6 +534,71 @@ async fn unresolved_operations_refuse_new_mutations_until_explicit_reconciliatio
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn first_registration_retains_high_water_when_backend_activation_fails() -> Result<()> {
+    let d = domain();
+    let backend = Arc::new(Provider::default());
+    backend.unavailable.store(true, Ordering::Release);
+    let controller =
+        ExecutionController::create(d.clone(), options(root()?), backend.clone(), [43; 32]).await?;
+    let resume = controller.options();
+    let first = claim(&controller.identity(), 3, 2, 1)?;
+    let stale = claim(&controller.identity(), 3, 1, 1)?;
+    failure(
+        &controller
+            .clone()
+            .activate(first.clone())
+            .await
+            .unwrap_err(),
+        ExecutionControllerFailure::RecoveryPending,
+    );
+    failure(
+        &controller
+            .clone()
+            .activate(stale.clone())
+            .await
+            .unwrap_err(),
+        ExecutionControllerFailure::StaleClaim,
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 0);
+    controller.shutdown().await?;
+    d.shutdown().await;
+
+    let unavailable = domain();
+    assert!(
+        ExecutionController::open(unavailable.clone(), resume.clone(), backend.clone())
+            .await
+            .is_err()
+    );
+    unavailable.shutdown().await;
+    backend.unavailable.store(false, Ordering::Release);
+    let recovered_domain = domain();
+    let reopened =
+        ExecutionController::open(recovered_domain.clone(), resume, backend.clone()).await?;
+    failure(
+        &reopened.clone().activate(stale).await.unwrap_err(),
+        ExecutionControllerFailure::StaleClaim,
+    );
+    reopened.clone().activate(first.clone()).await?;
+    assert_eq!(backend.revocations.load(Ordering::Acquire), 1);
+    assert_eq!(backend.calls.load(Ordering::Acquire), 0);
+    let payload = b"after exact fence recovery";
+    assert_eq!(
+        reopened
+            .execute(
+                first,
+                operation(&recovered_domain, 33, payload).await?,
+                payload.to_vec()
+            )
+            .await?,
+        ExecutionOutcome::Completed(payload.to_vec())
+    );
+    assert_eq!(backend.calls.load(Ordering::Acquire), 1);
+    reopened.shutdown().await?;
+    recovered_domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pending_high_water_refuses_old_claims_across_failed_and_completed_startup() -> Result<()> {
     let d = domain();
     let backend = Arc::new(Provider::default());

@@ -1,13 +1,16 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Host-only durable provider metadata. Guest storage cannot authorize a remote ID.
-use super::{containers::ProviderAuthority, Context, HandlerFuture};
+pub(crate) use super::containers::LifecycleLocks;
+use super::{
+    containers::{
+        BackgroundAdmission, ForegroundProbe, InspectionAdmission, LifecycleHold, ProviderAuthority,
+    },
+    Context, HandlerFuture,
+};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, Weak},
-};
+use std::sync::Arc;
 
 pub const MAX_BINDINGS: usize = 64;
 pub const MAX_BINDING_BYTES: usize = 16 * 1024;
@@ -192,12 +195,17 @@ pub struct BindingJournal {
 /// Dropping releases the slot. This supplies no remote fencing or rollback.
 #[must_use = "keep the guard until lifecycle I/O and checkpointing have settled"]
 pub struct BindingLifecycleGuard {
-    guard: Arc<tokio::sync::OwnedMutexGuard<()>>,
+    guard: LifecycleHold,
     name: Arc<str>,
     authority: Arc<ProviderAuthority>,
+    foreground: Option<ForegroundProbe>,
 }
 
 impl BindingLifecycleGuard {
+    pub(super) fn hold(&self) -> LifecycleHold {
+        self.guard.clone()
+    }
+
     /// Fence provider work using this invocation's existing lifecycle admission.
     /// The returned grant retains the same guard; no second lock is acquired.
     /// Keep it through lifecycle I/O and settlement. The controller must still
@@ -222,10 +230,25 @@ impl BindingLifecycleGuard {
             guard: self.guard.clone(),
             name: self.name.clone(),
             authority: self.authority.clone(),
+            foreground: self.foreground.clone(),
         }
     }
 
+    pub(super) fn inspection_admission(
+        &self,
+        deadline_ms: i64,
+        logical_ms: i64,
+    ) -> Option<InspectionAdmission> {
+        self.foreground
+            .clone()
+            .map(|foreground| InspectionAdmission::new(foreground, deadline_ms, logical_ms))
+    }
+
     pub(super) fn check(&self, context: &Context, journal: &BindingJournal) -> Result<()> {
+        ensure!(
+            self.guard.held(),
+            super::consensus::CommandFailure::Unavailable
+        );
         self.authority.check(context)?;
         ensure!(
             self.name == journal.name,
@@ -233,28 +256,6 @@ impl BindingLifecycleGuard {
         );
         journal.check(context)?;
         Ok(())
-    }
-}
-
-#[derive(Default)]
-pub(crate) struct LifecycleLocks {
-    locks: Mutex<HashMap<Arc<str>, Weak<tokio::sync::Mutex<()>>>>,
-}
-
-impl LifecycleLocks {
-    fn get(&self, name: &Arc<str>) -> Result<Arc<tokio::sync::Mutex<()>>> {
-        let mut locks = self.locks.lock().unwrap();
-        locks.retain(|_, lock| lock.strong_count() > 0);
-        if let Some(lock) = locks.get(name).and_then(Weak::upgrade) {
-            return Ok(lock);
-        }
-        ensure!(
-            locks.len() < MAX_BINDINGS,
-            "provider lifecycle limit exceeded"
-        );
-        let lock = Arc::new(tokio::sync::Mutex::new(()));
-        locks.insert(name.clone(), Arc::downgrade(&lock));
-        Ok(lock)
     }
 }
 
@@ -340,6 +341,9 @@ impl BindingJournal {
     /// A contended shared-group wait proves the original invocation at its
     /// required durability before parking its private writer. Only an unchanged
     /// unfinished receipt from this invocation can reuse its existing proof.
+    /// Routine background inspection yields while this contended admission's
+    /// proof is pending. Required cleanup still competes for a free lock.
+    /// Cancellation releases the local reservation.
     pub fn lock_lifecycle(&self, context: &Context) -> HandlerFuture<BindingLifecycleGuard> {
         let prepared = (|| {
             self.check(context)?;
@@ -347,7 +351,7 @@ impl BindingJournal {
                 .storage()?
                 .resources()
                 .provider_lifecycle
-                .get(&self.name)
+                .get(&self.name, MAX_BINDINGS)
         })();
         let journal = self.clone();
         let context = context.clone();
@@ -355,31 +359,30 @@ impl BindingJournal {
             let lock = prepared?;
             journal.check(&context)?;
             let guard = if context.raft_storage.is_some() {
-                match lock.clone().try_lock_owned() {
-                    Ok(guard) => guard,
-                    Err(_) => {
-                        // The owner of this lock can need its writer again to
-                        // finish a checkpoint. Waiting with our private writer
-                        // would prevent that owner from releasing the lock.
-                        crate::storage::capture_raft_dispatch()?
-                            .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
-                            // Parking requires this invocation's unfinished
-                            // receipt. Reuse its proof only while unchanged;
-                            // dirty work still checkpoints before parking.
-                            // Entry/read authority alone cannot resume it.
-                            .schedule_effect(move |_| lock.lock_owned())
-                            .future
-                            .await?
-                    }
-                }
+                lock.lock_shared(move |lock| async move {
+                    // The owner of this lock can need its writer again to
+                    // finish a checkpoint. Waiting with our private writer
+                    // would prevent that owner from releasing the lock.
+                    crate::storage::capture_raft_dispatch()?
+                        .ok_or(super::consensus::CommandFailure::UnsupportedCapability)?
+                        // Parking requires this invocation's unfinished
+                        // receipt. Reuse its proof only while unchanged;
+                        // dirty work still checkpoints before parking.
+                        // Entry/read authority alone cannot resume it.
+                        .schedule_effect(move |_| lock.lock_owned())
+                        .future
+                        .await
+                })
+                .await?
             } else {
-                lock.lock_owned().await
+                lock.lock().await
             };
             journal.check(&context)?;
             Ok(BindingLifecycleGuard {
-                guard: Arc::new(guard),
+                guard: LifecycleHold::new(guard),
                 name: journal.name,
                 authority: journal.authority,
+                foreground: None,
             })
         })
     }
@@ -390,21 +393,24 @@ impl BindingJournal {
     pub(super) fn try_lock_lifecycle(
         &self,
         context: &Context,
+        admission: BackgroundAdmission,
     ) -> Result<Option<BindingLifecycleGuard>> {
         self.check(context)?;
         let lock = context
             .storage()?
             .resources()
             .provider_lifecycle
-            .get(&self.name)?;
-        let Ok(guard) = lock.try_lock_owned() else {
+            .get(&self.name, MAX_BINDINGS)?;
+        let foreground = lock.foreground_probe();
+        let Some(guard) = lock.try_background(admission) else {
             return Ok(None);
         };
         self.check(context)?;
         Ok(Some(BindingLifecycleGuard {
-            guard: Arc::new(guard),
+            guard: LifecycleHold::new(guard),
             name: self.name.clone(),
             authority: self.authority.clone(),
+            foreground: Some(foreground),
         }))
     }
 
@@ -525,6 +531,8 @@ impl BindingJournal {
     /// Atomically replace the expected revision and await its required durability
     /// proof before returning. An error after the write can leave a retained
     /// pending intent. A successful return does not grant remote fencing.
+    /// Shared retirement keeps its maintenance obligation until framework
+    /// confirmation also fences the independent controller at this checkpoint.
     pub fn compare_exchange(
         &self,
         context: &Context,
@@ -545,13 +553,6 @@ impl BindingJournal {
                 current.as_ref() == Some(&checkpoint),
                 "binding revision changed while awaiting durability"
             );
-            if context.raft_storage.is_some() && checkpoint.record.is_retired() {
-                crate::storage::container_maintenance::confirm_retired(
-                    journal.check(&context)?,
-                    &journal.name,
-                    &checkpoint,
-                )?;
-            }
             Ok(checkpoint)
         })
     }

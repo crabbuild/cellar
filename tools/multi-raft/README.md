@@ -137,6 +137,45 @@ Real runners still need to capture these artifacts from public applications,
 owned process/RustFS fault runs and supported providers. A synthetic report,
 configuration label or passing test name alone establishes no runtime coverage.
 
+## Bounded native Docker execution
+
+Select the socket of the same owned Colima profile recorded by `--backend`,
+and an already installed immutable local scaffold image ID:
+
+```sh
+export CELLAR_DOCKER_BACKEND_SOCKET="$HOME/.colima/cellar-multi-raft-my-checkout/docker.sock"
+export CELLAR_DOCKER_BACKEND_IMAGE="sha256:REPLACE_WITH_THE_FULL_LOCAL_IMAGE_ID"
+python3 tools/multi-raft/cell_groups.py --suite native-docker --keep-going \
+  --backend /absolute/owned/rustfs-backend \
+  --output /absolute/fresh/native-docker-evidence \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-my-checkout"
+```
+
+The runner refuses another profile's socket or a mutable image tag. It retains
+the exact source, executable and selection evidence. The standalone physical
+case uses trusted host metadata and checks backend/controller restart, original
+receipts, actual kernel limits, deadline termination, detached-process fencing
+and rejection of unfenced incarnations. A second standalone case injects an
+actual backend journal-write failure and requires the process to be stopped
+before test cleanup, while shutdown still reports the storage error. Each public
+case runs both image modes and Quorum/S3 minima against real RustFS: normal Context/Container execution,
+lost replies, retained voter restart, leader transfer, stale claims and actual
+source-archive refusal before provider entry. Two additional Sandbox cases check
+private parent/child dispatch, lost original execution/deletion receipts,
+retained restart, generation replacement and terminal confirmation while the
+business constructor refuses. Independent target S3 minima must refuse
+unproved work. A separate two-image case performs explicit S3 retirement in
+a Quorum-default namespace, cuts actual parent archive writes after physical
+Delete, and checks retained autonomous confirmation with business construction
+unavailable. The planned total is 19 configurations across six fixed test
+functions; any failed selection leaves the whole campaign failed.
+
+RF3 shares one native process; this is not independent-voter, sustained-load,
+full Sandbox lifecycle, interactive/port, physical namespace erasure or
+provider-volume/fresh-history disaster qualification.
+The scaffold profile and its separate workspace contract are described in the
+[Docker backend guide](../../crates/cellar-container/docker.md).
+
 ## Ordinary cell RPC and Storage checkpoints
 
 Run the scoped ordinary JSON RPC adapter against an owned RustFS backend:

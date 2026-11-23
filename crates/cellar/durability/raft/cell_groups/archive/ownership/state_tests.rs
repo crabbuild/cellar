@@ -116,6 +116,79 @@ fn acquire_outcome_refuses_foreign_registry_and_other_allocation_purposes() {
 }
 
 #[test]
+fn reservation_renewal_requires_a_consumed_slot_and_fences_delayed_originals() {
+    let (mut state, acquire) = selected();
+    let reservation = CellGroupArchiveIntent {
+        action: Action::Reserve {
+            parent: state.selected.clone(),
+        },
+        ..acquire.clone()
+    };
+    assert!(!state.reservation_superseded(&reservation).unwrap());
+    state.allocate(&acquire).unwrap();
+    assert!(state.reservation_superseded(&reservation).unwrap());
+    assert!(matches!(
+        state.allocate(&reservation),
+        Err(CellGroupArchiveError::Expired)
+    ));
+    assert!(state.pending.is_empty());
+    assert_eq!(state.holds.len(), 1);
+    state.check(&state.identity).unwrap();
+}
+
+#[test]
+fn reservation_renewal_preserves_committed_tickets_after_lost_replies() {
+    let (mut state, acquire) = selected();
+    let reservation = CellGroupArchiveIntent {
+        action: Action::Reserve {
+            parent: state.selected.clone(),
+        },
+        ..acquire.clone()
+    };
+    let Allocation::Upload(ticket) = state.allocate(&reservation).unwrap() else {
+        panic!("reservation did not allocate a ticket")
+    };
+    let unrelated = CellGroupArchiveIntent {
+        revision: state.revision + 1,
+        nonce: [23; 32],
+        ..acquire
+    };
+    state.allocate(&unrelated).unwrap();
+    assert!(!state.reservation_superseded(&reservation).unwrap());
+    assert!(
+        matches!(state.reconcile(&reservation).unwrap(),Some(Allocation::Upload(actual)) if actual==ticket)
+    );
+    // Explicit retirement makes a delayed use impossible; absence alone did not.
+    state.retire(None, Some(&ticket)).unwrap();
+    assert!(state.reservation_superseded(&reservation).unwrap());
+    assert!(matches!(
+        state.allocate(&reservation),
+        Err(CellGroupArchiveError::Expired)
+    ));
+    state.check(&state.identity).unwrap();
+}
+
+#[test]
+fn reservation_renewal_refuses_foreign_intents_and_other_purposes() {
+    let (state, acquire) = selected();
+    assert!(state.reservation_superseded(&acquire).is_err());
+    let mut reservation = CellGroupArchiveIntent {
+        action: Action::Reserve {
+            parent: state.selected.clone(),
+        },
+        ..acquire
+    };
+    reservation.registry = [26; 32];
+    assert!(matches!(
+        state.reservation_superseded(&reservation),
+        Err(CellGroupArchiveError::Conflict)
+    ));
+    reservation.registry = state.identity.id;
+    reservation.revision = 0;
+    assert!(state.reservation_superseded(&reservation).is_err());
+}
+
+#[test]
 fn cancelling_an_acquire_fences_a_delayed_allocation() {
     let (mut state, intent) = selected();
     assert!(state.cancel_acquire(&intent).unwrap());
