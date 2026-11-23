@@ -661,54 +661,6 @@ pub async fn profile_retirement() -> Result<()> {
     run(Scenario::RetirementProfile).await
 }
 
-/// Poll advisory errors only while the diagnostic's unchanged request runs.
-/// This owns no task, proof, I/O or admission and cannot settle the request.
-async fn observe_start(cluster: &ManagedCluster, history: &CellHistory) -> Result<CommandReceipt> {
-    let target = &cluster.fixtures[0].additional_namespaces[0].namespace;
-    let histories = [
-        cluster.history,
-        GroupHistory {
-            cluster: target.cluster,
-            namespace: target.namespace,
-            group: GroupId::new([181; 16])?,
-            incarnation: IncarnationId::new([182; 16])?,
-        },
-    ];
-    let command = call(cluster, history, Durability::S3, 1, "Create");
-    let monitor = async {
-        let mut last = BTreeMap::new();
-        loop {
-            for (voter, host) in cluster.hosts.iter().enumerate() {
-                for (group, history) in histories.iter().enumerate() {
-                    if let Ok(Some(status)) = host.group(*history).and_then(|h| h.archive_status())
-                    {
-                        let error = status.error.as_ref().map(|e| e.to_string());
-                        let observation = (
-                            status.published.as_ref().map(|m| m.position().index.get()),
-                            error,
-                            status.stopped,
-                        );
-                        if last.get(&(voter, group)) != Some(&observation) {
-                            eprintln!(
-                                "[DEBUG-cg17-archive-2786] {}",
-                                json!({"at_ms":cellar::asyncrt::wall_ms(),"voter":voter,"group":group,"published":observation.0,"error":observation.1,"stopped":observation.2})
-                            );
-                            last.insert((voter, group), observation);
-                        }
-                    }
-                }
-            }
-            cellar::asyncrt::sleep(Duration::from_millis(50)).await;
-        }
-    };
-    tokio::pin!(command, monitor);
-    tokio::select! {
-        biased;
-        result = &mut command => result,
-        () = &mut monitor => unreachable!("diagnostic observer does not finish"),
-    }
-}
-
 pub async fn profile_recovery() -> Result<()> {
     run(Scenario::RecoveryProfile).await
 }
@@ -928,7 +880,7 @@ async fn run(scenario: Scenario) -> Result<()> {
                 ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.deletes.load(Ordering::Acquire)==1 && peer.executes.load(Ordering::Acquire)==0,"minimum custody replayed physical mutation");
                 ensure!(docker_execution::physical_resources(&domain,&policy).await?==0);
             } else {
-                let first=if profile {observe_start(&cluster,&a).await?}else{call(&cluster,&a,minimum,1,"Create").await?};let allocation:SandboxAllocation=serde_json::from_slice(&first.result)?;
+                let first=call(&cluster,&a,minimum,1,"Create").await?;let allocation:SandboxAllocation=serde_json::from_slice(&first.result)?;
                 ensure!(allocation.generation==1 && allocation.state==SandboxAllocationState::Ready);
                 if profile {
                     ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.executes.load(Ordering::Acquire)==0,"diagnostic must use the original first Start");
