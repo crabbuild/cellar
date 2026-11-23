@@ -388,14 +388,13 @@ impl CellEnrollmentInvocation {
                     &self.dispatcher.domain,
                 ))
                 .await;
+                if let Err(error) = &selected {
+                    tracing::debug!(history = ?attempt.route().history, ordinal = attempt.ordinal(), ?error, "enrollment destination selection refused");
+                }
                 match selected {
                     Ok(member) => break member,
-                    Err(cause)
-                        if matches!(
-                            cause.refusal(),
-                            Some(CommandFailure::NotLeader { .. } | CommandFailure::Overloaded)
-                        ) && usize::from(attempt.ordinal())
-                            < self.session.maximum_attempts() =>
+                    Err(MutationSelectionError::Retry(_))
+                        if usize::from(attempt.ordinal()) < self.session.maximum_attempts() =>
                     {
                         // No creation was sent. Retain the same placement, inputs,
                         // creation identity and original attempt/deadline bank.
@@ -413,9 +412,9 @@ impl CellEnrollmentInvocation {
                             .await
                             .map_err(|error| self.error(CellDispatchError::Routing(error)))?;
                     }
-                    Err(CellDispatchError::Runtime(
-                        RuntimeError::NotReady | RuntimeError::NotFound,
-                    )) if usize::from(attempt.ordinal()) < self.session.maximum_attempts() => {
+                    Err(MutationSelectionError::StalePlacement)
+                        if usize::from(attempt.ordinal()) < self.session.maximum_attempts() =>
+                    {
                         // Discovery has not entered an initializer or sent a
                         // creation. Refresh only this route, preserving captured
                         // inputs, identity, deadline and the shared attempt bank.
@@ -425,7 +424,7 @@ impl CellEnrollmentInvocation {
                             .await
                             .map_err(|error| self.error(CellDispatchError::Routing(error)))?;
                     }
-                    Err(error) => return Err(self.error(error)),
+                    Err(error) => return Err(self.error(error.into_dispatch())),
                 }
             };
             if let Some(member) = member {
@@ -552,6 +551,7 @@ impl CellEnrollmentInvocation {
             }
         };
         accepted_apply::wait(runtime, accepted.as_ref(), progress).await?;
+        let prepared_term = self.prepared()?.term();
         loop {
             let origin = self.origin_ref()?;
             let resolved = async {
@@ -562,6 +562,13 @@ impl CellEnrollmentInvocation {
                     .map_err(CellDispatchError::Runtime)?;
                 if state.route() != &origin.route {
                     return Err(CellDispatchError::Invalid("enrollment resolution route"));
+                }
+                // Absence in this applied term cannot resolve the retained
+                // producer. Wait for progress without occupying a SQL worker.
+                // A record or newer term still needs exact SQL resolution and
+                // physical producer retirement before any result can escape.
+                if state.record().is_none() && state.term() <= prepared_term {
+                    return Err(CellDispatchError::Execution(ExecutionError::Uncertain));
                 }
                 origin
                     .sql

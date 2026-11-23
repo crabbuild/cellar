@@ -7,10 +7,11 @@ use cellar_ltx::{
     DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo,
     HostFileLock, HostMetadata,
 };
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub const BEFORE_IMAGE_SYNC: u8 = 1;
 pub const AFTER_IMAGE_SYNC: u8 = 2;
@@ -22,6 +23,11 @@ pub const FAIL_DIRECTORY_SYNC: u8 = 6;
 pub const FAIL_AFTER_FINAL_CREATE: u8 = 7;
 pub const FAIL_REMOVE: u8 = 8;
 pub const AFTER_REMOVE: u8 = 9;
+pub const FAIL_PACK_RENAME_BEFORE: u8 = 11;
+pub const FAIL_PACK_RENAME_AFTER: u8 = 12;
+pub const BEFORE_PACK_RENAME: u8 = 13;
+pub const AFTER_PACK_RENAME: u8 = 14;
+pub const AFTER_PACK_FRAME_WRITE: u8 = 15;
 
 type ReadOpenHook = Arc<dyn Fn(&Path) -> io::Result<()> + Send + Sync>;
 
@@ -32,6 +38,9 @@ pub struct Faults {
     pub all_directory_files: AtomicBool,
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
+    /// An explicitly bounded set of physical files selected by the fixture.
+    /// Ordinary fixtures pay no locking cost while this observation is absent.
+    pub watched_reads: OnceLock<Arc<Mutex<BTreeMap<PathBuf, usize>>>>,
     pub image_creates: AtomicUsize,
     pub image_renames: AtomicUsize,
     pub private_ltx_readbacks: AtomicUsize,
@@ -46,6 +55,10 @@ pub struct Faults {
     pub before_snapshot_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub read_open: Mutex<Option<ReadOpenHook>>,
     pub lock_open: Mutex<Option<ReadOpenHook>>,
+    /// Selected private directory creation, before the real filesystem call.
+    pub directory_create: Mutex<Option<ReadOpenHook>>,
+    /// Selected disposable-file removal after its SQLite owner has closed.
+    pub private_cleanup: Mutex<Option<ReadOpenHook>>,
     pub signal: Option<PathBuf>,
 }
 
@@ -58,6 +71,7 @@ impl Faults {
             all_directory_files: AtomicBool::new(false),
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
+            watched_reads: OnceLock::new(),
             image_creates: AtomicUsize::new(0),
             image_renames: AtomicUsize::new(0),
             private_ltx_readbacks: AtomicUsize::new(0),
@@ -72,6 +86,8 @@ impl Faults {
             before_snapshot_close: Mutex::new(None),
             read_open: Mutex::new(None),
             lock_open: Mutex::new(None),
+            directory_create: Mutex::new(None),
+            private_cleanup: Mutex::new(None),
             signal,
         })
     }
@@ -167,6 +183,12 @@ impl FaultFileSystem {
 impl HostFileIo for File {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.inner.write_all(bytes)?;
+        if self.path.extension().is_some_and(|s| s == "pending")
+            && bytes.starts_with(b"CLRCGM01")
+            && self.faults.take(AFTER_PACK_FRAME_WRITE)
+        {
+            self.faults.pause()?;
+        }
         if self.image_output && self.faults.take(AFTER_IMAGE_WRITE) {
             self.faults.pause()?;
         }
@@ -183,6 +205,11 @@ impl HostFileIo for File {
 
     fn read_exact_at(&mut self, offset: u64, length: usize) -> io::Result<Vec<u8>> {
         self.faults.reads.fetch_add(1, Ordering::AcqRel);
+        if let Some(watched) = self.faults.watched_reads.get() {
+            if let Some(count) = watched.lock().unwrap().get_mut(&self.path) {
+                *count += 1;
+            }
+        }
         if self
             .path
             .extension()
@@ -379,7 +406,24 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let pack = to.extension().is_some_and(|s| s == "pack");
+        if pack && self.faults.take(BEFORE_PACK_RENAME) {
+            self.faults.pause()?;
+        }
+        if pack && self.faults.take(FAIL_PACK_RENAME_BEFORE) {
+            return Err(io::Error::other(
+                "injected pack rename failure before operation",
+            ));
+        }
         DirectFileSystem.rename(from, to)?;
+        if pack && self.faults.take(AFTER_PACK_RENAME) {
+            self.faults.pause()?;
+        }
+        if pack && self.faults.take(FAIL_PACK_RENAME_AFTER) {
+            return Err(io::Error::other(
+                "ambiguous pack rename failure after operation",
+            ));
+        }
         if to.extension().is_some_and(|p| p == "sqlite") {
             self.faults.image_renames.fetch_add(1, Ordering::AcqRel);
             self.faults.event("rename");
@@ -388,6 +432,15 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
+        if path
+            .file_name()
+            .is_some_and(|name| name == "working.sqlite")
+        {
+            let hook = self.faults.private_cleanup.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook(path)?;
+            }
+        }
         if path.parent() == Some(self.faults.directory.as_path()) && self.faults.take(FAIL_REMOVE) {
             return Err(io::Error::other("injected image removal failure"));
         }
@@ -405,10 +458,18 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn remove_dir_batch(&self, path: &Path, limit: usize) -> io::Result<bool> {
+        let hook = self.faults.private_cleanup.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(path)?;
+        }
         DirectFileSystem.remove_dir_batch(path, limit)
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        let hook = self.faults.directory_create.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(path)?;
+        }
         DirectFileSystem.create_dir_all(path)
     }
 }

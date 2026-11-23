@@ -17,6 +17,26 @@ use std::collections::BTreeMap;
 // fleet size and business-cell count. Each owned response has its wire bound.
 const MAX_TARGETS: usize = 6;
 
+#[cfg(test)]
+#[path = "managed_transition_capacity_tests.rs"]
+mod tests;
+
+fn reserve_inventory_collection(
+    budget: &std::sync::Arc<crate::raft::budget::Budget>,
+) -> Result<crate::raft::budget::Permit> {
+    // Preserve the complete model's intrinsic-fit admission, but do not keep
+    // nonexistent responses charged while their readers need fresh trust.
+    let mut memory = budget
+        .acquire((MAX_TARGETS + 1) * crate::raft::physical_inventory::RESPONSE_BYTES)
+        .ok_or(FleetCatalogError::Overloaded)?;
+    if !memory.shrink_to(crate::raft::physical_inventory::RESPONSE_BYTES) {
+        return Err(FleetCatalogError::Corrupt(
+            "transition collection reservation",
+        ));
+    }
+    Ok(memory)
+}
+
 enum Start {
     Replayed(Box<TransitionJournal>),
     Prepared(Box<Preparation>),
@@ -28,12 +48,73 @@ struct Preparation {
     targets: BTreeMap<NodeId, (FleetHostAuthorization, FleetCapacityAttestation)>,
 }
 
+/// Fixed metadata only: raw storage errors may contain private object keys or
+/// credentials. A dropped authorization still has an unknown mutation outcome.
+struct SealObservation<'a> {
+    domain: &'a crate::asyncrt::DomainToken,
+    started: Option<u64>,
+    phase: &'static str,
+    outcome: &'static str,
+}
+
+impl Drop for SealObservation<'_> {
+    fn drop(&mut self) {
+        if self.outcome == "ok" {
+            return;
+        }
+        let elapsed = self
+            .started
+            .and_then(|started| self.domain.mono_ms().ok()?.checked_sub(started));
+        tracing::warn!(
+            target: "cellar::raft::managed_transition",
+            event = "seal_authorization_observation",
+            phase = self.phase,
+            error_class = self.outcome,
+            clock_available = elapsed.is_some(),
+            elapsed_ms = elapsed.unwrap_or(0),
+            "managed seal authorization did not complete"
+        );
+    }
+}
+
+fn seal_error_class(error: &FleetCatalogError) -> &'static str {
+    use crate::raft::inspection::InspectionError;
+    match error {
+        FleetCatalogError::Invalid(_) => "invalid",
+        FleetCatalogError::Corrupt(_) => "corrupt",
+        FleetCatalogError::Conflict => "conflict",
+        FleetCatalogError::PayloadConflict => "payload_conflict",
+        FleetCatalogError::MissingRoot => "missing_root",
+        FleetCatalogError::InventoryIncomplete => "inventory_incomplete",
+        FleetCatalogError::DisruptionInProgress { .. } => "disruption_in_progress",
+        FleetCatalogError::SettlementInProgress { .. } => "settlement_in_progress",
+        FleetCatalogError::Limit => "limit",
+        FleetCatalogError::Overloaded => "overloaded",
+        FleetCatalogError::Unconfirmed => "unconfirmed",
+        FleetCatalogError::Closed => "closed",
+        FleetCatalogError::Storage(_) => "storage",
+        FleetCatalogError::Resource(_) => "resource",
+        FleetCatalogError::Topology(_) => "topology",
+        FleetCatalogError::Observation(InspectionError::Unreachable) => "peer_unreachable",
+        FleetCatalogError::Observation(InspectionError::Overloaded) => "peer_overloaded",
+        FleetCatalogError::Observation(InspectionError::Unavailable) => "peer_unavailable",
+        FleetCatalogError::Observation(InspectionError::Refused) => "peer_refused",
+        FleetCatalogError::Observation(InspectionError::StalePeer) => "peer_stale",
+    }
+}
+
 pub(super) struct Node {
     pub(super) capacity: FleetCapacityAttestation,
     pub(super) physical: RaftPeerNodeObservation,
     pub(super) started: u64,
     pub(super) known: usize,
     pub(super) missing: u32,
+}
+
+struct SealInventories {
+    nodes: BTreeMap<NodeId, Node>,
+    // Fields drop in declaration order: release observations before their bytes.
+    _memory: Vec<crate::raft::budget::RetainedBytes>,
 }
 
 impl FleetCatalog {
@@ -67,13 +148,47 @@ impl FleetCatalog {
         observer: &RaftCells,
         timeout: Duration,
     ) -> Result<TransitionJournal> {
+        let mut observation = SealObservation {
+            domain: &self.inner.domain,
+            started: self.inner.domain.mono_ms().ok(),
+            phase: "request",
+            outcome: "cancelled",
+        };
+        let result = self
+            .authorize_managed_transition_seal_observed(
+                request,
+                directory,
+                plan,
+                observer,
+                timeout,
+                &mut observation,
+            )
+            .await;
+        observation.outcome = match &result {
+            Ok(_) => "ok",
+            Err(error) => seal_error_class(error),
+        };
+        result
+    }
+
+    async fn authorize_managed_transition_seal_observed(
+        &self,
+        request: &FleetRequestIdentity,
+        directory: &RangeDirectory,
+        plan: &DirectoryMutation,
+        observer: &RaftCells,
+        timeout: Duration,
+        observation: &mut SealObservation<'_>,
+    ) -> Result<TransitionJournal> {
         validate_request(request)?;
         let deadline = deadline::Deadline::new(self, timeout)?;
+        observation.phase = "catalog";
         let start = self
             .run(
                 deadline.remaining()?,
                 Box::pin(async {
                     let snapshot = self.inner.current().await?;
+                    observation.phase = "catalog_permit";
                     let permit = self
                         .managed_transition_permit_at(&snapshot, request, directory, plan)
                         .await?;
@@ -98,6 +213,7 @@ impl FleetCatalog {
                             .map(|journal| Start::Replayed(Box::new(journal)));
                     }
                     self.require_transition_membership_idle(&snapshot).await?;
+                    observation.phase = "children";
                     let (_, children) = directory
                         .transition_routes(plan)
                         .map_err(histories::catalog_error)?;
@@ -148,20 +264,35 @@ impl FleetCatalog {
             Start::Replayed(journal) => return Ok(*journal),
             Start::Prepared(prepared) => *prepared,
         };
-        // The caller owns all retained inventories and one decoded catalog page
-        // until authorization exits, including after a dropped reply waiter.
-        let _memory = observer
-            .control_budget()
-            .acquire((MAX_TARGETS + 1) * crate::raft::physical_inventory::RESPONSE_BYTES)
-            .ok_or(FleetCatalogError::Overloaded)?;
+        // This operation retains one decoded catalog page. Each completed
+        // inventory transfers its own response bytes below, through selection.
+        observation.phase = "retention";
+        let _memory = reserve_inventory_collection(observer.control_budget())?;
         // Peer RPCs run outside the catalog turn. Retain at most six complete
         // inventories; never hold a synchronous lock across their awaits.
-        let mut nodes = BTreeMap::new();
+        let mut inventories = SealInventories {
+            nodes: BTreeMap::new(),
+            _memory: Vec::with_capacity(MAX_TARGETS),
+        };
         for (node, (host, capacity)) in targets {
-            let physical = observer
-                .inspect_peer_physical_inventory(node, snapshot.revision(), deadline.remaining()?)
+            observation.phase = "physical_inventory";
+            let (physical, memory) = observer
+                .inspect_peer_physical_inventory_owned(
+                    node,
+                    snapshot.revision(),
+                    deadline.remaining()?,
+                )
                 .await
                 .map_err(FleetCatalogError::Observation)?;
+            // Delivery has completed. Keep the immutable output charged while
+            // returning only its active work slot, not its retained bytes.
+            let memory = memory
+                .retain_bytes(crate::raft::physical_inventory::RESPONSE_BYTES)
+                .ok_or(FleetCatalogError::Corrupt(
+                    "transition inventory reservation",
+                ))?;
+            inventories._memory.push(memory);
+            observation.phase = "physical_validation";
             capacity::check_observation(&host, &capacity, &physical)?;
             let inventory = physical
                 .inventory
@@ -175,7 +306,7 @@ impl FleetCatalog {
                 .checked_sub(physical.sample_age_ms)
                 .ok_or(FleetCatalogError::Unconfirmed)?;
             self.require_resource_age(started)?;
-            nodes.insert(
+            inventories.nodes.insert(
                 node,
                 Node {
                     capacity,
@@ -186,14 +317,18 @@ impl FleetCatalog {
                 },
             );
         }
+        observation.phase = "catalog_revalidate";
         self.run(
             deadline.remaining()?,
             Box::pin(async {
+                let nodes = &mut inventories.nodes;
                 if self.inner.current().await?.token != snapshot.token {
                     return Err(FleetCatalogError::Conflict);
                 }
                 self.require_transition_membership_idle(&snapshot).await?;
-                Box::pin(self.charge_transition_births(&snapshot, &mut nodes)).await?;
+                observation.phase = "birth_accounting";
+                Box::pin(self.charge_transition_births(&snapshot, nodes)).await?;
+                observation.phase = "capacity";
                 for input in nodes.values() {
                     let inventory = input
                         .physical
@@ -204,7 +339,7 @@ impl FleetCatalog {
                         return Err(FleetCatalogError::InventoryIncomplete);
                     }
                     let attestation = resource_attestation(&input.capacity);
-                    let floor = self.resource_floor(&snapshot, &attestation).await?;
+                    let floor = self.admission_floor(&snapshot, &attestation).await?;
                     require_room(input, floor)?;
                 }
                 // No sample-age reset after catalog I/O, retry or root refresh. The
@@ -215,6 +350,7 @@ impl FleetCatalog {
                 if self.inner.current().await?.token != snapshot.token {
                     return Err(FleetCatalogError::Conflict);
                 }
+                observation.phase = "select";
                 self.inner
                     .domain
                     .run(Box::pin(

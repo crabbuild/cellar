@@ -960,7 +960,8 @@ impl ManifestTree {
         store.require_live()?;
         self.verify(store, marker.root(), marker.position(), |_| Ok(()))?;
         let pins = ManifestPins::complete(self, store, marker.root(), &mut |leaf| image(leaf))?;
-        store.sync_directory()?;
+        // Each complete pin rechecks its bytes and requires its pack's completed
+        // file/directory barriers on this exact store owner before returning.
         Ok(PreparedGroupManifest {
             marker,
             images: pins,

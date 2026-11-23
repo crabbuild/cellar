@@ -127,6 +127,16 @@ pub(super) async fn install(
     cell: &CellHistory,
     node: usize,
 ) -> Result<()> {
+    let pool = pool(fixture, node)?;
+    install_with_pool(fixture, cell, node, pool).await
+}
+
+pub(super) async fn install_with_pool(
+    fixture: &mut RuntimeCluster,
+    cell: &CellHistory,
+    node: usize,
+    pool: CellGroupSqlPool,
+) -> Result<()> {
     let route = fixture.cluster.birth.route().clone();
     let config = match fixture.cell_options_at(cell, node).await? {
         CellSqlOptions::Materialized(o) => CellGroupApplyImages::Materialized {
@@ -142,7 +152,6 @@ pub(super) async fn install(
             cache: o.cache,
         },
     };
-    let pool = pool(fixture, node)?;
     let voter = &mut fixture.cluster.voters[node];
     let applier = CellGroupApplier::new(
         voter.log.cell_group(&route.history)?,
@@ -262,11 +271,34 @@ pub(crate) async fn apply_images(rooted: bool) -> Result<()> {
     pool.mark_submitted(a.clone(), sql.proposal()).await?;
     let accepted = accepted_sql(&fixture.runtimes[0], &sql).await?;
     let mut held = BTreeMap::new();
+    let mut observed = false;
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             fixture.pump(&[route.history], &mut held).await?;
             if held.contains_key(&route.history) {
-                return Ok::<_, anyhow::Error>(());
+                if !observed {
+                    eprintln!(
+                        "APPLY_FOLLOWER_PUBLICATION {}",
+                        serde_json::json!({
+                            "leaderApplyHeld": true,
+                            "target": accepted.position.index.get(),
+                            "followerApplied": fixture.applied[&route.history][1..]
+                                .iter().map(|index| index.get()).collect::<Vec<_>>(),
+                            "foreignRetainedOperations": foreign.usage()?.apply_retained_operations,
+                        })
+                    );
+                    observed = true;
+                }
+                // Replication may reach peers during leader sync. Their own
+                // marker writes remain independent of this held leader apply.
+                // Join those publications before asserting the foreign pool's
+                // negative call leaves no physical preparation outstanding.
+                if fixture.applied[&route.history][1..]
+                    .iter()
+                    .all(|index| *index >= accepted.position.index)
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
             }
             tokio::task::yield_now().await;
         }

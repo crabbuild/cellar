@@ -64,6 +64,9 @@ mod cell_query_discovery;
 #[path = "leader_cache.rs"]
 mod leader_cache;
 pub(crate) use leader_cache::LeaderLookup;
+#[path = "leader_probe.rs"]
+mod leader_probe;
+pub(crate) use leader_probe::LeaderProbeOutcome;
 #[path = "transport_control_send.rs"]
 mod control_sender;
 #[path = "transport_directory.rs"]
@@ -115,6 +118,12 @@ pub enum TransportError {
     /// Authenticated proof that this remote attempt entered no producer. It
     /// establishes nothing about any preceding attempt of the same command.
     CommandRejected(cellar_logic::consensus::CommandFailure),
+    /// The local sender owns proof that this attempt never entered a request
+    /// exchange. This settles only this attempt, never an earlier unknown one.
+    CommandNotSent(cellar_logic::consensus::CommandFailure),
+    /// Authenticated terminal origin denial. This carries no non-commit proof
+    /// and cannot erase uncertainty from this or an earlier command attempt.
+    CommandOriginRefused,
     Protocol,
     Identity,
     Replay,
@@ -308,10 +317,14 @@ struct Banks {
 
 impl Banks {
     fn new(control: usize, data: usize, query: usize, items: usize) -> Self {
+        Self::with_query(control, data, Budget::new(query, items), items)
+    }
+
+    fn with_query(control: usize, data: usize, query: Arc<Budget>, items: usize) -> Self {
         Self {
             control: Budget::new(control, items),
             data: Budget::new(data, items),
-            query: Budget::new(query, items),
+            query,
         }
     }
 
@@ -367,6 +380,9 @@ struct Registry {
     group_checkpoints: BTreeMap<GroupHistory, std::sync::Weak<group_snapshots::Endpoint>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     cell_query_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
+    // One scalar lifetime per bounded discovery entry, independent of endpoint
+    // snapshots and advisory leader generations. Entered RPCs pin this lifetime.
+    cell_query_lifetimes: BTreeMap<GroupHistory, Arc<()>>,
     leaders: leader_cache::Cache,
     command_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
@@ -388,6 +404,8 @@ impl Registry {
     }
 
     fn prune_pools(&mut self) {
+        self.cell_query_lifetimes
+            .retain(|history, _| self.cell_query_groups.contains_key(history));
         self.leaders.prune(&self.cell_query_groups);
         let used: BTreeSet<_> = self
             .groups
@@ -435,6 +453,7 @@ struct State {
     fleet_gateway:
         Mutex<Option<std::sync::Weak<crate::application::consensus::group_client::Handle>>>,
     registry: Mutex<Registry>,
+    leader_probes: leader_probe::Probes,
     outgoing: Banks,
     incoming: Banks,
     stop: watch::Sender<bool>,
@@ -453,6 +472,9 @@ struct State {
     control_connections: Arc<Semaphore>,
     data_connections: Arc<Semaphore>,
     query_connections: Arc<Semaphore>,
+    // The old single sender retained at most one query socket per peer.
+    // Concurrent exchanges share that same node-wide physical ceiling.
+    outgoing_query_slots: Arc<Semaphore>,
     consensus_connections: Arc<Semaphore>,
     outgoing_connections: resources::Connections,
 }
@@ -601,6 +623,7 @@ impl RaftTransport {
                 group_checkpoints: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
                 cell_query_groups: BTreeMap::new(),
+                cell_query_lifetimes: BTreeMap::new(),
                 leaders: leader_cache::Cache::new(&options),
                 command_origins: BTreeMap::new(),
                 origins: BTreeMap::new(),
@@ -612,6 +635,7 @@ impl RaftTransport {
                 seed_peers: BTreeMap::new(),
                 router_refresh: None,
             }),
+            leader_probes: leader_probe::Probes::new(&options),
             outgoing: Banks::new(
                 options.node_control_bytes,
                 options.node_data_bytes,
@@ -633,6 +657,7 @@ impl RaftTransport {
             control_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
             data_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
             query_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            outgoing_query_slots: Arc::new(Semaphore::new(options.max_peers)),
             consensus_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
             outgoing_connections: resources::Connections::default(),
             inspection_metadata: Budget::new(
@@ -1079,6 +1104,24 @@ impl State {
             {
                 continue;
             }
+            // Metadata-only and routed work for one physical peer share the
+            // same incoming query bank, including work from a retiring boot.
+            let incoming_query = registry
+                .seed_peers
+                .get(&peer.node)
+                .map(|seed| seed.incoming_query.clone())
+                .or_else(|| {
+                    registry
+                        .pools
+                        .get(&peer.node)
+                        .map(|pool| pool.incoming.query.clone())
+                })
+                .unwrap_or_else(|| {
+                    Budget::new(
+                        self.options.peer_query_bytes,
+                        self.options.max_connections_per_lane,
+                    )
+                });
             if let Some(old) = registry.pools.remove(&peer.node) {
                 old.stop.send_replace(true);
             }
@@ -1097,10 +1140,10 @@ impl State {
                     self.options.peer_query_bytes,
                     self.options.queue_items,
                 ),
-                incoming: Banks::new(
+                incoming: Banks::with_query(
                     self.options.peer_control_bytes,
                     self.options.peer_data_bytes,
-                    self.options.peer_query_bytes,
+                    incoming_query,
                     self.options.max_connections_per_lane,
                 ),
             });

@@ -317,9 +317,10 @@ async fn qualify_host(real_rustfs: bool, external: bool) -> Result<()> {
             Some(backend) => Arc::new(catalog_fault::Store::around(backend.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        Box::pin(run(rooted, store, backend.as_ref(), external))
+        let result = Box::pin(run(rooted, store.clone(), backend.as_ref(), external))
             .await
-            .context(format!("Queue RustFS={real_rustfs} extents={rooted}"))?;
+            .context(format!("Queue RustFS={real_rustfs} extents={rooted}"));
+        managed_fixture::memory::preserve_result(&store.inner, "ordinary-queue", result).await?;
         eprintln!("Queue RustFS={real_rustfs} extents={rooted}: PASS");
     }
     Ok(())
@@ -730,26 +731,44 @@ async fn run(
         }
     }
     let mut failures = Vec::new();
-    for node in std::mem::take(&mut cluster.nodes) {
+    let nodes = cluster.nodes.len();
+    let hosts = cluster.hosts.len();
+    let http_present = http.is_some();
+    for (index, node) in std::mem::take(&mut cluster.nodes).into_iter().enumerate() {
         if let Err(e) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
+            eprintln!(
+                "QUEUE_ORDINARY_CLEANUP_ERROR {}",
+                json!({"stage":"node","index":index,"error":format!("{e:#?}")})
+            );
             failures.push(e.to_string());
         }
     }
-    for host in &cluster.hosts {
+    for (index, host) in cluster.hosts.iter().enumerate() {
         if let Err(e) = host.close().await {
+            eprintln!(
+                "QUEUE_ORDINARY_CLEANUP_ERROR {}",
+                json!({"stage":"host","index":index,"error":format!("{e:#?}")})
+            );
             failures.push(e.to_string());
         }
     }
     if let Some(http) = http {
         if let Err(error) = http.close().await {
+            eprintln!(
+                "QUEUE_ORDINARY_CLEANUP_ERROR {}",
+                json!({"stage":"http","error":format!("{error:#?}")})
+            );
             failures.push(error.to_string());
         }
     }
-    if !matches!(&work, Ok(Ok(()))) || !failures.is_empty() {
-        for root in std::mem::take(&mut cluster.roots) {
-            eprintln!("retained Queue disk: {}", root.keep().display());
-        }
+    // Successful fault controls can retain ambiguous mutation histories too.
+    for root in std::mem::take(&mut cluster.roots) {
+        eprintln!("retained Queue disk: {}", root.keep().display());
     }
+    eprintln!(
+        "QUEUE_ORDINARY_CLEANUP {}",
+        json!({"nodeShutdownAttempts":nodes,"hostCloseAttempts":hosts,"httpCloseAttempted":http_present,"cleanupErrors":failures.len(),"returnedOk":failures.is_empty()})
+    );
     work??;
     ensure!(failures.is_empty(), "Queue joined cleanup: {failures:?}");
     Ok(())
@@ -889,7 +908,11 @@ async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
         1 + cluster.fixtures[0].additional_namespaces.len(),
     )
     .await?;
-    cluster.peers.clear();
+    let mut current_peers = std::mem::take(&mut cluster.peers);
+    ensure!(
+        current_peers.len() == cluster.fixtures.len(),
+        "retained Queue peer inventory"
+    );
     for (index, fixture) in cluster.fixtures.iter().enumerate() {
         let node = fixture.start_node(cluster.roots[index].path()).await?;
         let started = async {
@@ -897,7 +920,43 @@ async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
                 .config(&node, LogOpenMode::Resume, 104 + index as u8)
                 .await?;
             managed_fixture::archives::configure(&mut config);
-            let peer = config.peers[0].clone();
+            let peer = config
+                .peers
+                .first()
+                .context("resumed Queue self endpoint")?
+                .clone();
+            ensure!(
+                current_peers[index].node == peer.node && current_peers[index].disk == peer.disk,
+                "Queue restart physical lineage mismatch"
+            );
+            current_peers[index] = peer.clone();
+            config.peers = current_peers.clone();
+            // Install the approved namespace policy before autonomous recovery.
+            // Remaining peers still name their currently rooted boots. Verified
+            // directory views refresh these grants with the physical routes.
+            // The inspect_current checks below still require the fresh views.
+            for (peer_index, remote) in current_peers.iter().enumerate() {
+                if index == peer_index {
+                    continue;
+                }
+                let fixture = &cluster.fixtures[0];
+                for declaration in
+                    std::iter::once(&fixture.declaration).chain(&fixture.additional_namespaces)
+                {
+                    config.query_origins.push(NamespaceQueryOrigin {
+                        cluster: declaration.namespace.cluster,
+                        namespace: declaration.namespace.namespace,
+                        revision: 1,
+                        peer: remote.clone(),
+                    });
+                    config.command_origins.push(NamespaceCommandOrigin {
+                        cluster: declaration.namespace.cluster,
+                        namespace: declaration.namespace.namespace,
+                        revision: 1,
+                        peer: remote.clone(),
+                    });
+                }
+            }
             Ok::<_, anyhow::Error>((node.start_raft_cells(config, services).await?, peer))
         }
         .await;
@@ -1037,6 +1096,7 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
 mod qualification;
 pub use qualification::{
     qualify_batch_proof, qualify_cold_metadata, qualify_extent_load, qualify_faults, qualify_load,
-    qualify_long, qualify_metadata_reads, qualify_metadata_s3, qualify_sdk_metadata,
-    qualify_transfer_identity,
+    qualify_load_mode, qualify_long, qualify_metadata_reads, qualify_metadata_s3,
+    qualify_operator_read_boundaries, qualify_operator_reads, qualify_owned_callback_scans,
+    qualify_perf, qualify_sdk_metadata, qualify_transfer_identity,
 };

@@ -147,6 +147,65 @@ fn value(connection: &Connection) -> i64 {
 }
 
 #[test]
+fn empty_initializer_uses_no_inventory_root_and_retains_open_handles() {
+    let fixture = Fixture::new(4096, 0);
+    let before = fixture.store.usage().unwrap();
+    let owner = Arc::new(());
+    let mut options = fixture.options("initializer", 2 * EXTENT_BYTES);
+    let path = options.path.clone();
+    options.retention = Some(owner.clone());
+    let workspace = ExtentWorkspace::empty(binding(0), options).unwrap();
+    let writer = connection(&workspace, &path);
+    writer
+        .execute_batch(
+            "PRAGMA journal_mode=WAL; CREATE TABLE counter(value); INSERT INTO counter VALUES(19);",
+        )
+        .unwrap();
+    assert_eq!(value(&writer), 19);
+    assert_eq!(workspace.stats().unwrap().bytes_faulted, 0);
+    let after = fixture.store.usage().unwrap();
+    assert_eq!(
+        (after.roots, after.objects, after.bytes),
+        (before.roots, before.objects, before.bytes)
+    );
+    drop(workspace);
+    assert_eq!(Arc::strong_count(&owner), 2);
+    assert_eq!(value(&writer), 19);
+    drop(writer);
+    assert_eq!(Arc::strong_count(&owner), 1);
+}
+
+#[test]
+fn empty_initializer_refuses_nonzero_position_and_invalid_quota_before_creation() {
+    let fixture = Fixture::new(4096, 0);
+    for (name, selected, quota) in [
+        ("nonempty", binding(1), EXTENT_BYTES),
+        (
+            "checksum",
+            ImageBinding {
+                checksum: 1,
+                ..binding(0)
+            },
+            EXTENT_BYTES,
+        ),
+        (
+            "epoch",
+            ImageBinding {
+                epoch: 0,
+                ..binding(0)
+            },
+            EXTENT_BYTES,
+        ),
+        ("quota", binding(0), 256),
+    ] {
+        let options = fixture.options(name, quota);
+        let path = options.path.clone();
+        assert!(ExtentWorkspace::empty(selected, options).is_err());
+        assert!(!path.exists());
+    }
+}
+
+#[test]
 fn hot_open_and_partial_main_writes_retain_a_bounded_extent_workspace() {
     for (page_size, rows) in [(512, 8), (4096, 8), (4096, 40), (65536, 8)] {
         let fixture = Fixture::new(page_size, rows);

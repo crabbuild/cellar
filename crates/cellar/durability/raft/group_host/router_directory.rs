@@ -195,7 +195,7 @@ impl RouterDirectory {
         reader: &FleetTrustReader,
         trust: &FleetTrustSnapshot,
         target: TargetRefresh<'_>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<RouterRefreshOutcome> {
         let TargetRefresh {
             history,
             deadline,
@@ -210,10 +210,17 @@ impl RouterDirectory {
                 config.cluster == history.cluster && config.namespace == history.namespace
             })
             .ok_or_else(|| anyhow::anyhow!("router namespace capability"))?;
-        let birth = namespace
+        let birth = match namespace
             .directory
             .materialize_selected_history(history)
-            .await?;
+            .await
+        {
+            Ok(birth) => birth,
+            Err(crate::raft::catalog::CatalogError::Fenced) => {
+                return Ok(RouterRefreshOutcome::StalePlacement);
+            }
+            Err(error) => return Err(error.into()),
+        };
         let route = birth.route().clone();
         if let Some(local) = log.cell_group(&history).ok().filter(|local| {
             local
@@ -229,7 +236,7 @@ impl RouterDirectory {
                         && marker.source_seal().is_none()),
                 "selected local router target is not attached"
             );
-            return Ok(());
+            return Ok(RouterRefreshOutcome::Current);
         }
         let discovery = reader
             .authorize_router_group(trust, &namespace.directory, &birth, remaining()?)
@@ -282,7 +289,7 @@ impl RouterDirectory {
                     deadline,
                 },
             )? {
-                return Ok(());
+                return Ok(RouterRefreshOutcome::Current);
             }
         }
         anyhow::bail!("no ready router target quorum observed")

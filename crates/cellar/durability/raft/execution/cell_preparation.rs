@@ -95,6 +95,10 @@ impl CellPrivatePreparation {
         })
     }
 
+    pub(super) fn stamp(&self) -> &Arc<()> {
+        &self.stamp
+    }
+
     pub(super) fn checkpoint(mut self, step: u64) -> Self {
         self.rpc_step = Some(step);
         self
@@ -189,7 +193,7 @@ impl CellPrivateExecutor {
             attempt.preview,
         )?;
         let stamp = Arc::new(());
-        self.preparing = Some(stamp.clone());
+        self.preparing = Some(PreparationOwner::Local(stamp.clone()));
         Ok(CellPrivatePreparation {
             options: self.options.clone(),
             base: self.authority.image().clone(),
@@ -219,40 +223,65 @@ impl CellPrivateExecutor {
         &mut self,
         mut prepared: CellPrivatePrepared,
     ) -> Result<CellStageOutcome, ExecutionError> {
-        let checked = (|| {
-            let input = prepared.input.as_ref().expect("owned private preparation");
-            if self.pending.is_some()
-                || self
-                    .preparing
-                    .as_ref()
-                    .is_none_or(|stamp| !Arc::ptr_eq(stamp, &input.stamp))
+        let input = prepared.input.as_ref().expect("owned private preparation");
+        let checked = match &self.preparing {
+            Some(PreparationOwner::Local(stamp))
+                if self.pending.is_none() && Arc::ptr_eq(stamp, &input.stamp) =>
             {
-                return Err(ExecutionError::Invalid("private preparation producer"));
+                Ok(())
             }
-            self.authority.check().map_err(authority_failure)?;
-            if input.group != self.authority.route().history
-                || input.term != self.authority.term()
-                || !Arc::ptr_eq(&input.engine, self.authority.engine_owner())
-            {
-                return Err(ExecutionError::Invalid("private preparation authority"));
-            }
-            if Arc::strong_count(input) != 1 {
-                return Err(ExecutionError::Invalid("private preparation still running"));
-            }
-            Ok(())
-        })();
+            _ => Err(ExecutionError::Invalid("private preparation producer")),
+        };
         prepared = prepared.checked(checked)?;
-        // The physical task and its retry owner have joined. Neither the
-        // immutable input nor its only remaining Arc can escape this frame.
-        let input = Arc::try_unwrap(prepared.input.take().expect("owned private preparation"))
+        let pending = prepared.into_pending(&self.authority)?;
+        let command = pending.prepared.clone();
+        self.pending = Some(pending);
+        self.preparing = None;
+        self.poisoned = false;
+        Ok(CellStageOutcome::Prepared(command))
+    }
+}
+
+impl CellPrivatePrepared {
+    pub(super) fn matches_stamp(&self, stamp: &Arc<()>) -> bool {
+        self.input
+            .as_ref()
+            .is_some_and(|input| Arc::ptr_eq(stamp, &input.stamp))
+    }
+
+    pub(super) fn into_pending(
+        mut self,
+        authority: &CellExecutionAuthority,
+    ) -> Result<PendingCell, ExecutionError> {
+        let input = self.input.as_ref().expect("owned private preparation");
+        authority.check().map_err(authority_failure)?;
+        if input.group != authority.route().history
+            || input.term != authority.term()
+            || !Arc::ptr_eq(&input.engine, authority.engine_owner())
+        {
+            return Err(ExecutionError::Invalid("private preparation authority"));
+        }
+        if Arc::strong_count(input) != 1 {
+            return Err(ExecutionError::Invalid("private preparation still running"));
+        }
+        // Fallible validation precedes moving the preview out of its retirement
+        // guard, so an unsubmitted image is retired on every error path.
+        let limits = input
+            .options
+            .images
+            .preparation_limits(&input.options)
+            .map_err(storage)?;
+        authority.check().map_err(authority_failure)?;
+        let input = Arc::try_unwrap(self.input.take().expect("owned private preparation"))
             .unwrap_or_else(|_| unreachable!("joined private preparation"));
-        let preview = prepared.preview.take().expect("owned private preview");
+        let preview = self.preview.take().expect("owned private preview");
         let image = super::super::CellPreparedImage::new(
             input.engine.clone(),
             input.group,
             input.term,
             &input.bytes,
             &preview,
+            limits,
         );
         let command = CellPreparedCommand::new(
             input.bytes,
@@ -263,8 +292,8 @@ impl CellPrivateExecutor {
         )
         .with_log_reservation(input.log_reservation)
         .with_prepared_image(&image);
-        self.pending = Some(PendingCell {
-            prepared: command.clone(),
+        Ok(PendingCell {
+            prepared: command,
             request: input.attempt.request,
             result: input.result,
             _preview: preview,
@@ -272,9 +301,6 @@ impl CellPrivateExecutor {
             submitted: false,
             rpc_step: input.rpc_step,
             rpc_prior_steps: input.rpc_prior_steps,
-        });
-        self.preparing = None;
-        self.poisoned = false;
-        Ok(CellStageOutcome::Prepared(command))
+        })
     }
 }

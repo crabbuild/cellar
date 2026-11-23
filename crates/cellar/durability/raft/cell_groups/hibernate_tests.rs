@@ -428,10 +428,46 @@ async fn park_acknowledgement_waits_for_sync_and_reopens_closed() -> anyhow::Res
         .await?;
     let hidden = group.read()?.local_park.is_none();
     let unresolved = futures_util::poll!(&mut pending).is_pending();
+    // A held physical sync defers consensus ticks, while the scheduler still
+    // observes and coalesces timer turns. Distinguish those observations from
+    // actual RawNode entry before using them to diagnose election delays.
+    let performance = log.performance();
+    let ticks = || {
+        let snapshot = performance.snapshot();
+        [
+            "cell_group_tick_rounds",
+            "cell_group_ticks_requested",
+            "cell_group_ticks_coalesced",
+            "cell_group_ticks_executed",
+        ]
+        .map(|name| {
+            snapshot
+                .counters
+                .iter()
+                .find(|counter| counter.name == name)
+                .unwrap()
+                .value
+        })
+    };
+    let before_ticks = ticks();
+    let first_tick = runtime.tick().await;
+    let second_tick = runtime.tick().await;
+    let held_ticks = ticks();
     drop(release);
     entered?;
+    first_tick?;
+    second_tick?;
     assert!(hidden);
     assert!(unresolved);
+    assert_eq!(
+        held_ticks,
+        [
+            before_ticks[0] + 2,
+            before_ticks[1] + 2,
+            before_ticks[2] + 1,
+            before_ticks[3]
+        ]
+    );
     let receipt = pending.await??;
     assert_eq!(receipt.voter, *group.identity());
     assert_eq!(receipt.leader, leader);
@@ -443,6 +479,7 @@ async fn park_acknowledgement_waits_for_sync_and_reopens_closed() -> anyhow::Res
     assert_eq!(duplicate.voter, receipt.voter);
     assert_eq!(duplicate.cut, receipt.cut);
     assert!(duplicate.sync_sequence > receipt.sync_sequence);
+    assert_eq!(ticks()[3], before_ticks[3] + 1);
     runtime.close().await?;
     let acknowledged = LocalParkRecord {
         cut: cut.clone(),

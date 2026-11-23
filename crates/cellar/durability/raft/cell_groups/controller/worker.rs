@@ -332,8 +332,14 @@ impl Worker {
             let timer = domain
                 .sleep_until(wake_at)
                 .map_err(|_| CellGroupControllerError::Closed)?;
+            let mut archive_capacity = self.archives.capacity_released();
+            let capacity_armed = archive_capacity.is_some();
             crate::asyncrt::select! {
                 _ = self.shared.stop.notified() => return Ok(()),
+                group = async { archive_capacity.as_mut().expect("armed archive capacity").await }, if capacity_armed => {
+                    let now = domain.mono_ms().map_err(|_| CellGroupControllerError::Closed)?;
+                    self.archives.wake_capacity(group, now);
+                },
                 _ = domain.wait_for_work() => return Err(CellGroupControllerError::Closed),
                 _ = timer => {
                     self.progress.send_replace(());
@@ -453,10 +459,13 @@ impl Worker {
                 event = self.events.recv() => {
                     let event = event.ok_or(CellGroupControllerError::Closed)?;
                     let group = event.group();
-                    if !self.roster.contains_key(&group) && (self.shared.groups.retired(&group)
-                        || self.runtime.log().source_reclamation(group).await.map_err(RuntimeError::from)?.is_some()) {
+                    if !self.roster.contains_key(&group) && (self.shared.groups.detached(&group)
+                        || self.runtime.log().source_reclamation(group).await.map_err(RuntimeError::from)?.is_some()
+                        || self.runtime.log().member_reclamation(group).await.map_err(RuntimeError::from)?.is_some_and(|ack| ack.record().complete)) {
                         // Metadata/messages can have been delivered before the
                         // runtime detached. Apply tickets prevent physical join.
+                        // After volatile reclamation, the typed engine receipt
+                        // verifies the exact history, node, disk and old key.
                         if event.retain_apply().is_some() { return Err(CellGroupControllerError::Invalid("retired source apply event")); }
                         continue;
                     }

@@ -55,6 +55,9 @@ fn dispatch_failure(sql: &str) -> Result<Option<anyhow::Error>> {
     })
 }
 
+#[path = "support/sql_read_only_binding.rs"]
+mod read_only;
+
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         event_streams: Vec::new(),
@@ -387,6 +390,8 @@ async fn check_binding(context: Context) -> Result<Output> {
         .is_err());
     // first() must retain only one row even when its source exceeds the cap.
     assert_eq!(database.prepare("WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<100001) SELECT n FROM seq").first(&context,Some("n")).await?,Some(json!(1)));
+    read_only::check(&context).await?;
+    read_only::check_sdk(&context).await?;
     // Neither lost response authorizes replaying the SQL as a fresh call.
     use cellar::sdk::{consensus::*, CellBindingCallError, CellBindingEnrollmentError};
     use std::error::Error as _;
@@ -470,6 +475,14 @@ async fn run_raft_sql_fence() -> Result<()> {
                 .ok_or_else(|| anyhow!("stateless SQL used Fleet egress"))?;
             assert!(error.to_string().contains("Unavailable"), "{error}");
             let error = context
+                .sql("DB")?
+                .prepare_read_only("SELECT 1")
+                .all(&context)
+                .await
+                .err()
+                .ok_or_else(|| anyhow!("read-only Raft SQL used Fleet egress"))?;
+            assert!(error.to_string().contains("Unavailable"), "{error}");
+            let error = context
                 .fetch_cell(
                     cellar::engine_api::sql_cell_scope(IDENTITY),
                     Some(IDENTITY.into()),
@@ -505,7 +518,9 @@ async fn run_raft_sql_fence() -> Result<()> {
             Arc::new(application) as Arc<dyn cellar::application::Application>,
         )]),
     )?;
-    let directory = tempfile::tempdir()?;
+    let mut directory = tempfile::tempdir()?;
+    directory.disable_cleanup(true);
+    eprintln!("retained native SQL disk: {}", directory.path().display());
     let runtime = RuntimeManager::start(
         generation,
         RuntimeOptions {
@@ -526,21 +541,23 @@ async fn run_raft_sql_fence() -> Result<()> {
         b"fenced"
     );
     let scope = cellar::engine_api::sql_cell_scope(IDENTITY);
-    open(&runtime, &scope).await?;
-    let result = runtime
-        .rpc(
-            scope.clone(),
-            Some(IDENTITY.into()),
-            "__sqlQuery".into(),
-            RpcData::Json(r#"[{"sql":"SELECT 1","params":[],"first":false}]"#.into()),
-            Some(cellar::engine_api::next_request_id()),
-        )
-        .await;
-    runtime.swap_out_cell(&scope, 1).await?;
-    let error = result
-        .err()
-        .ok_or_else(|| anyhow!("Raft SQL executed on Fleet storage"))?;
-    assert!(error.to_string().contains("WrongMode"), "{error:#}");
+    for method in ["__sqlQuery", "__sqlRead"] {
+        open(&runtime, &scope).await?;
+        let result = runtime
+            .rpc(
+                scope.clone(),
+                Some(IDENTITY.into()),
+                method.into(),
+                RpcData::Json(r#"[[{"sql":"SELECT 1","params":[],"first":false}]]"#.into()),
+                Some(cellar::engine_api::next_request_id()),
+            )
+            .await;
+        runtime.swap_out_cell(&scope, 1).await?;
+        let error = result
+            .err()
+            .ok_or_else(|| anyhow!("Raft SQL executed on Fleet storage"))?;
+        assert!(error.to_string().contains("WrongMode"), "{error:#}");
+    }
     Ok(())
 }
 
@@ -580,7 +597,9 @@ async fn run_native_sql_test() -> Result<()> {
         .reserved_classes()
         .iter()
         .any(|class| class == cellar::deploy::SQL_CLASS));
-    let directory = tempfile::tempdir()?;
+    let mut directory = tempfile::tempdir()?;
+    directory.disable_cleanup(true);
+    eprintln!("retained native SQL disk: {}", directory.path().display());
     let runtime = RuntimeManager::start(
         generation,
         RuntimeOptions {

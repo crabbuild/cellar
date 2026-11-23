@@ -181,3 +181,125 @@ async fn qualify_outbox(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
         })
         .await
 }
+
+/// Exercise the artifact boundary with real managed voters. Raw synthetic bytes
+/// remain in the private memory snapshot, while the CI report stays metadata-only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn zz_failure_diagnostics_keep_private_bytes_and_canonical_state() -> Result<()> {
+    qualify_failure_observations(&[]).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn zz_six_node_failure_observations_preserve_canonical_state() -> Result<()> {
+    qualify_failure_observations(&[10, 11, 12]).await
+}
+
+async fn qualify_failure_observations(extra_nodes: &[u8]) -> Result<()> {
+    use bootstrap::transition::diagnostics::{memory, observations};
+    use managed_fixture::ManagedCluster;
+    use object_store::ObjectStore as _;
+    let mut cluster = Box::pin(ManagedCluster::start(false, extra_nodes)).await?;
+    let expected_nodes = 3 + extra_nodes.len();
+    for root in &mut cluster.roots {
+        root.disable_cleanup(true);
+        eprintln!(
+            "retained managed transition disk: {}",
+            root.path().display()
+        );
+    }
+    let checked = async {
+        let fixture = &cluster.fixtures[0];
+        let key = object_store::path::Path::from("diagnostic-private/sentinel");
+        let private_bytes = b"test-only-private-object-not-for-ci";
+        fixture
+            .store
+            .inner
+            .put(&key, private_bytes.to_vec().into())
+            .await?;
+        let before = fixture.catalog.read(TIMEOUT).await?.revision();
+        let directory = fixture
+            .domain
+            .run(cluster.directory.observe())
+            .await??
+            .digest();
+        managed_fixture::operator::qualify_seal_observation(fixture, &cluster.directory).await?;
+        observations(&cluster).await?;
+        memory(&fixture.store, cluster.roots[0].path(), "control").await?;
+        let report = std::fs::read(
+            cluster.roots[0]
+                .path()
+                .join("transition-failure-observations.json"),
+        )?;
+        ensure!(!report
+            .windows(private_bytes.len())
+            .any(|bytes| bytes == private_bytes));
+        let report: serde_json::Value = serde_json::from_slice(&report)?;
+        ensure!(report["format"] == 1 && report["transactional"] == false);
+        ensure!(report["catalog_revision"] == before);
+        let expected = [
+            "case",
+            "catalog_revision",
+            "control_before_probes",
+            "format",
+            "nodes",
+            "physical",
+            "sample_phase",
+            "transactional",
+        ];
+        let keys = report.as_object().context("observation object")?;
+        ensure!(keys.len() == expected.len() && expected.iter().all(|key| keys.contains_key(*key)));
+        let nodes = report["nodes"].as_array().context("node observations")?;
+        let physical = report["physical"]
+            .as_array()
+            .context("physical observations")?;
+        ensure!(nodes.len() == expected_nodes && nodes.iter().all(|row| row["available"] == true));
+        ensure!(
+            physical.len() == expected_nodes
+                && physical.iter().all(|row| row["available"] == true
+                    && row["histories"].as_u64().is_some()
+                    && row["initializing"] == false)
+        );
+        ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == before);
+        ensure!(
+            fixture
+                .domain
+                .run(cluster.directory.observe())
+                .await??
+                .digest()
+                == directory
+        );
+        let snapshot = cluster.roots[0].path().join("transition-memory-control");
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(snapshot.join("manifest.json"))?)?;
+        let object = manifest["objects"]
+            .as_array()
+            .context("memory inventory")?
+            .iter()
+            .find(|row| row["object"] == key.as_ref())
+            .context("retained private object")?;
+        let file = object["file"].as_str().context("private object filename")?;
+        ensure!(!file.contains('/') && !file.contains('\\'));
+        ensure!(std::fs::read(snapshot.join(file))? == private_bytes);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let joined = futures_util::future::join_all(
+        std::mem::take(&mut cluster.nodes)
+            .into_iter()
+            .zip(&cluster.hosts)
+            .map(|(node, host)| async move {
+                ensure!(matches!(
+                    node.shutdown(ShutdownMode::Preserve).await?,
+                    NodeOutcome::Stopped(_)
+                ));
+                Ok::<_, anyhow::Error>(host.close().await?)
+            }),
+    )
+    .await;
+    cluster.fixtures[0].domain.shutdown().await;
+    checked?;
+    for report in joined {
+        report?;
+    }
+    Ok(())
+}

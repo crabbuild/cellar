@@ -72,7 +72,30 @@ impl CellCommandInvocation {
         })
     }
 
+    pub(super) fn output_performance(
+        &self,
+    ) -> Result<Arc<crate::raft::performance::Registry>, CellDispatchError> {
+        Ok(self
+            .output
+            .as_ref()
+            .ok_or(CellDispatchError::Invalid("missing committed output"))?
+            .runtime
+            .log()
+            .performance()
+            .clone())
+    }
+
     pub(super) async fn finish_output(&mut self) -> Result<CellCommandResponse, CellDispatchError> {
+        let performance = self.output_performance()?;
+        performance
+            .measure(
+                crate::raft::performance::Operation::CellCommandOutputCheck,
+                self.check_output(),
+            )
+            .await
+    }
+
+    async fn check_output(&mut self) -> Result<CellCommandResponse, CellDispatchError> {
         let output = self
             .output
             .as_ref()
@@ -101,8 +124,15 @@ impl CellCommandInvocation {
             ));
         }
         output
-            .proof
-            .require_current(&self.dispatcher.domain, self.session.deadline_ms())
+            .runtime
+            .log()
+            .performance()
+            .measure(
+                crate::raft::performance::Operation::CellCommandS3Freshness,
+                output
+                    .proof
+                    .require_current(&self.dispatcher.domain, self.session.deadline_ms()),
+            )
             .await?;
         authority.check().map_err(CellDispatchError::Runtime)?;
         let token = self.output_token(&output.receipt).await?;

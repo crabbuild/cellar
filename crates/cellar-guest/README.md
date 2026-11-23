@@ -280,6 +280,12 @@ Native mutation             Result encoding / delivery          Caller
 An unavailable result is not evidence that the mutation was undone.
 ```
 
+Workers SQL is bounded by both adapter cursor capacity and the executing storage
+view's native statement policy. Only the native `SqlCursorRefusal` from checks
+before preparing or stepping the request is a validation refusal. A later failure
+can follow an executed SQL prefix or written result and remains unknown, even
+when it reports the same quota text.
+
 Only attach the `failure::Validation` marker to errors proven to occur before
 effects. Wrapping an arbitrary backend error with it would incorrectly claim
 `not_committed`. Adapter-level refusals such as expired contexts are handled by

@@ -5,11 +5,15 @@
 use super::*;
 use crate::raft::cell_groups::{
     CellCommandRequest, CellCommandResponse, CellEffectAuthority, CellReadConsistency,
-    CellRoutingLimits,
+    CellRoutingLimits, EffectSummary,
 };
 use crate::raft::effects::{outbox, scan::DueEffect, RaftDeliveryRequest, RaftEffectSink};
 use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
 use std::time::Duration;
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "turn_tests.rs"]
+mod tests;
 
 #[derive(Debug)]
 pub(super) enum Error {
@@ -66,6 +70,23 @@ fn effect(error: anyhow::Error) -> Error {
     )
 }
 
+fn native_callback_only(class: &RaftClass, effects: EffectSummary) -> bool {
+    // KV service operations and admitted KV bindings can journal payload
+    // dependencies. Their retirement is not represented in EffectSummary, so
+    // those cells must retain discovery even after their callback's SQL joins.
+    class.name() != crate::deploy::KV_CLASS
+        && class
+            .cell_binding_classes()
+            .is_none_or(|classes| !classes.contains(crate::deploy::KV_CLASS))
+        && class.alarm_limits().is_none()
+        && effects.next_alarm_unix_millis.is_some()
+        && effects.next_call_unix_millis.is_none()
+        && effects.next_outbox_unix_millis.is_none()
+        && effects.pending_calls == 0
+        && effects.pending_outbox == 0
+        && effects.pending_inbox == 0
+}
+
 pub(super) async fn run(
     group: GroupHistory,
     after: Option<CellId>,
@@ -88,6 +109,21 @@ pub(super) async fn run(
     }
     let cell = execution.cell().version.history.clone();
     *cursor = Some(cell.cell.clone());
+    // One physically retained callback already excludes another native work
+    // command for this cell. If that is the only possible due work, do not
+    // compete with foreground writers for a fresh barrier and SQL scan first.
+    // This is only a scheduling omission, never execution or output authority.
+    // Independent alarm capabilities, possible KV payload retirement and any
+    // binding/outbox/inbox work keep the ordinary scan; its exact callback
+    // check remains below as well.
+    if native_callback_only(&registration.class, execution.cell().effects)
+        && shared
+            .callback_cells
+            .contains(&cell)
+            .map_err(Error::Runtime)?
+    {
+        return Ok(());
+    }
     // Retain this coherent image and original leader fence through delivery.
     let sql = shared
         .sql

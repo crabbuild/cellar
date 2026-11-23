@@ -485,6 +485,9 @@ async fn partial_park_and_stale_certificate() -> Result<()> {
             ArchiveSetup::Disabled,
         ))
         .await?;
+        for root in &mut cluster.roots {
+            root.disable_cleanup(true);
+        }
         let result =
             std::panic::AssertUnwindSafe(Box::pin(exercise_interrupted_park(&mut cluster)))
                 .catch_unwind()

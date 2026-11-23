@@ -9,6 +9,10 @@ use crate::raft::transport::{GroupRoute, PhysicalRegistration};
 use cellar_logic::cell_group::GroupHistory;
 use tokio::sync::{mpsc, oneshot};
 
+#[cfg(test)]
+#[path = "registration_tests.rs"]
+mod tests;
+
 #[derive(Clone)]
 enum GroupState {
     Pending,
@@ -235,10 +239,10 @@ impl GroupRoster {
             .contains_key(group))
     }
 
-    pub(super) fn retired(&self, group: &GroupHistory) -> bool {
+    /// Both terminal states have joined their physical consensus owner. Queued
+    /// metadata can still arrive after the controller removes its applier.
+    pub(super) fn detached(&self, group: &GroupHistory) -> bool {
         self.groups.lock().is_ok_and(|groups| {
-            // Both joined retirement paths can leave metadata in the event
-            // queue. Neither state admits new dispatch or late apply tickets.
             matches!(
                 groups.entries.get(group),
                 Some(GroupState::ParkedRetired | GroupState::ParkedRemoved)
@@ -688,7 +692,7 @@ impl Completed {
 }
 
 #[cfg(test)]
-mod tests {
+mod partition_inventory_tests {
     use super::*;
     use cellar_logic::consensus::{ClusterId, GroupId, IncarnationId, NamespaceId};
 
@@ -718,21 +722,21 @@ mod tests {
         let active = history(3, 2);
         let unknown = history(4, 2);
         let roster = GroupRoster::new([removed, split, active].into_iter(), 8);
-        assert!(!roster.retired(&removed));
+        assert!(!roster.detached(&removed));
         assert!(!roster.begin_retirement(removed).unwrap());
         assert!(!roster.begin_retirement(split).unwrap());
         // Quiescing owners still have to drain their queued apply tickets.
-        assert!(!roster.retired(&removed));
+        assert!(!roster.detached(&removed));
         roster.finish_retirement(removed, true).unwrap();
         roster.finish_retirement(split, false).unwrap();
         // The controller may discard late metadata for either fully joined
         // owner, but neither owner becomes eligible for dispatch again.
-        assert!(roster.retired(&removed));
-        assert!(roster.retired(&split));
+        assert!(roster.detached(&removed));
+        assert!(roster.detached(&split));
         assert!(!roster.contains(&removed).unwrap());
         assert!(!roster.contains(&split).unwrap());
-        assert!(!roster.retired(&active));
-        assert!(!roster.retired(&unknown));
+        assert!(!roster.detached(&active));
+        assert!(!roster.detached(&unknown));
         assert!(roster.contains(&active).unwrap());
     }
 

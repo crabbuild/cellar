@@ -20,6 +20,8 @@ mod receipts;
 #[path = "cell_group_s3_remote.rs"]
 mod remote;
 use super::*;
+#[path = "cell_group_archive_retirement_coalescing.rs"]
+mod retirement;
 pub(crate) use enrollment::{
     enrollment_output_during_apply, s3_enrollment, s3_enrollment_deadline,
 };
@@ -32,8 +34,24 @@ pub(crate) use receipts::{
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
     s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
 };
-pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
+pub(crate) use remote::{
+    s3_remote_deadlines, s3_remote_outputs, s3_remote_receipt_reconciliation,
+    s3_remote_slow_delivery,
+};
+pub(crate) use retirement::retirement_coalesces_next_archive_intent;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[path = "cell_group_connection_idle.rs"]
+mod connection_idle;
+pub(crate) use connection_idle::peer_connection_idle;
+
+#[path = "cell_group_s3_capacity.rs"]
+mod capacity;
+pub(crate) use capacity::{s3_background_capacity_cadence, s3_capacity_release};
+
+#[path = "cell_group_s3_payload_capacity.rs"]
+mod payload_capacity;
+pub(crate) use payload_capacity::s3_payload_capacity_release;
 
 struct Harness {
     fixture: RuntimeCluster,
@@ -55,12 +73,23 @@ struct Harness {
 
 enum Resources {
     SlowMaintenance,
+    BackgroundCoalescing,
     DeferredBackground,
     QueuedBackgroundArchives,
     Retention(CellGroupLogRetentionLimits),
     Storage {
         root: tempfile::TempDir,
         filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    },
+    JournalStorage {
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    },
+    PayloadCapacity {
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        pool: CellGroupPayloadPool,
+        background: bool,
     },
 }
 
@@ -142,6 +171,31 @@ impl Harness {
         send_buffer: Option<u32>,
         resources: Option<Resources>,
     ) -> Result<Self> {
+        let background_coalescing = matches!(
+            resources,
+            Some(
+                Resources::BackgroundCoalescing
+                    | Resources::PayloadCapacity {
+                        background: true,
+                        ..
+                    }
+            )
+        );
+        let slow_maintenance = matches!(
+            resources,
+            Some(
+                Resources::SlowMaintenance
+                    | Resources::PayloadCapacity {
+                        background: false,
+                        ..
+                    }
+            )
+        );
+        let payloads = match &resources {
+            Some(Resources::PayloadCapacity { pool, .. }) => Some(pool.clone()),
+            _ => None,
+        };
+        let journal_storage = matches!(&resources, Some(Resources::JournalStorage { .. }));
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let initializations = Arc::new(AtomicUsize::new(0));
@@ -175,7 +229,7 @@ impl Harness {
         if queued_background {
             limits.max_groups = 3;
         }
-        if matches!(&resources, Some(Resources::SlowMaintenance)) || deferred_background {
+        if slow_maintenance || deferred_background {
             limits.retry_interval_ms = 60_000;
         }
         let (mut fixture, route, cell, _) = if let Some(Resources::Retention(retention)) = resources
@@ -203,8 +257,24 @@ impl Harness {
             ))
             .await?;
             Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?
-        } else if let Some(Resources::Storage { root, filesystem }) = resources {
-            let cluster = Cluster::with_store_birth(
+        } else if let Some(
+            Resources::Storage { root, filesystem }
+            | Resources::JournalStorage { root, filesystem }
+            | Resources::PayloadCapacity {
+                root, filesystem, ..
+            },
+        ) = resources
+        {
+            let domain = if journal_storage {
+                ExecutionDomain::with_filesystem(
+                    tokio::runtime::Handle::current(),
+                    filesystem.clone(),
+                    None,
+                )
+            } else {
+                ExecutionDomain::new(tokio::runtime::Handle::current())
+            };
+            let cluster = Cluster::with_store_birth_domain(
                 RaftRuntimeOptions::default(),
                 root,
                 filesystem.clone(),
@@ -220,6 +290,7 @@ impl Harness {
                     minimum,
                     log: ClusterLogLimits::default(),
                 },
+                domain,
             )
             .await?;
             Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?
@@ -231,6 +302,14 @@ impl Harness {
         };
         let (mut archive, remote) =
             archive_controller::registration_minimum(&fixture, &route, rooted, minimum).await?;
+        if let Some(payloads) = payloads {
+            archive.io = archive.io.with_payloads(payloads);
+        }
+        if background_coalescing {
+            archive.publisher = CellGroupArchivePublisher::GroupLeader {
+                retry_interval_ms: 500,
+            };
+        }
         if deferred_background {
             archive.publisher = CellGroupArchivePublisher::GroupLeader {
                 retry_interval_ms: 60_000,
@@ -374,6 +453,22 @@ impl Harness {
         Ok(self.controllers[0].command(invocation, options)?)
     }
 
+    fn command_phase(
+        &self,
+        name: &str,
+    ) -> Result<cellar::application::consensus::RaftOperationPerformance> {
+        let snapshot = self.fixture.cluster.voters[0].log.performance_snapshot();
+        anyhow::ensure!(
+            snapshot.available && !snapshot.saturated,
+            "phase observations unavailable"
+        );
+        snapshot
+            .operations
+            .into_iter()
+            .find(|phase| phase.name == name)
+            .with_context(|| format!("missing command phase {name}"))
+    }
+
     async fn waiting(&self) -> Result<()> {
         controller::wait_for(async || {
             Ok(self.controllers[0].usage().retained_s3 == 1
@@ -514,6 +609,64 @@ pub(crate) async fn follower_acquires_published_prefix(
     let closed = h.close().await;
     result?;
     closed
+}
+
+pub(crate) async fn follower_bootstraps_first_prefix(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?);
+    let (mut fixture, route, _, _) = Box::pin(registered::setup_store_minimum(
+        rooted,
+        &class,
+        store,
+        Durability::Quorum,
+    ))
+    .await?;
+    let (mut archive, _) =
+        archive_controller::registration_minimum(&fixture, &route, rooted, Durability::Quorum)
+            .await?;
+    archive.publisher = CellGroupArchivePublisher::GroupLeader {
+        retry_interval_ms: 100,
+    };
+    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    let result = async {
+        let before = fixture.runtimes[1].status(route.history).await?;
+        anyhow::ensure!(before.leader == Some(1), "actual follower required");
+        // Only this follower owns an archive registration. A fresh binding
+        // cannot depend on another replica restarting or receiving a command.
+        controllers[1].archive(archive)?.response().await?;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            archive_controller::published(&controllers[1], route.history, before.applied.index),
+        )
+        .await
+        .context("follower did not bootstrap the first archive within five seconds")??;
+        let after = fixture.runtimes[1].status(route.history).await?;
+        anyhow::ensure!(after.leader == Some(1) && after.term == before.term);
+        anyhow::ensure!(controllers[0].archive_status(route.history)?.is_none());
+        anyhow::ensure!(controllers[2].archive_status(route.history)?.is_none());
+        let marker = controllers[1]
+            .archive_status(route.history)?
+            .and_then(|status| status.published)
+            .context("verified follower archive")?;
+        anyhow::ensure!(marker.is_active() && marker.position() == before.applied);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let mut cleanup = Vec::new();
+    for (node, controller) in controllers.iter().enumerate() {
+        if let Err(error) = controller.close().await {
+            cleanup.push(format!("controller {node}: {error}"));
+        }
+    }
+    drop(controllers);
+    if let Err(error) = fixture.close().await {
+        cleanup.push(format!("fixture: {error:#}"));
+    }
+    result.with_context(|| format!("rooted={rooted}; cleanup={cleanup:?}"))?;
+    anyhow::ensure!(cleanup.is_empty(), "joined cleanup failed: {cleanup:?}");
+    Ok(())
 }
 
 pub(crate) async fn archive_progress_wakes_commands(rooted: bool) -> Result<()> {

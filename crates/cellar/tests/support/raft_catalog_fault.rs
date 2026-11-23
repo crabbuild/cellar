@@ -332,12 +332,20 @@ pub struct Store {
     pub denied_binding_settlement_writes: AtomicUsize,
     pub group_archive_writes: ArchiveWriteGate,
     pub denied_group_archive_writes: AtomicUsize,
+    pub group_archive_puts_hang: AtomicBool,
+    pub group_archive_puts_entered: AtomicUsize,
+    pub group_archive_puts_resume: tokio::sync::Notify,
     pub deny_registry_writes: std::sync::Arc<AtomicBool>,
     pub denied_registry_writes: AtomicUsize,
     pub registry_denial_on_payload_refusal: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
     pub range_before: RegistryGate,
+    pub range_tree_change: std::sync::Arc<RegistryGate>,
+    range_tree_before: std::sync::Mutex<Option<serde_json::Value>>,
+    pub routing_read_after: std::sync::Mutex<Option<(Path, std::sync::Arc<RegistryGate>)>>,
     pub range_genesis_after: RegistryGate,
     pub first_group_birth_after: RegistryGate,
+    pub range_head_reads: AtomicUsize,
+    pub range_page_reads: AtomicUsize,
     pub range_page_puts: AtomicUsize,
     pub fail_closure_after: AtomicBool,
     pub fail_fleet_before: AtomicBool,
@@ -475,6 +483,17 @@ fn failure() -> object_store::Error {
     }
 }
 
+// Only chooses a physical fault cut in the test adapter. Production readers
+// still validate the complete marker, record checksum and directory binding.
+fn range_tree(bytes: &[u8]) -> Option<serde_json::Value> {
+    let size = u32::from_be_bytes(bytes.get(9..13)?.try_into().ok()?) as usize;
+    if bytes.len() != size.checked_add(45)? {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes.get(13..13 + size)?).ok()?;
+    value.get("tree").cloned()
+}
+
 struct BirthWaiting<'a>(&'a AtomicBool);
 
 impl Drop for BirthWaiting<'_> {
@@ -484,6 +503,17 @@ impl Drop for BirthWaiting<'_> {
 }
 
 impl Store {
+    /// Hold the next real directory CAS that changes the selected range tree.
+    /// Phase-only journal writes retain that tree and cannot consume this cut.
+    #[allow(dead_code)]
+    pub async fn gate_range_tree_change(&self, head: &Path) -> object_store::Result<()> {
+        let bytes = self.backend().get(head).await?.bytes().await?;
+        let tree = range_tree(&bytes).ok_or_else(failure)?;
+        *self.range_tree_before.lock().unwrap() = Some(tree);
+        self.range_tree_change.armed.store(true, Ordering::Release);
+        Ok(())
+    }
+
     pub fn around(store: std::sync::Arc<dyn ObjectStore>) -> Self {
         Self {
             external: Some(store),
@@ -545,6 +575,21 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/cell-group-archives/")
+            && self.group_archive_puts_hang.load(Ordering::Acquire)
+        {
+            self.group_archive_puts_entered
+                .fetch_add(1, Ordering::AcqRel);
+            loop {
+                let resumed = self.group_archive_puts_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.group_archive_puts_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         // Only the archive export of a real settlement image triggers this
         // cut. No command/input/result callback is fabricated by the fixture.
         let settlement = b"__sys_raft_binding_settle";
@@ -608,6 +653,22 @@ impl ObjectStore for Store {
             && matches!(options.mode, PutMode::Update(_));
         if directory_cas {
             self.range_before.pause().await;
+            if self.range_tree_change.armed.load(Ordering::Acquire) {
+                let bytes: Vec<_> = payload
+                    .iter()
+                    .flat_map(|part| part.iter().copied())
+                    .collect();
+                let changed = range_tree(&bytes).is_some_and(|next| {
+                    self.range_tree_before
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .is_some_and(|old| old != &next)
+                });
+                if changed {
+                    self.range_tree_change.pause().await;
+                }
+            }
         }
         if path.as_ref().contains("/root-extents/") {
             self.root_extent_puts.fetch_add(1, Ordering::AcqRel);
@@ -909,6 +970,12 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().ends_with("/cell-groups/head") {
+            self.range_head_reads.fetch_add(1, Ordering::AcqRel);
+        }
+        if path.as_ref().contains("/cell-groups/ranges/") {
+            self.range_page_reads.fetch_add(1, Ordering::AcqRel);
+        }
         let mut observation = StoreObservation::start(self, path, "get");
         if path.as_ref().ends_with("/cell-groups/head") {
             self.group_head_read.pause().await;
@@ -1294,6 +1361,19 @@ impl ObjectStore for Store {
             observation.outcome = if result.is_ok() { "cancelled" } else { "error" };
         }
         let mut result = result?;
+        // Retain the real response selected by this GET, including its body and
+        // version, while a later CAS can advance the directory independently.
+        let gate = self
+            .routing_read_after
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(selected, _)| selected == path)
+            .map(|(_, gate)| gate.clone());
+        if let Some(gate) = gate {
+            gate.pause().await;
+        }
+
         let chunk_bytes = self.cell_payload_chunk_bytes.load(Ordering::Acquire);
         if path.as_ref().contains("/cell-payloads-1/")
             && !path.as_ref().contains("/cell-payloads-1/ownership/")

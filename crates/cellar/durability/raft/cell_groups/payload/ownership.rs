@@ -205,7 +205,6 @@ impl CellGroupPayloadStore {
         }
         let _permit = self
             .pool
-            .budget
             .acquire(MAX_CONTROL_BYTES * 3)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let deadline = self.deadline(timeout)?;
@@ -250,7 +249,6 @@ impl CellGroupPayloadStore {
         }
         let _permit = self
             .pool
-            .budget
             .acquire(MAX_CONTROL_BYTES * 3)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let deadline = self.deadline(timeout)?;
@@ -467,7 +465,6 @@ impl CellGroupPayloadStore {
     ) -> Result<()> {
         let _permit = self
             .pool
-            .budget
             .acquire(MAX_CONTROL_BYTES * 3)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let deadline = self.deadline(timeout)?;
@@ -544,7 +541,6 @@ impl CellGroupPayloadStore {
         }
         let _permit = self
             .pool
-            .budget
             .acquire(MAX_CONTROL_BYTES * 3 + max_objects * 512)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let deadline = self.deadline(timeout)?;
@@ -585,7 +581,6 @@ impl CellGroupPayloadStore {
     pub async fn release(&self, hold: &CellGroupPayloadHold, timeout: Duration) -> Result<()> {
         let _permit = self
             .pool
-            .budget
             .acquire(MAX_CONTROL_BYTES * 3)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let deadline = self.deadline(timeout)?;
@@ -613,7 +608,6 @@ impl CellGroupPayloadStore {
     ) -> Result<()> {
         let _permit = self
             .pool
-            .budget
             .acquire(MAX_CONTROL_BYTES * 3)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let deadline = self.deadline(timeout)?;
@@ -647,7 +641,6 @@ impl CellGroupPayloadStore {
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let _permit = self
             .pool
-            .budget
             .acquire(workspace)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let deadline = self.deadline(timeout)?;

@@ -11,8 +11,8 @@ mod backend_control;
 const ENTRY_LIMIT: usize = 9;
 const OFFLINE_COMMANDS: u64 = 6;
 
-// One offline mutation comes from a separate remote command stream. Keep the
-// same six callback mutations and nine-entry debt ceiling, with no stream gap.
+// One offline callback belongs to the independent remote client, so the local
+// client's next sequence equals the total number of offline callbacks.
 const REFUSED_COMMAND: u64 = OFFLINE_COMMANDS;
 
 async fn gateway(
@@ -211,8 +211,8 @@ async fn run(
     archive_controller::published(&h.controllers[0], h.route.history, warm_index).await?;
     let gateway_store = archive_controller::archive_store::Store::around(global.clone());
     let remote = remote::Remote::start(&h, gateway(&h, gateway_store.clone()).await?).await?;
-    // A trusted warm route remains usable during archive outage. An originating
-    // dispatcher without that route must still discover it before transmission.
+    // A selected receiver uses its active local manifest. A separate cold
+    // ingress still needs actual catalog discovery before selecting a route.
     let found = remote::command_using(
         &h,
         &remote,
@@ -226,8 +226,10 @@ async fn run(
     assert_eq!(found.result(), b"warm");
     drop(found);
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
-    let cold_origin = gateway(&h, gateway_store.clone()).await?;
     let fresh_gets = gateway_store.gets.load(Ordering::SeqCst);
+    let cold_store = archive_controller::archive_store::Store::around(global.clone());
+    let cold_dispatcher = gateway(&h, cold_store.clone()).await?;
+    let cold_gets = cold_store.gets.load(Ordering::SeqCst);
     let probe = ObjectPath::from("backend-probe");
     let probe_bytes = vec![29_u8; 128];
     global
@@ -267,10 +269,16 @@ async fn run(
         fresh_gets,
         "trusted cached receipt retry must not depend on S3"
     );
-    let mut undiscovered = cold_origin
+    let mut cold = cold_dispatcher
         .command(
             h.cell.clone(),
-            remote::command_request(&h, 1, b"warm", Durability::Quorum)?,
+            CellCommandRequest {
+                id: CommandId::new(ClientId::new([186; 16])?, 1)?,
+                contract: h.class.contract("Add").context("Add")?,
+                input: b"cold-outage".to_vec(),
+                durability: Durability::Quorum,
+                retry_until_ms: h.retry_until,
+            },
             CellRoutingLimits {
                 timeout: Duration::from_secs(15),
                 max_attempts: 4,
@@ -278,16 +286,16 @@ async fn run(
             None,
         )
         .await?;
-    let discovery = undiscovered
+    let error = cold
         .begin()
         .await
         .err()
-        .context("unknown route must refuse fresh discovery during S3 outage")?;
-    assert!(!discovery.ambiguous);
-    assert!(gateway_store.gets.load(Ordering::SeqCst) > fresh_gets);
+        .context("cold ingress must refuse unavailable discovery")?;
+    assert!(!error.ambiguous);
+    assert!(matches!(*error.cause, CellDispatchError::Routing(_)));
+    assert!(cold_store.gets.load(Ordering::SeqCst) > cold_gets);
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
-    drop(undiscovered);
-    let after_discovery = gateway_store.gets.load(Ordering::SeqCst);
+    drop(cold);
 
     let remote_request = CellCommandRequest {
         id: CommandId::new(ClientId::new([187; 16])?, 1)?,
@@ -312,15 +320,11 @@ async fn run(
     let accepted = remote_invocation
         .execute_remote(remote.transport(), MemberId::new(1)?)
         .await?;
-    assert_eq!(accepted.result(), b"remote-outage");
     assert_eq!(accepted.durability(), Durability::Quorum);
-    drop(accepted);
-    assert_eq!(
-        gateway_store.gets.load(Ordering::SeqCst),
-        after_discovery,
-        "authenticated known-route reception must use replicated destination authority"
-    );
+    assert_eq!(accepted.result(), b"remote-outage");
+    assert_eq!(gateway_store.gets.load(Ordering::SeqCst), fresh_gets);
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
+    drop(accepted);
 
     let pending = h
         .command(2, b"archive-wait", Durability::S3, Duration::from_secs(2))
@@ -341,6 +345,8 @@ async fn run(
             .is_err()
     );
     let mut latest = warm_index;
+    // The selected remote command is one of the original six offline callbacks.
+    // Keep the same nine-entry ceiling and total load at that ceiling.
     for sequence in 3..OFFLINE_COMMANDS {
         let response = h
             .command(
@@ -386,10 +392,13 @@ async fn run(
         .await
         .err()
         .context("retention ceiling must refuse new command")?;
-    assert!(matches!(
-        refused.cause.as_ref(),
-        CellDispatchError::Execution(ExecutionError::Refused(CommandFailure::Overloaded))
-    ));
+    assert!(
+        matches!(
+            refused.cause.as_ref(),
+            CellDispatchError::Execution(ExecutionError::Refused(CommandFailure::Overloaded))
+        ),
+        "retention ceiling refusal: {refused}"
+    );
     assert_eq!(h.calls.load(Ordering::SeqCst) as u64, OFFLINE_COMMANDS);
     initialize_at_capacity(&h).await?;
     let known = h

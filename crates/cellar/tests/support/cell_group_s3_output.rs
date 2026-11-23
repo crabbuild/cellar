@@ -2,6 +2,7 @@
 
 //! A resolved SQL producer cannot be reconciled again during S3 output fencing.
 use super::*;
+use futures_util::FutureExt;
 
 pub(crate) async fn output_during_apply(rooted: bool) -> Result<()> {
     for duplicate in [false, true] {
@@ -37,12 +38,13 @@ async fn run(
     independent: bool,
     store: Arc<dyn object_store::ObjectStore>,
 ) -> Result<()> {
-    let root = tempfile::tempdir()?;
+    let mut root = tempfile::tempdir()?;
+    root.disable_cleanup(true);
     let faults = apply_faults::physical::Faults::new(root.path().join("node-1/pages"), None);
     let filesystem = Arc::new(apply_faults::physical::FaultFileSystem {
         faults: faults.clone(),
     });
-    let mut h = Harness::configured_resources(
+    let h = Harness::configured_resources(
         rooted,
         store,
         2,
@@ -52,7 +54,7 @@ async fn run(
         Some(Resources::Storage { root, filesystem }),
     )
     .await?;
-    let work = async {
+    let work = std::panic::AssertUnwindSafe(async {
         let publication = h.remote.hold_publication();
 
         struct Publication(Arc<archive_controller::archive_store::Gate>);
@@ -86,6 +88,10 @@ async fn run(
             );
             drop(first);
         }
+        let before_local = h.command_phase("cell_command_local")?;
+        let before_coverage = h.command_phase("cell_command_s3_coverage")?;
+        let before_output = h.command_phase("cell_command_output_check")?;
+        let before_freshness = h.command_phase("cell_command_s3_freshness")?;
         let call = h
             .command(
                 1,
@@ -96,6 +102,23 @@ async fn run(
             .await?;
         tokio::time::timeout(Duration::from_secs(5), publication.entered.notified()).await?;
         h.waiting().await?;
+        let coverage = h.command_phase("cell_command_s3_coverage")?;
+        assert_eq!(coverage.started, before_coverage.started + 1);
+        assert_eq!(coverage.succeeded, before_coverage.succeeded);
+        assert_eq!(coverage.failed, before_coverage.failed);
+        assert_eq!(coverage.abandoned, before_coverage.abandoned);
+        assert_eq!(
+            h.command_phase("cell_command_output_check")?.started,
+            before_output.started
+        );
+        assert_eq!(
+            h.command_phase("cell_command_s3_freshness")?.started,
+            before_freshness.started
+        );
+        assert_eq!(
+            h.command_phase("cell_command_local")?.succeeded,
+            before_local.succeeded
+        );
 
         // The first producer has retired. Hold a later cell's real manifest sync,
         // without enlarging the one-item SQL admission or changing the old image.
@@ -214,6 +237,21 @@ async fn run(
                 .get(),
             2
         );
+        for before in [&before_local, &before_coverage] {
+            let after = h.command_phase(before.name)?;
+            assert_eq!(after.started, before.started + 1);
+            assert_eq!(after.succeeded, before.succeeded + 1);
+            assert_eq!(after.failed, before.failed);
+            assert_eq!(after.abandoned, before.abandoned);
+        }
+        let output = h.command_phase("cell_command_output_check")?;
+        assert!(output.started > before_output.started);
+        assert_eq!(output.succeeded, before_output.succeeded + 1);
+        assert_eq!(output.abandoned, before_output.abandoned);
+        let freshness = h.command_phase("cell_command_s3_freshness")?;
+        assert!(freshness.succeeded > before_freshness.succeeded);
+        assert_eq!(freshness.failed, before_freshness.failed);
+        assert_eq!(freshness.abandoned, before_freshness.abandoned);
         drop(receipt);
         let retry = h
             .command(
@@ -245,13 +283,17 @@ async fn run(
             );
         }
         Ok::<_, anyhow::Error>(())
-    }
+    })
+    .catch_unwind()
     .await;
-    if work.is_err() {
-        let root = std::mem::replace(&mut h.fixture.cluster._root, tempfile::tempdir()?);
-        eprintln!("retained S3 output disk: {}", root.keep().display());
+    let closed = h.close().await;
+    match work {
+        Ok(result) => result.and(closed),
+        Err(panic) => {
+            if let Err(error) = closed {
+                eprintln!("S3 output fixture cleanup after panic failed: {error}");
+            }
+            std::panic::resume_unwind(panic)
+        }
     }
-    let cleanup = h.close().await;
-    work?;
-    cleanup
 }

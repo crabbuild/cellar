@@ -2,6 +2,8 @@
 
 //! Physical reclamation must preserve other groups and an uncommitted suffix.
 use super::*;
+use cellar::application::consensus::verification::{RaftSegmentId, RaftSegmentQueue};
+use raft_engine::FileNameExt as _;
 use std::collections::BTreeMap;
 
 fn payload(group: u8, index: u64) -> Vec<u8> {
@@ -18,7 +20,7 @@ fn payload(group: u8, index: u64) -> Vec<u8> {
         .collect()
 }
 
-fn inventory(path: &Path) -> Result<BTreeMap<std::ffi::OsString, u64>> {
+pub(super) fn inventory(path: &Path) -> Result<BTreeMap<std::ffi::OsString, u64>> {
     let mut files = BTreeMap::new();
     for entry in std::fs::read_dir(path.join("log"))? {
         let entry = entry?;
@@ -82,6 +84,26 @@ async fn idle_worker_reclaims_compacted_files_and_preserves_other_groups() -> Re
     let mut write = GroupWrite::new(&group);
     write.snapshot = Some(SnapshotChange::Checkpoint(snapshot));
     log.persist(OperationId::new(67), vec![write]).await?;
+    let initial = log.segment_inventory().await?;
+    let directory_files = inventory(&path)?;
+    ensure!(initial.files().len() == directory_files.len());
+    ensure!(initial.bytes == directory_files.values().sum::<u64>());
+    for file in initial.files() {
+        ensure!(
+            directory_files.get(&std::ffi::OsString::from(file.id.build_file_name()))
+                == Some(&file.bytes)
+        );
+    }
+    // A complete inventory cannot silently discard an unaccounted segment.
+    let orphan = path
+        .join("log")
+        .join(RaftSegmentId::new(RaftSegmentQueue::Append, 999_999).build_file_name());
+    std::fs::write(&orphan, b"unaccounted segment")?;
+    ensure!(matches!(
+        log.segment_inventory().await,
+        Err(LogError::Corrupt(_))
+    ));
+    std::fs::remove_file(orphan)?;
     log.close().await?;
     let before = inventory(&path)?;
     let before_bytes: u64 = before.values().sum();
@@ -93,12 +115,22 @@ async fn idle_worker_reclaims_compacted_files_and_preserves_other_groups() -> Re
     let log = start(&domain, configuration.clone(), Arc::new(DirectFileSystem)).await?;
     let reclaimed = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let after = inventory(&path)?;
-            let after_bytes: u64 = after.values().sum();
-            if after_bytes < before_bytes * 3 / 4
-                && before.keys().any(|name| !after.contains_key(name))
+            let after = log.segment_inventory().await?;
+            if after.bytes < before_bytes * 3 / 4
+                && initial.files().iter().any(|old| {
+                    after
+                        .files()
+                        .binary_search_by_key(&old.id, |file| file.id)
+                        .is_err()
+                })
             {
-                break Ok::<_, anyhow::Error>((after.len(), after_bytes));
+                ensure!(after.node == initial.node && after.disk == initial.disk);
+                ensure!(after.engine == initial.engine && after.process == configuration.process);
+                ensure!(
+                    after.process != initial.process
+                        && after.durable_sequence > initial.durable_sequence
+                );
+                break Ok::<_, anyhow::Error>((after.files().len(), after.bytes));
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -147,43 +179,75 @@ async fn idle_worker_reclaims_compacted_files_and_preserves_other_groups() -> Re
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn scheduled_purge_failure_closes_and_joins_storage_before_reopen() -> Result<()> {
-    let directory = tempfile::tempdir()?;
+    let mut directory = tempfile::tempdir()?;
+    directory.disable_cleanup(true);
+    eprintln!(
+        "retained eligible purge disk: {}",
+        directory.path().display()
+    );
     let path = directory.path().join("node");
+    // Periodic maintenance requires actual eligible work. Preserve the synced
+    // history before installing the failure on its next physical purge owner.
+    seed_purge(&path).await?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let gate = Gate::new(None);
-    let mut configuration = options(&path, LogOpenMode::Create, 1);
+    let mut configuration = purge_options(&path, LogOpenMode::Resume, 2);
     configuration.purge_interval_ms = Some(20);
-    let log = start(
-        &domain,
-        configuration,
-        Arc::new(FaultFileSystem { gate: gate.clone() }),
-    )
-    .await?;
-    let group = log.create_group(bootstrap(10)).await?;
-    let _release = gate.arm(FAIL_SYNC);
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while group.applied().is_ok() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
+    let checked = async {
+        let log = start(
+            &domain,
+            configuration,
+            Arc::new(FaultFileSystem { gate: gate.clone() }),
+        )
+        .await?;
+        let release = gate.arm(FAIL_SYNC);
+        let observed = async {
+            let group = log.group(&bootstrap(10).scope)?;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while group.applied().is_ok() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await?;
+            Ok::<_, anyhow::Error>(())
         }
-    })
-    .await?;
-    ensure!(matches!(log.close().await, Err(LogError::Io(_))));
-    ensure!(log
-        .performance_snapshot()
-        .operations
-        .iter()
-        .any(|op| op.name == "engine_purge" && op.failed == 1));
-    // The failed maintenance pass returns only after releasing the engine and
-    // directory lock. Its synced group must still recover under a new owner.
-    let log = start(
-        &domain,
-        options(&path, LogOpenMode::Resume, 2),
-        Arc::new(DirectFileSystem),
-    )
-    .await?;
-    let group = log.group(&bootstrap(10).scope)?;
-    ensure!(group.first_index()? == 2 && group.applied()?.position.index.get() == 1);
-    log.close().await?;
+        .await;
+        let closed = log.close().await;
+        drop(release);
+        observed?;
+        ensure!(matches!(closed, Err(LogError::Io(_))));
+        ensure!(log
+            .performance_snapshot()
+            .operations
+            .iter()
+            .any(|op| op.name == "engine_purge" && op.failed == 1));
+        // The failed pass must release its engine/directory lock before the
+        // same disk reopens, preserving the full original committed history.
+        let log = start(
+            &domain,
+            options(&path, LogOpenMode::Resume, 3),
+            Arc::new(DirectFileSystem),
+        )
+        .await?;
+        let recovered = (|| {
+            let group = log.group(&bootstrap(10).scope)?;
+            ensure!(group.first_index()? == 2 && group.applied()?.position.index.get() == 1);
+            ensure!(group.initial_state()?.hard_state.commit == 17);
+            let entries = group.entries(2, 18, None, GetEntriesContext::empty(false))?;
+            ensure!(
+                entries.len() == 16
+                    && entries
+                        .iter()
+                        .all(|entry| { entry.data.iter().all(|byte| *byte == entry.index as u8) })
+            );
+            Ok::<_, anyhow::Error>(())
+        })();
+        let closed = log.close().await;
+        recovered?;
+        closed?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
     domain.shutdown().await;
-    Ok(())
+    checked
 }

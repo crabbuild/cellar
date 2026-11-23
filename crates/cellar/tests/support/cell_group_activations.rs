@@ -5,6 +5,9 @@
 use super::*;
 use cellar::sdk::ShutdownMode;
 
+#[path = "cell_group_activation_conflicts.rs"]
+mod conflicts;
+
 struct WarmCell {
     storage: Storage,
     turns: AtomicUsize,
@@ -104,6 +107,18 @@ fn usage(host: &RaftCells, idle: usize, retained: usize) -> Result<()> {
 }
 
 pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode(rooted, store, false).await
+}
+
+pub async fn known_conflict(rooted: bool) -> Result<()> {
+    run_mode(rooted, Arc::new(catalog_fault::Store::default()), true).await
+}
+
+async fn run_mode(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    conflict_only: bool,
+) -> Result<()> {
     let constructors = Arc::new(AtomicUsize::new(0));
     let counted = constructors.clone();
     let workers = Arc::new(Mutex::new(std::collections::HashSet::new()));
@@ -148,18 +163,30 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     let mut deployment_options = configuration::options("warm-cell-service");
     deployment_options.vars = vec![("COUNT_STEP".into(), "1".into())];
     application.validate_deployment(&configuration::deployment(deployment_options.clone()))?;
+    let observed = conflict_only.then(|| Arc::new(conflicts::Files::new(rooted)));
     let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
     fixture.configuration = Some(deployment_options);
     ensure!(fixture.sql_workers == 2);
-    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
-        fixture,
-        &[],
-        ArchiveSetup::Initialized,
-        false,
-        None,
-        FirstGroupSetup::Normal,
-    ))
-    .await?;
+    let mut cluster = match &observed {
+        Some(observed) => {
+            Box::pin(ManagedCluster::start_with_filesystems(
+                fixture,
+                vec![observed.clone(); 3],
+            ))
+            .await?
+        }
+        None => {
+            Box::pin(ManagedCluster::start_with_applications(
+                fixture,
+                &[],
+                ArchiveSetup::Initialized,
+                false,
+                None,
+                FirstGroupSetup::Normal,
+            ))
+            .await?
+        }
+    };
     let domain = cluster.fixtures[0].domain.clone();
     let work = domain
         .run(async {
@@ -172,7 +199,7 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 .activation_capacity;
             ensure!(capacity == 8);
             let mut cells = Vec::new();
-            for index in 0..=capacity {
+            for index in 0..if conflict_only { 1 } else { capacity + 1 } {
                 let cell = cluster.hosts[leader].cell(CellHistory {
                     cluster: group.cluster,
                     namespace: group.namespace,
@@ -201,6 +228,18 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             ensure!(
                 serde_json::from_slice::<serde_json::Value>(&first.result)? == json!([1, 1, 1])
             );
+            if let Some(observed) = &observed {
+                usage(&cluster.hosts[leader], 1, 1)?;
+                let opened = observed.opens();
+                ensure!(opened > 0, "observer must see the real first writer");
+                for input in [b"{\"conflict\":1}".to_vec(), b"{\"conflict\":2}".to_vec()] {
+                    let error = cells[0].command(&cells[0].contract("Tick")?, input, first_options.clone()).await.err().context("conflicting receipt must refuse")?;
+                    ensure!(matches!(error.cause.refusal(), Some(CommandFailure::CommandConflict)));
+                    ensure!(observed.opens() == opened, "known committed conflict reopened private SQLite: rooted={rooted} before={opened} after={}", observed.opens());
+                    ensure!(constructors.load(Ordering::Acquire) == 1);
+                    usage(&cluster.hosts[leader], 1, 1)?;
+                }
+            }
             let replay = cells[0]
                 .command(
                     &cells[0].contract("Tick")?,
@@ -212,6 +251,18 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             tick(&cells[0], 191, json!([1, 2, 2])).await?;
             ensure!(constructors.load(Ordering::Acquire) == 1);
             usage(&cluster.hosts[leader], 1, 1)?;
+            if conflict_only {
+                let observed = observed.as_ref().context("physical writer observer")?;
+                let before = observed.opens();
+                let error = cells[0].command(&cells[0].contract("Tick")?, b"{\"old\":true}".to_vec(), first_options).await.err().context("older conflict must refuse")?;
+                ensure!(matches!(error.cause.refusal(), Some(CommandFailure::CommandConflict)));
+                ensure!(observed.opens() > before, "an older receipt still takes normal inspection");
+                tick(&cells[0], 192, json!([1, 3, 3])).await?;
+                ensure!(constructors.load(Ordering::Acquire) == 1);
+                usage(&cluster.hosts[leader], 1, 1)?;
+                eprintln!("cached conflict work: rooted={rooted} known_conflicts=2 known_conflict_private_opens=0 later_private_opens={}", observed.opens() - before);
+                return Ok(());
+            }
             for cell in cells.iter().skip(1) {
                 tick(cell, 190, json!([1, 1, 1])).await?;
             }

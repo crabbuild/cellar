@@ -22,8 +22,11 @@ impl PaginatedListStore for NoListing {
 
 #[derive(Clone)]
 pub struct Fixture {
+    pub(super) peer_ports: Arc<super::peer_ports::PeerPorts>,
     pub domain: Arc<ExecutionDomain>,
     pub store: Arc<fault::Store>,
+    /// Optional fault adapter for this host over the shared backing store.
+    pub host_store: Option<Arc<fault::Store>>,
     pub catalog: FleetCatalog,
     pub declaration: RaftNamespaceRegistration,
     pub additional_namespaces: Vec<RaftNamespaceRegistration>,
@@ -46,6 +49,10 @@ pub struct Fixture {
     pub max_pending_transactions: usize,
     pub max_client_identities: usize,
     pub max_input_bytes: usize,
+    /// An explicit, shorter source-observation lifetime for expiry drills.
+    pub stale_source_timeout_ms: Option<u64>,
+    pub small_segments: bool,
+    pub settle_periodic_purges: bool,
     /// Explicit cache profile within the unchanged node namespace bank.
     pub directory_cache_bytes: Option<usize>,
     pub payloads: Option<CellGroupPayloadLimits>,
@@ -208,8 +215,10 @@ impl Fixture {
             .register_node(&cut, &request(2, cut.revision()), &spec, TIMEOUT)
             .await?;
         Ok(Self {
+            peer_ports: Arc::new(super::peer_ports::PeerPorts::default()),
             domain,
             store,
+            host_store: None,
             catalog,
             declaration,
             additional_namespaces: declarations.into_iter().skip(1).collect(),
@@ -227,6 +236,9 @@ impl Fixture {
             max_pending_transactions: 32,
             max_client_identities: 1024,
             max_input_bytes: 1024,
+            stale_source_timeout_ms: None,
+            small_segments: false,
+            settle_periodic_purges: false,
             directory_cache_bytes: None,
             payloads: None,
             blob_bucket: None,
@@ -284,6 +296,21 @@ impl Fixture {
         mode: LogOpenMode,
         generation: u8,
     ) -> Result<(RaftCellsConfig, RaftCellsServices)> {
+        self.config_with_control_candidate(node, mode, generation, None)
+            .await
+    }
+
+    pub fn rejected_peer_addresses(&self) -> usize {
+        self.peer_ports.rejections()
+    }
+
+    pub async fn config_with_control_candidate(
+        &self,
+        node: &Node,
+        mode: LogOpenMode,
+        generation: u8,
+        candidate: Option<tokio::net::TcpListener>,
+    ) -> Result<(RaftCellsConfig, RaftCellsServices)> {
         let cut = self
             .catalog
             .read(TIMEOUT)
@@ -294,11 +321,7 @@ impl Fixture {
             .authorize_host(&cut, self.spec.node, TIMEOUT)
             .await
             .context("authorize the host against the Fleet head")?;
-        let listeners = NodeRaftListeners {
-            control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
-            data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
-            query: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
-        };
+        let listeners = self.peer_ports.bind(self.spec.node, candidate).await?;
         let process = ProcessGeneration::new([generation; 16])?;
         let peer = RaftPeerNode {
             node: self.spec.node,
@@ -317,6 +340,9 @@ impl Fixture {
             effects: self.effects,
             ..Default::default()
         };
+        if let Some(timeout) = self.stale_source_timeout_ms {
+            host.stale_source_timeout_ms = timeout;
+        }
         // Keep two group reservations plus the attested existing usage inside
         // the fixture's unchanged 1-GiB platform budget. Tests can explicitly
         // restore the oversized image profile to qualify its capacity refusal.
@@ -350,6 +376,14 @@ impl Fixture {
                 .chain(self.additional_namespaces.iter().cloned())
                 .collect(),
         });
+        if self.settle_periodic_purges {
+            host.settle_periodic_raft_purges = true;
+            host.member_cleanup = Some(FleetMovementServiceOptions {
+                interval: Duration::from_millis(100),
+                turn_timeout: TIMEOUT,
+                ..Default::default()
+            });
+        }
         if self.declaration.namespace.image_storage == RaftImageStorage::Extents {
             host.extents = Some(Default::default());
         }
@@ -361,6 +395,15 @@ impl Fixture {
             mode,
         );
         log.max_groups = groups;
+        if self.small_segments {
+            log.target_file_bytes = 4096;
+            log.purge_threshold_bytes = 8192;
+            log.purge_interval_ms = None;
+        }
+        if self.settle_periodic_purges {
+            log.purge_threshold_bytes = 64 * 1024;
+            log.purge_interval_ms = Some(500);
+        }
         let mut shared = limits();
         shared.payloads = self.payloads;
         shared.controller.max_groups = groups;
@@ -374,6 +417,12 @@ impl Fixture {
         }
         shared.sql.workers = self.sql_workers;
         shared.dispatch.max_input_bytes = self.max_input_bytes;
+        if self.small_segments {
+            shared.controller.checkpoints = Some(CellGroupCheckpointPolicy {
+                interval_entries: 1,
+                max_parallel: 1,
+            });
+        }
         Ok((
             RaftCellsConfig {
                 infrastructure: NodeRaftConfig {
@@ -418,7 +467,7 @@ impl Fixture {
                     )
                     .into(),
                 )?,
-                store: self.store.clone(),
+                store: self.host_store.as_ref().unwrap_or(&self.store).clone(),
                 application: self.application.clone(),
                 versions: Self::version_keys()?,
             },

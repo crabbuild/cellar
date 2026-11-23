@@ -2,6 +2,7 @@
 
 //! Receipt reads follow selected groups without staging any mutation.
 use super::*;
+use crate::raft::cell_groups::dispatch::MutationSelectionError;
 use crate::raft::cell_groups::{
     CellDispatchError, CellReceiptInvocation, CellReceiptResponse, CellSqlOptions,
 };
@@ -42,7 +43,21 @@ pub(super) async fn execute(
                     .await
                     .map(CellReceiptResponse::remote),
                 Ok(None) => Err(CellDispatchError::Runtime(RuntimeError::NotFound)),
-                Err(error) => Err(error),
+                Err(MutationSelectionError::Retry(_))
+                    if ordinal < invocation.maximum_attempts() =>
+                {
+                    invocation
+                        .retry_leader(shared.limits.retry_interval_ms)
+                        .await?;
+                    continue;
+                }
+                Err(MutationSelectionError::StalePlacement)
+                    if ordinal < invocation.maximum_attempts() =>
+                {
+                    invocation.refresh().await?;
+                    continue;
+                }
+                Err(error) => return Err(error.into_dispatch()),
             }
         } else {
             Err(CellDispatchError::Runtime(RuntimeError::NotFound))

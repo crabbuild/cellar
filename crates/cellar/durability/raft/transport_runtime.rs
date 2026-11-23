@@ -65,37 +65,41 @@ impl TransportRuntime {
         }
     }
 
-    pub(super) async fn delivery_hint(
-        &self,
-        route: &SendRoute,
+    pub(super) fn delivery_hint<'a>(
+        &'a self,
+        route: &'a SendRoute,
         member: u64,
         delivered: bool,
         snapshot: bool,
-    ) -> Result<(), RuntimeError> {
-        match (self, route) {
-            (Self::Legacy(runtime), SendRoute::Legacy { scope, .. }) => {
-                if !delivered {
-                    runtime.admit_unreachable(scope, member).await?;
+    ) -> futures_util::future::BoxFuture<'a, Result<(), RuntimeError>> {
+        // Keep the rare feedback I/O boundary opaque to the sender task's Send
+        // proof. The future still borrows its original route/runtime owners.
+        Box::pin(async move {
+            match (self, route) {
+                (Self::Legacy(runtime), SendRoute::Legacy { scope, .. }) => {
+                    if !delivered {
+                        runtime.admit_unreachable(scope, member).await?;
+                    }
+                    if snapshot {
+                        runtime
+                            .admit_snapshot_status(scope, member, delivered)
+                            .await?;
+                    }
+                    Ok(())
                 }
-                if snapshot {
-                    runtime
-                        .admit_snapshot_status(scope, member, delivered)
-                        .await?;
+                (Self::Shared(runtime), SendRoute::Physical { route, .. }) => {
+                    if snapshot {
+                        return runtime
+                            .report_snapshot(route.scope, member, delivered)
+                            .await;
+                    }
+                    if !delivered {
+                        runtime.admit_unreachable(route.scope, member).await?;
+                    }
+                    Ok(())
                 }
-                Ok(())
+                _ => Err(RuntimeError::Protocol("transport/runtime identity".into())),
             }
-            (Self::Shared(runtime), SendRoute::Physical { route, .. }) => {
-                if snapshot {
-                    return runtime
-                        .report_snapshot(route.scope, member, delivered)
-                        .await;
-                }
-                if !delivered {
-                    runtime.admit_unreachable(route.scope, member).await?;
-                }
-                Ok(())
-            }
-            _ => Err(RuntimeError::Protocol("transport/runtime identity".into())),
-        }
+        })
     }
 }

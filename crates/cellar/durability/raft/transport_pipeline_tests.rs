@@ -637,8 +637,16 @@ async fn control_window_drives_both_directions_with_one_byte_buffers() -> anyhow
                 }
                 Ok::<_, anyhow::Error>(())
             };
+            let mut reuse_until = 0;
             let (sent, received) = tokio::join!(
-                state.exchange_control(&mut client, &exporter, &pool, &mut inbox, &mut pending,),
+                state.exchange_control(
+                    &mut client,
+                    &exporter,
+                    &pool,
+                    &mut inbox,
+                    &mut pending,
+                    &mut reuse_until
+                ),
                 receiver
             );
             sent?;

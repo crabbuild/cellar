@@ -5,6 +5,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/stream_snapshot_files.rs"]
 mod bounded_files;
+#[path = "support/extent_image_publication.rs"]
+mod image_publication;
 
 use cellar_ltx::{
     apply::{ApplyLimits, LtxSegment},
@@ -175,10 +177,13 @@ impl Fixture {
     }
 
     fn query(&self, root: &SealedImageRoot, expected: u64) {
+        self.query_view(root.view(), expected);
+    }
+
+    fn query_view(&self, view: &cellar_ltx::internal::RootView, expected: u64) {
         let directory = self.root.path().join("cache");
         DirectFileSystem.create_dir_all(&directory).unwrap();
-        let image = root
-            .view()
+        let image = view
             .image(
                 directory,
                 ScratchPool::new(ScratchLimits {
@@ -213,6 +218,124 @@ impl Fixture {
             "ok"
         );
     }
+}
+
+#[test]
+fn image_updates_share_one_directory_barrier_after_all_file_seals() {
+    for payload in [4096, 5 * 1024 * 1024] {
+        let (fixture, before) = Fixture::new(4096, payload);
+        let mut buffer = vec![0; EXTENT_BYTES as usize];
+        let base = fixture.seal(&before, false, &mut buffer);
+        let after = fixture.mutate(if payload < EXTENT_BYTES {
+            "UPDATE counter SET value=8"
+        } else {
+            "UPDATE padding SET value=zeroblob(6291456);UPDATE counter SET value=8;VACUUM"
+        });
+        let encoded = delta(&before, &after, 4096, 2, false);
+        let update = fixture.update(&base, &encoded, &after, 2, false);
+        let files = fixture
+            .files
+            .metrics
+            .file_sync_calls
+            .load(Ordering::Acquire);
+        let directories = fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire);
+        let prepared = fixture
+            .store
+            .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+            .unwrap();
+        assert_eq!(
+            prepared.work.extents_prepared,
+            if payload < EXTENT_BYTES { 1 } else { 2 }
+        );
+        assert_eq!(
+            fixture
+                .files
+                .metrics
+                .file_sync_calls
+                .load(Ordering::Acquire)
+                - files,
+            prepared.work.extents_prepared as usize + 1,
+            "every independently verified extent and root needs its file barrier"
+        );
+        assert_eq!(
+            fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire) - directories,
+            1,
+            "one image publication must share its final directory barrier"
+        );
+        fixture.query(&prepared.image, 8);
+        fixture.query(&base, 7);
+    }
+}
+
+#[test]
+fn existing_image_seal_reuse_refuses_invalidated_and_quarantined_proofs() {
+    let (mut fixture, bytes) = Fixture::new(4096, 4096);
+    fixture.root.disable_cleanup(true);
+    eprintln!(
+        "retained image eligibility disk: {}",
+        fixture.root.path().display()
+    );
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let image = fixture.seal(&bytes, false, &mut buffer);
+    let reads = fixture.files.metrics.read_bytes.load(Ordering::Acquire);
+    let files = fixture
+        .files
+        .metrics
+        .file_sync_calls
+        .load(Ordering::Acquire);
+    let directories = fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire);
+    assert!(fixture.store.has_current_image_seal(&image).unwrap());
+    assert_eq!(
+        fixture.files.metrics.read_bytes.load(Ordering::Acquire),
+        reads
+    );
+    assert_eq!(
+        fixture
+            .files
+            .metrics
+            .file_sync_calls
+            .load(Ordering::Acquire),
+        files
+    );
+    assert_eq!(
+        fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire),
+        directories
+    );
+    let foreign = NodeExtentStore::open(
+        fixture.root.path().join("foreign"),
+        fixture.files.clone(),
+        Default::default(),
+    )
+    .unwrap();
+    assert!(!foreign.has_current_image_seal(&image).unwrap());
+    let extent = image.manifest().extent(0).unwrap();
+    fixture
+        .files
+        .metrics
+        .short_read
+        .store(true, Ordering::Release);
+    assert!(image.view().read_extent(extent).is_err());
+    assert!(!fixture.store.has_current_image_seal(&image).unwrap());
+    // Only a fresh full identity check and the required barriers restore it.
+    assert_eq!(image.view().read_extent(extent).unwrap(), bytes);
+    assert!(fixture.store.has_current_image_seal(&image).unwrap());
+    let after = fixture.mutate("UPDATE counter SET value=8");
+    let encoded = delta(&bytes, &after, 4096, 2, false);
+    let update = fixture.update(&image, &encoded, &after, 2, false);
+    fixture
+        .files
+        .metrics
+        .fail_dir_sync
+        .store(true, Ordering::Release);
+    assert!(fixture
+        .store
+        .prepare_image_root(Some(&image), &update, &ApplyLimits::default(), &mut buffer)
+        .is_err());
+    assert!(fixture.store.usage().unwrap().quarantined);
+    assert!(matches!(
+        fixture.store.has_current_image_seal(&image),
+        Err(StoreError::Quarantined)
+    ));
 }
 
 #[test]

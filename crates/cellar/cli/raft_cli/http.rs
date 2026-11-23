@@ -32,6 +32,9 @@ impl Client {
         .map_err(|_| invalid("invalid management URL"))?;
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            // Dependency features may enable native roots. HTTP needs no TLS
+            // trust and must not wait for its certificate store before a GET.
+            .tls_built_in_root_certs(url.scheme() == "https")
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
             .build()

@@ -329,6 +329,14 @@ async fn qualify_scenario(
     }
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
+    if result.is_err() || joined.is_err() {
+        for root in std::mem::take(&mut cluster.roots).into_iter().chain(roots) {
+            eprintln!(
+                "retained failed automatic transition disk: {}",
+                root.keep().display()
+            );
+        }
+    }
     result.with_context(|| format!("automatic transition, extents={rooted}; joined={joined:?}"))?;
     joined?;
     Ok(())
@@ -435,7 +443,9 @@ async fn exercise(
     let coordinator = Box::pin(control(cluster, rooted, roots)).await?;
     let namespace = hex::encode(cluster.history.namespace.bytes());
     let (request, admitted) = if automatic {
-        Box::pin(selection::admit(cluster, &coordinator, destinations)).await?
+        Box::pin(selection::admit(cluster, &coordinator, destinations))
+            .await
+            .context("admit automatic selection")?
     } else {
         admit_split(cluster, &coordinator, destinations).await?
     };
@@ -867,7 +877,8 @@ async fn exercise(
             &coordinator,
             &children,
         ))
-        .await?;
+        .await
+        .context("discover children after automatic selection")?;
     }
     if reclaim {
         for worker in workers.iter_mut() {

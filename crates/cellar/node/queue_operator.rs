@@ -46,12 +46,13 @@ pub(super) async fn dispatch_authenticated(
         );
         let body: serde_json::Value = serde_json::from_slice(body)
             .map_err(|_| anyhow::anyhow!("QUEUE_ERROR: invalid request body"))?;
-        encode_rpc(&cellar_native::clone::StructuredValue::from_json(
+        let args = encode_rpc(&cellar_native::clone::StructuredValue::from_json(
             serde_json::json!([body]),
-        )?)
+        )?)?;
+        Ok(args)
     })();
     let args = match input {
-        Ok(args) => args,
+        Ok(input) => input,
         Err(error) => {
             return Some(response(
                 StatusCode::BAD_REQUEST,

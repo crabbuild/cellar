@@ -13,7 +13,7 @@ use cellar_logic::consensus::{GroupScope, LogIndex, LogPosition, ReplicaIdentity
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,7 +155,26 @@ impl<S: Clone> GroupWrite<S> {
     }
 
     pub(crate) fn estimated_bytes(&self) -> Result<usize, LogError> {
-        let mut bytes = 1024_usize;
+        // Every persistence rewrites cached metadata, even for a tiny update.
+        // This cost observation follows durable cache publication; it is not
+        // serving authority. Framing and decimal index growth fit the per-item
+        // allowance, with the root fence charged once by the request owner.
+        let mut bytes = self
+            .group
+            .metadata_bytes
+            .load(Ordering::Acquire)
+            .max(1024)
+            .checked_add(64)
+            .ok_or(LogError::Overloaded)?;
+        if let Some(hard) = &self.hard_state {
+            bytes = bytes
+                .checked_add(
+                    (hard.compute_size() as usize)
+                        .checked_mul(4)
+                        .ok_or(LogError::Overloaded)?,
+                )
+                .ok_or(LogError::Overloaded)?;
+        }
         for entry in &self.entries {
             bytes = bytes
                 .checked_add(entry.compute_size() as usize + 128)
@@ -171,7 +190,11 @@ impl<S: Clone> GroupWrite<S> {
                 return Err(LogError::Overloaded);
             }
             bytes = bytes
-                .checked_add(snapshot.compute_size() as usize)
+                .checked_add(
+                    (snapshot.compute_size() as usize)
+                        .checked_mul(4)
+                        .ok_or(LogError::Overloaded)?,
+                )
                 .ok_or(LogError::Overloaded)?;
         }
         if let Some(conf) = &self.conf_state {
@@ -179,8 +202,27 @@ impl<S: Clone> GroupWrite<S> {
                 return Err(LogError::Overloaded);
             }
             bytes = bytes
-                .checked_add(conf.compute_size() as usize)
+                .checked_add(
+                    (conf.compute_size() as usize)
+                        .checked_mul(4)
+                        .ok_or(LogError::Overloaded)?,
+                )
                 .ok_or(LogError::Overloaded)?;
+        }
+        // Protobuf byte vectors become JSON arrays in GroupRecord: one byte
+        // can occupy four encoded bytes. Image values are already structured
+        // JSON; validate their small bounds before measuring the new value.
+        let installed = match &self.snapshot {
+            Some(SnapshotChange::Install { applied, .. }) => Some(applied),
+            _ => None,
+        };
+        for applied in self.applied.iter().chain(installed) {
+            if let Some(image) = &applied.image {
+                image.validate()?;
+                bytes = bytes
+                    .checked_add(super::records::encode(image)?.len())
+                    .ok_or(LogError::Overloaded)?;
+            }
         }
         if let Some(membership) = &self.membership {
             bytes = bytes
@@ -222,6 +264,7 @@ pub struct GroupLog<S = GroupScope> {
     pub(crate) closed: Arc<AtomicBool>,
     pub(crate) cache: Arc<RwLock<CachedGroup>>,
     pub(crate) cache_revision: Arc<AtomicU64>,
+    pub(crate) metadata_bytes: Arc<AtomicUsize>,
 }
 
 impl<S: std::fmt::Debug> std::fmt::Debug for GroupLog<S> {
@@ -511,7 +554,9 @@ pub(crate) struct CachedGroup {
     pub conf_state: ConfState,
     pub membership: GroupMembership,
     pub snapshot: Snapshot,
-    pub entries: BTreeMap<u64, Entry>,
+    // Metadata publications share immutable log storage. Log changes build a
+    // private map, preserving every retained cache view.
+    pub entries: Arc<BTreeMap<u64, Entry>>,
     pub applied: DurableApply,
     pub group_manifest: Option<GroupManifest>,
     /// Derived from the immutable mapping; never supplied by a write/snapshot.
@@ -643,7 +688,7 @@ impl CachedGroup {
         }
         let mut previous_index = metadata.index;
         let mut previous_term = metadata.term;
-        for (&index, entry) in &self.entries {
+        for (&index, entry) in self.entries.iter() {
             if previous_index.checked_add(1) != Some(index)
                 || index != entry.index
                 || index == u64::MAX
@@ -806,7 +851,7 @@ impl CachedGroup {
                         return Err(LogError::Invalid("snapshot park cut changed".into()));
                     }
                     prepared.membership().succeeds(&self.membership)?;
-                    next.entries.clear();
+                    next.entries = Arc::default();
                     next.applied = DurableApply {
                         position: marker.position(),
                         image: None,
@@ -836,7 +881,12 @@ impl CachedGroup {
                     {
                         return Err(LogError::Invalid("local checkpoint binding/cut".into()));
                     }
-                    next.entries = next.entries.split_off(&(metadata.index + 1));
+                    next.entries = Arc::new(
+                        next.entries
+                            .range((metadata.index + 1)..)
+                            .map(|(&index, entry)| (index, entry.clone()))
+                            .collect(),
+                    );
                     next.checkpoint_manifest = Some(root.marker().clone());
                 }
                 SnapshotChange::Checkpoint(_) => {
@@ -845,7 +895,12 @@ impl CachedGroup {
                     {
                         return Err(LogError::Invalid("unapplied local snapshot".into()));
                     }
-                    next.entries = next.entries.split_off(&(metadata.index + 1));
+                    next.entries = Arc::new(
+                        next.entries
+                            .range((metadata.index + 1)..)
+                            .map(|(&index, entry)| (index, entry.clone()))
+                            .collect(),
+                    );
                 }
                 SnapshotChange::Install { applied, .. } => {
                     if metadata.index < self.hard_state.commit
@@ -858,7 +913,7 @@ impl CachedGroup {
                     {
                         return Err(LogError::Invalid("invalid snapshot install marker".into()));
                     }
-                    next.entries.clear();
+                    next.entries = Arc::default();
                     next.applied = applied.clone();
                     next.conf_state = metadata.get_conf_state().clone();
                 }
@@ -895,8 +950,9 @@ impl CachedGroup {
                     "append would truncate the committed suffix".into(),
                 ));
             }
-            next.entries.split_off(&first.index);
-            next.entries.extend(
+            let entries = Arc::make_mut(&mut next.entries);
+            entries.split_off(&first.index);
+            entries.extend(
                 write
                     .entries
                     .iter()
@@ -1123,7 +1179,7 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
         membership: GroupMembership::initial(&conf_state),
         conf_state,
         snapshot,
-        entries: BTreeMap::new(),
+        entries: Arc::default(),
         group_manifest: None,
         recovery_genesis: None,
         manifest_pins: None,

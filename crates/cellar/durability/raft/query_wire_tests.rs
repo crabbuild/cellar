@@ -165,10 +165,10 @@ fn query_wire_binds_channel_request_route_and_payload() {
     }
     let reply = result_bytes();
     let response = response_head(&auth, &[3; 32], &request, &head.tag, &reply, &options).unwrap();
-    assert_eq!(
-        read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap(),
-        <[u8; 32]>::from(Sha256::digest(&reply))
-    );
+    let verified =
+        read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+    assert_eq!(verified.digest, <[u8; 32]>::from(Sha256::digest(&reply)));
+    verified.verify(&reply).unwrap();
     assert!(read_response(&response, &auth, &[4; 32], &request, &head.tag, &options).is_err());
     assert!(read_response(&response, &auth, &[3; 32], &request, &[5; 32], &options).is_err());
     assert!(read_response(
@@ -981,7 +981,9 @@ fn authenticated_transport_refusal_binds_request_channel_and_purpose() {
     }
     let result = response_head(&auth, &[3; 32], &request, &head.tag, &[], &options).unwrap();
     assert_eq!(
-        read_response(&result, &auth, &[3; 32], &request, &head.tag, &options).unwrap(),
+        read_response(&result, &auth, &[3; 32], &request, &head.tag, &options)
+            .unwrap()
+            .digest,
         <[u8; 32]>::from(Sha256::digest([]))
     );
 }
@@ -1050,6 +1052,79 @@ fn read_transport_unavailability_preserves_security_and_mutation_failures() {
         TransportError::Timeout,
     ] {
         assert_eq!(error.clone().for_read(), error);
+    }
+}
+
+#[test]
+fn authenticated_read_refusal_is_bound_to_body_request_and_channel() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = cell_call(CellQueryConsistency::Linearizable)
+        .encode(4096)
+        .unwrap();
+    let request = RequestHead::new(route(), 7, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    let denied = read_refusal_body(&request).unwrap();
+    let response = response_head(&auth, &[3; 32], &request, &head.tag, denied, &options).unwrap();
+    let verified =
+        read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+    assert_eq!(verified.verify(denied), Err(TransportError::Refused));
+    assert_eq!(TransportError::Refused.for_read(), TransportError::Refused);
+    for n in 0..denied.len() {
+        let mut altered = denied.to_vec();
+        altered[n] ^= 1;
+        assert_eq!(
+            verified.verify(&altered),
+            Err(TransportError::Authentication)
+        );
+    }
+    assert!(matches!(
+        read_response(&response, &auth, &[4; 32], &request, &head.tag, &options),
+        Err(TransportError::Authentication)
+    ));
+    let other = RequestHead::new(route(), 8, &body);
+    let other_head = request_head(&auth, &[3; 32], &other, &body, &options).unwrap();
+    assert!(matches!(
+        read_response(
+            &response,
+            &auth,
+            &[3; 32],
+            &other,
+            &other_head.tag,
+            &options
+        ),
+        Err(TransportError::Authentication)
+    ));
+}
+
+#[test]
+fn read_refusal_cannot_prove_command_or_event_non_admission() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = b"request";
+    for route in [
+        route().for_command().unwrap(),
+        route().for_event_command().unwrap(),
+        route().for_command_probe().unwrap(),
+        route().for_binding_retirement().unwrap(),
+        route().for_event_query().unwrap(),
+        route().for_enrollment().unwrap(),
+        route().for_receipt().unwrap(),
+        route().for_name().unwrap(),
+    ] {
+        let request = RequestHead::new(route, 7, body);
+        assert!(matches!(
+            read_refusal_body(&request),
+            Err(TransportError::Protocol)
+        ));
+        let head = request_head(&auth, &[3; 32], &request, body, &options).unwrap();
+        // Even a correctly authenticated peer cannot use the plain-read marker
+        // to establish that this different operation entered no producer.
+        let response =
+            response_head(&auth, &[3; 32], &request, &head.tag, READ_REFUSED, &options).unwrap();
+        let verified =
+            read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+        assert_eq!(verified.verify(READ_REFUSED), Err(TransportError::Protocol));
     }
 }
 
@@ -2165,5 +2240,127 @@ fn shared_query_leader_hint_is_advice_inside_authenticated_payload() {
             MemberId::new(2).unwrap()
         )
         .is_err());
+    }
+}
+
+#[test]
+fn command_origin_refusal_is_bound_to_body_request_and_channel() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = b"request";
+    for route in [
+        route().for_command().unwrap(),
+        route().for_command_probe().unwrap(),
+        route().for_receipt().unwrap(),
+    ] {
+        let request = RequestHead::new(route.clone(), 7, body);
+        let head = request_head(&auth, &[3; 32], &request, body, &options).unwrap();
+        let denied = command_origin_refusal_body(&request).unwrap();
+        let response =
+            response_head(&auth, &[3; 32], &request, &head.tag, denied, &options).unwrap();
+        let verified =
+            read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+        assert_eq!(
+            verified.verify(denied),
+            Err(TransportError::CommandOriginRefused)
+        );
+        assert_eq!(
+            TransportError::CommandOriginRefused.for_read(),
+            TransportError::CommandOriginRefused
+        );
+        for n in 0..denied.len() {
+            let mut changed = denied.to_vec();
+            changed[n] ^= 1;
+            assert_eq!(
+                verified.verify(&changed),
+                Err(TransportError::Authentication)
+            );
+        }
+        assert!(matches!(
+            read_response(&response, &auth, &[4; 32], &request, &head.tag, &options),
+            Err(TransportError::Authentication)
+        ));
+        let other = RequestHead::new(route, 8, body);
+        let other_head = request_head(&auth, &[3; 32], &other, body, &options).unwrap();
+        assert!(matches!(
+            read_response(
+                &response,
+                &auth,
+                &[3; 32],
+                &other,
+                &other_head.tag,
+                &options
+            ),
+            Err(TransportError::Authentication)
+        ));
+    }
+}
+
+#[test]
+fn command_origin_refusal_cannot_change_other_purposes() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = b"request";
+    for route in [
+        route(),
+        route().for_event_command().unwrap(),
+        route().for_event_query().unwrap(),
+        route().for_binding_retirement().unwrap(),
+        route().for_enrollment().unwrap(),
+        route().for_name().unwrap(),
+    ] {
+        let request = RequestHead::new(route, 7, body);
+        assert_eq!(
+            command_origin_refusal_body(&request),
+            Err(TransportError::Protocol)
+        );
+        let head = request_head(&auth, &[3; 32], &request, body, &options).unwrap();
+        let response = response_head(
+            &auth,
+            &[3; 32],
+            &request,
+            &head.tag,
+            COMMAND_ORIGIN_REFUSED,
+            &options,
+        )
+        .unwrap();
+        let verified =
+            read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap();
+        assert_eq!(
+            verified.verify(COMMAND_ORIGIN_REFUSED),
+            Err(TransportError::Protocol)
+        );
+    }
+}
+
+/// A denied namespace grant supplies no result or mutation disposition. The
+/// denial still binds the authenticated channel and exact request, so a caller
+/// can distinguish it from an opaque disconnect without trusting the socket.
+fn refusal_head(
+    auth: &PeerAuth,
+    exporter: &[u8; 32],
+    request: &RequestHead,
+    request_tag: &[u8; 32],
+    options: &TransportOptions,
+) -> Result<FrameHead, TransportError> {
+    reply_head(auth, exporter, request, request_tag, None, options)
+}
+
+#[test]
+fn authenticated_empty_refusal_cannot_settle_a_mutation() {
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = b"original mutation input";
+    for route in [
+        route().for_command().unwrap(),
+        route().for_enrollment().unwrap(),
+    ] {
+        let request = RequestHead::new(route, 7, body);
+        let head = request_head(&auth, &[3; 32], &request, body, &options).unwrap();
+        let denied = refusal_head(&auth, &[3; 32], &request, &head.tag, &options).unwrap();
+        assert_eq!(
+            read_response(&denied, &auth, &[3; 32], &request, &head.tag, &options),
+            Err(TransportError::Protocol)
+        );
     }
 }

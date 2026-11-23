@@ -70,12 +70,17 @@ impl CellGroupApplyImages {
         }
     }
 
-    pub(super) fn prepare(
+    pub(super) fn prepare_with_image(
         &self,
         request: ImageApply<'_>,
         verify_existing: bool,
-        prepared_image: Option<&CellImagePin>,
+        prepared_image: Option<&crate::raft::execution::CellPreparedImage>,
     ) -> Result<EnrollmentImage, ExecutionError> {
+        let limits = match self {
+            Self::Materialized { images, .. } => images.apply_limits(),
+            Self::Extents { limits, .. } => *limits,
+        };
+        let prepared_image = prepared_image.and_then(|image| image.image(limits));
         let ImageApply {
             cell,
             sequence,
@@ -320,6 +325,10 @@ impl CellGroupApplyImages {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "images_tests.rs"]
+mod tests;
 
 // Names are physical lookup hints. The selected manifest and exact image state
 // still have to verify; a filename never supplies publication authority.

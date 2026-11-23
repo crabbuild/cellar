@@ -223,7 +223,7 @@ impl CellGroupApplier {
                 "committed preparation input/owner binding",
             ));
         }
-        let prepared_image = preparation.map(|image| image.image());
+        let prepared_image = preparation.map(Arc::as_ref);
         let mut owner = self.storage.try_lock().map_err(|error| match error {
             std::sync::TryLockError::WouldBlock => ExecutionError::Busy,
             std::sync::TryLockError::Poisoned(_) => {

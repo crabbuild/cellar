@@ -225,6 +225,7 @@ impl RaftTransport {
                 *old = SeedPeer {
                     peer: peer.clone(),
                     stop,
+                    incoming_query: old.incoming_query.clone(),
                 };
             }
         }
@@ -269,6 +270,7 @@ fn refresh_routes<S: Clone + Ord>(
 pub(super) struct SeedPeer {
     pub(super) peer: RaftPeerNode,
     pub(super) stop: watch::Sender<bool>,
+    pub(super) incoming_query: Arc<Budget>,
 }
 
 impl State {
@@ -298,11 +300,22 @@ impl State {
             return Err(TransportError::StalePeer);
         }
         let (stop, wait) = watch::channel(false);
+        let incoming_query = registry
+            .pools
+            .get(&peer.node)
+            .map(|pool| pool.incoming.query.clone())
+            .unwrap_or_else(|| {
+                Budget::new(
+                    self.options.peer_query_bytes,
+                    self.options.max_connections_per_lane,
+                )
+            });
         registry.seed_peers.insert(
             peer.node,
             SeedPeer {
                 peer: peer.clone(),
                 stop,
+                incoming_query,
             },
         );
         Ok(wait)

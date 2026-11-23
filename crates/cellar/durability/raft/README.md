@@ -19,8 +19,15 @@ is under implementation. `verification::cell_groups::CellGroupOwner` now owns on
 real RawNode for a physical group history and consumes a verified complete root
 plus a revalidated initial-member bootstrap permit. It emits persistence,
 transport and ordered application effects; it performs no SQLite I/O or
-per-cell task creation. The existing node log worker syncs each write before
-the owner releases dependent messages or advances the selected group root.
+per-cell task creation. Ordinary Ready append messages may overlap local disk
+sync once the bounded node log worker owns the exact persistence ticket. This
+requires an append-only message batch, no snapshot, and already durable term and
+vote. An atomic ticket notice wakes the existing node loop, which schedules only
+eligible histories from that batch on its fair runnable queue. Waiting groups
+sleep once their append output drains. This grants no durability proof or extra
+admission. Persistence-dependent responses, read states and selected
+group-root publication still wait for the exact synced completion. LightReady
+commit persistence keeps its existing gate.
 The exclusive ownership lease remains with queued engine work after cancellation,
 so a replacement owner cannot start while that write is still in flight.
 
@@ -387,6 +394,23 @@ configuration and snapshot records survive engine rewrites. Engine compaction
 hints never authorize deleting a group's logical prefix; unresolved hints receive
 later bounded-rate passes even without new writes. An I/O failure closes and
 joins storage. `engine_purge` reports physical maintenance duration and outcomes.
+Purge syncs each directory changed by segment deletion before returning success.
+Fleet capacity accounting still requires a separate receipt tied to the charged
+files and a complete inventory.
+
+Managed nodes can set `RaftHostOptions::settle_periodic_raft_purges` alongside
+`member_cleanup` to settle periodic purges against the Fleet ledger. The
+cleanup worker shares its existing service slot with removed-member work and
+honors `ReplicaLogOptions::purge_interval_ms`. A failed catalog write leaves
+the numbered local receipt available for retry. An opted-in node needs Fleet
+catalog access to resume periodic reclamation.
+The verification API captures append and rewrite file identities and lengths on
+the storage worker. It checks the directory against both active queue spans and
+binds the result to the current node, disk, engine, process, and durable sequence.
+A numbered segment purge syncs that inventory before attempting deletion, then
+syncs and reconciles the directory and records the exact removed files at a
+second durable sequence. The current number can be resumed or replayed after
+restart. Its stored receipt remains available until the next number is selected.
 The file-size and purge thresholds are soft engine watermarks, not a disk quota.
 
 Every newly created engine persists a nonzero `EngineInstanceId` in both its
@@ -833,6 +857,17 @@ oldest request. This scheduling adds no collection delay or admission capacity:
 queued and executing requests retain the same worker semaphore reservations,
 including when the queue moves work into its bounded local batch.
 
+Final command settlement validates the exact applied receipt on SQL, then moves
+preview retirement to the existing joined private-cleanup task. Inventory waits
+there do not occupy the SQL callback lane. The task retains the preview and
+log/image reservations; its SQL owner retains the reply, writer admission and
+completion slot until retirement and workspace cleanup finish. Failure returns
+no receipt acknowledgement. Intermediate RPC checkpoints use the same joined
+cleanup machinery before SQL rechecks and adopts continuation authority; newer-term
+reconciliation also joins retirement before refusing continuation. The suspended
+invocation retains its original writer, callback and byte admission throughout.
+Direct private executors retain synchronous retirement.
+
 Business commands/queries and administrative operations have independent host
 admission. `max_control_requests` defaults to 16 and `max_control_bytes` to 16 MiB;
 status, repair, seed activation and leadership requests use that reservation.
@@ -993,6 +1028,24 @@ random source. Limits bound queued work, outbox events and retained apply work;
 complete resident-memory and scale qualification remains in the resource and
 qualification packages of the delivery plan.
 
+Shared cell-group tick observations distinguish scheduler dispatch from actual
+consensus entry. `cell_group_tick_rounds` counts timer or explicit tick turns,
+including turns with no ticking groups. `cell_group_ticks_requested` counts their
+ticking replicas, and `cell_group_ticks_coalesced` counts requests already pending.
+`cell_group_ticks_executed` counts actual RawNode ticks after Ready work drains and
+log admission permits progress. `cell_group_election_timeouts` counts nonleader
+ticks that trigger election work; it does not count successful elections.
+`cell_group_tick_admission_refusals` counts ticks refused by election log admission.
+These cumulative node totals retain fixed dimensions and supply no progress or
+capacity guarantee for an individual group.
+
+Managed first-group readiness records `first_group_archive`, `first_group_attach`
+and `first_group_quorum` duration/outcome observations. They cover archive
+authorization, durable local attachment and fresh quorum establishment within the
+existing startup deadline. Cancelled phase futures count as abandoned; returned
+errors count as failed. Successful attachment still requires fresh quorum and
+final catalog revalidation before readiness can succeed.
+
 `RaftTransport` runs on that runtime's execution domain. One persistent TLS
 connection per peer and traffic class multiplexes every registered group;
 separate control/data listeners, workers and byte/item banks reserve control
@@ -1002,6 +1055,12 @@ bounded header has authenticated and matched an explicitly installed route,
 local member identity and durable configuration. Unknown groups never create
 storage or fetch a bucket object. Each physical peer has separate incoming and
 outgoing banks, so full outbound queues cannot consume inbound response capacity.
+
+Between exchanges, a sender retires a cached connection when the preceding
+exchange's original I/O window has elapsed. A late reply cannot extend that
+reuse window. The next frame opens a fresh connection within its existing I/O
+bound, avoiding reuse after the peer's idle timeout. This never retransmits a
+failed or uncertain frame; its original delivery result remains unchanged.
 
 Control transmission holds at most sixteen selected frames and refills a slot as
 soon as its FIFO authenticated reply and physical write finish. A later held
@@ -1096,6 +1155,50 @@ does not qualify SQLite, LTX, S3, the complete SDK, workload capacity or product
 failure domains.
 
 ## Committed archives and S3 output
+
+Command phase observations distinguish local execution after routing
+(`cell_command_local`), exact S3 command coverage settlement including internal
+native RPC commits (`cell_command_s3_coverage`), command proof freshness checks
+including suspended RPC checkpoints (`cell_command_s3_freshness`), individual
+fresh output-fence/token checks
+(`cell_command_output_check`), and progress waits/rechecks after a retryable
+output check (`cell_command_output_wait`). Local execution includes its nested
+coverage and output phases; output waiting includes its repeated checks. These
+overlapping histograms must not be added together. A retryable check failure is
+an observed attempt, not a failed request or missing durability proof. Response
+waiter expiry does not complete a node-owned phase; timers follow their actual
+future lifetime and distinguish returned errors from abandonment. These static
+metric names grant no authority and change no deadline, admission or proof order.
+
+Local execution also exposes `cell_command_prepare`, `cell_command_submit` and
+`cell_command_settle`. Preparation includes writer/authority waits and SQL work,
+including any intermediate callback checkpoints. Submission includes retries of
+the same owned preparation. Settlement includes the committed receipt, exact
+reconciliation and any nested output/S3 checks. A duplicate completed during
+preparation does not enter submission or settlement. These phases follow the
+retained local invocation, so a caller timeout can precede their completion.
+They exclude routing and ingress FIFO waits and overlap the enclosing
+`cell_command_local`; they are not business latency or throughput samples.
+
+Cell-group checkpoint uploads and independent checkpoint downloads poll at most
+two ordered object futures. A ready object can progress without filling the
+window. Uploads bound input bytes/chunks before starting their object work and
+append confirmed references in source order; downloads feed the physical
+receiver in that same order after each exact digest/length/range check. The
+existing eight-chunk I/O workspace covers the two futures, transport copies and
+bounded channel/source/receiver chunks. Archive operation, source and receiver
+admission are unchanged. Error and cancellation paths retain the entered physical
+worker's permits, close its channel and join it as before. Conditional PUTs still
+require exact GET confirmation, and publication still requires independent
+complete recovery and current authority.
+
+An archive tail with no entries retains the complete physical preparation from
+that invocation's independent checkpoint receiver after checking its exact cut,
+configuration and membership. The receiver still GETs every dependency and
+verifies existing local bytes. This avoids a second image/manifest pass over the
+same received cut. Nonempty tails replay every entry and verify all final images
+and pages. Both paths retain the original source/receiver/replay admission,
+cancellation, physical ownership and publication/response authority checks.
 
 `host_archive.rs` owns a bounded window of archive producers and one exclusive
 verification workspace per node. `RaftArchiveOptions::max_producers` permits

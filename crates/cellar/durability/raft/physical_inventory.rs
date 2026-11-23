@@ -21,6 +21,7 @@ const SOURCE_RETIREMENT_APPLIED: u8 = 4;
 pub(crate) type PhysicalNodeObservation = (RaftHostObservation, RaftPhysicalInventory);
 
 pub(crate) const RESPONSE_BYTES: usize = 1024 * 1024;
+pub(crate) const SEGMENT_SETTLEMENT_BYTES: usize = 2 * RESPONSE_BYTES;
 pub(crate) const MAX_BODY: usize =
     super::node_inspection_wire::MAX_BODY + PREFIX + MAX_GROUPS * ENTRY_BYTES;
 

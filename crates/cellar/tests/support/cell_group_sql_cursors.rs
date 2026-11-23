@@ -67,40 +67,7 @@ pub(super) fn exercise(storage: &Storage, mutate: bool) -> Result<()> {
             .is_err());
     }
 
-    // Capacity refuses before entering a mutating statement. Closing tokens
-    // releases admission rather than retaining a per-cell worker or result set.
-    let mut held = Vec::new();
-    for _ in 0..cellar::sdk::SqlLimits::default().max_open_cursors {
-        held.push(storage.sql_cursor("SELECT n FROM cursor_items ORDER BY n", &[])?);
-    }
-    ensure!(storage
-        .sql_cursor("SELECT n FROM cursor_items", &[])
-        .err()
-        .context("cursor count is bounded")?
-        .to_string()
-        .contains("cursor count"));
-    if mutate {
-        ensure!(storage
-            .sql_cursor("INSERT INTO cursor_items VALUES(99,x'ff') RETURNING n", &[])
-            .err()
-            .context("capacity must refuse before mutation")?
-            .to_string()
-            .contains("cursor count"));
-    }
-    drop(held);
-    ensure!(
-        storage
-            .sql_cursor("SELECT n FROM cursor_items", &[])?
-            .to_raw_array()?
-            .len()
-            == 2
-    );
-    ensure!(storage
-        .sql_cursor("SELECT ?1", &[SqlValue::Blob(vec![0; 2 * 1024 * 1024])])
-        .err()
-        .context("bound cursor VM/bind memory")?
-        .to_string()
-        .contains("byte limit"));
+    super::cursor_limits::check(storage, mutate)?;
     Ok(())
 }
 

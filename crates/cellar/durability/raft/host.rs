@@ -102,6 +102,9 @@ pub struct RaftHostOptions {
     /// Uses the sole movement-worker slot; leave None when starting a combined
     /// movement/topology worker with reclaim_removed_members enabled instead.
     pub member_cleanup: Option<super::fleet_catalog::FleetMovementServiceOptions>,
+    /// Use the node-owned member cleanup worker to settle periodic Raft
+    /// segment purges against the Fleet capacity ledger.
+    pub settle_periodic_raft_purges: bool,
     /// Standard RF3 split/merge planning and execution owned by this node. Uses
     /// compiled managed namespaces and the existing archive verifier resources.
     pub automatic_partitions: Option<crate::management::RaftFleetAutomaticPartitionOptions>,
@@ -153,6 +156,7 @@ impl Default for RaftHostOptions {
             node_profile: None,
             managed: None,
             member_cleanup: None,
+            settle_periodic_raft_purges: false,
             automatic_partitions: None,
             automatic_topology: None,
             enable_snapshots: true,
@@ -179,6 +183,15 @@ impl Default for RaftHostOptions {
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         self.close_report.validate()?;
+        anyhow::ensure!(
+            !self.settle_periodic_raft_purges || self.member_cleanup.is_some(),
+            "periodic Raft purge settlement requires node-owned member cleanup"
+        );
+        let segment_bytes = if self.settle_periodic_raft_purges {
+            super::physical_inventory::SEGMENT_SETTLEMENT_BYTES
+        } else {
+            0
+        };
         if let Some(topology) = &self.automatic_topology {
             topology.validate().map_err(anyhow::Error::new)?;
             anyhow::ensure!(
@@ -197,6 +210,7 @@ impl RaftHostOptions {
                     >= 15 * 1024 * 1024
                         + partition.service.max_groups * 32 * 1024
                         + 64 * 1024
+                        + segment_bytes
                         + self
                             .member_cleanup
                             .as_ref()
@@ -218,6 +232,7 @@ impl RaftHostOptions {
                         + super::inspection::RESPONSE_RESERVATION
                         + 4096
                         + cleanup.control_reservation_bytes()
+                        + segment_bytes
                     && self.max_control_requests >= 4,
                 "node-owned member cleanup requires bounded control headroom"
             );

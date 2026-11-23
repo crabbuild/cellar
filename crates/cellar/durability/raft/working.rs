@@ -113,6 +113,10 @@ impl Working {
         self.frozen == Some(base.pin().state())
     }
 
+    pub fn captured_image(&self) -> Option<LtxImage> {
+        self.frozen.map(image_position)
+    }
+
     pub fn trim(&self, options: &PrivateOptions, base: Option<&PublishedImage>) -> Result<()> {
         self.trim_through(
             options,
@@ -177,6 +181,13 @@ impl Working {
         };
         self.frozen = Some(result);
         Ok(update)
+    }
+
+    /// Skip capture's final checkpoint before shared-cell scratch is discarded.
+    /// The ordinary close path drops the command connection before capture.
+    pub(super) fn close_for_discard(self) -> Result<()> {
+        self.capture.disable_disposable_close_checkpoint()?;
+        self.close()
     }
 
     pub fn close(self) -> Result<()> {
@@ -342,15 +353,20 @@ pub(super) fn verify_preview_pin(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(options.images.prepare_verified(
-        id,
-        base_pin,
-        &ImageUpdate {
-            base: base_state,
-            result,
-            segments,
-        },
-    )?)
+    let update = ImageUpdate {
+        base: base_state,
+        result,
+        segments,
+    };
+    match options.images.prepare(id, base_pin, &update) {
+        Ok(pin) => Ok(pin),
+        // A concurrent/retried canonical name must still independently replay
+        // these exact LTX bytes; expected result identity alone is insufficient.
+        Err(cellar_ltx::generation::GenerationError::Exists) => {
+            Ok(options.images.prepare_verified(id, base_pin, &update)?)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn l0_directory(capture: &Db) -> PathBuf {

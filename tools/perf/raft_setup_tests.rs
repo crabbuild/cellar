@@ -575,18 +575,27 @@ async fn run(
         eprintln!("retained failure {}: {error:#}", root.display());
         let mut diagnostic = String::new();
         for (ordinal, service) in services.iter().enumerate() {
-            {
+            let resources = match serde_json::to_string(&service.resource_usage()) {
+                Ok(resources) => resources,
+                Err(error) => format!("resource serialization failed: {error}"),
+            };
+            diagnostic.push_str(&format!("node {ordinal} resources {resources}\n",));
+            for (group, planned) in layout.groups.iter().enumerate() {
+                let handle = match service.group(planned.history) {
+                    Ok(handle) => handle,
+                    Err(error) => {
+                        diagnostic.push_str(&format!(
+                            "node {ordinal} group {group} handle failed: {error:?}\n"
+                        ));
+                        continue;
+                    }
+                };
                 diagnostic.push_str(&format!(
-                    "node {ordinal} resources {}\n",
-                    serde_json::to_string(&service.resource_usage())?
+                    "node {ordinal} group {group} observed {:?}\n",
+                    handle.observe(Duration::from_secs(5)).await
                 ));
-                for (group, planned) in layout.groups.iter().enumerate() {
-                    let handle = service.group(planned.history)?;
-                    diagnostic.push_str(&format!(
-                        "node {ordinal} group {group} observed {:?}\n",
-                        handle.observe(Duration::from_secs(5)).await
-                    ));
-                    if let Some(archive) = handle.archive_status()? {
+                match handle.archive_status() {
+                    Ok(Some(archive)) => {
                         diagnostic.push_str(&format!(
                             "archive attempts {} stopped {} published {:?} error {:?}\n",
                             archive.attempts,
@@ -595,14 +604,20 @@ async fn run(
                             archive.error
                         ));
                     }
+                    Ok(None) => (),
+                    Err(error) => {
+                        diagnostic.push_str(&format!("archive observation failed: {error:?}\n"))
+                    }
                 }
             }
         }
-        std::fs::write(root.join("failure-observations.txt"), &diagnostic)?;
+        if let Err(error) = std::fs::write(root.join("failure-observations.txt"), &diagnostic) {
+            eprintln!("could not retain failure observations: {error}");
+        }
         eprintln!("{diagnostic}");
     }
-    let mut cleanup = Ok(());
-    for node in nodes {
+    let mut cleanup = Vec::new();
+    for (ordinal, node) in nodes.into_iter().enumerate() {
         let joined = async {
             let NodeOutcome::Stopped(report) = node.shutdown(ShutdownMode::Preserve).await? else {
                 anyhow::bail!("native Node cleanup has not joined");
@@ -616,13 +631,21 @@ async fn run(
         }
         .await;
         if let Err(error) = joined {
-            cleanup = Err(error);
+            cleanup.push(format!("node {ordinal}: {error:#}"));
         }
     }
+    let cleanup = if cleanup.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "joined node cleanup failed: {}",
+            cleanup.join("; ")
+        ))
+    };
     result.with_context(|| {
         format!(
-            "shared runner occupancy {occupancy}; retained {}",
-            root.display()
+            "shared runner occupancy {occupancy}; retained {}; cleanup: {cleanup:?}",
+            root.display(),
         )
     })?;
     cleanup?;

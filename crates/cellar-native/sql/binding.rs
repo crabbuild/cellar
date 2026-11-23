@@ -20,6 +20,15 @@ pub enum SqlRequest {
         #[serde(default)]
         first: bool,
     },
+    /// Exactly one read-only statement. Mutations and connection-changing SQL
+    /// are refused before stepping, including on an ordinary writer connection.
+    ReadOnly {
+        sql: String,
+        #[serde(default)]
+        params: Vec<serde_json::Value>,
+        #[serde(default)]
+        first: bool,
+    },
     /// `batch(statements)`: prepared statements in one transaction.
     Batch { statements: Vec<SqlPreparedRequest> },
     /// `exec(sql)`: multi-statement, SQLite decides where statements end.
@@ -86,10 +95,26 @@ pub struct SqlPreparedResult {
     pub meta: SqlMeta,
 }
 
+/// Read metadata describes the selected image, without claiming writer status.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ReadMeta {
+    pub duration: f64,
+    pub rows_read: u64,
+    pub size_after: u64,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SqlReadResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub meta: ReadMeta,
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum SqlResponse {
     Prepared(SqlPreparedResult),
+    ReadOnly(SqlReadResult),
     Batch(Vec<SqlPreparedResult>),
     Exec {
         count: u64,
@@ -290,6 +315,13 @@ pub struct ResultSet {
     pub results: Vec<serde_json::Map<String, serde_json::Value>>,
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ReadResultSet {
+    pub success: bool,
+    pub meta: ReadMeta,
+    pub results: Vec<serde_json::Map<String, serde_json::Value>>,
+}
+
 pub fn shape(
     columns: &[String],
     row: Vec<serde_json::Value>,
@@ -300,6 +332,20 @@ pub fn shape(
 impl SqlPreparedResult {
     pub fn into_public(self) -> ResultSet {
         ResultSet {
+            success: true,
+            meta: self.meta,
+            results: self
+                .rows
+                .into_iter()
+                .map(|row| shape(&self.columns, row))
+                .collect(),
+        }
+    }
+}
+
+impl SqlReadResult {
+    pub fn into_public(self) -> ReadResultSet {
+        ReadResultSet {
             success: true,
             meta: self.meta,
             results: self

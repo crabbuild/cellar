@@ -17,6 +17,9 @@ pub(super) async fn revision_scope(real_rustfs: bool) -> Result<()> {
     revisions::qualify(real_rustfs).await
 }
 
+#[path = "cell_group_kv_inline_read.rs"]
+mod inline_read;
+
 const SCRIPT: &str = "kv-binding-service";
 const NAMESPACE: &str = "shared/cache";
 
@@ -47,6 +50,8 @@ enum Coverage {
     Chained,
     Preparation,
     Streaming,
+    InlineRead,
+    InlineReadBoundaries,
     PayloadRecovery,
     StreamDeadline,
     IngressDeadline,
@@ -58,6 +63,8 @@ impl Coverage {
             self,
             Self::Preparation
                 | Self::Streaming
+                | Self::InlineRead
+                | Self::InlineReadBoundaries
                 | Self::PayloadRecovery
                 | Self::StreamDeadline
                 | Self::IngressDeadline
@@ -486,6 +493,14 @@ pub async fn qualify_streaming() -> Result<()> {
     qualify_case(false, false, Coverage::Streaming).await
 }
 
+pub async fn qualify_inline_reads() -> Result<()> {
+    qualify_case(false, true, Coverage::InlineRead).await
+}
+
+pub async fn qualify_inline_read_boundaries() -> Result<()> {
+    qualify_case(false, true, Coverage::InlineReadBoundaries).await
+}
+
 pub async fn qualify_payload_recovery(real_rustfs: bool, external: bool) -> Result<()> {
     qualify_case(real_rustfs, external, Coverage::PayloadRecovery).await
 }
@@ -554,7 +569,15 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
             if coverage == Coverage::StreamDeadline {
                 store.cell_payload_chunk_bytes.store(512, Ordering::Release);
             }
-            Box::pin(run(rooted, store, backend.as_ref(), external, coverage)).await
+            let result = Box::pin(run(
+                rooted,
+                store.clone(),
+                backend.as_ref(),
+                external,
+                coverage,
+            ))
+            .await;
+            managed_fixture::memory::preserve_result(&store.inner, "kv-bindings", result).await
         }
         .await;
         match result {
@@ -584,13 +607,32 @@ async fn run(
 ) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let (application, declared) = application(calls.clone())?;
-    let mut fixture = Fixture::with_namespaces(
-        rooted,
-        &["Counter", cellar::deploy::KV_CLASS],
-        application,
-        store,
-    )
-    .await?;
+    let mut fixture = if coverage == Coverage::InlineReadBoundaries {
+        Fixture::with_definition_policies(
+            rooted,
+            vec![
+                (
+                    application.resolve_raft_class("Counter")?,
+                    Durability::Quorum,
+                ),
+                (
+                    application.resolve_raft_class(cellar::deploy::KV_CLASS)?,
+                    Durability::S3,
+                ),
+            ],
+            application,
+            store,
+        )
+        .await?
+    } else {
+        Fixture::with_namespaces(
+            rooted,
+            &["Counter", cellar::deploy::KV_CLASS],
+            application,
+            store,
+        )
+        .await?
+    };
     fixture.configuration = Some(declared);
     let http = external.then(|| Arc::new(managed_fixture::http::Owner::default()));
     fixture.external_http = http.clone();
@@ -603,25 +645,34 @@ async fn run(
         max_payload_bytes: 64 * 1024 * 1024 + 4096,
         io_timeout: Duration::from_secs(10),
     });
-    let started = Box::pin(ManagedCluster::start_with_applications(
-        fixture,
-        &[],
-        ArchiveSetup::Initialized,
-        false,
-        None,
-        FirstGroupSetup::Normal,
-    ))
+    let domain = fixture.domain.clone();
+    let started = async {
+        let mut roots = Vec::new();
+        for _ in 0..3 {
+            let mut root = tempfile::Builder::new()
+                .prefix("cellar-kv-bindings-")
+                .tempdir()?;
+            root.disable_cleanup(true);
+            eprintln!("retained KV binding disk: {}", root.path().display());
+            roots.push(root);
+        }
+        Box::pin(ManagedCluster::start_with_roots(fixture, roots)).await
+    }
     .await;
     let mut cluster = match started {
         Ok(cluster) => cluster,
         Err(error) => {
-            if let Some(http) = http {
-                http.close().await?;
+            let closed = match http {
+                Some(http) => http.close().await,
+                None => Ok(()),
+            };
+            domain.shutdown().await;
+            if let Err(close) = closed {
+                return Err(error.context(format!("joining KV startup HTTP: {close:#}")));
             }
             return Err(error);
         }
     };
-    let domain = cluster.fixtures[0].domain.clone();
     let work = domain
         .run(async {
             let kv_group = named_service::activate(&cluster, "kv-archive").await?;
@@ -678,6 +729,12 @@ async fn run(
             if coverage == Coverage::IngressDeadline {
                 return ingress::qualify(&cluster).await;
             }
+            if coverage == Coverage::InlineRead {
+                return inline_read::qualify(&mut cluster, kv_group).await;
+            }
+            if coverage == Coverage::InlineReadBoundaries {
+                return inline_read::qualify_boundaries(&mut cluster, kv_group).await;
+            }
             let token = operator_contract(&cluster).await?;
             let namespace = cellar_native::cell_id::Namespace::new(
                 "Counter",
@@ -711,8 +768,8 @@ async fn run(
                             serde_json::to_vec(part)?,
                             options,
                         )
-                        .await
-                        .with_context(|| format!("source KV contract phase {part}"))?;
+                        .await;
+                    let reply = reply.with_context(|| format!("source KV contract phase {part}"))?;
                     eprintln!(
                         "source KV contract phase {part}: elapsed_ms={}",
                         cellar::asyncrt::mono_ms() - start
@@ -863,7 +920,7 @@ async fn run(
                 .store
                 .denied_group_archive_writes
                 .load(Ordering::Acquire);
-            let archive_outage = StoreFault::enable(&cluster.fixtures[0].store.deny_group_archive_writes);
+            let archive_fault = StoreFault::enable(&cluster.fixtures[0].store.deny_group_archive_writes);
             source
                 .command(
                     &source.contract("Write")?,
@@ -873,7 +930,7 @@ async fn run(
                 .await?;
             sequence += 1;
             public_ok(&cluster, 0, "Read").await?;
-            cellar::asyncrt::timeout(TIMEOUT, async {
+            let archive_outage = cellar::asyncrt::timeout(TIMEOUT, async {
                 while cluster.fixtures[0]
                     .store
                     .denied_group_archive_writes
@@ -883,9 +940,23 @@ async fn run(
                     cellar::asyncrt::sleep(Duration::from_millis(20)).await;
                 }
             })
-            .await
-            .context("archive outage did not reach the actual PUT adapter")?;
-            drop(archive_outage);
+            .await;
+            if archive_outage.is_err() {
+                eprintln!("KV_ARCHIVE_OUTAGE_COUNTS {}", json!({
+                    "before": denied,
+                    "after": cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire),
+                }));
+                managed_fixture::diagnostics::record(&cluster, "kv-source-archive-outage").await;
+                managed_fixture::diagnostics::record_parts(
+                    &cluster.hosts,
+                    &cluster.fixtures,
+                    kv_group,
+                    "kv-target-archive-outage",
+                )
+                .await;
+            }
+            archive_outage.context("archive outage did not reach the actual PUT adapter")?;
+            drop(archive_fault);
             let stopped = cluster.nodes.split_off(1);
             managed_fixture::close_group_nodes_with_groups(stopped, &cluster.hosts[1..], 2).await?;
             cluster.hosts.truncate(1);
@@ -937,9 +1008,13 @@ async fn run(
         }
         Ok(())
     })();
-    if work.is_err() || joined.is_err() || http_joined.is_err() || payloads_joined.is_err() {
-        for root in std::mem::take(&mut cluster.roots) {
-            eprintln!("retained KV binding disk: {}", root.keep().display());
+    for (owner, result) in [
+        ("nodes-and-hosts", &joined),
+        ("payloads", &payloads_joined),
+        ("http", &http_joined),
+    ] {
+        if let Err(error) = result {
+            eprintln!("KV_CLEANUP_FAILURE owner={owner}: {error:#}");
         }
     }
     work?;

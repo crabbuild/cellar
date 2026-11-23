@@ -136,10 +136,12 @@ impl FleetHostAuthorization {
                 super::capacity::check_restart_capacity_view(&current, attestation, view, false)?;
                 if !already_seeded {
                     let profile = &view.node.profile;
+                    let segment_bytes = catalog.segment_floor_bytes(&snapshot, &boot).await?;
                     let bytes = view
                         .node
                         .reserved_bytes
                         .max(attestation.used_durable_bytes)
+                        .max(segment_bytes)
                         .checked_add(profile.bytes_per_group)
                         .ok_or(FleetCatalogError::Limit)?;
                     if view.node.groups >= profile.group_capacity

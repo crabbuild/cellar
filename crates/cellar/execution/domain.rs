@@ -250,6 +250,7 @@ impl ProductionDomainOwner {
         self.publish_task(id, inner.abort_handle(), cleanup);
         Ok(TaskHandle {
             inner: TaskInner::Async(inner),
+            cancelled: false,
         })
     }
 
@@ -294,6 +295,7 @@ impl ProductionDomainOwner {
         self.publish_task(id, inner.abort_handle(), false);
         Ok(TaskHandle {
             inner: TaskInner::Blocking(inner),
+            cancelled: false,
         })
     }
 }
@@ -680,6 +682,7 @@ impl std::error::Error for TaskPanic {}
 /// A typed join handle for one production task.
 pub struct TaskHandle<T> {
     inner: TaskInner<T>,
+    cancelled: bool,
 }
 
 enum TaskInner<T> {
@@ -690,6 +693,12 @@ enum TaskInner<T> {
 impl<T> Unpin for TaskHandle<T> {}
 
 impl<T> TaskHandle<T> {
+    /// Available after a failed join; cancellation is distinct from a panic.
+    /// This is a cleanup observation, never a mutation outcome proof.
+    pub(crate) fn was_cancelled(&self) -> bool {
+        self.cancelled
+    }
+
     /// Cancel a host task and release its owned resources at its next poll.
     pub fn abort(&self) {
         match &self.inner {
@@ -706,16 +715,23 @@ impl<T> Future for TaskHandle<T> {
     type Output = Result<T, TaskPanic>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        match &mut self.get_mut().inner {
+        let this = self.get_mut();
+        match &mut this.inner {
             TaskInner::Async(inner) => Pin::new(inner).poll(context).map(|result| {
-                result.map_err(|error| TaskPanic {
-                    message: error.to_string(),
+                result.map_err(|error| {
+                    this.cancelled = error.is_cancelled();
+                    TaskPanic {
+                        message: error.to_string(),
+                    }
                 })
             }),
             TaskInner::Blocking(inner) => Pin::new(inner).poll(context).map(|result| {
                 result
-                    .map_err(|error| TaskPanic {
-                        message: error.to_string(),
+                    .map_err(|error| {
+                        this.cancelled = error.is_cancelled();
+                        TaskPanic {
+                            message: error.to_string(),
+                        }
                     })?
                     .map_err(|error| TaskPanic {
                         message: error.to_string(),
@@ -724,6 +740,10 @@ impl<T> Future for TaskHandle<T> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "domain_task_tests.rs"]
+mod task_tests;
 
 /// Install the process runtime handle, exactly once. A second call would
 /// otherwise be ignored and leave the first runtime in place.

@@ -92,6 +92,7 @@ impl Startup<'_> {
                 services.listeners,
                 services.tls,
                 Some(performance),
+                config.host.settle_periodic_raft_purges,
             )
             .await?;
         let log = infrastructure.log.clone();
@@ -137,6 +138,7 @@ impl Startup<'_> {
         listeners: super::NodeRaftListeners,
         tls: crate::application::consensus::verification::RaftTls,
         performance: Option<Arc<crate::raft::performance::Registry>>,
+        settle_periodic_purges: bool,
     ) -> anyhow::Result<super::NodeRaftService> {
         use crate::raft::{
             cell_groups::CellGroupRuntime, storage::ReplicaLog, transport::RaftTransport,
@@ -147,8 +149,13 @@ impl Startup<'_> {
         );
         self.domain
             .run(async {
-                let log = ReplicaLog::open_observed(config.log, crate::asyncrt::fs(), performance)
-                    .await?;
+                let log = ReplicaLog::open_observed(
+                    config.log,
+                    crate::asyncrt::fs(),
+                    performance,
+                    settle_periodic_purges,
+                )
+                .await?;
                 let (runtime, events) =
                     match CellGroupRuntime::start(log.clone(), config.consensus).await {
                         Ok(runtime) => runtime,

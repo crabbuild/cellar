@@ -67,6 +67,14 @@ reads. This does not create a recovery or native admission capability.
 image seal. An identical root from another directory cannot substitute for that
 local physical capability.
 
+`NodeExtentStore::has_current_image_seal` checks the known persistence
+observations behind an existing local `SealedImageRoot` without I/O. It creates
+no seal and verifies no new bytes. Foreign inventory owners are ineligible;
+quarantine refuses reuse, and a known failed dependency read requires full
+verification before eligibility returns. Callers must separately bind any reuse
+to their exact verified input and current publication authority. Ordinary image
+preparation and untrusted archive replay retain their independent byte checks.
+
 `NodeExtentStore::prepare_transient_image_root` runs the same bounded LTX,
 geometry, closure and persistence checks as `prepare_image_root`, but a fresh
 root does not keep an additional permanent host reference. Its returned image
@@ -87,6 +95,26 @@ independent verifier stores. Its existing control admission and shutdown registr
 retain inventory handles and working memory through physical completion. This
 does not authorize manifest-page collection, Raft log truncation or S3 coverage,
 and does not qualify sustained load.
+
+Image preparation shares one final inventory-directory barrier across the bounded
+LTX chain's changed extents and exact result-root file. Every new file still
+completes its file sync and independent destination verification. File-only
+observations remain distinct from complete local persistence; no closure seal
+escapes before the shared barrier succeeds and all dependency observations are
+rechecked. Existing unchanged files retain their completed barriers, while full
+byte verification still runs when reused by preparation. Ordinary imports and
+readers retain their own barriers. A failed shared directory sync quarantines
+mutation and preserves all charges until recovery; reopening clears volatile
+proofs and requires ordinary verification. Fresh transient root metadata adds no
+permanent host reference, including when final sealing fails. This batching adds
+neither an asynchronous wait nor a new quota, and supplies no Raft acknowledgement
+or archive authority by itself.
+
+Each committed LTX cut independently checks its physical SQLite header and
+lock-page geometry. The last cut supplies the final geometry check before the
+exact result binding and commitment are sealed. Empty chains are refused, and a
+later valid cut cannot hide invalid intermediate geometry. Destination byte
+verification and the existing file and directory barriers remain required.
 
 Root metadata keeps a volatile observation of completed file and directory
 barriers on its exact open inventory owner. A repeated seal still reads and
@@ -154,14 +182,17 @@ The Raft host uses this mode only for private command execution: its verified
 preview, committed immutable image and Raft log keep their persistence barriers.
 
 `NodeWorkspace` is created under an exclusively locked extent inventory whose
-open already completed the ancestor barriers. Creation still syncs the new child
-directory and its parent before returning its owner. Rooted private execution
-validates and retains that exact owner instead of repeating the ancestor walk;
-materialized command scratch uses ordinary directory creation because each open
-discards and rebuilds it from an independently authoritative image. Child or parent
-sync failure during workspace creation quarantines the inventory and retains the
-complete reservation until recovery. Last-pin cleanup still syncs deletion before
-refunding capacity.
+open already completed the ancestor barriers. `NodeExtentStore::create_workspace`
+syncs the new child directory and its parent before returning its owner.
+`create_disposable_workspace` reserves the same complete working image/WAL/capture
+bound but omits creation syncs: the path and its contents may disappear after a
+crash. Rooted private SQL uses this separate API and retains its exact owner;
+captured bytes still require independently persisted images and Raft proof before
+acknowledgement. Arbitrary materialized paths establish their own barriers.
+Both APIs retain the node lock and reservation until every physical user closes.
+Last-pin cleanup removes files and syncs deletion before refunding capacity.
+Failed creation or cleanup quarantines the inventory and keeps the complete
+reservation. Reopen discards leftover private directories before new admission.
 Anonymous read-cache directories use ordinary creation because they are rebuilt
 after a crash. Neither those files nor the directory owner supplies an immutable
 image seal, a Raft acknowledgement or recovery authority.
@@ -388,8 +419,13 @@ unchanged extents are shared. `ExtentWorkspace` creates a disposable writable
 sparse main file from that exact base. `ExtentWorkspace::from_source` accepts
 an authenticated manifest and an `ExtentSource` whose owner retains its complete
 dependency closure, allowing private writes before the base is fully local.
-Both constructors fault extents through the same admitted, independently verified
-cache and track actual main-file changes across checkpoints. Open SQLite handles
+Local and source-backed constructors fault extents through the same admitted,
+independently verified cache and track actual main-file changes across checkpoints.
+`ExtentWorkspace::empty` validates a transaction-zero binding and opens an
+initializer without allocating or sealing a durable empty root. It retains the
+caller's private-file admission through every open SQLite/VFS handle. The
+initialized result still requires its independent publication and image proofs.
+Open SQLite handles
 retain the source even after the workspace registration closes; this includes an
 empty base. The source contract does not persist a remote reference or grant a
 durable image seal. Its caller must separately establish and maintain those proofs.

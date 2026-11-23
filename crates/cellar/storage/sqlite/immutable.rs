@@ -121,6 +121,10 @@ pub(super) fn active() -> bool {
     CURRENT_QUERY.with(|current| current.borrow().is_some())
 }
 
+pub(super) fn result_limit() -> Option<usize> {
+    CURRENT_QUERY.with(|current| Some(current.borrow().as_ref()?.database.result_limit()))
+}
+
 pub(crate) fn filesystem_lifetime() -> Option<std::sync::Weak<()>> {
     CURRENT_QUERY.with(|current| Some(Arc::downgrade(&current.borrow().as_ref()?.lifetime)))
 }
@@ -213,6 +217,10 @@ fn authorize_query(context: AuthContext<'_>) -> Authorization {
     if super::authorize_sql(context) != Authorization::Allow {
         return Authorization::Deny;
     }
+    authorize_read_action(context)
+}
+
+pub(super) fn authorize_read_action(context: AuthContext<'_>) -> Authorization {
     match context.action {
         AuthAction::Read { .. }
         | AuthAction::Select

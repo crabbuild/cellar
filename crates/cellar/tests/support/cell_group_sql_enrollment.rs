@@ -141,6 +141,11 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
             .map_err(anyhow::Error::new)
     })?;
     tokio::time::timeout(Duration::from_secs(5), started).await??;
+    let unpublished_base = fixture.cluster.voters[0]
+        .extents
+        .as_ref()
+        .map(|store| store.usage().map(|usage| (usage.roots, usage.workspaces)))
+        .transpose()?;
     waiter.abort();
     assert!(waiter.await.is_err());
     let mut other = a.clone();
@@ -180,8 +185,55 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
         pool.resolve_enrollment(pa.proposal(), state).await,
         Err(ExecutionError::Uncertain)
     ));
+    // The dispatcher observes state before queueing SQL resolution. Apply can
+    // win that race without changing the route, term or SQL worker health.
+    let stale = fixture.runtimes[0]
+        .enrollment_state(route.history, a.clone())
+        .await?;
+    assert!(stale.record().is_none());
+    stale.check()?;
     submit(&mut fixture, &pool, 0, &a, &pa).await?;
+    let current = fixture.runtimes[0]
+        .enrollment_state(route.history, a.clone())
+        .await?;
+    current.check()?;
+    assert_eq!(current.route(), stale.route());
+    assert_eq!(current.term(), stale.term());
+    assert_eq!(
+        current.record().map(|record| record.creation()),
+        Some(pa.proposal())
+    );
+    assert!(matches!(stale.check(), Err(RuntimeError::NotReady)));
+    let retained = pool.usage()?;
+    let workspaces = fixture.cluster.voters[0]
+        .extents
+        .as_ref()
+        .map(|store| store.usage().map(|usage| usage.workspaces))
+        .transpose()?;
+    let failure = match pool.resolve_enrollment(pa.proposal(), stale).await {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("stale absence cannot resolve a prepared enrollment"),
+    };
+    assert!(
+        matches!(failure, ExecutionError::Uncertain),
+        "stale enrollment observation must request fresh proof: {failure:?}"
+    );
+    let usage = pool.usage()?;
+    assert!(!usage.closing);
+    assert_eq!(usage.active_cells, 1);
+    assert_eq!(usage.retained_bytes, retained.retained_bytes);
+    assert_eq!(usage.retained_operations, retained.retained_operations);
+    assert_eq!(callbacks.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        fixture.cluster.voters[0]
+            .extents
+            .as_ref()
+            .map(|store| store.usage().map(|usage| usage.workspaces))
+            .transpose()?,
+        workspaces
+    );
     let ra = resolved(&fixture, &pool, 0, &a, pa.proposal()).await?;
+    assert_eq!(ra.record().creation(), pa.proposal());
     let original = ra.record().clone();
     assert_eq!(callbacks.load(Ordering::SeqCst), 1);
     drop(ra);
@@ -335,7 +387,15 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
         .record()
         .is_none());
     drop(pool);
-    fixture.close().await
+    fixture.close().await?;
+    if rooted {
+        assert_eq!(
+            unpublished_base,
+            Some((0, 1)),
+            "a held initializer needs its admitted workspace, not a durable empty base"
+        );
+    }
+    Ok(())
 }
 
 pub(super) async fn recovery(rooted: bool) -> Result<()> {
@@ -507,4 +567,100 @@ pub(super) async fn owned_workspace_barriers() -> Result<()> {
     );
     drop(pool);
     fixture.close().await
+}
+
+pub(super) async fn materialized_scratch_barriers() -> Result<()> {
+    let (mut fixture, route) = cluster(false).await?;
+    let pool = CellGroupSqlPool::start(&fixture.cluster.voters[0].log, limits(2))?;
+    let cell = history(&route, "disposable-workspace")?;
+    let mut options = fixture.cell_options(&cell).await?;
+    let CellSqlOptions::Materialized(private) = &mut options else {
+        anyhow::bail!("materialized workspace required")
+    };
+    let gate = fault::Gate::new(None);
+    private.host = private
+        .host
+        .clone()
+        .with_filesystem(Arc::new(fault::FaultFileSystem { gate: gate.clone() }));
+    // All three authoritative image stores and engines are already open.
+    // Reject only an ancestor barrier from the disposable SQL workspace.
+    // Their own file/directory barriers remain on their original providers.
+    *gate.sync_path.lock().unwrap() = Some(fixture.cluster._root.path().to_path_buf());
+    let release = gate.arm(fault::FAIL_PARENT_SYNC);
+    let work = async {
+        let authority = fixture.runtimes[0]
+            .enrollment_authority(route.history, cell.clone())
+            .await?;
+        let CellSqlOutcome::Prepared(initial) = pool
+            .initialize(options.clone(), authority, attempt(170)?, |tx| {
+                tx.execute_batch("CREATE TABLE value(n); INSERT INTO value VALUES(7)")?;
+                Ok(())
+            })
+            .await?
+        else {
+            anyhow::bail!("prepared enrollment")
+        };
+        submit(&mut fixture, &pool, 0, &cell, &initial).await?;
+        let enrolled = resolved(&fixture, &pool, 0, &cell, initial.proposal()).await?;
+        anyhow::ensure!(enrolled.record().cell() == &cell);
+        drop(enrolled);
+        drop(initial);
+        let authority = fixture.runtimes[0]
+            .execution_authority(route.history, cell.clone())
+            .await?;
+        let CellSqlOutcome::Prepared(command) = pool
+            .stage(options, authority, cell_attempt(171)?, true, |tx| {
+                tx.execute("UPDATE value SET n=n+1", [])?;
+                Ok(b"after-initialization".to_vec())
+            })
+            .await?
+        else {
+            anyhow::bail!("prepared command")
+        };
+        let receipt = commit_on(&mut fixture, &pool, 0, &cell, command).await?;
+        anyhow::ensure!(receipt.receipt().version.sequence.get() == 2);
+        let version = receipt.receipt().version.clone();
+        let witness = receipt.receipt().witness;
+        drop(receipt);
+        for node in 0..3 {
+            let current = fixture.runtimes[node]
+                .reconciliation_authority(route.history, cell.clone())
+                .await?;
+            anyhow::ensure!(current.cell().version == version && current.cell().witness == witness);
+            let authority =
+                super::reads::selected(&mut fixture, node, &cell, CellReadConsistency::Stale)
+                    .await?;
+            let options = fixture.cell_options_at(&cell, node).await?;
+            // This fixture applies directly, without installed SQL appliers.
+            // Read each replica on its engine-bound pool after the commit;
+            // reuse the leader's pool and join each remote reader in turn.
+            let reader = if node == 0 {
+                pool.clone()
+            } else {
+                CellGroupSqlPool::start(&fixture.cluster.voters[node].log, limits(2))?
+            };
+            let output = reader
+                .query(options, authority, |db, version| {
+                    anyhow::ensure!(version.sequence.get() == 2);
+                    let value: i64 = db.query_row("SELECT n FROM value", [], |row| row.get(0))?;
+                    Ok(value.to_le_bytes().to_vec())
+                })
+                .await
+                .map(|output| output.result().to_vec());
+            if node != 0 {
+                reader.close().await?;
+            }
+            anyhow::ensure!(output? == 8_i64.to_le_bytes());
+        }
+        anyhow::ensure!(gate.mode.load(Ordering::Acquire) == fault::FAIL_PARENT_SYNC);
+        anyhow::ensure!(pool.usage()?.active_cells == 0 && pool.usage()?.retained_bytes == 0);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    // Join the physical owners even for the intended pre-fix failure.
+    pool.close().await?;
+    drop(pool);
+    fixture.close().await?;
+    drop(release);
+    work
 }

@@ -151,6 +151,7 @@ async fn action(
     node: &str,
     request: u8,
     options: &[&str],
+    ledger: &mut recovery::Ledger,
 ) -> Result<RaftFleetMaintenanceStatus> {
     let operation = hex::encode(OPERATION);
     let request = hex::encode([request; 16]);
@@ -174,9 +175,33 @@ async fn action(
         let refused = cli.call(&args, cli::READER).await?;
         ensure!(refused.code == 4 && refused.value["error"]["code"] == "forbidden");
     }
-    let value = cli
+    let attestation: Option<FleetCapacityAttestation> = options
+        .windows(2)
+        .find(|pair| pair[0] == "--attestation")
+        .map(|pair| -> Result<_> { Ok(serde_json::from_slice(&std::fs::read(pair[1])?)?) })
+        .transpose()?;
+    ledger.record(serde_json::json!({
+        "phase": "maintenance_request", "verb": verb, "node": node,
+        "operation": operation, "request": request, "expected_revision": revision,
+        "arguments": &args, "attestation": attestation, "timeout_seconds": 20,
+    }))?;
+    let response = cli
         .call_with_timeout(&args, OWNER, Duration::from_secs(22))
-        .await?
+        .await?;
+    if response.code != 0 {
+        // Observation failure must not replace the original mutation error.
+        if let Err(error) = ledger.record(serde_json::json!({
+            "phase": "maintenance_response", "verb": verb, "node": node,
+            "operation": operation, "request": request, "exit_code": response.code,
+            "error_code": response.value["error"]["code"],
+            "outcome": response.value["error"]["outcome"],
+            "error_phase": response.value["phase"],
+            "terminal": response.value["terminal"],
+        })) {
+            eprintln!("maintenance response observation unavailable: {error:#}");
+        }
+    }
+    let value = response
         .success()
         .with_context(|| format!("public {verb}"))?;
     let status: RaftFleetMaintenanceStatus = serde_json::from_value(value)?;
@@ -229,6 +254,7 @@ pub(crate) async fn qualify(
             "--birth-resolution",
             "cancel",
         ],
+        ledger,
     )
     .await?;
     ensure!(ready.phase == RaftFleetMaintenancePhase::Ready && ready.readiness_request.is_some());
@@ -249,6 +275,7 @@ pub(crate) async fn qualify(
             "--stop-id",
             &hex::encode([133; 16]),
         ],
+        ledger,
     )
     .await?;
     // The worker can record the offline proof before advancing the phase.
@@ -297,6 +324,7 @@ pub(crate) async fn qualify(
         &node,
         134,
         &["--next-process", &hex::encode(NEXT_PROCESS)],
+        ledger,
     )
     .await?;
     ensure!(
@@ -347,6 +375,7 @@ pub(crate) async fn qualify(
             "--resume-id",
             &hex::encode([138; 16]),
         ],
+        ledger,
     )
     .await?;
     ensure!(

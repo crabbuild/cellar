@@ -1,9 +1,241 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Restarted joint voters resume an exact move on their retained engines.
+//! Restarted voters resume an exact move on their retained engines.
 use super::*;
 
 const TURNS: usize = 8;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_seeding_source_restarts_settle_original_debit() -> Result<()> {
+    for rooted in [false, true] {
+        for from_s3 in [false, true] {
+            Box::pin(seeding_with_store(
+                rooted,
+                from_s3,
+                Arc::new(fault::Store::default()),
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_seeding_source_restarts_settle_original_debit() -> Result<()> {
+    for rooted in [false, true] {
+        for from_s3 in [false, true] {
+            let store = Arc::new(fault::Store::around(rustfs::store(
+                if from_s3 {
+                    "seeding-restarts-archive"
+                } else {
+                    "seeding-restarts-peer"
+                },
+                rooted,
+            )?));
+            Box::pin(seeding_with_store(rooted, from_s3, store)).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn seeding_with_store(rooted: bool, from_s3: bool, store: Arc<fault::Store>) -> Result<()> {
+    let mut cluster = Box::pin(ManagedCluster::start_with_store(
+        rooted,
+        &[7],
+        ArchiveSetup::Initialized,
+        store,
+    ))
+    .await?;
+    let result = Box::pin(seeding_source_restarts(&mut cluster, from_s3)).await;
+    if result.is_err() {
+        report_settlement_state(&cluster, &cluster.hosts[3]).await;
+    }
+    let stopped = close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
+    cluster.fixtures[0].domain.shutdown().await;
+    if result.is_err() || stopped.is_err() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!(
+                "retained failed seeding restart disk: {}",
+                root.keep().display()
+            );
+        }
+    }
+    result
+        .with_context(|| format!("seeding source restarts: extents={rooted}, archive={from_s3}"))?;
+    stopped
+}
+
+async fn seeding_source_restarts(cluster: &mut ManagedCluster, from_s3: bool) -> Result<()> {
+    let (seed, primary, obsolete, _, original) =
+        Box::pin(reserve_replacement(cluster, from_s3)).await?;
+    let catalog = cluster.fixtures[0].catalog.clone();
+    let cut = catalog.read(TIMEOUT).await?;
+    match catalog
+        .reconcile_movement(&cut, &original, &cluster.hosts[primary], TIMEOUT)
+        .await
+    {
+        Ok(progress) => {
+            ensure!(progress.phase == FleetMovementPhase::Reserved && !progress.settled)
+        }
+        Err(FleetCatalogError::Unconfirmed) => (),
+        Err(error) => return Err(error).context("begin restart fixture"),
+    }
+    let proof = cluster.hosts[primary]
+        .group(cluster.history)?
+        .quorum_membership(TIMEOUT)
+        .await?;
+    ensure!(proof.membership().fleet_status().is_some_and(|status| {
+        status.phase == Some(cellar::application::consensus::FleetPermitPhase::Seeding)
+            && status
+                .permit
+                .as_ref()
+                .is_some_and(|permit| permit.id() == original.reservation)
+    }));
+    drop(proof);
+
+    // No learner activation has entered. Restart every original source, one at
+    // a time, so any elected leader must use a retained source boot. A healthy
+    // original-boot follower cannot accidentally conceal this recovery cut.
+    for index in 0..3 {
+        let boot = Box::pin(restart_voter(cluster, index)).await?;
+        discover(cluster).await?;
+        let cut = catalog.read(TIMEOUT).await?;
+        let revision = cut.revision();
+        let admission = catalog
+            .authorize_membership(&cut, &cluster.history, TIMEOUT)
+            .await?;
+        let history = catalog
+            .authorize_group(&cut, &cluster.history, TIMEOUT)
+            .await?;
+        let refused = cluster.hosts[3]
+            .activate_managed_learner_group(
+                history,
+                admission,
+                LearnerActivation {
+                    member: MemberId::new(4)?,
+                    source: MemberId::new(index as u64 + 1)?,
+                    source_node: cluster.fixtures[index].spec.node,
+                    from_s3,
+                    timeout: TIMEOUT,
+                },
+            )
+            .await;
+        ensure!(
+            matches!(refused, Err(CellGroupStartupError::Unconfirmed(
+            CellGroupControllerError::Catalog(ref error)
+        )) if matches!(error.as_ref(), cellar::application::consensus::CatalogError::FleetAuthority(authority)
+            if matches!(authority.as_ref(), FleetCatalogError::Conflict))),
+            "unqualified retained source was admitted: {refused:?}"
+        );
+        ensure!(catalog.read(TIMEOUT).await?.revision() == revision);
+        ensure!(cluster.hosts[3].resource_usage().host.controller.groups == 0);
+        managed_fixture::admit_capacity(
+            &cluster.fixtures[index],
+            &cluster.hosts[index],
+            &cluster.directory,
+            220 + 2 * index as u8,
+        )
+        .await?;
+        ensure!(
+            cluster.hosts[index]
+                .observe_node(TIMEOUT)
+                .await?
+                .fleet_boot
+                .as_ref()
+                == Some(&boot)
+        );
+    }
+    discover(cluster).await?;
+    let leader = current_leader(&cluster.hosts[..3], &[1, 2, 3], cluster.history)
+        .await
+        .context("locate current source after Seeding restarts")?;
+    let observer = &cluster.hosts[leader];
+    let mut settled = false;
+    let mut attempts = Vec::new();
+    for _ in 0..TURNS {
+        let cut = catalog.read(TIMEOUT).await?;
+        let pending = catalog.pending_reservations(&cut, TIMEOUT).await?;
+        ensure!(
+            pending.len() == 1
+                && pending[0].reservation == original.reservation
+                && pending[0].boot == original.attestation.boot
+        );
+        let result = catalog
+            .reconcile_movement(&cut, &original, observer, TIMEOUT)
+            .await;
+        attempts.push(format!("{result:?}"));
+        match result {
+            Ok(progress) if progress.settled => {
+                ensure!(progress.phase == FleetMovementPhase::Complete);
+                settled = true;
+                break;
+            }
+            Ok(progress) => ensure!(matches!(
+                progress.phase,
+                FleetMovementPhase::Seeding | FleetMovementPhase::Joint
+            )),
+            Err(FleetCatalogError::Unconfirmed) => (),
+            Err(error) => return Err(error).context("reconcile retained seeding sources"),
+        }
+    }
+    ensure!(
+        settled,
+        "retained seeding source did not settle original move: {attempts:?}"
+    );
+    let cut = catalog.read(TIMEOUT).await?;
+    ensure!(catalog
+        .pending_reservations(&cut, TIMEOUT)
+        .await?
+        .is_empty());
+    ensure!(catalog.pending_movements(&cut, TIMEOUT).await?.is_empty());
+    let replay = catalog
+        .reconcile_movement(&cut, &original, observer, TIMEOUT)
+        .await?;
+    ensure!(replay.settled && replay.phase == FleetMovementPhase::Complete);
+    let proof = cluster.hosts[3]
+        .group(cluster.history)?
+        .quorum_membership(TIMEOUT)
+        .await?;
+    ensure!(
+        proof.configuration().voters.len() == 3
+            && proof.configuration().voters.contains(&4)
+            && !proof
+                .configuration()
+                .voters
+                .contains(&(obsolete as u64 + 1))
+            && proof.configuration().learners.is_empty()
+            && proof.configuration().voters_outgoing.is_empty()
+    );
+    let voters = proof.configuration().voters.clone();
+    drop(proof);
+    verify_current_voter_cells(cluster, &seed, &voters).await
+}
+
+async fn verify_current_voter_cells(
+    cluster: &ManagedCluster,
+    seed: &SeededCells,
+    voters: &[u64],
+) -> Result<()> {
+    // Successful removal may already have detached the obsolete runtime owner.
+    // Audit the independently observed current configuration. Do not mask a
+    // missing current voter or reuse the original four-node candidate list.
+    let hosts = voters
+        .iter()
+        .map(|member| {
+            let index = usize::try_from(member.checked_sub(1).context("current voter ID")?)?;
+            cluster
+                .hosts
+                .get(index)
+                .cloned()
+                .context("current voter fixture")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let leader = current_leader(&hosts, voters, cluster.history)
+        .await
+        .context("locate current voter for original receipt and data audit")?;
+    verify_cells(&hosts[leader], seed, 2).await
+}
 
 #[derive(Clone, Copy, Debug)]
 enum RestartedVoter {
@@ -76,8 +308,19 @@ async fn with_store(
     ))
     .await?;
     let result = Box::pin(exercise(&mut cluster, restarted)).await;
-    let stopped = close(cluster.nodes, &cluster.hosts).await;
+    if result.is_err() {
+        report_settlement_state(&cluster, &cluster.hosts[3]).await;
+    }
+    let stopped = close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
+    if result.is_err() || stopped.is_err() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!(
+                "retained failed joint restart disk: {}",
+                root.keep().display()
+            );
+        }
+    }
     result
         .with_context(|| format!("joint restart of {restarted:?} with extent images={rooted}"))?;
     stopped
@@ -344,10 +587,9 @@ async fn exercise(cluster: &mut ManagedCluster, restarted: RestartedVoter) -> Re
                 .contains(&(obsolete as u64 + 1))
             && proof.configuration().voters_outgoing.is_empty()
     );
+    let voters = proof.configuration().voters.clone();
     drop(proof);
-    let primary = current_leader(&cluster.hosts, &[1, 2, 3, 4], cluster.history).await?;
-    verify_cells(&cluster.hosts[primary], &seed, 2).await?;
-    Ok(())
+    verify_current_voter_cells(cluster, &seed, &voters).await
 }
 
 async fn report_settlement_state(cluster: &ManagedCluster, observer: &RaftCells) {

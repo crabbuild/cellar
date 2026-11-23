@@ -122,12 +122,13 @@ pub(super) async fn qualify(rooted: bool, backend: Arc<dyn ObjectStore>) -> Resu
         .run(payloads.publish(&history, body.clone(), Duration::from_secs(3)))
         .await??;
     let reference = published.reference().clone();
-    let expected = checkpoint_fixture::enroll_images_with_payload(
+    let expected = checkpoint_fixture::enroll_images_with_filesystem_and_payload(
         &mut cluster,
         rooted,
         false,
         0,
         8192,
+        Arc::new(DirectFileSystem),
         Some(&reference),
     )
     .await?;

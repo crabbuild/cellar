@@ -119,7 +119,7 @@ impl NodeExtentStore {
                     id,
                     ObjectEntry {
                         bytes: metadata.len,
-                        verified: false,
+                        persistence: ObjectPersistence::Unverified,
                         read_proof: None,
                     },
                 );
@@ -180,22 +180,29 @@ impl NodeExtentStore {
         &self,
         reference: ExtentRootReference,
     ) -> Result<Arc<RootData>, StoreError> {
-        self.read_root(reference, false)
+        self.read_root(reference, None)
     }
 
     pub(super) fn read_root_synced(
         &self,
         reference: ExtentRootReference,
     ) -> Result<Arc<RootData>, StoreError> {
-        self.read_root(reference, true)
+        self.read_root(reference, Some(DirectorySync::Immediate))
+    }
+
+    pub(super) fn read_root_for_image(
+        &self,
+        reference: ExtentRootReference,
+    ) -> Result<Arc<RootData>, StoreError> {
+        self.read_root(reference, Some(DirectorySync::ImagePublication))
     }
 
     fn read_root(
         &self,
         reference: ExtentRootReference,
-        persist: bool,
+        sync: Option<DirectorySync>,
     ) -> Result<Arc<RootData>, StoreError> {
-        let result = self.read_root_inner(reference, persist);
+        let result = self.read_root_inner(reference, sync);
         if result.is_err() {
             if let Some(entry) = self.inner.state()?.roots.get_mut(&reference.root) {
                 entry.persisted = false;
@@ -207,7 +214,7 @@ impl NodeExtentStore {
     fn read_root_inner(
         &self,
         reference: ExtentRootReference,
-        persist: bool,
+        sync: Option<DirectorySync>,
     ) -> Result<Arc<RootData>, StoreError> {
         let persisted = {
             let state = self.inner.state()?;
@@ -237,15 +244,17 @@ impl NodeExtentStore {
             return Err(StoreError::Integrity);
         }
         let manifest = ExtentManifest::decode(&bytes, reference.root)?;
-        if persist && !persisted {
+        if let Some(sync) = sync.filter(|_| !persisted) {
             file.sync_all()?;
-            self.inner.filesystem.sync_all(&self.inner.directory)?;
-            self.inner
-                .state()?
-                .roots
-                .get_mut(&reference.root)
-                .ok_or(StoreError::Missing)?
-                .persisted = true;
+            if sync == DirectorySync::Immediate {
+                self.inner.filesystem.sync_all(&self.inner.directory)?;
+                self.inner
+                    .state()?
+                    .roots
+                    .get_mut(&reference.root)
+                    .ok_or(StoreError::Missing)?
+                    .persisted = true;
+            }
         }
         let mut objects = BTreeSet::new();
         for index in 0..manifest.geometry().extent_count() {

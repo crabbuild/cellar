@@ -13,6 +13,8 @@ mod deployment;
 #[path = "../perf/embedded.rs"]
 #[allow(dead_code)]
 mod embedded;
+#[path = "../perf/object_clients.rs"]
+mod object_clients;
 
 #[path = "fleet_gateway.rs"]
 mod gateway;

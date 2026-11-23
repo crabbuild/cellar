@@ -4,18 +4,21 @@
 //! The node controller drives publication; acceptance is only provisional.
 mod output;
 mod owned;
+mod reconcile;
 mod remote;
 use output::PendingOutput;
 
 use super::*;
 use crate::application::consensus::command_request_digest;
 use crate::application::consensus::CommandAdmission;
+use crate::raft::host_sql::cell_groups::{CellSqlReconciliationObservation, SqlCapacityWait};
 use crate::raft::{
     cell_groups::CellSqlStageMode,
     execution::{CommandAttempt, CommandRequest},
 };
 use crate::storage::CommandInputs;
-use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
+use cellar_logic::cell_group::CellVersion;
+use cellar_logic::consensus::{CommandFailure, CommandId, Durability, Term};
 use cellar_ltx::generation::ImageId;
 
 #[derive(Clone)]
@@ -76,15 +79,22 @@ enum CommandOutput {
         s3: Option<Box<super::super::controller::S3OutputProof>>,
     },
     Remote(Box<crate::raft::transport::CellRemoteCommandResponse>),
+    Reconciled(Box<super::receipt::ResolvedCommandReceipt>),
 }
 
 impl CellCommandResponse {
+    fn from_receipt(response: CellReceiptResponse) -> Option<Self> {
+        response.into_command_receipt().map(|receipt| Self {
+            output: CommandOutput::Reconciled(Box::new(receipt)),
+        })
+    }
+
     /// A remote acknowledgement carries authenticated output metadata, never a
     /// locally inspected SQL image or a local archive-settlement proof.
     pub fn local_receipt(&self) -> Option<&crate::raft::execution::CellCommittedReceipt> {
         match &self.output {
             CommandOutput::Local { receipt, .. } => Some(receipt.receipt()),
-            CommandOutput::Remote(_) => None,
+            CommandOutput::Remote(_) | CommandOutput::Reconciled(_) => None,
         }
     }
 
@@ -92,6 +102,7 @@ impl CellCommandResponse {
         match &self.output {
             CommandOutput::Local { receipt, .. } => receipt.receipt().receipt.result(),
             CommandOutput::Remote(response) => response.result(),
+            CommandOutput::Reconciled(response) => response.result(),
         }
     }
 
@@ -99,6 +110,7 @@ impl CellCommandResponse {
         match &self.output {
             CommandOutput::Local { receipt, .. } => receipt.receipt().observation(),
             CommandOutput::Remote(response) => response.observation().clone(),
+            CommandOutput::Reconciled(response) => response.observation().clone(),
         }
     }
 
@@ -106,6 +118,7 @@ impl CellCommandResponse {
         match &self.output {
             CommandOutput::Local { token, .. } => token,
             CommandOutput::Remote(response) => response.token(),
+            CommandOutput::Reconciled(response) => response.token(),
         }
     }
 
@@ -114,6 +127,7 @@ impl CellCommandResponse {
             CommandOutput::Local { s3: Some(_), .. } => Durability::S3,
             CommandOutput::Local { s3: None, .. } => Durability::Quorum,
             CommandOutput::Remote(response) => response.durability(),
+            CommandOutput::Reconciled(response) => response.durability(),
         }
     }
 }
@@ -127,6 +141,9 @@ struct Origin {
     preview: ImageId,
     prepared: Option<CellSqlPrepared>,
     submitted: bool,
+    // Only a positive worker observation can populate this per-invocation
+    // hint. It retains no image pin or authority and never resolves a command.
+    pending_view: Option<(Term, CellVersion)>,
 }
 
 /// The controller retains this non-cloneable invocation across waiter cancellation.
@@ -143,6 +160,7 @@ pub struct CellCommandInvocation {
     dispatched: bool,
     ambiguous: bool,
     writer_wait: bool,
+    capacity_wait: Option<SqlCapacityWait>,
     origin: Option<Origin>,
     output: Option<PendingOutput>,
     archive_invocation: Option<super::super::controller::S3Invocation>,
@@ -412,6 +430,7 @@ impl PendingCellCommand {
             dispatched: false,
             ambiguous: false,
             writer_wait: false,
+            capacity_wait: None,
             origin: None,
             output: None,
             archive_invocation: None,
@@ -609,6 +628,7 @@ impl CellCommandInvocation {
         let proposal = proposal.map_err(|_| CellDispatchError::Invalid("proposal ID"))?;
         let preview = preview.map_err(|_| CellDispatchError::Invalid("preview ID"))?;
         self.writer_wait = false;
+        self.capacity_wait = None;
         self.session
             .mark_submitted(attempt)
             .map_err(CellDispatchError::Routing)?;
@@ -622,6 +642,7 @@ impl CellCommandInvocation {
             preview,
             prepared: None,
             submitted: false,
+            pending_view: None,
         });
         let command = self.command_attempt(
             self.origin
@@ -681,6 +702,7 @@ impl CellCommandInvocation {
             Ok(outcome) => self.preparation(outcome).await,
             Err(failure) => {
                 self.writer_wait = failure.writer_busy;
+                self.capacity_wait = failure.capacity_wait;
                 // Admission refusals and received Stage errors completed without
                 // installing this producer. Lost replies retain the exact origin.
                 if !failure.unresolved {
@@ -889,7 +911,7 @@ impl CellCommandInvocation {
         }
         let origin = self
             .origin
-            .as_ref()
+            .as_mut()
             .ok_or(CellDispatchError::Invalid("missing origin"))?;
         if !origin.submitted {
             return Err(CellDispatchError::Invalid("command not submitted"));
@@ -902,16 +924,41 @@ impl CellCommandInvocation {
         if authority.route() != &origin.route {
             return Err(CellDispatchError::Invalid("origin route binding"));
         }
-        match origin.sql.reconcile(origin.proposal, authority).await {
-            Ok(CellSqlReconciliation::Committed(receipt)) => {
+        let view = (authority.term(), authority.cell().version.clone());
+        if origin.pending_view.as_ref() == Some(&view) {
+            // Fetch and check current route, membership, term and selected
+            // leaf even when unrelated group progress needs no SQL work.
+            authority.check().map_err(CellDispatchError::Runtime)?;
+            return Err(CellDispatchError::Execution(ExecutionError::Uncertain));
+        }
+        origin.pending_view = None;
+        match origin
+            .sql
+            .observe_reconciliation(origin.proposal, authority)
+            .await
+        {
+            Ok(CellSqlReconciliationObservation::Pending) => {
+                origin.pending_view = Some(view);
+                Err(CellDispatchError::Execution(ExecutionError::Uncertain))
+            }
+            Ok(CellSqlReconciliationObservation::Retained) => {
+                // Ownership replaces a Resume round trip, but the next
+                // attempt still needs fresh authority and SQL reconciliation.
+                Err(CellDispatchError::Execution(ExecutionError::Uncertain))
+            }
+            Ok(CellSqlReconciliationObservation::Resolved(CellSqlReconciliation::Committed(
+                receipt,
+            ))) => {
                 let response = self.response(receipt).await?;
                 Ok(CellCommandSettlement::Committed(response))
             }
-            Ok(CellSqlReconciliation::NotCommitted) => {
+            Ok(CellSqlReconciliationObservation::Resolved(CellSqlReconciliation::NotCommitted)) => {
                 self.origin = None;
                 Ok(CellCommandSettlement::NotCommitted)
             }
-            Ok(CellSqlReconciliation::Refused(failure)) => {
+            Ok(CellSqlReconciliationObservation::Resolved(CellSqlReconciliation::Refused(
+                failure,
+            ))) => {
                 self.origin = None;
                 Ok(CellCommandSettlement::Refused(failure))
             }

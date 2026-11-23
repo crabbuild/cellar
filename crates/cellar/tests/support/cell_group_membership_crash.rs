@@ -36,7 +36,7 @@ fn configuration(conf: &ConfState, joint: bool) {
 
 pub(crate) async fn membership_crash(rooted: bool) -> Result<()> {
     for cut in ["joint", "left"] {
-        let directory = tempfile::tempdir()?;
+        let directory = crash_fixture::retained_directory()?;
         crash_fixture::kill_at(directory.path(), "membership_process_fixture", rooted, cut).await?;
         Box::pin(recover(directory.path(), rooted, cut == "joint"))
             .await

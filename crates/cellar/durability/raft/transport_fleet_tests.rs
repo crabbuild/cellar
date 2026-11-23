@@ -101,12 +101,19 @@ async fn change(
     let mut payload = std::str::from_utf8(&bytes[13..bytes.len() - 32])?.to_owned();
     for (field, value) in record.as_object().unwrap() {
         if value != &original[field] {
-            payload = payload.replace(
+            // NodeRecord's top-level fields precede the retained boot. Do not
+            // rewrite an identically named field inside that immutable boot.
+            payload = payload.replacen(
                 &format!("\"{field}\":{}", serde_json::to_string(&original[field])?),
                 &format!("\"{field}\":{}", serde_json::to_string(value)?),
+                1,
             );
         }
     }
+    anyhow::ensure!(
+        serde_json::from_str::<serde_json::Value>(&payload)? == record,
+        "node fixture mutation changed unintended fields"
+    );
     use sha2::{Digest, Sha256};
     let mut value = bytes[..9].to_vec();
     value.extend_from_slice(&(payload.len() as u32).to_be_bytes());
@@ -250,6 +257,140 @@ async fn rooted_trust_rejects_unenrolled_views_and_changed_pins() -> anyhow::Res
     }
     publisher.close().await?;
     fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inspection_endpoint_discovery_refuses_unknown_and_superseded_callers() -> anyhow::Result<()>
+{
+    use crate::raft::{inspection_identity::PhysicalNode, node_inspection_wire::NodeRoute};
+    use cellar_logic::consensus::{NodeIdentity, ProposalId};
+
+    let fixture = Fixture::start(TransportOptions::default(), vec![]).await?;
+    let publisher = Publisher::new(peer(2)?).await?;
+    let catalog = catalog(&fixture).await?;
+    let own = register(&catalog, &peer(1)?, fixture.log.storage_instance()?, 11).await?;
+    let caller = register(
+        &catalog,
+        &publisher.peer,
+        publisher.log.storage_instance()?,
+        12,
+    )
+    .await?
+    .bind_boot(
+        publisher.log.storage_instance()?,
+        publisher.peer.process,
+        ProposalId::new([31; 16])?,
+        crate::peer_probe::PeerProbeSigner::from_secret([61; 32]).public_key_bytes(),
+        TIMEOUT,
+    )
+    .await?;
+    let trust = own.trust_snapshot(TIMEOUT).await?;
+    fixture.transport.install_fleet_trust(trust.clone())?;
+    let state = fixture.transport.handle.0.clone();
+    let route = NodeRoute::new(
+        &trust,
+        trust.revision(),
+        &PhysicalNode {
+            identity: NodeIdentity {
+                node: publisher.peer.node,
+                disk: publisher.peer.disk,
+                process: publisher.peer.process,
+            },
+            storage_instance: publisher.log.storage_instance()?,
+        },
+        &publisher.peer.label,
+        &state.local_physical()?,
+        state.auth.source(),
+    )?;
+    let original = serde_json::to_value(&route)?;
+    let mut invalid = Vec::new();
+    let mut engine = publisher.log.storage_instance()?.bytes();
+    engine[0] ^= 1;
+    if engine == [0; 16] {
+        engine[1] = 1;
+    }
+    for (field, value) in [
+        ("node", serde_json::json!(vec![91; 16])),
+        ("disk", serde_json::json!(vec![92; 16])),
+        ("process", serde_json::json!(vec![93; 16])),
+        ("storage_instance", serde_json::json!(engine)),
+        ("label", serde_json::json!("unregistered-label")),
+    ] {
+        let mut changed = original.clone();
+        changed["source"][field] = value;
+        invalid.push((
+            format!("source.{field}"),
+            serde_json::from_value::<NodeRoute>(changed)?,
+        ));
+    }
+    for (field, value) in [
+        ("fleet", serde_json::json!(vec![82; 16])),
+        ("catalog", serde_json::json!(vec![83; 32])),
+        ("cluster", serde_json::json!(vec![84; 16])),
+    ] {
+        let mut changed = original.clone();
+        changed[field] = value;
+        invalid.push((
+            field.to_owned(),
+            serde_json::from_value::<NodeRoute>(changed)?,
+        ));
+    }
+    let mut requests = fixture
+        .transport
+        .bind_router_refresh(Budget::new(1024 * 1024, 16))?;
+    let checked = async {
+        for (name, invalid) in invalid {
+            let deadline = state.domain.mono_ms()? + 5000;
+            let result = fixture
+                .domain
+                .run(crate::asyncrt::timeout(
+                    Duration::from_millis(100),
+                    state.authorize_current_node_inspection(&invalid, deadline),
+                ))
+                .await??;
+            anyhow::ensure!(
+                matches!(result, Err(TransportError::Refused)),
+                "caller {name} was not refused"
+            );
+            anyhow::ensure!(
+                matches!(requests.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+                "caller {name} requested endpoint discovery"
+            );
+        }
+        change(&catalog, publisher.peer.node, 60, |record| {
+            record["state"] = serde_json::json!("Removed");
+            record["epoch"] = serde_json::json!(caller.epoch() + 1);
+            record["operation"] = serde_json::json!(vec![100; 16]);
+        })
+        .await?;
+        fixture
+            .transport
+            .install_fleet_trust(own.trust_snapshot(TIMEOUT).await?)?;
+        let deadline = state.domain.mono_ms()? + 5000;
+        let result = fixture
+            .domain
+            .run(crate::asyncrt::timeout(
+                Duration::from_millis(100),
+                state.authorize_current_node_inspection(&route, deadline),
+            ))
+            .await??;
+        anyhow::ensure!(
+            matches!(result, Err(TransportError::Refused)),
+            "removed caller was not refused"
+        );
+        anyhow::ensure!(
+            matches!(requests.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+            "removed caller requested endpoint discovery"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    drop(requests);
+    let publisher_joined = publisher.close().await;
+    let joined = fixture.close().await;
+    checked?;
+    publisher_joined?;
+    joined
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

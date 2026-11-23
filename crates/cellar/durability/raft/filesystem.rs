@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 pub(crate) struct EngineFileSystem(pub Arc<dyn FileSystem>, pub Arc<Registry>);
 
+pub(super) const MAX_ENGINE_DIRECTORY_ENTRIES: usize = 4096;
+
 pub(crate) struct EngineHandle {
     performance: Arc<Registry>,
     file: Mutex<HostFile>,
@@ -186,7 +188,7 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
         let entries: io::Result<Vec<_>> = self
             .0
             .read_dir_iter(path)?
-            .take(4097)
+            .take(MAX_ENGINE_DIRECTORY_ENTRIES + 1)
             .map(|entry| {
                 let entry = entry?;
                 let metadata = self.0.metadata(&entry.path)?;
@@ -197,7 +199,7 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
             })
             .collect();
         let entries = entries?;
-        if entries.len() > 4096 {
+        if entries.len() > MAX_ENGINE_DIRECTORY_ENTRIES {
             return Err(io::Error::other(
                 "Raft engine directory entry budget exceeded",
             ));

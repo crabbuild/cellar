@@ -14,6 +14,12 @@ pub(crate) use background::run as background_admission;
 #[path = "cell_group_command_readiness.rs"]
 mod readiness;
 pub(crate) use readiness::run as command_waits_for_apply;
+#[path = "cell_group_command_capacity.rs"]
+mod capacity;
+pub(crate) use capacity::run as command_waits_for_capacity;
+pub(crate) use capacity::{
+    shutdown as capacity_wait_shutdown, terminal_refusals as capacity_terminal_refusals,
+};
 
 async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(15), async {

@@ -76,13 +76,41 @@ fn extent_index(page: u32, page_size: u32) -> u32 {
 }
 
 impl NodeExtentStore {
+    /// Check the known persistence observations behind an existing image seal.
+    /// This performs no I/O, verifies no new bytes and creates no new seal. A
+    /// failed dependency read invalidates eligibility until full verification
+    /// restores it. Another inventory's seal is never eligible here.
+    pub fn has_current_image_seal(&self, image: &SealedImageRoot) -> Result<bool, StoreError> {
+        if !self.owns_image(image) {
+            return Ok(false);
+        }
+        let state = self.inner.state()?;
+        if state.quarantined {
+            return Err(StoreError::Quarantined);
+        }
+        let view = image.view();
+        let root = match state.roots.get(&view.reference.root) {
+            Some(root) => root,
+            None => return Ok(false),
+        };
+        Ok(root.persisted
+            && root.bytes == u64::from(view.reference.length)
+            && view.data.objects.iter().all(|id| {
+                state.objects.get(id).is_some_and(|entry| {
+                    entry.persistence == ObjectPersistence::Durable
+                        && entry.bytes == u64::from(id.length())
+                })
+            }))
+    }
+
     fn read_image_extent(
         &self,
         id: ExtentId,
         buffer: &mut [u8],
         work: &mut RootApplyWork,
+        sync: DirectorySync,
     ) -> Result<(), StoreError> {
-        super::publication::read_object(&self.inner, id, |offset, bytes| {
+        super::publication::read_object_with_sync(&self.inner, id, sync, |offset, bytes| {
             let start = offset as usize;
             buffer
                 .get_mut(start..start + bytes.len())
@@ -107,7 +135,12 @@ impl NodeExtentStore {
         check_buffer(buffer)?;
         let operation = self.begin()?;
         let result = (|| {
-            self.check_image(&manifest, buffer, &mut RootApplyWork::default())?;
+            self.check_image(
+                &manifest,
+                buffer,
+                &mut RootApplyWork::default(),
+                DirectorySync::Immediate,
+            )?;
             Ok(SealedImageRoot(self.seal_root_inner(manifest)?))
         })();
         operation.finish()?;
@@ -119,6 +152,7 @@ impl NodeExtentStore {
         manifest: &ExtentManifest,
         buffer: &mut [u8],
         work: &mut RootApplyWork,
+        sync: DirectorySync,
     ) -> Result<(), StoreError> {
         let geometry = manifest.geometry();
         if geometry.length() == 0 {
@@ -133,7 +167,7 @@ impl NodeExtentStore {
                 continue;
             }
             let id = manifest.extent(index).ok_or(StoreError::Missing)?;
-            self.read_image_extent(id, buffer, work)?;
+            self.read_image_extent(id, buffer, work, sync)?;
             if index == 0 {
                 crate::apply::validate_sqlite_geometry(
                     &buffer[..id.length() as usize],
@@ -266,28 +300,19 @@ impl NodeExtentStore {
                 current =
                     self.apply_image_file(&current, &file, buffer, &mut rolling, &mut work)?;
             }
+            // Preflight requires a nonempty chain. Every apply_image_file,
+            // including the final cut, has independently checked its physical
+            // SQLite geometry before returning this exact manifest.
             if current.binding() != update.binding
                 || current.geometry() != update.geometry
                 || reference(&current)? != update.result
             {
                 return Err(StoreError::Integrity);
             }
-            // Header/hole checks are independent of the proposed commitment.
-            // A checksum-enabled result has already been checked at each file.
-            self.check_image_geometry(&current, buffer, &mut work)?;
-            // The serialized physical operation keeps the existence test and
-            // retention change atomic with sealing. The new view pins the
-            // entire closure before any root can become reclaimable.
-            let existed = self.inner.state()?.roots.contains_key(&current.root());
-            let image = SealedImageRoot(self.seal_root_inner(current)?);
-            if transient && !existed {
-                self.inner
-                    .state()?
-                    .roots
-                    .get_mut(&image.reference().root)
-                    .ok_or(StoreError::Missing)?
-                    .retained = false;
-            }
+            // The serialized publication pins the entire closure and preserves
+            // existing retention. A fresh transient root acquires no independent
+            // permanent reference, including when its final seal is refused.
+            let image = SealedImageRoot(self.seal_prepared_image_root(current, transient)?);
             Ok(PreparedImageRoot { image, work })
         })();
         operation.finish()?;
@@ -305,7 +330,12 @@ impl NodeExtentStore {
             ..manifest.binding()
         };
         let geometry_only = manifest.with_updates(binding, manifest.geometry(), &[])?;
-        self.check_image(&geometry_only, buffer, work)
+        self.check_image(
+            &geometry_only,
+            buffer,
+            work,
+            DirectorySync::ImagePublication,
+        )
     }
 
     fn apply_image_file(
@@ -331,7 +361,7 @@ impl NodeExtentStore {
             let mut value = CHECKSUM_FLAG;
             for index in 0..old.extent_count() {
                 let id = before.extent(index).ok_or(StoreError::Missing)?;
-                self.read_image_extent(id, buffer, work)?;
+                self.read_image_extent(id, buffer, work, DirectorySync::ImagePublication)?;
                 for (within, page) in buffer[..id.length() as usize]
                     .chunks_exact(header.page_size as usize)
                     .enumerate()
@@ -395,6 +425,7 @@ impl NodeExtentStore {
                     before.extent(index).ok_or(StoreError::Missing)?,
                     buffer,
                     work,
+                    DirectorySync::ImagePublication,
                 )?;
             } else {
                 buffer.fill(0);
@@ -452,7 +483,7 @@ impl NodeExtentStore {
             }
             let id = ExtentId::of(&buffer[..length])?;
             let exists = self.inner.state()?.objects.contains_key(&id);
-            self.put_extent_bytes_inner(id, &buffer[..length])?;
+            self.put_extent_bytes_for_image(id, &buffer[..length])?;
             work.extents_prepared = work
                 .extents_prepared
                 .checked_add(1)

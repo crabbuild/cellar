@@ -937,12 +937,18 @@ same profile revision. Fresh membership must prove the exact Joint or Complete
 permit. The original reservation, peak charge and permit stay rooted through
 restart. Completion checks current target inventory and original seed-owner
 closure before it releases the active charge and advances the physical floor.
-Starting a move, seeding and promotion still require their original boot grants.
+Starting an unconsumed move still requires its original boot grants. Before
+Joint, learner initialization still requires the original admitted target boot.
 
 An original voter can finish or attest closure after the same kind of retained
 restart. Before ordinary startup replaces its rooted boot, the catalog preserves
 the exact boot binding if an active move pins its digest. This immutable record
 lets execution match the current qualified engine against the admission.
+An already-consumed Seeding permit can also resume on that qualified source
+engine: fresh quorum membership must identify the exact permit and consumed
+sequence, and learner installation still requires a fresh authenticated seed
+grant bound to the current source process. Promotion may run on this retained
+source; it cannot initialize or promote a restarted target before Joint.
 Settlement still requires the original membership sequence and an authenticated
 physical observation with seed work joined. Fenced and aborted settlement
 continues to require exact admitted boot evidence.

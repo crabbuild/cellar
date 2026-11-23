@@ -322,7 +322,19 @@ impl CellQueryExecution {
                 return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
             }
         }
-        if self.admission.minimum() == Some(cellar_logic::consensus::Durability::S3) {
+        let archived_observation = (self
+            .dispatcher
+            .class
+            .queue_operator_read_contract()
+            .as_ref()
+            == Some(&self.request.contract)
+            || self.dispatcher.class.kv_inline_read_contract().as_ref()
+                == Some(&self.request.contract))
+            && self.dispatcher.host_binding()?.0.minimum_durability
+                == cellar_logic::consensus::Durability::S3;
+        if self.admission.minimum() == Some(cellar_logic::consensus::Durability::S3)
+            || archived_observation
+        {
             let client = self
                 .dispatcher
                 .s3

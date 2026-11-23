@@ -2,7 +2,19 @@
 
 //! Between proven roots, retain an invocation without retaining its writer.
 
+use super::super::super::workspace_opening::SqlOpening;
 use super::*;
+
+pub(super) struct ResumeOpening {
+    task: SqlOpening,
+    authority: Option<CellExecutionAuthority>,
+}
+
+impl ResumeOpening {
+    pub(super) fn close(&mut self, waker: &Waker) -> Result<(), ExecutionError> {
+        self.task.close(waker)
+    }
+}
 
 impl Suspended {
     pub(super) fn try_park(&mut self, cache: &RpcCache, now: u64) -> Result<(), ExecutionError> {
@@ -40,54 +52,92 @@ impl Suspended {
         cache: &RpcCache,
         cx: &mut Context<'_>,
         domain: &crate::asyncrt::DomainToken,
-        now: u64,
+        performance: &crate::raft::performance::Registry,
+        lane: Arc<tokio::sync::Semaphore>,
+        stopped: &AtomicBool,
     ) -> Poll<Result<(), ExecutionError>> {
-        if self.resuming.is_none() {
-            match self.retention.lease.resume(cx) {
+        if self.opening.is_none() {
+            let now = domain.mono_ms().map_err(|_| unavailable())?;
+            if self.resuming.is_none() {
+                match self.retention.lease.resume(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(result) => result?,
+                }
+                let commits = self.commits.as_ref().ok_or_else(unavailable)?.clone();
+                let cell = self.cell.clone();
+                let fence = self
+                    .activation
+                    .as_ref()
+                    .ok_or_else(unavailable)?
+                    .fence
+                    .clone();
+                let domain = domain.clone();
+                self.resuming = Some(Box::pin(async move {
+                    commits.continuation_authority(&domain, &cell, &fence).await
+                }));
+            }
+            let authority = match self
+                .resuming
+                .as_mut()
+                .ok_or_else(unavailable)?
+                .as_mut()
+                .poll(cx)
+            {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(result) => result?,
-            }
-            let commits = self.commits.as_ref().ok_or_else(unavailable)?.clone();
-            let cell = self.cell.clone();
-            let fence = self
+            };
+            self.resuming = None;
+            let prior = self
                 .activation
                 .as_ref()
+                .and_then(|value| value.activation.as_ref())
                 .ok_or_else(unavailable)?
-                .fence
-                .clone();
-            let domain = domain.clone();
-            self.resuming = Some(Box::pin(async move {
-                commits.continuation_authority(&domain, &cell, &fence).await
-            }));
+                .resources();
+            let activation = cache.take(&self.cell, &authority, &self.class, now)?;
+            if !activation
+                .activation
+                .as_ref()
+                .is_some_and(|value| Arc::ptr_eq(&value.resources(), &prior))
+            {
+                cache.put(self.cell.clone(), activation, now)?;
+                return Poll::Ready(Err(unavailable()));
+            }
+            self.activation = Some(activation);
+            self.opening = Some(ResumeOpening {
+                task: SqlOpening::new(&self.options, &self.cell, domain, lane),
+                authority: Some(authority),
+            });
         }
-        let authority = match self
-            .resuming
-            .as_mut()
-            .ok_or_else(unavailable)?
-            .as_mut()
-            .poll(cx)
-        {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(result) => result?,
+        let admission = if stopped.load(Ordering::Acquire) {
+            Err(unavailable())
+        } else {
+            domain
+                .mono_ms()
+                .map_err(|_| unavailable())
+                .and_then(|now| self.check(now))
         };
-        self.resuming = None;
-        let prior = self
-            .activation
-            .as_ref()
-            .and_then(|value| value.activation.as_ref())
-            .ok_or_else(unavailable)?
-            .resources();
-        let activation = cache.take(&self.cell, &authority, &self.class, now)?;
-        if !activation
-            .activation
-            .as_ref()
-            .is_some_and(|value| Arc::ptr_eq(&value.resources(), &prior))
-        {
-            cache.put(self.cell.clone(), activation, now)?;
-            return Poll::Ready(Err(unavailable()));
-        }
-        self.activation = Some(activation);
-        let executor = self.options.clone().open(authority)?;
+        let opening = self.opening.as_mut().ok_or_else(unavailable)?;
+        let opened = opening.task.poll_with(cx, admission, |root| {
+            self.options.clone().open(
+                root,
+                opening.authority.take().ok_or_else(unavailable)?,
+                self.root_apply_limits,
+            )
+        });
+        let executor = match opened {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(result) => {
+                if matches!(
+                    result,
+                    Err(ExecutionError::Refused(CommandFailure::Overloaded))
+                ) {
+                    performance
+                        .increment(crate::raft::performance::Counter::SqlPrivateOpenRefusals, 1);
+                }
+                result?
+            }
+        };
+        self.opening = None;
         self.executor = Some(executor);
         // Recheck the original unfinished receipt in the latest image. Neither
         // another client's commit nor a new leader authorizes handler replay.

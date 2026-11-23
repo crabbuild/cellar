@@ -32,7 +32,14 @@ fn node_npm_native_addon_components_routing_and_restart() -> Result<()> {
     if let Some(executable) = std::env::var_os("CELLAR_TEST_NODE_EXECUTABLE") {
         node_options.executable = executable.into();
     }
-    let directory = tempfile::tempdir()?;
+    let mut directory = tempfile::Builder::new()
+        .prefix("cellar-node-compatibility-")
+        .tempdir()?;
+    directory.disable_cleanup(true);
+    eprintln!(
+        "retained Node compatibility disk: {}",
+        directory.path().display()
+    );
     // A fresh Node process and activation after restart must read durable SQLite.
     for expected in [3, 6] {
         NodeRuntime::run(

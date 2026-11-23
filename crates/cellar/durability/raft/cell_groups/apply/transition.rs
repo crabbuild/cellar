@@ -26,7 +26,7 @@ impl Storage {
         entry: &Entry,
         configuration: Option<(&ConfState, &GroupMembership)>,
         verify_existing: bool,
-        prepared_image: Option<&CellImagePin>,
+        prepared_image: Option<&crate::raft::execution::CellPreparedImage>,
     ) -> Result<PreparedGroupManifest, ExecutionError> {
         if verify_existing && prepared_image.is_some() {
             return Err(ExecutionError::Invalid(
@@ -141,7 +141,7 @@ impl Storage {
                         unchanged
                     }
                     Ok(EnrollmentDecision::Propose(record)) => {
-                        let prepared = images.prepare(
+                        let prepared = images.prepare_with_image(
                             images::ImageApply {
                                 cell: &cell,
                                 sequence: 1,
@@ -178,7 +178,7 @@ impl Storage {
                     .pin_cell(&mutation.cell.cell)
                     .ok_or(ExecutionError::Invalid("apply cell missing"))?;
                 mutation.check_base(&old.version).map_err(storage)?;
-                let prepared = images.prepare(
+                let prepared = images.prepare_with_image(
                     images::ImageApply {
                         cell: &mutation.cell,
                         sequence: mutation.sequence.get(),

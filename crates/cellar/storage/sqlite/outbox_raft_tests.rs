@@ -44,6 +44,7 @@ fn event(history: &CellHistory, value: i64) -> anyhow::Result<()> {
         serde_json::json!({"value":value}),
         Limits::default(),
         history,
+        4 * 1024 * 1024,
     )
 }
 
@@ -52,6 +53,63 @@ fn inputs() -> CommandInputs {
         now_unix_millis: 1,
         random: [1; 32],
     }
+}
+
+#[test]
+fn raft_outbox_wire_limit_rolls_back_identity_and_discovery() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let mut database = command::CommandDatabase::open(
+        &directory.path().join("source.sqlite"),
+        None,
+        4 * 1024 * 1024,
+    )?;
+    database.transaction(inputs(), |transaction| {
+        let storage = transaction.storage()?;
+        let original = history(3)?;
+        event(&original, 1)?;
+        let tables = [
+            "__sys_event_source",
+            "__sys_outbox_lanes",
+            "__sys_outbox",
+            "__sys_outbox_stats",
+            "__sys_work",
+            "__sys_raft_native_work",
+        ];
+        let snapshot = || {
+            tables
+                .iter()
+                .map(|table| storage.system_sql(&format!("SELECT * FROM {table}"), &[]))
+                .collect::<anyhow::Result<Vec<_>>>()
+        };
+        let before = snapshot()?;
+        let error = emit_raft(
+            &binding(),
+            1,
+            "order".into(),
+            serde_json::json!({"value":2}),
+            Limits::default(),
+            &history(4)?,
+            1,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<DeliveryError>().unwrap().code,
+            ErrorCode::PayloadTooLarge
+        );
+        assert_eq!(snapshot()?, before);
+        // The private journal accepts an explicit bound, but cannot mint an
+        // asynchronous dispatch capability for this synchronous command.
+        let error = crate::storage::capture_raft_dispatch().err().unwrap();
+        assert_eq!(
+            error.downcast_ref::<crate::application::consensus::CommandFailure>(),
+            Some(&crate::application::consensus::CommandFailure::UnsupportedCapability)
+        );
+        event(&history(4)?, 2)?;
+        let page = storage.outbox(&OutboxOptions::default())?;
+        assert_eq!(page.pending_rows, 2);
+        assert_eq!(page.lanes.len(), 2);
+        Ok(())
+    })
 }
 
 #[test]
@@ -163,6 +221,7 @@ fn fresh_raft_history_preserves_old_event_bytes_and_opens_a_new_producer_lane() 
             serde_json::json!({"value":2}),
             limited,
             &fresh,
+            4 * 1024 * 1024,
         );
         assert!(refused.is_err());
         assert_eq!(

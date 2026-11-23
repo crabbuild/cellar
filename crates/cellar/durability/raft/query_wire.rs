@@ -48,6 +48,64 @@ fn read_durability(body: &mut Reader<'_>) -> Result<Durability, TransportError> 
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-advice-1";
 const REQUEST: &[u8] = b"cellar-raft-query-advice-request-1";
 const RESPONSE: &[u8] = b"cellar-raft-query-advice-response-1";
+const READ_REFUSED: &[u8] = b"CLQDEN01";
+const COMMAND_ORIGIN_REFUSED: &[u8] = b"CLQODN01";
+
+/// The frame MAC authenticates this request's identity and body digest before
+/// body bytes can establish a typed read refusal. It grants no write disposition.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ResponseBody {
+    digest: [u8; 32],
+    read_refusal_allowed: bool,
+    command_origin_refusal_allowed: bool,
+}
+
+impl ResponseBody {
+    pub(super) fn verify(&self, body: &[u8]) -> Result<(), TransportError> {
+        if self.digest != <[u8; 32]>::from(Sha256::digest(body)) {
+            return Err(TransportError::Authentication);
+        }
+        if body == READ_REFUSED {
+            return Err(if self.read_refusal_allowed {
+                TransportError::Refused
+            } else {
+                // A peer cannot turn an uncertain write into non-admission by
+                // returning a read-only refusal under a command request tag.
+                TransportError::Protocol
+            });
+        }
+        if body == COMMAND_ORIGIN_REFUSED {
+            return Err(if self.command_origin_refusal_allowed {
+                TransportError::CommandOriginRefused
+            } else {
+                TransportError::Protocol
+            });
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn read_refusal_body(request: &RequestHead) -> Result<&'static [u8], TransportError> {
+    if !request.route.is_query() {
+        return Err(TransportError::Protocol);
+    }
+    Ok(READ_REFUSED)
+}
+
+/// Only these public command-origin purposes consume the terminal observation.
+/// It is deliberately distinct from both read denial and mutation disposition.
+pub(super) fn command_origin_refusal_allowed(request: &RequestHead) -> bool {
+    request.route.is_command() || request.route.is_command_probe() || request.route.is_receipt()
+}
+
+pub(super) fn command_origin_refusal_body(
+    request: &RequestHead,
+) -> Result<&'static [u8], TransportError> {
+    if !command_origin_refusal_allowed(request) {
+        return Err(TransportError::Protocol);
+    }
+    Ok(COMMAND_ORIGIN_REFUSED)
+}
 
 fn failure_code(failure: &CommandFailure) -> u8 {
     match failure {
@@ -177,19 +235,6 @@ pub(super) fn response_head(
     reply_head(auth, exporter, request, request_tag, Some(body), options)
 }
 
-/// A denied namespace grant supplies no result or mutation disposition. The
-/// denial still binds the authenticated channel and exact request, so a caller
-/// can distinguish it from an opaque disconnect without trusting the socket.
-pub(super) fn refusal_head(
-    auth: &PeerAuth,
-    exporter: &[u8; 32],
-    request: &RequestHead,
-    request_tag: &[u8; 32],
-    options: &TransportOptions,
-) -> Result<FrameHead, TransportError> {
-    reply_head(auth, exporter, request, request_tag, None, options)
-}
-
 fn reply_head(
     auth: &PeerAuth,
     exporter: &[u8; 32],
@@ -227,7 +272,7 @@ pub(super) fn read_response(
     request: &RequestHead,
     request_tag: &[u8; 32],
     options: &TransportOptions,
-) -> Result<[u8; 32], TransportError> {
+) -> Result<ResponseBody, TransportError> {
     verify_head(head, auth, exporter, Some(request_tag), options)?;
     let header: ResponseHead =
         serde_json::from_slice(&head.header).map_err(|_| TransportError::Protocol)?;
@@ -238,15 +283,20 @@ pub(super) fn read_response(
     {
         return Err(TransportError::Authentication);
     }
-    match header.kind {
-        ResponseKind::Result => Ok(header.digest),
-        ResponseKind::Refused => {
-            if head.payload_len != 0 || header.digest != <[u8; 32]>::from(Sha256::digest([])) {
-                return Err(TransportError::Protocol);
-            }
-            Err(TransportError::Refused)
+    if matches!(header.kind, ResponseKind::Refused) {
+        if !request.route.is_query()
+            || head.payload_len != 0
+            || header.digest != <[u8; 32]>::from(Sha256::digest([]))
+        {
+            return Err(TransportError::Protocol);
         }
+        return Err(TransportError::Refused);
     }
+    Ok(ResponseBody {
+        digest: header.digest,
+        read_refusal_allowed: request.route.is_query(),
+        command_origin_refusal_allowed: command_origin_refusal_allowed(request),
+    })
 }
 
 fn make_head(

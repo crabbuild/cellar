@@ -662,9 +662,33 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/durable-alarms.md",
+      "title": "Ordinary durable alarms, cron and native ingress",
+      "summary": "Define shared-group alarm, cron and stateless named-cell ownership and qualification boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/event-stream-durability.md",
       "title": "EventStream on shared groups",
       "summary": "Define the source journal, callback ownership and remaining public EventStream adapters.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/event-stream-durable-work.md",
+      "title": "EventStream durable work on shared groups",
+      "summary": "Describe the shared-group adapter for publication, subscriptions and transactional outbox delivery.",
       "roles": [
         "builder",
         "platform",
@@ -698,24 +722,38 @@
       "category": "Design and evidence"
     },
     {
-      "path": "design/multi-raft/cell-groups/durable-alarms.md",
-      "title": "Ordinary durable alarms and native ingress",
-      "summary": "Shared-group alarm and stateless named-cell ownership and qualification boundaries.",
+      "path": "design/multi-raft/cell-groups/main-168-sql-followup-2026-11-14.md",
+      "title": "Main-168 SQL recovery and persistence follow-up, 2026-11-14 UTC",
+      "summary": "Record SQL recovery reruns and constrained sync profiling with retained failures and unchanged durability proofs.",
       "roles": [
         "builder",
         "platform",
-        "operations"
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/manifest-page-packs.md",
+      "title": "Immutable manifest page packs",
+      "summary": "Candidate page packing, publication barriers, physical accounting and bounded compaction.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
       ],
       "category": "Design and evidence"
     },
     {
       "path": "design/multi-raft/cell-groups/named-bindings.md",
-      "title": "Ordinary named-cell binding delivery",
-      "summary": "Durable child identities, public adapters and remaining qualification boundaries.",
+      "title": "Named-cell and SQL binding delivery",
+      "summary": "Specify the ordinary binding adapter and its remaining qualification boundary.",
       "roles": [
         "builder",
         "platform",
-        "operations"
+        "operations",
+        "team"
       ],
       "category": "Design and evidence"
     },
@@ -734,11 +772,24 @@
     {
       "path": "design/multi-raft/cell-groups/payload-storage.md",
       "title": "Immutable cell payload storage",
-      "summary": "Namespace-bound external payload publication, verified reads and retention before ordinary KV integration.",
+      "summary": "Define immutable payload publication, ordinary KV transport and recovery boundaries.",
       "roles": [
         "builder",
         "platform",
-        "operations"
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/primitive-performance-2026-11-14.md",
+      "title": "Local SQL, KV and Queue measurements, 2026-11-14 UTC",
+      "summary": "Partial verified windows, resource observations and all six failed RustFS/Colima primitive-image cases.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
       ],
       "category": "Design and evidence"
     },
@@ -791,33 +842,9 @@
       "category": "Design and evidence"
     },
     {
-      "path": "design/multi-raft/cell-groups/event-stream-durable-work.md",
-      "title": "EventStream durable work on shared groups",
-      "summary": "Shared EventStream publication, leased subscriptions, outbox/inbox proof and bounded work.",
-      "roles": [
-        "builder",
-        "platform",
-        "operations",
-        "team"
-      ],
-      "category": "Design and evidence"
-    },
-    {
       "path": "design/multi-raft/cell-groups/queue-durable-work.md",
       "title": "Durable native callbacks and Queue",
       "summary": "Generation-fenced callback discovery and ordinary Queue delivery through shared-group quorum.",
-      "roles": [
-        "builder",
-        "platform",
-        "operations",
-        "team"
-      ],
-      "category": "Design and evidence"
-    },
-    {
-      "path": "design/multi-raft/cell-groups/workflow-durability.md",
-      "title": "Workflow on shared-group Quorum durability",
-      "summary": "Ordinary Workflow execution, journal proofs and remaining qualification boundaries.",
       "roles": [
         "builder",
         "platform",
@@ -839,9 +866,117 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-admission-2026-11-14.md",
+      "title": "Three-node primitive refusal diagnosis",
+      "summary": "SQL group admission observations and distinct SQL/KV/Queue deadlines under unchanged constrained resources.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-admission-wait-2026-11-14.md",
+      "title": "Three-node bounded SQL admission wait",
+      "summary": "Received pre-enqueue capacity waits, focused regressions and retained SQL/KV/Queue deadline and lease failures.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-capacity-2026-11-14.md",
+      "title": "Three-node SQL, KV and Queue comparison with bounded writer overlap",
+      "summary": "Corrected Raft disk profile, matched Fleet/bucket baselines, throughput/tails and remaining overload/deadline/lease gaps.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-comparison-2026-11-14.md",
+      "title": "Three-node primitive comparison, initial disk profile, 2026-11-14 UTC",
+      "summary": "Separate 1-vCPU/2-GiB nodes, RustFS, 62 verified windows and retained Raft/Fleet Queue failures in the initial disk profile.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-main-168-2026-11-14.md",
+      "title": "Updated-main three-node primitive verification, 2026-11-14 UTC",
+      "summary": "Record native checks and constrained SQL/KV/Queue comparisons after main #168, with failures and source bindings.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-main-170-2026-11-15.md",
+      "title": "Three-node SQL, KV and Queue durability comparison",
+      "summary": "Record the complete constrained four-mode primitive matrix, failed correctness boundaries and descriptive passing results.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-main-172-2026-11-14.md",
+      "title": "Main-172 three-node primitive verification",
+      "summary": "Retain the complete frozen main-based control/candidate comparison and its failing correctness boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-main-173-2026-11-15.md",
+      "title": "Main-173 three-node primitive verification",
+      "summary": "Record the refreshed constrained SQL/KV/Queue comparison, complete verification ledgers and remaining progress failures.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/tikv-informed-optimization.md",
       "title": "Cell-group routing, lifecycle and performance optimization",
       "summary": "TiKV-informed design for direct routing, precise cache repair, sustainable group movement and bounded shared execution.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/workflow-durability.md",
+      "title": "Workflow on shared-group Quorum durability",
+      "summary": "Define ordinary Workflow execution, journal proofs and remaining qualification boundaries.",
       "roles": [
         "builder",
         "platform",

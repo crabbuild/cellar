@@ -226,7 +226,7 @@ impl Resolution {
                 preferred = None;
             }
             let local = match self.owner.handle.core.log.cell_group(&route.history) {
-                Ok(group) => {
+                Ok(group) if group.consensus_claimed.load(Ordering::Acquire) => {
                     let member = group.identity().member;
                     let current_member = match group.read() {
                         Ok(cache) => {
@@ -266,7 +266,7 @@ impl Resolution {
                     }
                     current_member.then_some(member)
                 }
-                Err(LogError::NotFound) => None,
+                Ok(_) | Err(LogError::NotFound) => None,
                 Err(error) => return Err(CellDispatchError::Runtime(error.into())),
             };
             let mut members = self.members(&route, local, preferred).await?;
@@ -378,27 +378,24 @@ impl Resolution {
             QueryRouting::Replicas { members, .. } => Ok(members.clone()),
             QueryRouting::Automatic => {
                 let transport = &self.owner.handle.core.transport;
-                let remote = match transport.cell_query_members(route, 8) {
-                    Err(crate::raft::transport::TransportError::UnknownGroup)
-                        if local.is_none() =>
-                    {
-                        transport
-                            .refresh_managed_router(route.history, self.deadline)
-                            .await
-                            .map_err(CellDispatchError::Runtime)?;
-                        transport
-                            .cell_query_members(route, 8)
-                            .map_err(CellDispatchError::Transport)?
-                    }
-                    Err(crate::raft::transport::TransportError::UnknownGroup) => Vec::new(),
-                    result => result.map_err(CellDispatchError::Transport)?,
-                };
-                let mut members: Vec<_> = local.into_iter().collect();
-                for member in remote {
-                    if !members.contains(&member) {
-                        members.push(member);
-                    }
-                }
+                let mut members =
+                    match transport.cell_query_candidates(route, 8, local, None, false) {
+                        Err(crate::raft::transport::TransportError::UnknownGroup)
+                            if local.is_none() =>
+                        {
+                            transport
+                                .refresh_managed_router(route.history, self.deadline)
+                                .await
+                                .map_err(CellDispatchError::Runtime)?;
+                            transport
+                                .cell_query_candidates(route, 8, local, None, false)
+                                .map_err(CellDispatchError::Transport)
+                        }
+                        Err(crate::raft::transport::TransportError::UnknownGroup) => {
+                            Ok(local.into_iter().collect())
+                        }
+                        result => result.map_err(CellDispatchError::Transport),
+                    }?;
                 // The last durable vote is only a liveness hint. On retained
                 // startup its candidate can start the ordinary election before
                 // an idle follower consumes a read attempt. Never add a peer:

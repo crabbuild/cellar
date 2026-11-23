@@ -144,9 +144,25 @@ impl ExtentRootReference {
     }
 }
 
+// FileSynced and Durable both follow full independent identity verification.
+// Only Durable includes the completed directory barrier. FileSynced cannot
+// supply a local closure seal; reopening or a failed read clears observations.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ObjectPersistence {
+    Unverified,
+    FileSynced,
+    Durable,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DirectorySync {
+    Immediate,
+    ImagePublication,
+}
+
 struct ObjectEntry {
     bytes: u64,
-    verified: bool,
+    persistence: ObjectPersistence,
     read_proof: Option<Arc<VerifiedBlocks>>,
 }
 

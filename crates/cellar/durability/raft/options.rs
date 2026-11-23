@@ -24,8 +24,13 @@ pub struct ReplicaLogOptions {
     /// records. Exhaustion preserves the physical group. Each record is at most
     /// 4096 bytes; repeated member removals replace one high-water fence.
     pub max_source_tombstones: u32,
+    /// Queue slots; the same node also bounds worker-owned requests so queued
+    /// plus executing work never exceeds `queue_capacity + 1`, including a
+    /// coalesced persistence cohort. Bytes retain their independent bound.
     pub queue_capacity: usize,
     pub max_pending_bytes: usize,
+    /// Bound incoming request estimates and complete encoded persistence
+    /// batches, including cached group metadata and the nonempty root fence.
     pub max_batch_bytes: usize,
     pub max_cache_bytes: usize,
     pub max_entries_per_group: usize,

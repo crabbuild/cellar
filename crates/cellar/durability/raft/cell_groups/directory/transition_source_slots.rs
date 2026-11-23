@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize};
 const STAGED: &str = "transition-source-progress";
 const KIND: u8 = 215;
 
+#[cfg(test)]
+#[path = "transition_source_slots_tests.rs"]
+mod tests;
+
 type Result<T> = std::result::Result<T, CellGroupArchiveBindingError>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,7 +101,7 @@ impl RangeDirectory {
         staged: Option<(CellGroupArchiveIntent, UpdateVersion)>,
         check: impl Fn(&GroupManifest) -> Result<()> + Send + Sync,
     ) -> Result<(CellGroupArchiveHold, CellGroupArchiveIntent)> {
-        let (intent, version) = match staged {
+        let (mut intent, mut version) = match staged {
             Some(staged) => staged,
             None => {
                 let intent = registry.prepare_acquire(domain).await?;
@@ -112,29 +116,41 @@ impl RangeDirectory {
                 (intent, version)
             }
         };
-        check(intent.acquire_marker()?)?;
-        let hold = match registry.acquire(domain, &intent).await {
-            Ok(hold) => hold,
-            Err(error @ (CellGroupArchiveError::Expired | CellGroupArchiveError::Conflict)) => {
-                match registry.acquire_outcome(domain, &intent).await? {
-                    CellGroupArchiveAcquireOutcome::Held(hold) => *hold,
-                    CellGroupArchiveAcquireOutcome::Pending => return Err(error.into()),
-                    CellGroupArchiveAcquireOutcome::Superseded => {
-                        let next = registry.prepare_acquire(domain).await?;
-                        check(next.acquire_marker()?)?;
-                        self.bounded(self.write_archive_slot(
-                            key,
-                            Some(version),
-                            &ArchiveSlot::Acquiring(next),
-                        ))
-                        .await?;
-                        return Err(CatalogError::Unconfirmed.into());
+        // A proven superseded intent cannot commit later. After confirming
+        // its successor in the journal, deliver that exact intent within the
+        // caller's existing deadline. Continued contention stops after this
+        // one successor; unknown replies never enter the replacement path.
+        for attempt in 0..2 {
+            check(intent.acquire_marker()?)?;
+            let hold = match registry.acquire(domain, &intent).await {
+                Ok(hold) => hold,
+                Err(error @ (CellGroupArchiveError::Expired | CellGroupArchiveError::Conflict)) => {
+                    match registry.acquire_outcome(domain, &intent).await? {
+                        CellGroupArchiveAcquireOutcome::Held(hold) => *hold,
+                        CellGroupArchiveAcquireOutcome::Pending => return Err(error.into()),
+                        CellGroupArchiveAcquireOutcome::Superseded => {
+                            if attempt != 0 {
+                                return Err(CatalogError::Unconfirmed.into());
+                            }
+                            let next = registry.prepare_acquire(domain).await?;
+                            check(next.acquire_marker()?)?;
+                            version = self
+                                .bounded(self.write_archive_slot(
+                                    key,
+                                    Some(version),
+                                    &ArchiveSlot::Acquiring(next.clone()),
+                                ))
+                                .await?;
+                            intent = next;
+                            continue;
+                        }
                     }
                 }
-            }
-            Err(error) => return Err(error.into()),
-        };
-        Ok((hold, intent))
+                Err(error) => return Err(error.into()),
+            };
+            return Ok((hold, intent));
+        }
+        Err(CatalogError::Unconfirmed.into())
     }
 
     pub(super) fn check_sealed_hold(

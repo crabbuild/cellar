@@ -9,7 +9,6 @@
 
 use anyhow::{ensure, Context, Result};
 use base64::Engine;
-use cellar::bucket::{Bucket, StorageBackend};
 use cellar::sdk::{
     ActorIdentity, ActorOptions, ActorPolicy, Application, CompiledApplications, DeploymentGraph,
     FenceReason, LogOptions, Node, NodeConfig, NodeFleet, NodeOutcome, NodeServices,
@@ -138,6 +137,11 @@ pub(super) fn run_observed(
         "bucket" => false,
         _ => anyhow::bail!("CELLAR_PERF_DURABILITY must be fleet or bucket"),
     };
+    // The explicit three-node primitive comparison uses the same actor policy
+    // as its Raft frontend. Historical workload profiles keep their defaults.
+    let primitive = std::env::var_os("CELLAR_PERF_PRIMITIVE").is_some();
+    let operation_ms = if primitive { 5_000 } else { 30_000 };
+    let lease_ms = if primitive { 5_000 } else { 10_000 };
     let peer_key: [u8; 32] = base64::engine::general_purpose::STANDARD
         .decode(std::env::var("CELLAR_PERF_PEER_KEY")?)
         .context("invalid CELLAR_PERF_PEER_KEY encoding")?
@@ -154,24 +158,18 @@ pub(super) fn run_observed(
         .with_access_key_id(std::env::var("AWS_ACCESS_KEY_ID")?)
         .with_secret_access_key(std::env::var("AWS_SECRET_ACCESS_KEY")?)
         .with_conditional_put(S3ConditionalPut::ETagMatch);
-    let store = Arc::new(builder.clone().build()?);
     // A retried conditional write could hide an ambiguous ownership outcome.
-    let conditional = Arc::new(
-        builder
-            .with_retry(RetryConfig {
-                max_retries: 0,
-                retry_timeout: Duration::from_secs(30),
-                ..Default::default()
-            })
-            .build()?,
-    );
-    let bucket = Bucket::from_clients(
-        store.clone(),
-        conditional,
-        store,
-        StorageBackend::S3,
+    let crate::object_clients::Clients {
+        data: bucket,
+        lease: lease_bucket,
+    } = crate::object_clients::connect(
+        builder,
+        RetryConfig {
+            max_retries: 0,
+            retry_timeout: Duration::from_secs(30),
+            ..Default::default()
+        },
         arguments.bucket,
-        String::new(),
     )?;
     tracing_subscriber::fmt()
         .with_max_level(log_level)
@@ -203,7 +201,7 @@ pub(super) fn run_observed(
             .build()?;
         let replica_storage = ReplicaStorage::new(bucket.store.clone(), ReplicaStorageOptions::default())?;
         let fleet = NodeFleet {
-            lease_bucket: bucket.clone(),
+            lease_bucket,
             bucket,
             replica_storage,
             replication: ReplicationOptions::default(),
@@ -224,14 +222,14 @@ pub(super) fn run_observed(
                 ownership_on_evict: OwnershipOnEvict::Release,
                 require_node_lease: true,
                 peer_protocol: cellar::peer_auth::PROTOCOL_VERSION,
-                operation_deadline_ms: Some(30_000),
+                operation_deadline_ms: Some(operation_ms),
                 owner_log_recovery_backoff_ms: 1_000,
                 owner_log_recovery_attempts: 240,
                 alarm_resident_ms: 3_600_000,
                 idle_evict_ms: None,
                 pressure: Default::default(),
             },
-            lease_ttl_ms: 10_000,
+            lease_ttl_ms: lease_ms,
             placement_weight: 1,
             generation: signer.public_key_hex(),
             resume_generation: None,
@@ -275,7 +273,8 @@ pub(super) fn run_observed(
             "event": "embedded_node_started", "executors": "caller_owned",
             "max_resident": resident, "max_cached_routes": cached_routes,
             "max_requests": requests,
-            "lease_ttl_ms": 10_000,
+            "lease_ttl_ms": lease_ms,
+            "operation_deadline_ms": operation_ms,
             "lease_generation": node.info().lease_generation,
             "log_level": log_level.to_string(),
         }))?;
@@ -291,7 +290,7 @@ pub(super) fn run_observed(
                 _ = tokio::signal::ctrl_c() => {},
                 _ = shutdown => {},
             }
-            ShutdownMode::Handoff
+            if primitive { ShutdownMode::Preserve } else { ShutdownMode::Handoff }
         }).await?;
         observe(outcome.clone());
         let executors_alive = tokio::time::timeout(Duration::from_secs(2), async {

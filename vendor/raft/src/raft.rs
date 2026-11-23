@@ -1085,6 +1085,15 @@ impl<T: Storage> Raft<T> {
         }
     }
 
+    /// Age a follower's election lease without starting an election. An
+    /// outgoing-only voter can continue voting while its application prevents
+    /// new campaigns. Expired leases need no age beyond the timeout.
+    pub fn tick_passive(&mut self) {
+        if self.election_elapsed < self.election_timeout {
+            self.election_elapsed += 1;
+        }
+    }
+
     // TODO: revoke pub when there is a better way to test.
     /// Run by followers and candidates after self.election_timeout.
     ///

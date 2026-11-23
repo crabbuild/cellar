@@ -9,6 +9,8 @@ mod pipeline;
 mod pipeline_regressions;
 #[path = "transport_query_tests.rs"]
 mod queries;
+#[path = "transport_query_concurrency_tests.rs"]
+mod query_concurrency;
 use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 use crate::raft::storage::ReplicaLog;
 use cellar_logic::consensus::{DiskLineage, ProcessGeneration};

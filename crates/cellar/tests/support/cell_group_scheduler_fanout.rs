@@ -102,12 +102,13 @@ async fn diagnose(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
         let usage = host.resource_usage();
         eprintln!(
             "fanout failure node={index} closed={} control={:?} services={:?} \
-             runtime={:?} controller={:?} replay_images={:?} partition={:?}",
+             runtime={:?} controller={:?} transport={:?} replay_images={:?} partition={:?}",
             host.is_closed(),
             usage.control,
             usage.control_services,
             usage.runtime,
             usage.host.controller,
+            usage.transport,
             usage.archive_verifier_images,
             host.partition_service_status(),
         );

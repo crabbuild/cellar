@@ -3,12 +3,14 @@
 //! Fair group turns, node-wide persistence batches and joined shutdown.
 
 use super::{park_deadlines::ParkDeadlines, *};
+use crate::raft::execution::{CellPreparedCommand, CellSubmissionOutcome};
 use crate::raft::storage::{LogError, SyncReceipt};
 use cellar_logic::consensus::OperationId;
 use futures_util::future::BoxFuture;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const PARK_WAKE_BATCH: usize = 32;
+const GROUP_REQUEST_BATCH: usize = 32;
 
 fn wakes_parked_peer(message: &::raft::prelude::Message, term: u64) -> bool {
     use ::raft::prelude::MessageType::*;
@@ -37,6 +39,9 @@ struct Group {
     queued: bool,
     retiring: bool,
     deferred: VecDeque<Request>,
+    // Requests through the last cell read present when collection began.
+    // Later arrivals cannot extend this prefix.
+    read_collection_remaining: usize,
     completion: Option<Request>,
     park_write: Option<Request>,
     // One status per current peer, retaining node-wide hint item/byte admission.
@@ -55,8 +60,75 @@ struct Group {
 }
 
 impl Group {
+    fn pop_deferred(&mut self) -> Option<Request> {
+        let request = self.deferred.pop_front()?;
+        self.read_collection_remaining = self.read_collection_remaining.saturating_sub(1);
+        Some(request)
+    }
+
+    fn collect_queued_reads(&mut self) {
+        self.read_collection_remaining = self
+            .deferred
+            .iter()
+            .rposition(|request| {
+                matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
+            })
+            .map_or(0, |position| position + 1);
+    }
+
+    fn submit_queued(&mut self, prepared: CellPreparedCommand) -> Result<Response, RuntimeError> {
+        let result = self.owner.submit(prepared).map(Response::Submission);
+        if !matches!(
+            &result,
+            Ok(Response::Submission(CellSubmissionOutcome::Accepted(_)))
+        ) {
+            return result;
+        }
+        // Collect only the already admitted adjacent prefix, within the same
+        // item/byte envelope as reads. Do not wait for arrivals or cross a read,
+        // peer step or control request. Every producer still enters the owner
+        // independently, retaining its identity, capacity and refusal checks.
+        for _ in 1..GROUP_REQUEST_BATCH {
+            if !self.deferred.front().is_some_and(|request| {
+                matches!(&request.command, Command::Submit(prepared, _)
+                        if self.owner.can_batch_submission(prepared.bytes().len()))
+            }) {
+                break;
+            }
+            let Request {
+                command: Command::Submit(prepared, retained),
+                reply,
+                _permit,
+                inbound,
+                ..
+            } = self.pop_deferred().expect("queued submission")
+            else {
+                unreachable!("checked queued submission");
+            };
+            let submitted = self.owner.submit(prepared).map(Response::Submission);
+            let accepted = matches!(
+                &submitted,
+                Ok(Response::Submission(CellSubmissionOutcome::Accepted(_)))
+            );
+            drop(retained);
+            drop(_permit);
+            drop(inbound);
+            let _ = reply.send(submitted);
+            if !accepted {
+                break;
+            }
+        }
+        result
+    }
+
     fn wake(&mut self, history: GroupHistory, order: &mut VecDeque<GroupHistory>) {
-        if !self.queued && (!self.owner.waiting() || self.failed.is_some()) {
+        if !self.queued
+            && (!self.owner.waiting()
+                || self.failed.is_some()
+                || self.owner.replication_pending()
+                || (self.pending.is_some() || self.settled.is_some())
+                    && self.owner.replication_admitted())
+        {
             self.queued = true;
             order.push_back(history);
         }
@@ -88,6 +160,7 @@ impl Group {
         self.tick = false;
         self.wake_due = false;
         self.snapshot_hints.clear();
+        self.read_collection_remaining = 0;
         for request in self.deferred.drain(..) {
             reply(request, Err(error.clone()));
         }
@@ -144,6 +217,7 @@ pub(super) struct Worker {
     proposals: Arc<Budget>,
     inflight: Option<BoxFuture<'static, Batch>>,
     inflight_bytes: usize,
+    replication_admissions: Vec<GroupHistory>,
     sequence: u64,
     retry_at: u64,
     ready: usize,
@@ -177,6 +251,7 @@ impl Worker {
             outbox: VecDeque::new(),
             inflight: None,
             inflight_bytes: 0,
+            replication_admissions: Vec::new(),
             sequence: 0,
             retry_at: 0,
             ready: 0,
@@ -263,12 +338,13 @@ impl Worker {
                 queued: false,
                 retiring: false,
                 deferred: VecDeque::new(),
+                read_collection_remaining: 0,
                 completion: None,
                 park_write: None,
                 snapshot_hints: BTreeMap::new(),
                 inbound: Budget::new(
                     (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
-                    (self.options.max_requests / 8).clamp(1, 32),
+                    (self.options.max_requests / 8).clamp(1, GROUP_REQUEST_BATCH),
                 ),
                 tick: false,
                 read_heartbeat_at: 0,
@@ -403,6 +479,32 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
+        if !group.owner.park_fenced() && group.park_write.is_none() {
+            // These proofs select only the current applied root and recheck
+            // its term, membership and exact leaf. They neither grant private
+            // execution nor initialize a cell, so unrelated Ready persistence
+            // need not delay them. Keep park/wake requests on their existing
+            // ordered path; node request admission still bounds every reply.
+            let observation = match &request.command {
+                Command::Reconciliation(cell) => Some(
+                    group
+                        .owner
+                        .reconciliation_authority(cell)
+                        .map(|authority| Response::Reconciliation(Box::new(authority))),
+                ),
+                Command::EnrollmentState(cell) => Some(
+                    group
+                        .owner
+                        .enrollment_state(cell.clone())
+                        .map(|state| Response::EnrollmentState(Box::new(state))),
+                ),
+                _ => None,
+            };
+            if let Some(observation) = observation {
+                reply(request, observation);
+                return;
+            }
+        }
         if let Command::RoutingStatus { advice, activity } = request.command {
             let observation = group.owner.routing_status(advice).and_then(|observation| {
                 // An authenticated mutation probe reaches this before its
@@ -428,11 +530,18 @@ impl Worker {
             return;
         }
         if matches!(request.command, Command::Observe) {
+            let queued_linearizable_reads = group
+                .deferred
+                .iter()
+                .filter(|request| {
+                    matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
+                })
+                .count();
             reply(
                 request,
                 group
                     .owner
-                    .observe()
+                    .observe(queued_linearizable_reads)
                     .map(|value| Response::Observation(Box::new(value))),
             );
             return;
@@ -576,7 +685,7 @@ impl Worker {
         group.snapshot_hints.clear();
         self.ticking.remove(&history);
         self.park_deadlines.remove(&history);
-        while let Some(request) = group.deferred.pop_front() {
+        while let Some(request) = group.pop_deferred() {
             reply(request, Err(RuntimeError::NotReady));
         }
         if group.write.is_some()
@@ -607,8 +716,15 @@ impl Worker {
     }
 
     fn tick(&mut self) {
+        use crate::raft::performance::Counter;
+        let performance = self.log.performance();
+        performance.increment(Counter::CellGroupTickRounds, 1);
         for history in &self.ticking {
             if let Some(group) = self.groups.get_mut(history) {
+                performance.increment(Counter::CellGroupTicksRequested, 1);
+                if group.tick {
+                    performance.increment(Counter::CellGroupTicksCoalesced, 1);
+                }
                 group.tick = true;
                 group.wake(*history, &mut self.order);
             }
@@ -640,6 +756,30 @@ impl Worker {
             .map(|deadline| now.saturating_add(deadline.saturating_sub(wall))))
     }
 
+    /// Schedule only eligible histories in the current physical batch, once
+    /// their exact tickets are admitted. Empty waiting groups stay asleep.
+    fn wake_admitted_replication(&mut self) -> Result<(), RuntimeError> {
+        let groups = &mut self.groups;
+        let order = &mut self.order;
+        let mut missing = false;
+        self.replication_admissions
+            .retain(|history| match groups.get_mut(history) {
+                Some(group) if group.failed.is_some() || group.owner.replication_admitted() => {
+                    group.wake(*history, order);
+                    false
+                }
+                Some(_) => true,
+                None => {
+                    missing = true;
+                    false
+                }
+            });
+        if missing {
+            return Err(RuntimeError::NotFound);
+        }
+        Ok(())
+    }
+
     fn progress(&mut self) -> Result<bool, RuntimeError> {
         let mut made = false;
         for _ in 0..self.order.len() {
@@ -663,7 +803,7 @@ impl Worker {
                     .front()
                     .is_some_and(|request| !wakes_parked_group(&request.command, term))
                 {
-                    let Some(request) = group.deferred.pop_front() else {
+                    let Some(request) = group.pop_deferred() else {
                         break;
                     };
                     reply(request, Ok(Response::Unit));
@@ -717,6 +857,7 @@ impl Worker {
                     }
                 }
                 if collect && group.owner.idle() && group.pending.is_none() {
+                    let collecting_reads = group.read_collection_remaining != 0;
                     if group.tick {
                         match group.owner.tick() {
                             Ok(()) => {
@@ -730,7 +871,7 @@ impl Worker {
                             }
                             Err(error) => group.fail(error),
                         }
-                    } else if let Some(request) = group.deferred.pop_front() {
+                    } else if let Some(request) = group.pop_deferred() {
                         let Request {
                             command,
                             reply: answer,
@@ -758,10 +899,13 @@ impl Worker {
                                         now,
                                     );
                                     if coalescible {
+                                        if !collecting_reads {
+                                            group.collect_queued_reads();
+                                        }
                                         // Preserve queue order and the existing
-                                        // 32-item group envelope. Only adjacent,
-                                        // already admitted cell reads may join.
-                                        for _ in 1..32 {
+                                        // 32-item group envelope. Adjacent reads
+                                        // can be collected in the same turn.
+                                        for _ in 1..GROUP_REQUEST_BATCH {
                                             if !group.deferred.front().is_some_and(|request| {
                                                 matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
                                             }) {
@@ -771,10 +915,7 @@ impl Worker {
                                                 command: Command::Read(read),
                                                 reply,
                                                 ..
-                                            } = group
-                                                .deferred
-                                                .pop_front()
-                                                .expect("queued cohort read")
+                                            } = group.pop_deferred().expect("queued cohort read")
                                             else {
                                                 unreachable!("checked cohort read");
                                             };
@@ -903,7 +1044,7 @@ impl Worker {
                                     .propose_at_term(term, data)
                                     .map(Response::Proposal),
                                 Command::Submit(prepared, _retained) => {
-                                    group.owner.submit(prepared).map(Response::Submission)
+                                    group.submit_queued(prepared)
                                 }
                                 Command::Unreachable(member) => group
                                     .owner
@@ -1069,10 +1210,33 @@ impl Worker {
         }
         let operation = self.operation()?;
         let log = self.log.clone();
+        // Notices fit the existing per-job metadata allowance and retain no
+        // authority or extra physical work. Wake the existing node loop once
+        // after enqueue, so eligible replication need not wait for a tick.
+        let admissions: Vec<_> = jobs
+            .iter()
+            .filter_map(|job| job.work.admission.clone())
+            .collect();
+        self.replication_admissions.clear();
+        self.replication_admissions.extend(
+            jobs.iter()
+                .filter(|job| job.work.admission.is_some())
+                .map(|job| job.history),
+        );
+        let output = self.output.clone();
         self.inflight_bytes = bytes;
         self.inflight = Some(Box::pin(async move {
             let writes = jobs.iter().map(|job| job.work.write.clone()).collect();
-            let result = log.persist_cells(operation, writes).await;
+            let result = log
+                .persist_cells_with_admission(operation, writes, move || {
+                    if !admissions.is_empty() {
+                        for admission in admissions {
+                            admission.queued();
+                        }
+                        output.wake.notify_one();
+                    }
+                })
+                .await;
             (jobs, operation, result)
         }));
         Ok(true)
@@ -1081,6 +1245,7 @@ impl Worker {
     fn finish_batch(&mut self, batch: Batch) -> Result<(), RuntimeError> {
         self.inflight = None;
         self.inflight_bytes = 0;
+        self.replication_admissions.clear();
         let (jobs, operation, result) = batch;
         match result {
             Ok(receipt) => {
@@ -1206,6 +1371,7 @@ impl Worker {
                 return Ok(());
             }
             let wake_at = self.schedule_park_wakes()?;
+            self.wake_admitted_replication()?;
             let mut made = self.progress()? | self.start_batch()? | self.flush();
             let now = self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
             made |= self.cell_reads.progress(
@@ -1265,6 +1431,9 @@ impl Worker {
                                 if term.is_some_and(|observed| observed != status.term) {
                                     return Err(RuntimeError::NotLeader);
                                 }
+                                if term.is_none() && group.read_collection_remaining != 0 {
+                                    return Err(RuntimeError::NotReady);
+                                }
                                 // Leaders retry the existing quorum heartbeat
                                 // above. Followers resend their original
                                 // forwarded ReadIndex request instead.
@@ -1276,7 +1445,10 @@ impl Worker {
                                     {
                                         return Err(RuntimeError::Overloaded);
                                     }
-                                    group.owner.read_forwarded_cell_index(context.to_vec())?;
+                                    group.owner.read_forwarded_cell_index(
+                                        context.to_vec(),
+                                        term.is_none(),
+                                    )?;
                                     // Cohorts initiate after the ordinary group
                                     // turn. Account the actual RawNode entry
                                     // before another group's cohort can enter.

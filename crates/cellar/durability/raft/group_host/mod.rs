@@ -7,7 +7,10 @@ mod collection;
 mod directory;
 pub(crate) use directory::require_local as require_local_fleet_boot;
 mod router_refresh;
-pub(crate) use router_refresh::{RouterRefreshClient, RouterRefreshKey, RouterRefreshRequest};
+pub(crate) use router_refresh::{
+    RouterRefreshClient, RouterRefreshKey, RouterRefreshOutcome, RouterRefreshRequest,
+    RouterRefreshTarget,
+};
 mod partition;
 mod provisioning;
 mod recovery;
@@ -229,7 +232,13 @@ pub(crate) async fn start(
         ))
         .await?;
         registration::refresh_routes(&mut prepared, &log, options.managed.is_some())?;
-        let sql = CellGroupSqlPool::start(&log, limits.sql)?;
+        // Every namespace applier below uses this same node profile. Preview
+        // verification must use it too; execution/capture bounds stay separate.
+        let sql = CellGroupSqlPool::start_with_apply_limits(
+            &log,
+            limits.sql,
+            Some(options.images.apply),
+        )?;
         startup.sql = Some(sql.clone());
         let checkpoint = limits
             .checkpoints

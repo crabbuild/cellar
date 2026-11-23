@@ -84,10 +84,18 @@ mod bindings;
 mod blob_contract;
 #[path = "support/cell_group_blob.rs"]
 mod blobs;
+#[path = "support/cell_group_checkpoint_polls.rs"]
+mod checkpoint_polls;
+#[path = "support/cell_group_checkpoint_proof.rs"]
+mod checkpoint_proof;
+#[path = "support/cell_group_checkpoint_submit.rs"]
+mod checkpoint_submit;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
 #[path = "support/cell_group_cron.rs"]
 mod cron;
+#[path = "support/sql_cursor_limits.rs"]
+mod cursor_limits;
 #[path = "support/sql_cursor_rollback.rs"]
 mod cursor_rollback;
 #[path = "support/cell_group_dispatch.rs"]
@@ -98,6 +106,10 @@ mod erase;
 mod event_streams;
 #[path = "support/cell_group_events.rs"]
 mod events;
+#[path = "support/cell_group_private_cleanup.rs"]
+mod private_cleanup;
+#[path = "support/cell_group_private_workspace.rs"]
+mod private_workspace;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn uncontended_binding_preserves_its_proven_source_writer() -> Result<()> {
@@ -196,10 +208,14 @@ mod fenced_maintenance;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
+#[path = "support/cell_group_name_fallback.rs"]
+mod name_fallback;
 #[path = "support/cell_group_named_service.rs"]
 mod named_service;
 #[path = "support/cell_group_names.rs"]
 mod names;
+#[path = "support/cell_group_primitives_perf.rs"]
+mod primitives_perf;
 #[path = "support/cell_group_provider_bindings.rs"]
 mod provider_bindings;
 #[path = "support/cell_group_provider_supervision.rs"]
@@ -643,6 +659,24 @@ async fn rustfs_filesystem_archive_outage_movement_and_park_wake() -> Result<()>
 async fn rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()>
 {
     filesystem::qualify(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_sql() -> Result<()> {
+    primitives_perf::bindings("sql").await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_kv() -> Result<()> {
+    primitives_perf::bindings("kv").await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_queue() -> Result<()> {
+    queues::qualify_perf().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2121,9 +2155,31 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             }).await??;
             ensure!(completed.receipt().context("unpolled RPC receipt")?.result() == b"166");
             ensure!(calls.load(Ordering::Acquire) == factories);
+            let replay_deadline = cellar::asyncrt::mono_ms()
+                .checked_add(u64::try_from(TIMEOUT.as_millis())?)
+                .context("unpolled RPC replay deadline")?;
             let replay = cellar::asyncrt::timeout(TIMEOUT, async {
+                // A committed receipt does not prove the original private SQL
+                // producer has physically closed. Wait for this fixture's RF3
+                // cell leases, within the same replay window, before readmitting
+                // the exact ID. Retained receipt buffers need not be released.
+                let mut owner_waits = 0;
                 loop {
-                    match recovered.command(&update, lost_input.clone(), lost_options.clone()).await {
+                    let mut active = 0;
+                    for host in &cluster.hosts {
+                        active += host.resource_usage().sql.context("RPC producer observations")?.active_cells;
+                    }
+                    if active == 0 { break; }
+                    owner_waits += 1;
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                }
+                eprintln!("unpolled RPC replay id={:?}: physical cell owners drained, waits={owner_waits}", lost_options.id);
+                loop {
+                    let remaining = replay_deadline.checked_sub(cellar::asyncrt::mono_ms())
+                        .filter(|remaining| *remaining != 0).context("original RPC replay window expired")?;
+                    let mut selected = lost_options.clone();
+                    selected.timeout = Duration::from_millis(remaining);
+                    match recovered.command(&update, lost_input.clone(), selected).await {
                         Ok(receipt) => break Ok::<_, anyhow::Error>(receipt),
                         Err(error) if error.cause.refusal() == Some(&CommandFailure::Overloaded) => (),
                         Err(error) => return Err(error.into()),
@@ -2222,6 +2278,9 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
         .await
         .context("Raft RPC execution domain")
         .and_then(std::convert::identity);
+    if work.is_err() {
+        managed_fixture::diagnostics::record(&cluster, "ordinary-cell-rpc").await;
+    }
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;
@@ -2280,6 +2339,16 @@ async fn rustfs_ordinary_json_rpc_uses_raft_owned_context() -> Result<()> {
             .with_context(|| format!("ordinary Raft RPC RustFS extents={rooted}"))?;
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn materialized_cached_conflict_preserves_private_writer_capacity() -> Result<()> {
+    Box::pin(activations::known_conflict(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_cached_conflict_preserves_private_writer_capacity() -> Result<()> {
+    Box::pin(activations::known_conflict(true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2548,6 +2617,36 @@ async fn rustfs_ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()>
                 .with_context(|| {
                     format!("RustFS SDK dispatch extents={rooted} durability={durability:?}")
                 })?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_name_discovery_uses_ready_physical_peers() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            Box::pin(name_fallback::run(
+                rooted,
+                durability,
+                Arc::new(catalog_fault::Store::default()),
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_name_discovery_uses_ready_physical_peers() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+                &format!("name-fallback-{durability:?}"),
+                rooted,
+            )?));
+            Box::pin(name_fallback::run(rooted, durability, store)).await?;
         }
     }
     Ok(())
@@ -2856,6 +2955,16 @@ async fn axum_kv_bindings_use_managed_shared_groups() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_inline_reads_do_not_append_mutations() -> Result<()> {
+    Box::pin(kv_bindings::qualify_inline_reads()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kv_inline_reads_require_current_archive_and_quorum() -> Result<()> {
+    Box::pin(kv_bindings::qualify_inline_read_boundaries()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_ordinary_kv_bindings_use_managed_shared_groups() -> Result<()> {
     Box::pin(kv_bindings::qualify(true, false)).await
@@ -2976,7 +3085,13 @@ async fn rustfs_queue_long_callbacks_preserve_progress() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_queue_load_preserves_acknowledged_messages() -> Result<()> {
-    Box::pin(queues::qualify_load(true)).await
+    Box::pin(queues::qualify_load(true, 1)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load(true, 2)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2986,7 +3101,79 @@ async fn queue_long_callbacks_preserve_progress() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn queue_load_preserves_acknowledged_messages() -> Result<()> {
-    Box::pin(queues::qualify_load(false)).await
+    Box::pin(queues::qualify_load(false, 1)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_operator_reads_preserve_auth_archive_and_fresh_quorum() -> Result<()> {
+    Box::pin(queues::qualify_operator_read_boundaries()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_operator_reads_do_not_append_mutations() -> Result<()> {
+    Box::pin(queues::qualify_operator_reads()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owned_queue_callbacks_do_not_repeat_discovery_sql() -> Result<()> {
+    Box::pin(queues::qualify_owned_callback_scans()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load(false, 2)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn materialized_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load_mode(false, 2, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load_mode(false, 2, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_materialized_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load_mode(true, 2, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_rooted_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load_mode(true, 2, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn completed_checkpoints_advance_ready_reply_bridges() -> Result<()> {
+    checkpoint_polls::qualify().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prepared_checkpoints_replicate_before_unrelated_queued_sql() -> Result<()> {
+    Box::pin(checkpoint_submit::qualify()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn checkpoint_proofs_advance_before_unrelated_queued_sql() -> Result<()> {
+    Box::pin(checkpoint_proof::qualify()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_cleanup_releases_the_single_sql_worker() -> Result<()> {
+    Box::pin(private_cleanup::qualify()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_cleanup_waiter_deadline_retains_physical_custody() -> Result<()> {
+    Box::pin(private_cleanup::qualify_cancel()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn private_cleanup_io_failure_retains_committed_outcome() -> Result<()> {
+    Box::pin(private_cleanup::qualify_failure()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3343,4 +3530,14 @@ async fn rustfs_controller_admission_batches_business_intent_and_fence_proof() -
 async fn rustfs_controller_prepared_admission_preserves_quorum_and_s3_archive_gates() -> Result<()>
 {
     controller_provider::qualify_admission(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_workspace_preparation_preserves_quorum_sql_progress() -> Result<()> {
+    Box::pin(private_workspace::qualify(Durability::Quorum)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_workspace_preparation_preserves_s3_sql_progress() -> Result<()> {
+    Box::pin(private_workspace::qualify(Durability::S3)).await
 }

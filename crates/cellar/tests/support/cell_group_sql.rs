@@ -160,14 +160,28 @@ async fn enrolled_sql_cells(
 }
 
 async fn enroll_sql_cells(
-    mut fixture: RuntimeCluster,
+    fixture: RuntimeCluster,
     rooted: bool,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    enroll_sql_cells_with_admission(fixture, rooted, filesystem, false).await
+}
+
+async fn enroll_sql_cells_with_admission(
+    mut fixture: RuntimeCluster,
+    rooted: bool,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    serialized: bool,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
     let route = fixture.cluster.birth.route().clone();
     if rooted {
+        let open = if serialized {
+            NodeExtentStore::open_serialized
+        } else {
+            NodeExtentStore::open
+        };
         for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
-            voter.extents = Some(NodeExtentStore::open(
+            voter.extents = Some(open(
                 fixture.cluster._root.path().join(format!("rooted-{n}")),
                 filesystem.clone(),
                 Default::default(),
@@ -464,6 +478,14 @@ pub(super) async fn pool_admission(rooted: bool) -> Result<()> {
     pool::admission(rooted).await
 }
 
+pub(super) async fn admission_refusal_observations(rooted: bool) -> Result<()> {
+    pool::node_and_callback(rooted).await
+}
+
+pub(super) async fn workspace_refusal_observations() -> Result<()> {
+    pool::private_workspace().await
+}
+
 #[path = "cell_group_sql_reconcile.rs"]
 mod reconciliation;
 
@@ -478,6 +500,10 @@ pub(super) async fn owned_workspace_barriers() -> Result<()> {
     enrollment::owned_workspace_barriers().await
 }
 
+pub(super) async fn materialized_scratch_barriers() -> Result<()> {
+    enrollment::materialized_scratch_barriers().await
+}
+
 pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
     enrollment::recovery(rooted).await
 }
@@ -490,11 +516,48 @@ pub(super) async fn reconcile_refusals(rooted: bool) -> Result<()> {
     reconciliation::refusals(rooted).await
 }
 
+#[path = "cell_group_sql_receipt_reuse.rs"]
+mod receipt_reuse;
+
+#[path = "cell_group_sql_retirement.rs"]
+mod retirement;
+
+#[path = "cell_group_sql_checkpoint_retirement.rs"]
+mod checkpoint_retirement;
+
+pub(super) async fn checkpoint_retirement_progress(
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    Box::pin(checkpoint_retirement::progress(store)).await
+}
+
+pub(super) async fn preview_retirement_progress(
+    reconcile: bool,
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    Box::pin(retirement::progress(reconcile, store)).await
+}
+
+pub(super) async fn reconcile_captured_receipt(
+    rooted: bool,
+    store: Arc<object_store::memory::InMemory>,
+) -> Result<()> {
+    Box::pin(receipt_reuse::reconcile(rooted, store)).await
+}
+
 #[path = "cell_group_sql_submission.rs"]
 mod submission;
 
 pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     submission::rejections(rooted).await
+}
+
+pub(super) async fn queued_submissions(rooted: bool, read_between: bool) -> Result<()> {
+    submission::queued(rooted, read_between, 256).await
+}
+
+pub(super) async fn bounded_queued_submissions(rooted: bool) -> Result<()> {
+    submission::queued(rooted, false, 4).await
 }
 
 #[path = "cell_group_sql_reads.rs"]
@@ -507,8 +570,18 @@ pub(crate) use reads::{
 
 #[path = "cell_group_sql_apply.rs"]
 pub(super) mod apply;
+
+#[path = "cell_group_sql_prepared_image.rs"]
+mod prepared_image;
+
+pub(super) async fn prepared_image_reuse(rooted: bool) -> Result<()> {
+    Box::pin(prepared_image::reuse(rooted)).await
+}
 pub(crate) use apply::apply_images;
+#[path = "cell_group_sql_pipeline.rs"]
+mod pipeline;
 pub(crate) use apply::committed_apply_reuses_verified_preview;
+pub(crate) use pipeline::unrelated_mutation as pipeline_unrelated_mutation;
 
 #[path = "cell_group_commit_publication.rs"]
 mod commit_publication;
@@ -546,6 +619,12 @@ pub(crate) use dispatch::routed as routed_queries;
 #[path = "cell_group_sql_command_dispatch.rs"]
 mod command_dispatch;
 pub(crate) use command_dispatch::commands as routed_commands;
+#[path = "cell_group_sql_pending.rs"]
+mod pending;
+pub(crate) use pending::{pending_progress, stale_pending_progress};
+#[path = "cell_group_sql_rpc_pending.rs"]
+mod rpc_pending;
+pub(crate) use rpc_pending::rpc_checkpoint_pending_progress;
 
 #[path = "cell_group_controller_archive.rs"]
 #[allow(dead_code, unused_imports)]
@@ -560,14 +639,17 @@ mod s3_response;
 #[allow(unused_imports)]
 pub(crate) use s3_commands::{
     archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
-    enrollment_output_during_apply, follower_acquires_published_prefix, full_backend_outage,
-    output_during_apply, output_progress, s3_commands, s3_deadline, s3_enrollment,
-    s3_enrollment_deadline, s3_evicted_receipt_ignores_unarchived_sibling,
+    enrollment_output_during_apply, follower_acquires_published_prefix,
+    follower_bootstraps_first_prefix, full_backend_outage, output_during_apply, output_progress,
+    peer_connection_idle, retirement_coalesces_next_archive_intent, s3_background_capacity_cadence,
+    s3_capacity_release, s3_commands, s3_deadline, s3_enrollment, s3_enrollment_deadline,
+    s3_evicted_receipt_ignores_unarchived_sibling,
     s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_missing_sibling, s3_namespace_minimum, s3_newer_receipt_bypasses_inflight_maintenance,
-    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
-    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
+    s3_payload_capacity_release, s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums,
+    s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
+    s3_remote_receipt_reconciliation, s3_remote_slow_delivery, s3_replays_from_peer_archive,
     s3_response_precedes_hold_retirement,
 };
 #[allow(unused_imports)]
@@ -584,12 +666,14 @@ mod outbox_effects;
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
-    archive_controller_tail_rollover, archived_groups_reclaim_independently,
+    archive_controller_tail_rollover, archived_groups_reclaim_independently, payload_read_failure,
+    PayloadFailure,
 };
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
     archive_controller_payload_outage, archive_controller_publish_store,
-    archive_controller_reconcile_store, archive_reservation_renews_known_superseded_intent,
+    archive_controller_reconcile_store, archive_controller_reservation_recovery,
+    archive_reservation_renews_known_superseded_intent,
     archive_reservation_retries_from_durable_intent, archive_retirement_joins_next_intent,
 };
 pub(crate) use effects::{alarms_without_clients, hot_and_cold_alarms, shutdown_joins_alarm};
@@ -604,7 +688,8 @@ pub(crate) use controller::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
 pub(crate) use controller_commands::{
-    background_admission, command_admission_starts_before_poll, command_waits_for_apply,
+    background_admission, capacity_terminal_refusals, capacity_wait_shutdown,
+    command_admission_starts_before_poll, command_waits_for_apply, command_waits_for_capacity,
     owned_command_failure, owned_commands,
 };
 
@@ -615,7 +700,8 @@ pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
 #[path = "cell_group_controller_enrollment.rs"]
 mod controller_enrollment;
 pub(crate) use controller_enrollment::{
-    enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
+    enrollment_authority_loss_keeps_controller_alive, enrollment_requires_registration,
+    owned_enrollment, owned_enrollment_failure,
 };
 
 #[path = "cell_group_remote_queries.rs"]
@@ -636,7 +722,10 @@ pub(crate) use dispatch_cache_execution::cached_dispatch_execution;
 
 #[path = "cell_group_remote_commands.rs"]
 mod remote_commands;
-pub(crate) use remote_commands::{remote_command_lifecycle, remote_commands};
+pub(crate) use remote_commands::{
+    remote_command_lifecycle, remote_command_receipt_limits, remote_command_receipt_reconciliation,
+    remote_commands,
+};
 
 #[path = "cell_group_remote_enrollment.rs"]
 mod remote_enrollment;
@@ -695,6 +784,7 @@ pub(crate) use membership::{
     membership_delivery_fence, membership_lifecycle, membership_physical_delivery_fence,
     membership_quorum_floor, membership_quorum_followers,
     membership_read_retries_without_unrelated_work, membership_sync,
+    outgoing_handoff_preserves_term, outgoing_voter_cannot_campaign,
 };
 
 #[path = "cell_group_seed.rs"]

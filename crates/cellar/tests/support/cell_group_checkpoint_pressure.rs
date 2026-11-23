@@ -59,10 +59,9 @@ pub(crate) async fn transfer_pressure(rooted: bool) -> Result<()> {
         }
         CellImagePin::Empty => anyhow::bail!("populated reader"),
     };
-    let old_page = cluster._root.path().join("node-1/pages").join(format!(
-        "{}.page",
-        hex::encode(marker.root().digest().unwrap())
-    ));
+    let page_directory = cluster._root.path().join("node-1/pages");
+    let old_page = marker.root().digest().unwrap();
+    let old_page_bytes = manifest_pages::read(&page_directory, old_page)?;
     let source_pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let mut source = source_pool.capture(&source_group, &root)?;
     let source_usage = source_pool.usage();
@@ -229,7 +228,10 @@ pub(crate) async fn transfer_pressure(rooted: bool) -> Result<()> {
             store.reclaim(1024)?;
         }
     }
-    assert!(old_page.exists());
+    assert_eq!(
+        manifest_pages::read(&page_directory, old_page)?,
+        old_page_bytes
+    );
     release.send(())?;
     let (prepared, transferred, peak_scratch) = worker.await??;
     assert!(transferred >= payload);
@@ -249,7 +251,7 @@ pub(crate) async fn transfer_pressure(rooted: bool) -> Result<()> {
     source_voter.pages.as_mut().unwrap().reclaim(1024)?;
     source_voter.pages.as_mut().unwrap().reclaim(1024)?;
     assert!(
-        !old_page.exists(),
+        manifest_pages::find(&page_directory, old_page)?.is_none(),
         "released transfer no longer pins its old tree"
     );
     source_voter.images.reclaim(1024)?;

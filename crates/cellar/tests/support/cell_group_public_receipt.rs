@@ -38,6 +38,18 @@ impl Cell for Counter {
 }
 
 pub(super) async fn qualify(rooted: bool, real_rustfs: bool) -> Result<()> {
+    let store = Arc::new(if real_rustfs {
+        catalog_fault::Store::around(rustfs::store("public-receipt", rooted)?)
+    } else {
+        catalog_fault::Store::default()
+    });
+    let result = run(rooted, store.clone()).await;
+    // Capture the concrete synthetic owner, including successful fault
+    // controls and startup refusals. External backend data is never exported.
+    managed_fixture::memory::preserve_result(&store.inner, "public-receipt", result).await
+}
+
+async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     let control = Arc::new(Control::default());
     let factory = control.clone();
     let class = RaftClass::new("Counter", 1, [236; 32])?
@@ -61,11 +73,6 @@ pub(super) async fn qualify(rooted: bool, real_rustfs: bool) -> Result<()> {
     );
     let declared = configuration::options("public-receipt-service");
     application.validate_deployment(&configuration::deployment(declared.clone()))?;
-    let store = Arc::new(if real_rustfs {
-        catalog_fault::Store::around(rustfs::store("public-receipt", rooted)?)
-    } else {
-        catalog_fault::Store::default()
-    });
     let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
     fixture.configuration = Some(declared);
     fixture.sql_workers = 1;
@@ -91,15 +98,25 @@ pub(super) async fn qualify(rooted: bool, real_rustfs: bool) -> Result<()> {
         Ok(())
     }));
     fixture.filesystem = Arc::new(physical::FaultFileSystem { faults });
-    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
-        fixture,
-        &[],
-        ArchiveSetup::Initialized,
-        false,
-        None,
-        FirstGroupSetup::Normal,
-    ))
-    .await?;
+    let mut roots = Vec::new();
+    for _ in 0..3 {
+        let mut root = tempfile::Builder::new()
+            .prefix("cellar-public-receipt-")
+            .tempdir()?;
+        root.disable_cleanup(true);
+        eprintln!("retained public-receipt disk: {}", root.path().display());
+        roots.push(root);
+    }
+    let domain = fixture.domain.clone();
+    let mut cluster = match Box::pin(ManagedCluster::start_with_roots(fixture, roots)).await {
+        Ok(cluster) => cluster,
+        Err(error) => {
+            // Startup already attempts every begun node/host. Join the shared
+            // domain before the outer owner snapshots its concrete memory.
+            domain.shutdown().await;
+            return Err(error);
+        }
+    };
     let work = cluster.fixtures[0]
         .domain
         .run(async {
@@ -182,11 +199,6 @@ pub(super) async fn qualify(rooted: bool, real_rustfs: bool) -> Result<()> {
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;
-    if work.is_err() || joined.is_err() {
-        for root in std::mem::take(&mut cluster.roots) {
-            eprintln!("retained public-receipt disk: {}", root.keep().display());
-        }
-    }
     cluster.fixtures[0].domain.shutdown().await;
     work?;
     joined

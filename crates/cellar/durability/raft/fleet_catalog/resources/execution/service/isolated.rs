@@ -11,6 +11,9 @@ use crate::raft::fleet_stop::BootBinding;
 use cellar_logic::consensus::{NodeId, ProposalId};
 use sha2::{Digest, Sha256};
 
+#[path = "isolated_memory.rs"]
+mod memory;
+
 struct Scan {
     snapshot: FleetSnapshot,
     after: Option<FleetCursor>,
@@ -313,18 +316,23 @@ impl IsolatedRepairService {
             return Ok(());
         }
         self.candidate = None;
-        let bytes = ROOT_LIMIT
-            .checked_mul(2)
-            .and_then(|n| n.checked_add(nodes.checked_mul(512 * 1024)?))
-            .ok_or(FleetCatalogError::Limit)?;
-        let _memory =
-            super::topology::reserve_collection_memory(observer.control_budget(), bytes, 0)?;
+        let mut memory = memory::Memory::new(observer.control_budget(), nodes)?;
         let group = Group {
             history,
             voters,
             latest,
         };
         let result = async {
+            // The model does not exist during this quorum read. Its returned
+            // proof stays charged while the original model envelope regrows.
+            let source = catalog
+                .isolated_repair_source(cut, &group, failed, observer, deadline)
+                .await?;
+            let source_started = catalog
+                .resource_now()?
+                .checked_sub(source.sample_age_ms())
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+            memory.planning()?;
             let inputs = self
                 .evidence
                 .refresh(&context, deadline.remaining()?)
@@ -340,9 +348,14 @@ impl IsolatedRepairService {
                 observer,
                 identity: request,
                 deadline,
+                source,
+                source_started,
             }
             .plan(&inputs)
             .await?;
+            // Planning drops its full model before the independent admission
+            // repeats target occupancy and source quorum verification.
+            memory.admission()?;
             catalog
                 .reserve_isolated_repair(
                     cut,

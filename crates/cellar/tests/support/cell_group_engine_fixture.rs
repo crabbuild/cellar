@@ -1,6 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 // Shared at each integration target root to preserve the support modules' paths.
+#[path = "manifest_pack_fixture.rs"]
+#[allow(dead_code)]
+mod manifest_pages;
+
 use anyhow::{Context, Result};
 use cellar::application::consensus::verification::cell_groups::GroupRoute;
 use cellar::application::consensus::{
@@ -210,13 +214,14 @@ impl Cluster {
 
     async fn with_store_birth_domain(
         options: RaftRuntimeOptions,
-        root: tempfile::TempDir,
+        mut root: tempfile::TempDir,
         filesystem: Arc<dyn cellar_ltx::FileSystem>,
         schema: [u8; 32],
         store: Arc<dyn object_store::ObjectStore>,
         birth_options: ClusterBirthOptions,
         domain: ExecutionDomain,
     ) -> Result<Self> {
+        root.disable_cleanup(true);
         let minimum = birth_options.minimum;
         let log_limits = birth_options.log;
         let history = GroupHistory {

@@ -20,6 +20,7 @@ pub use execution::CellGroupArchiveExecution;
 pub(crate) use execution::ControllerExecution;
 
 mod cache;
+pub(in crate::raft::cell_groups) mod capacity;
 mod checkpoint;
 mod checkpoint_packing;
 pub(in crate::raft::cell_groups) use cache::{CacheEviction, CachedCoverage};
@@ -34,8 +35,8 @@ mod objects;
 mod payloads;
 mod publication;
 pub use collection::{CellGroupArchiveCollectionLimits, CellGroupArchiveCollectionReport};
-pub(in crate::raft::cell_groups) use publication::CoverageUse;
 pub use publication::{CellGroupArchiveCoverage, PreparedCellGroupArchivePublication};
+pub(in crate::raft::cell_groups) use publication::{CoverageIdentity, CoverageUse};
 mod upload;
 pub use upload::{
     CellGroupArchiveUpload, CellGroupArchiveUploadLimits, CellGroupArchiveUploadPool,
@@ -146,7 +147,9 @@ impl CellGroupArchiveLimits {
             return Err(CellGroupArchiveError::Limit);
         }
         // Decoded records, bounded encoded index, GET/PUT windows and transport
-        // copies. The physical source or receiver has its own pool reservation.
+        // copies, including checkpoint.rs's two-object ordered windows and
+        // bounded source/receiver channels. The physical source or receiver
+        // has its own pool reservation.
         self.max_index_bytes
             .checked_mul(6)
             .and_then(|n| n.checked_add(self.max_chunks.checked_mul(2048)?))

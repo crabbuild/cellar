@@ -6,83 +6,54 @@ use super::*;
 use crate::raft::execution::CellStageCapture;
 
 impl Cells {
-    pub(super) fn start_stage(
+    pub(super) fn capture_stage(
         &mut self,
         cell: CellHistory,
-        stage: Stage,
+        stage: Capture,
         reply: oneshot::Sender<SqlReply>,
-        max: usize,
+        mut executor: CellPrivateExecutor,
         domain: &crate::asyncrt::DomainToken,
         now: u64,
     ) -> bool {
-        let started = (|| {
-            self.check_capacity(&cell, max)?;
-            // Retirement must join every same-cell continuation before sealing
-            // its sequence, including a parked RPC with no writer lease.
-            if matches!(
-                stage.attempt.request.operation.as_str(),
-                crate::raft::execution::binding_seal::OPERATION
-                    | crate::storage::raft_binding_recovery::CLAIM
-                    | crate::storage::raft_binding_recovery::SETTLE
-                    | crate::storage::raft_binding_recovery::CONFIRM
-                    | crate::storage::raft_payloads::RETIRE
-            ) && self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
-            {
-                return Err(ExecutionError::Busy);
+        let Capture {
+            options,
+            attempt,
+            mode,
+            callback,
+            lease,
+            bytes,
+        } = stage;
+        let max_result = options.limits().max_result_bytes;
+        let captured = match callback {
+            Callback::Verification(callback) => {
+                executor.capture(attempt, mode.allows_new(), callback)
             }
-            if reply.is_closed() {
-                return Err(unavailable());
-            }
-            let Stage {
-                options,
-                authority,
-                attempt,
-                mode,
-                callback,
-                lease,
-                bytes,
-            } = stage;
-            if authority.cell().version.history != cell {
-                return Err(ExecutionError::Invalid("SQL cell history"));
-            }
-            let max_result = options.limits().max_result_bytes;
-            let mut executor = options.open(authority)?;
-            let captured = match callback {
-                Callback::Verification(callback) => {
-                    executor.capture(attempt, mode.allows_new(), callback)
+            Callback::Registered {
+                class,
+                input,
+                admission,
+                ..
+            } => {
+                if matches!(admission, CommandAdmission::Event) && mode.allows_new() {
+                    Err(ExecutionError::Invalid("event requires the RPC owner"))
+                } else {
+                    executor.capture_registered(
+                        attempt,
+                        &class,
+                        &input,
+                        mode.allows_new(),
+                        admission,
+                    )
                 }
-                Callback::Registered {
-                    class,
-                    input,
-                    admission,
-                    ..
-                } => {
-                    if matches!(admission, CommandAdmission::Event) && mode.allows_new() {
-                        Err(ExecutionError::Invalid("event requires the RPC owner"))
-                    } else {
-                        executor.capture_registered(
-                            attempt,
-                            &class,
-                            &input,
-                            mode.allows_new(),
-                            admission,
-                        )
-                    }
-                }
-            };
-            Ok((
-                executor,
-                captured,
-                mode,
-                StageRetention {
-                    lease,
-                    bytes,
-                    max_result,
-                },
-            ))
-        })();
-        let result = match started {
-            Ok((executor, Ok(CellStageCapture::Captured(input)), mode, retention)) => {
+            }
+        };
+        let retention = StageRetention {
+            lease,
+            bytes,
+            max_result,
+        };
+        let result = match captured {
+            Ok(CellStageCapture::Captured(input)) => {
                 self.preparing.push_back(Preparing {
                     task: Preparation::new(*input, domain.clone(), mode),
                     executor,
@@ -97,14 +68,13 @@ impl Cells {
                 });
                 return true;
             }
-            Ok((executor, captured, _, retention)) => {
+            captured => {
                 let outcome = captured.map(|capture| match capture {
                     CellStageCapture::Duplicate(receipt) => CellStageOutcome::Duplicate(receipt),
                     CellStageCapture::Captured(_) => unreachable!("captured image dispatched"),
                 });
                 self.publish_stage(cell, executor, outcome, retention, None, now)
             }
-            Err(error) => Err(error),
         };
         let success = result.is_ok();
         let _ = reply.send(result);

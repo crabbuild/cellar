@@ -108,6 +108,10 @@ impl CellQueryInvocation {
         self.routing.clone()
     }
 
+    pub(crate) fn prefers_leader(&self) -> bool {
+        self.request.consistency.is_linearizable()
+    }
+
     pub(crate) fn leader_hint(&self) -> Option<MemberId> {
         self.leader_hint
     }

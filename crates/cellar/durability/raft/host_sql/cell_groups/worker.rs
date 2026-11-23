@@ -5,6 +5,12 @@ use super::rpc_cache::RpcActivation;
 use super::*;
 use std::collections::{BTreeMap, VecDeque};
 
+#[path = "cleanup.rs"]
+mod cleanup;
+use cleanup::Retiring;
+
+#[path = "opening.rs"]
+mod opening;
 #[path = "suspended_rpc.rs"]
 mod rpc;
 #[path = "stage.rs"]
@@ -31,6 +37,17 @@ pub(super) struct Stage {
     pub callback: Callback,
     pub lease: CellLease,
     pub bytes: Arc<Bytes>,
+}
+
+// The request's authority is consumed exactly once when SQL opens. Its callback
+// and original admission remain retained independently through rejected cleanup.
+struct Capture {
+    options: CellSqlOptions,
+    attempt: CommandAttempt,
+    mode: CellSqlStageMode,
+    callback: Callback,
+    lease: CellLease,
+    bytes: Arc<Bytes>,
 }
 
 impl Stage {
@@ -141,24 +158,36 @@ impl Producer {
 }
 
 pub(in crate::raft::host_sql) struct Cells {
+    opening: VecDeque<opening::Opening>,
+    workspace_lane: Arc<tokio::sync::Semaphore>,
     pending: BTreeMap<CellHistory, Pending>,
     suspended: VecDeque<rpc::Suspended>,
     preparing: VecDeque<Preparing>,
+    retiring: VecDeque<Retiring>,
     activations: Arc<RpcCache>,
     wake: Arc<crate::raft::host_sql::WorkerWake>,
+    performance: Arc<crate::raft::performance::Registry>,
+    root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
 }
 
 impl Cells {
     pub(in crate::raft::host_sql) fn new(
         activations: Arc<RpcCache>,
         wake: Arc<crate::raft::host_sql::WorkerWake>,
+        performance: Arc<crate::raft::performance::Registry>,
+        root_apply_limits: Option<cellar_ltx::apply::ApplyLimits>,
     ) -> Self {
         Self {
+            opening: VecDeque::new(),
+            workspace_lane: Arc::new(tokio::sync::Semaphore::new(1)),
             pending: BTreeMap::new(),
             suspended: VecDeque::new(),
             preparing: VecDeque::new(),
+            retiring: VecDeque::new(),
             activations,
             wake,
+            performance,
+            root_apply_limits,
         }
     }
 
@@ -206,25 +235,48 @@ impl Cells {
                     Action::Stage(stage) if stage.mode.expired(now) => Err(
                         crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded),
                     ),
-                    Action::Stage(stage) if stage.is_cell_rpc() => {
-                        timer.finish(self.start_rpc(cell, *stage, reply, max, domain, now));
+                    action @ (Action::Stage(_) | Action::Initialize(_)) => {
+                        self.start_opening(
+                            cell,
+                            action,
+                            opening::Completion {
+                                reply,
+                                slot: _slot,
+                                timer,
+                            },
+                            max,
+                            domain,
+                            now,
+                        );
                         return;
                     }
-                    Action::Stage(stage) => {
-                        timer.finish(self.start_stage(cell, *stage, reply, max, domain, now));
+                    action @ (Action::Finish(_) | Action::Reconcile(..)) => {
+                        self.start_settlement(
+                            cell,
+                            action,
+                            cleanup::Completion {
+                                reply,
+                                slot: _slot,
+                                timer,
+                                at: now,
+                            },
+                            domain,
+                        );
                         return;
                     }
                     Action::Query(query) => {
                         // Retirement requires every same-cell private frame to
                         // join. Its discovery must not mask runnable callbacks.
-                        let binding_ready = !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
+                        let binding_ready = !self.opening.iter().any(|frame| frame.cell == cell)
+                            && !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
                             && !self
                                 .preparing
                                 .iter()
-                                .any(|preparation| preparation.cell == cell);
+                                .any(|preparation| preparation.cell == cell)
+                            && !self.retiring.iter().any(|frame| frame.cell == cell);
                         super::query::run(*query, domain, binding_ready)
                     }
-                    action => self.run(cell, action, max, now),
+                    action => self.run(cell, action),
                 }
             }
             _ => {
@@ -238,76 +290,22 @@ impl Cells {
             tracing::trace!(target: "cellar::raft::sql_publish", action, ?error,
                 "private publication attempt remains unresolved");
         }
-        timer.finish(result.is_ok());
+        timer.finish(
+            result.is_ok()
+                && !matches!(
+                    &result,
+                    Ok(CellSqlOutcome::ReconciliationPending
+                        | CellSqlOutcome::ReconciliationRetained)
+                ),
+        );
         let _ = reply.send(result);
     }
 
-    fn run(
-        &mut self,
-        cell: CellHistory,
-        action: Action,
-        max: usize,
-        now: u64,
-    ) -> Result<CellSqlOutcome, ExecutionError> {
+    fn run(&mut self, cell: CellHistory, action: Action) -> Result<CellSqlOutcome, ExecutionError> {
         match action {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
             Action::Stage(_) => Err(ExecutionError::Invalid("stage worker dispatch")),
-            Action::Initialize(request) => {
-                self.check_capacity(&cell, max)?;
-                let Initialize {
-                    options,
-                    authority,
-                    attempt,
-                    callback,
-                    lease,
-                    mut bytes,
-                } = *request;
-                if authority.state().cell() != &cell {
-                    return Err(ExecutionError::Invalid("initialization cell history"));
-                }
-                authority
-                    .check()
-                    .map_err(crate::raft::execution::authority_failure)?;
-                if let Some(record) = authority.state().record() {
-                    if record.cell() != &cell || record.creation() != attempt.creation {
-                        return Err(ExecutionError::Refused(CommandFailure::CommandConflict));
-                    }
-                    return Ok(CellSqlOutcome::Enrollment(Box::new(CellSqlEnrollment {
-                        record: record.clone(),
-                        _retention: OutputRetention::Sql { _bytes: bytes },
-                        s3: None,
-                    })));
-                }
-                let mut executor = options.open_enrollment(authority)?;
-                let prepared = match executor.prepare(attempt, callback) {
-                    Ok(prepared) => prepared,
-                    Err(error) => {
-                        executor.close()?;
-                        return Err(error);
-                    }
-                };
-                let retained = prepared
-                    .bytes()
-                    .len()
-                    .checked_add(4096)
-                    .ok_or_else(overloaded)?;
-                Bytes::shrink(&mut bytes, retained)?;
-                let prepared = CellSqlPrepared {
-                    prepared,
-                    _bytes: bytes,
-                };
-                self.pending.insert(
-                    cell,
-                    Pending {
-                        producer: Producer::Enrollment(Box::new(executor)),
-                        prepared: prepared.clone(),
-                        submitted: false,
-                        _lease: lease,
-                        activation: None,
-                    },
-                );
-                Ok(CellSqlOutcome::Prepared(prepared))
-            }
+            Action::Initialize(_) => Err(ExecutionError::Invalid("initialization worker dispatch")),
             Action::ResolveEnrollment(creation, state) => {
                 let pending = self
                     .pending
@@ -384,86 +382,27 @@ impl Cells {
                 }
                 Ok(CellSqlOutcome::Submitted)
             }
-            Action::Finish(authority) => {
-                let fence = authority.activation_fence();
-                let pending = self
-                    .pending
-                    .get_mut(&cell)
-                    .ok_or(ExecutionError::Uncertain)?;
-                let receipt = pending.producer.command()?.finish(*authority)?;
-                let pending = self
-                    .pending
-                    .remove(&cell)
-                    .ok_or(ExecutionError::Invalid("cell producer changed"))?;
-                pending.producer.close()?;
-                if let Some(mut activation) = pending.activation {
-                    activation.fence = fence;
-                    self.activations.put(cell, activation, now)?;
-                }
-                Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
-                    receipt,
-                    _retention: OutputRetention::Sql {
-                        _bytes: pending.prepared._bytes,
-                    },
-                })))
-            }
-            Action::Reconcile(proposal, authority) => {
-                let pending = self
-                    .pending
-                    .get_mut(&cell)
-                    .ok_or(ExecutionError::Uncertain)?;
-                let expected = pending.producer.command()?.prepared_final_version();
-                let resolution = pending
-                    .producer
-                    .command()?
-                    .reconcile(proposal, *authority)?;
-                let pending = self
-                    .pending
-                    .remove(&cell)
-                    .ok_or(ExecutionError::Invalid("cell producer changed"))?;
-                pending.producer.close()?;
-                if let Some(mut activation) = pending.activation {
-                    // Normal public settlement also uses reconciliation. A
-                    // committed final image can retain native state while the
-                    // original leader fence survives; a later image or term
-                    // cannot establish that this instance matches the cell.
-                    let fence = match &resolution {
-                        CellReconciliation::Committed(receipt)
-                            if expected.as_ref() == Some(&receipt.version) =>
-                        {
-                            activation.fence.advanced(&receipt.version)
-                        }
-                        _ => None,
-                    };
-                    if let Some(fence) = fence {
-                        activation.fence = fence;
-                        self.activations.put(cell, activation, now)?;
-                    } else {
-                        activation.close()?;
-                    }
-                }
-                let resolution = match resolution {
-                    CellReconciliation::Committed(receipt) => {
-                        CellSqlReconciliation::Committed(Box::new(CellSqlReceipt {
-                            receipt: *receipt,
-                            _retention: OutputRetention::Sql {
-                                _bytes: pending.prepared._bytes,
-                            },
-                        }))
-                    }
-                    CellReconciliation::NotCommitted => CellSqlReconciliation::NotCommitted,
-                    CellReconciliation::Refused(failure) => CellSqlReconciliation::Refused(failure),
-                };
-                Ok(CellSqlOutcome::Reconciled(resolution))
+            Action::Finish(_) | Action::Reconcile(..) => {
+                Err(ExecutionError::Invalid("settlement worker dispatch"))
             }
         }
     }
 
     fn check_capacity(&self, cell: &CellHistory, max: usize) -> Result<(), ExecutionError> {
-        if self.pending.contains_key(cell) || self.preparing.iter().any(|p| &p.cell == cell) {
+        if self.opening.iter().any(|frame| &frame.cell == cell)
+            || self.pending.contains_key(cell)
+            || self.preparing.iter().any(|p| &p.cell == cell)
+            || self.retiring.iter().any(|frame| &frame.cell == cell)
+        {
             return Err(ExecutionError::Busy);
         }
-        if self.pending.len() + self.suspended.len() + self.preparing.len() >= max {
+        if self.opening.len()
+            + self.pending.len()
+            + self.suspended.len()
+            + self.preparing.len()
+            + self.retiring.len()
+            >= max
+        {
             return Err(overloaded());
         }
         Ok(())
@@ -549,6 +488,16 @@ impl Cells {
             rpc::Closure::Graceful
         };
         let mut result = Ok(());
+        for opening in std::mem::take(&mut self.opening) {
+            if let Err(error) = opening.close(closure) {
+                result = Err(error);
+            }
+        }
+        for retiring in std::mem::take(&mut self.retiring) {
+            if let Err(error) = retiring.close(&self.activations, closure) {
+                result = Err(error);
+            }
+        }
         for preparing in std::mem::take(&mut self.preparing) {
             if let Err(error) = preparing.close(closure) {
                 result = Err(error);

@@ -21,6 +21,7 @@ Rust documentation, run the command below from the repository root.
 | Local effect deduplication | `tx.inbox(...).accept(record)`, `Storage::sync` before remote acknowledgment | [storage guide](06-storage-transactions.md) |
 | Event outcomes | `event_stream::DeliveryError`, `ErrorCode`, `ErrorCode::as_str` | [typed errors](../crates/cellar/application/event_stream/error.rs) |
 | SQL binding | `sql::Database`, prepared statements, sessions, batch, migrate, migrations, dump | [SQL](../crates/cellar/application/sql/mod.rs) |
+| Read-only SQL binding | `Database::prepare_read_only`, `ReadOnlyStatement`, `ReadResultSet`, `ReadMeta` | [read API](../crates/cellar/application/sql/read_only.rs), [read and proof contract](06-storage-transactions.md) |
 | KV binding | `kv::Namespace`; reads/metadata, put text/bytes/stream, delete/list | [KV](../crates/cellar/application/kv/mod.rs) |
 | Queue | `queue::Producer`, `SendOptions`, `Body`, `Event`, `Message`; send/batch, ack/retry | [Queue](../crates/cellar/application/queue/mod.rs) |
 | Workflow | `workflow::Workflow`, `Instance`, `Event`, `Step`; `run`/`run_with`, `WaitOptions`, options/status types | [Workflow](../crates/cellar/application/workflow/mod.rs) |

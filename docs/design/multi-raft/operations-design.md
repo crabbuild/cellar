@@ -82,6 +82,32 @@ Native effect routing stores weak endpoint hints. Actual delivery upgrades a liv
 - A cancelled, unsubmitted waiter is discarded without invoking its callback.
 - Queue admission is not a commit or durability acknowledgement.
 
+## Shared-group SQL capacity waits
+
+Controller-owned cell commands may wait after a received node/group reservation
+refusal before SQL enqueue. The refusal must identify the full bank and prove
+that the request can fit its byte and item ceilings when credit returns. The
+wait retains the existing bounded controller/dispatcher owner, command identity,
+captured inputs, route ticket and original deadline. It reserves no SQL slot and
+starts no callback or new task. Direct SQL pool and response-facing preparation
+APIs continue to return bank refusals immediately. Native RPC staging separately
+uses its admitted per-cell writer FIFO; a full bank refuses before it enters
+that FIFO, preserving this same capacity-wait proof for the owned command.
+
+Register the bank notification before rechecking both dimensions. Physical
+completion, output release and capture shrink wake eligible requests; shrinking
+bytes alone cannot free an occupied item slot. Controller ticks only check the
+group's retirement/quarantine state while capacity remains full. Before retrying
+staging, reacquire actual execution authority under the original request budget.
+Retirement wakes waiting owners without refunding live physical work. Weak wait
+proofs do not keep a retired bank alive after its active waiter has left.
+
+Requests that cannot fit alone, ordinary-worker queue errors, received callback
+or private-image errors and lost replies grant no capacity-wait proof. Retain
+their existing refusal or exact-producer reconciliation rules. Reserved apply,
+election and control capacity stays independent. Claim/settle/seal maintenance
+releases its command slot on these refusals for its existing durable scheduler.
+
 ## Physical query-reader admission
 
 - `RaftHostOptions.max_query_pins` bounds simultaneous SDK query-reader reservations across the node's SQL workers (1 through 16, default 16).
@@ -166,7 +192,7 @@ Group detail remains separate through explicitly enabled SDK inspection and auth
 - `RaftCells.performance()` returns bounded cumulative observations from one host startup or standalone engine open.
 - `GET /peer/raft/metrics?generation=<generation>&view=performance` exports the same observation through existing generation-bound peer authentication; append `&format=json` for typed JSON.
 - The default resource view remains unchanged.
-- The performance view has 20 counters and 23 operations with 16 duration buckets, producing 551 Prometheus samples independent of cell/peer population.
+- The performance view has a fixed operation/counter vocabulary and duration buckets, so scrape size is independent of cell/peer population.
 - Registry storage and scrape work are fixed; no group enumeration, callback or I/O is used.
 
 - Each operation has started, succeeded, failed and abandoned counters, plus a microsecond duration histogram and unavailable-timing count.
@@ -175,6 +201,10 @@ Group detail remains separate through explicitly enabled SDK inspection and auth
 - Physical SQL/engine timers stay with their worker when an async waiter cancels.
 - File-sync timers surround the actual engine filesystem `sync_all`, excluding lock acquisition; directory sync is separate.
 - SQL stage, prepare, publish, query, archive capture and other actions have separate histograms.
+- RPC checkpoint phases separate captured image preparation and producer completion (`cell_checkpoint_prepare`), retained proposal admission (`cell_checkpoint_submit`), completion-to-SQL-owner handoff (`cell_checkpoint_handoff`), and exact applied or newer-term reconciliation waiting (`cell_checkpoint_proof`).
+- Preparation, submission and proof timers follow their observed future lifetimes. Cancellation records abandonment; entered physical work remains owned and must still join before admission or producer custody releases.
+- The handoff timer starts only after submission finishes and ends when the original SQL owner drains the returned work. Its completion describes custody polling, not successful submission, application or acknowledgement.
+- The existing checkpoint task observes proof before returning its producer. Handoff time therefore includes proof waiting; the phase durations overlap. The SQL owner still adopts custody, rechecks the proof and frozen receipt, and performs required S3/output checks before continuation or acknowledgement.
 - Outcomes describe the measured operation, not a command acknowledgement.
 - Successful dequeue is not successful execution.
 - Output-budget refusal remains a failed SQL action even if its callback produced a value.

@@ -44,6 +44,7 @@ impl State {
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();
         let mut connection = None;
+        let mut reuse_until = 0;
         loop {
             if *stop.borrow() || *peer_stop.borrow() {
                 return;
@@ -63,6 +64,13 @@ impl State {
                 .bounded(Some(&pool), async {
                     if !self.current(&pending[0].request) {
                         return Err(TransportError::StalePeer);
+                    }
+                    // Expire only between exchanges; every active frame keeps
+                    // its original deadline and physical reservations.
+                    if connection.is_some()
+                        && self.domain.mono_ms().map_or(true, |now| now >= reuse_until)
+                    {
+                        connection = None;
                     }
                     if connection.is_none() {
                         let owner = self.outgoing_connections.acquire(Lane::Control);
@@ -90,8 +98,15 @@ impl State {
                 Ok(()) => {
                     let (stream, exporter, _owner) =
                         connection.as_mut().expect("connected control stream");
-                    self.exchange_control(stream, exporter, &pool, &mut requests, &mut pending)
-                        .await
+                    self.exchange_control(
+                        stream,
+                        exporter,
+                        &pool,
+                        &mut requests,
+                        &mut pending,
+                        &mut reuse_until,
+                    )
+                    .await
                 }
                 Err(error) => Err(error),
             };
@@ -124,6 +139,7 @@ impl State {
         pool: &Pool,
         requests: &mut mailbox::Receiver<SendRequest>,
         pending: &mut VecDeque<Pending>,
+        reuse_until: &mut u64,
     ) -> Result<(), TransportError> {
         let (reader, writer) = tokio::io::split(stream);
         let mut reader = Some(reader);
@@ -146,6 +162,11 @@ impl State {
             if let Some(mut completed) = pending.pop_front_if(|p| p.written && p.outcome.is_some())
             {
                 let result = completed.outcome.take().expect("observed reply");
+                if result.is_ok() {
+                    // Base reuse on the admitted frame's original I/O bound,
+                    // never its later reply/observer completion time.
+                    *reuse_until = completed.deadline;
+                }
                 completed.exchange.finish(result.is_ok());
                 self.finish_delivery(pool, completed.request, result).await;
             }
