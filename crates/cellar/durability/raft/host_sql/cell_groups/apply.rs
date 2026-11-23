@@ -238,18 +238,20 @@ impl ApplyRequest {
             Err(unavailable())
         } else {
             queued.finish(true);
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| applier.prepare(&work)))
-                .unwrap_or_else(|panic| {
-                    Err(crate::raft::execution::storage(
-                        crate::native_worker::panic_error(panic),
-                    ))
-                })
-                .and_then(|prepared| {
-                    if stopped.load(Ordering::Acquire) || domain.mono_ms().is_err() {
-                        return Err(unavailable());
-                    }
-                    Ok(CellGroupPreparedApply { work, prepared })
-                })
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                applier.prepare(&work, performance)
+            }))
+            .unwrap_or_else(|panic| {
+                Err(crate::raft::execution::storage(
+                    crate::native_worker::panic_error(panic),
+                ))
+            })
+            .and_then(|prepared| {
+                if stopped.load(Ordering::Acquire) || domain.mono_ms().is_err() {
+                    return Err(unavailable());
+                }
+                Ok(CellGroupPreparedApply { work, prepared })
+            })
         };
         timer.finish(result.is_ok());
         (reply, result)

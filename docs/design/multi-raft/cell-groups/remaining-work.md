@@ -25,12 +25,21 @@ All failed media, immutable executables and independently checked copies remain
 retained outside this documentation tree. See the
 [current-main evidence](optimization-progress.md#merged-main-service-reverification).
 
+Live apply observations at compiler inputs `be721db4` now separate image
+preparation, immutable SQLite inspection and changed-manifest persistence.
+Seven owning controls pass, including real image/manifest sync failures and
+cancelled cleanup in both image modes. Two original C4 repetitions still fail
+three and four producers with joined cleanup. Manifest preparation averages
+about 91–109 ms in the aggregate snapshots; immutable inspection about
+0.9–1.2 ms. These are diagnostic operation means, not request percentiles or a
+speedup. See the [phase measurements](optimization-progress.md#live-apply-phase-observations).
+
 The next work, in order:
 
-1. **Measure image preparation and publication at their owning boundaries.**
-   Separate LTX replay, immutable SQLite inspection, image/manifest persistence
-   and receipt publication. Count actual file and directory barriers before
-   choosing another change. The current C4 snapshots show no SQL admission
+1. **Account for manifest/image persistence and receipt settlement barriers.**
+   The live-apply phase split is implemented and tested. Count actual file and
+   directory barriers within the measured expensive preparation paths before
+   choosing the next change. The current C4 snapshots show no SQL admission
    refusals; changing admission limits is not an established repair.
 2. **Reduce demonstrated work within existing bounds.** Assess opportunistic
    preparation/publication of a contiguous committed prefix, preserving exact

@@ -10,6 +10,40 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+## Live apply phase observations
+
+Compiler inputs `be721db4` add three bounded live-apply observations to separate
+image replay/rechecking, immutable SQLite inspection and manifest preparation.
+The same domain clock, outcome accounting and fixed histograms serve these
+phases; recovery replay does not contribute. No admission, deadline, command
+identity, image verification, publication or acknowledgement ordering changes.
+
+Seven unchanged apply control selections pass with additional phase assertions:
+materialized/rooted preparation, actual image/manifest directory-sync failure,
+cancelled cleanup and materialized preview reuse. The failure checks distinguish
+the failed physical phase from later work that must never start. Locked
+all-feature native builds, strict Clippy for the library and both native targets,
+formatting, module layout, native dependency and documentation checks pass.
+
+Both fixed, original rooted Queue C4 repetitions still fail, with three and four
+producer failures. Both report joined cleanup and zero cleanup errors. The
+strict delivery/load gate remains failed. Six available, unsaturated node
+snapshots show:
+
+| Live apply phase | Range of aggregate mean durations |
+| --- | ---: |
+| Image replay or exact local image recheck | About 19–118 ms |
+| Immutable SQLite inspection and bounded effect summaries | About 0.9–1.2 ms |
+| Changed manifest path and page persistence | About 91–109 ms |
+
+These observations include setup and failed load; they are not request
+percentiles, additive latency components or constrained performance results.
+All SQL refusal counters are zero in these snapshots. Manifest preparation is
+therefore the stronger measured target for the next bounded batching work;
+SQLite inspection is not the dominant phase in this capture. Actual barrier
+accounting, repeatable service and throughput/latency acceptance remain open.
+The failed controls and exact retained media copies remain outside this tree.
+
 ## Merged main service reverification
 
 Main `0f3b18e7` includes merged PR #167. Compiler inputs `31dfbc55` pass one
@@ -48,7 +82,7 @@ The first C4 failure includes these aggregate operation observations:
 | Engine file synchronization, across the three node snapshots | About 38 ms |
 | SQL image preparation, node 0 | About 129 ms |
 | SQL image preparation, nodes 1 and 2 | About 244 and 247 ms |
-| SQL publication, node 0 | About 163 ms |
+| SQL settlement (`sql_publish`), node 0 | About 163 ms |
 
 The samples include setup/load work and different operation lifetimes; they are
 not request percentiles, additive latency components or a controlled throughput
@@ -2751,8 +2785,7 @@ container exited 137 in each mode; the four other original/replacement container
 exited zero. Both fixture controllers exited zero. These results retain the
 original request, resource and workload limits.
 
-The private artifact root is
-`workspace build target/cellar-ios-6afff9f4-tikv/qualification`.
+Private artifacts remain in the checkout-specific workspace target directory.
 `linux-daemon-build.json` records the successful build and verification;
 `managed-daemon-a2bbabae57f1/` retains the summary, mode reports and event ledgers.
 RustFS objects, logs and voter disks remain available. Credentials stay outside

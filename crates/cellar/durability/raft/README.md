@@ -1170,6 +1170,15 @@ waiter expiry does not complete a node-owned phase; timers follow their actual
 future lifetime and distinguish returned errors from abandonment. These static
 metric names grant no authority and change no deadline, admission or proof order.
 
+Shared committed apply separates `sql_image_prepare` (image replay or exact local
+image recheck, including its persistence), `sql_image_inspect` (opening immutable
+SQLite and reading bounded effect summaries), and `sql_manifest_prepare` (the
+changed manifest path and its page persistence). These are subphases of
+`sql_prepare`, not additive request latency. Errors count in the phase that
+failed; unwinding remains abandoned work. Recovery replay does not contribute
+to these live-apply phases. No runtime identities or paths enter metric labels.
+
+
 Local execution also exposes `cell_command_prepare`, `cell_command_submit` and
 `cell_command_settle`. Preparation includes writer/authority waits and SQL work,
 including any intermediate callback checkpoints. Submission includes retries of

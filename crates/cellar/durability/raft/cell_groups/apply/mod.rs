@@ -18,6 +18,25 @@ use crate::raft::{
 use cellar_logic::cell_group::GroupHistory;
 use std::sync::{Arc, Mutex};
 
+/// Phase observations never supply an image seal or a publication proof.
+#[derive(Clone, Copy, Default)]
+pub(super) struct ApplyObservations<'a>(Option<&'a Arc<crate::raft::performance::Registry>>);
+
+impl ApplyObservations<'_> {
+    fn measure<T>(
+        self,
+        operation: crate::raft::performance::Operation,
+        work: impl FnOnce() -> Result<T, ExecutionError>,
+    ) -> Result<T, ExecutionError> {
+        let timer = self.0.map(|registry| registry.timer(operation));
+        let result = work();
+        if let Some(timer) = timer {
+            timer.finish(result.is_ok());
+        }
+        result
+    }
+}
+
 pub(super) struct Storage {
     pub(super) tree: ManifestTree,
     pub(super) pages: ManifestPageStore,
@@ -208,6 +227,7 @@ impl CellGroupApplier {
     pub(crate) fn prepare(
         &self,
         work: &CellGroupApply,
+        performance: &Arc<crate::raft::performance::Registry>,
     ) -> Result<PreparedGroupManifest, ExecutionError> {
         self.check(work)?;
         let preparation = work.ticket.prepared_image.as_ref();
@@ -238,9 +258,17 @@ impl CellGroupApplier {
                 Some((&cache.conf_state, &cache.membership)),
                 false,
                 prepared_image,
+                ApplyObservations(Some(performance)),
             )?
         } else {
-            owner.prepare_entry_with_image(&work.base, &work.entry, None, false, prepared_image)?
+            owner.prepare_entry_with_image(
+                &work.base,
+                &work.entry,
+                None,
+                false,
+                prepared_image,
+                ApplyObservations(Some(performance)),
+            )?
         };
         self.check(work)?;
         Ok(next)

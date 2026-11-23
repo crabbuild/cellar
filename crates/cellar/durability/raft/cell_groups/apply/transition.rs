@@ -17,7 +17,14 @@ impl Storage {
         configuration: Option<(&ConfState, &GroupMembership)>,
         verify_existing: bool,
     ) -> Result<PreparedGroupManifest, ExecutionError> {
-        self.prepare_entry_with_image(base, entry, configuration, verify_existing, None)
+        self.prepare_entry_with_image(
+            base,
+            entry,
+            configuration,
+            verify_existing,
+            None,
+            ApplyObservations::default(),
+        )
     }
 
     pub(in crate::raft::cell_groups) fn prepare_entry_with_image(
@@ -27,6 +34,7 @@ impl Storage {
         configuration: Option<(&ConfState, &GroupMembership)>,
         verify_existing: bool,
         prepared_image: Option<&crate::raft::execution::CellPreparedImage>,
+        observations: ApplyObservations<'_>,
     ) -> Result<PreparedGroupManifest, ExecutionError> {
         if verify_existing && prepared_image.is_some() {
             return Err(ExecutionError::Invalid(
@@ -150,6 +158,7 @@ impl Storage {
                                 image,
                                 files: &files,
                                 max_effect_rows: *max_effect_rows,
+                                observations,
                             },
                             verify_existing,
                             prepared_image,
@@ -167,8 +176,13 @@ impl Storage {
                             witness,
                             effects: prepared.effects,
                         };
-                        tree.prepare_update(pages, base, leaf, None, prepared.pin)
-                            .map_err(storage)?
+                        observations.measure(
+                            crate::raft::performance::Operation::SqlManifestPrepare,
+                            || {
+                                tree.prepare_update(pages, base, leaf, None, prepared.pin)
+                                    .map_err(storage)
+                            },
+                        )?
                     }
                     Err(error) => return Err(storage(error)),
                 }
@@ -187,6 +201,7 @@ impl Storage {
                         image: mutation.result,
                         files: &mutation.files,
                         max_effect_rows: *max_effect_rows,
+                        observations,
                     },
                     verify_existing,
                     prepared_image,
@@ -203,8 +218,13 @@ impl Storage {
                     witness,
                     effects: prepared.effects,
                 };
-                tree.prepare_update(pages, base, leaf, Some(&old.version), prepared.pin)
-                    .map_err(storage)?
+                observations.measure(
+                    crate::raft::performance::Operation::SqlManifestPrepare,
+                    || {
+                        tree.prepare_update(pages, base, leaf, Some(&old.version), prepared.pin)
+                            .map_err(storage)
+                    },
+                )?
             }
             _ => {
                 return Err(ExecutionError::Invalid(

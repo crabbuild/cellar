@@ -46,6 +46,9 @@ pub(crate) enum Operation {
     SqlPrepare,
     SqlPublish,
     SqlQuery,
+    SqlImagePrepare,
+    SqlImageInspect,
+    SqlManifestPrepare,
     SqlArchiveCapture,
     SqlOther,
     ObjectGet,
@@ -99,7 +102,7 @@ pub(crate) enum Operation {
     CellCheckpointProof,
 }
 
-const OPERATIONS: [Operation; 60] = [
+const OPERATIONS: [Operation; 63] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -109,6 +112,9 @@ const OPERATIONS: [Operation; 60] = [
     Operation::SqlPrepare,
     Operation::SqlPublish,
     Operation::SqlQuery,
+    Operation::SqlImagePrepare,
+    Operation::SqlImageInspect,
+    Operation::SqlManifestPrepare,
     Operation::SqlArchiveCapture,
     Operation::SqlOther,
     Operation::ObjectGet,
@@ -174,6 +180,9 @@ impl Operation {
             Self::SqlPrepare => "sql_prepare",
             Self::SqlPublish => "sql_publish",
             Self::SqlQuery => "sql_query",
+            Self::SqlImagePrepare => "sql_image_prepare",
+            Self::SqlImageInspect => "sql_image_inspect",
+            Self::SqlManifestPrepare => "sql_manifest_prepare",
             Self::SqlArchiveCapture => "sql_archive_capture",
             Self::SqlOther => "sql_other",
             Self::ObjectGet => "object_get",
