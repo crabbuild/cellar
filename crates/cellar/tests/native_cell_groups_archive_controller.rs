@@ -1274,7 +1274,17 @@ async fn trace_foreground_during_background_publication() -> Result<()> {
         .with_env_filter("cellar::raft::group_archive=debug")
         .with_test_writer()
         .try_init();
-    s3_foreground_progresses_during_background_publication().await
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_progresses_during_background_publication(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                false,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
