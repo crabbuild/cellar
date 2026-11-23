@@ -85,7 +85,33 @@ pub(crate) struct RetainedBytes {
     _permit: Permit,
 }
 
+impl RetainedBytes {
+    /// Reacquire the original bank's operation admission without changing bytes.
+    /// Refusal returns the retained owner unchanged.
+    pub(crate) fn try_resume(mut self) -> Result<Permit, Self> {
+        let mut usage = self._permit.owner.lock();
+        if usage.items >= self._permit.owner.max_items {
+            drop(usage);
+            return Err(self);
+        }
+        usage.items += 1;
+        self._permit.item = true;
+        drop(usage);
+        Ok(self._permit)
+    }
+}
+
 impl Permit {
+    /// Joined work may refund its operation slot without refunding any bytes.
+    pub(crate) fn retain_all(mut self) -> RetainedBytes {
+        let mut usage = self.owner.lock();
+        usage.items -= usize::from(self.item);
+        self.item = false;
+        drop(usage);
+        self.owner.released();
+        RetainedBytes { _permit: self }
+    }
+
     /// Convert joined work to immutable output. This refunds only the active
     /// operation slot and transient bytes; retained bytes stay in the same bank.
     pub(crate) fn retain_bytes(mut self, bytes: usize) -> Option<RetainedBytes> {
@@ -157,6 +183,36 @@ impl Drop for Permit {
 mod tests {
     use super::*;
     use futures_util::FutureExt;
+
+    #[test]
+    fn joined_output_keeps_full_byte_charge_after_releasing_operation() {
+        let budget = Budget::new(100, 1);
+        let output = budget.acquire(60).unwrap().retain_all();
+        assert_eq!(budget.usage(), (60, 0));
+        assert!(budget.acquire(41).is_none());
+        let work = budget.acquire(40).unwrap();
+        assert_eq!(budget.usage(), (100, 1));
+        assert!(budget.acquire(0).is_none());
+        drop(output);
+        assert_eq!(budget.usage(), (40, 1));
+        drop(work);
+        assert_eq!(budget.usage(), (0, 0));
+    }
+
+    #[test]
+    fn retained_output_cannot_resume_past_the_original_operation_limit() {
+        let budget = Budget::new(100, 1);
+        let retained = budget.acquire(60).unwrap().retain_all();
+        let other = budget.acquire(40).unwrap();
+        let retained = retained.try_resume().err().unwrap();
+        assert_eq!(budget.usage(), (100, 1));
+        drop(other);
+        let resumed = retained.try_resume().ok().unwrap();
+        assert_eq!(budget.usage(), (60, 1));
+        assert!(budget.acquire(0).is_none());
+        drop(resumed);
+        assert_eq!(budget.usage(), (0, 0));
+    }
 
     #[test]
     fn joined_output_releases_operation_but_keeps_bytes() {

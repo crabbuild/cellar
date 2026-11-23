@@ -117,15 +117,25 @@ pub struct PreparedCellGroupArchivePublication {
     verified: VerifiedCellGroupArchiveRecovery,
     source: Arc<SourceCut>,
     payload_root: Descriptor,
+    joined_replay: bool,
 }
 
 impl PreparedCellGroupArchivePublication {
+    /// The node controller bounds publication owners separately from replay.
+    /// The immutable verification and live source witness remain owned through
+    /// CAS/readback; releasing joined workspace supplies no serving authority.
+    pub(in crate::raft::cell_groups) fn retain_joined_replay(mut self) -> Result<Self> {
+        self.verified.retain_publication()?;
+        self.joined_replay = true;
+        Ok(self)
+    }
+
     pub fn intent(&self) -> &CellGroupArchiveIntent {
         &self.intent
     }
 
     pub async fn commit(
-        self,
+        mut self,
         domain: &impl CellGroupArchiveExecution,
     ) -> Result<CellGroupArchiveCoverage> {
         domain
@@ -145,6 +155,9 @@ impl PreparedCellGroupArchivePublication {
                     .registry()
                     .pin_payloads(&self.verified, &self.payload_root, true)
                     .await?;
+                if self.joined_replay {
+                    self.verified.resume_publication()?;
+                }
                 Ok(CellGroupArchiveCoverage(Arc::new(Coverage {
                     hold,
                     verified: self.verified,
@@ -337,6 +350,7 @@ impl CellGroupArchiveUpload {
                     verified,
                     source,
                     payload_root,
+                    joined_replay: false,
                 })
             })
             .await

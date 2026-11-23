@@ -24,6 +24,30 @@ pub struct VerifiedCellGroupArchiveRecovery {
 }
 
 impl VerifiedCellGroupArchiveRecovery {
+    /// Publication has finished all independent replay before entering its CAS.
+    /// Preserve immutable custody and its original byte banks while releasing
+    /// the now-joined replay and receiver operations to another group.
+    pub(super) fn retain_publication(&mut self) -> Result<()> {
+        self.checkpoint.checkpoint.retain_publication()?;
+        self.retain_transition_source()
+    }
+
+    /// Restore ordinary proof custody after publication. A competing replay
+    /// refuses this handoff; the durable publishing intent still reconciles.
+    pub(super) fn resume_publication(&mut self) -> Result<()> {
+        self.checkpoint.checkpoint.resume_publication()?;
+        if let Some(retained) = self._retained.take() {
+            match retained.try_resume() {
+                Ok(reservation) => self._reservation = Some(Arc::new(reservation)),
+                Err(retained) => {
+                    self._retained = Some(retained);
+                    return Err(CellGroupArchiveError::Busy);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Transition staging reads immutable verified roots. Release the joined
     /// replay lane, retaining conservative charges for both roots, extent
     /// manifests, membership and configuration in the same tail byte bank.

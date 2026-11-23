@@ -142,7 +142,8 @@ impl CellGroupArchiveCheckpointReceiver {
             root: received.root,
             header: received.header,
             snapshot,
-            _reservation: received.reservation,
+            reservation: Some(received.reservation),
+            _retained: None,
         })))
     }
 }
@@ -152,7 +153,8 @@ struct Inner {
     root: PreparedGroupManifest,
     header: Header,
     snapshot: raft::prelude::Snapshot,
-    _reservation: Permit,
+    reservation: Option<Permit>,
+    _retained: Option<crate::raft::budget::RetainedBytes>,
 }
 
 /// Complete archive-local closure with no engine publication or serving right.
@@ -162,6 +164,31 @@ struct Inner {
 pub struct PreparedCellGroupArchiveCheckpoint(Arc<Inner>);
 
 impl PreparedCellGroupArchiveCheckpoint {
+    /// Only a fully joined controller publication may release the receiver
+    /// operation. All bytes and immutable physical pins remain charged; public
+    /// receivers and live snapshot installation keep their original admission.
+    pub(in crate::raft::cell_groups) fn retain_publication(&mut self) -> Result<()> {
+        let inner = Arc::get_mut(&mut self.0).ok_or(CellGroupCheckpointError::Busy)?;
+        if let Some(reservation) = inner.reservation.take() {
+            inner._retained = Some(reservation.retain_all());
+        }
+        Ok(())
+    }
+
+    pub(in crate::raft::cell_groups) fn resume_publication(&mut self) -> Result<()> {
+        let inner = Arc::get_mut(&mut self.0).ok_or(CellGroupCheckpointError::Busy)?;
+        if let Some(retained) = inner._retained.take() {
+            match retained.try_resume() {
+                Ok(reservation) => inner.reservation = Some(reservation),
+                Err(retained) => {
+                    inner._retained = Some(retained);
+                    return Err(CellGroupCheckpointError::Busy);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn marker(&self) -> &GroupManifest {
         self.0.root.marker()
     }

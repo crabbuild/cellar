@@ -1109,6 +1109,10 @@ pub(crate) async fn s3_foreground_progresses_during_background_publication(
             .context("background publication did not enter its actual CAS")?;
         anyhow::ensure!(held.publication_waiting.load(Ordering::Acquire));
         anyhow::ensure!(held.publication_index.load(Ordering::Acquire) >= cut.get());
+        anyhow::ensure!(h.archive.checkpoints.usage().sources == 0);
+        anyhow::ensure!(h.archive.checkpoints.usage().retained_bytes > 0);
+        anyhow::ensure!(h.archive.tails.usage().operations == 0);
+        anyhow::ensure!(h.archive.tails.usage().retained_bytes > 0);
         let mut last = 0;
         for (sequence, input) in [(1, b"independent".as_slice()), (2, b"continued".as_slice())] {
             let response = h
