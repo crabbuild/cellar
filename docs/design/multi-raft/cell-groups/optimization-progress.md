@@ -10,6 +10,68 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+## Committed preparation with main #182
+
+Compiler inputs `bb1b2cac`, including main `ff5cdec33` (#182), prepare at most
+two contiguous, already committed edits to independent cells in one bounded
+manifest batch. Each entry retains its own exact-base root publication and
+acknowledgement. Optional successor inputs and image pins use the existing
+apply bank through physical join. Cached pages and images are rechecked before
+reuse; locally durable but uncommitted successors refuse prefetch. Live hints
+are sampled after the current image is prepared, and canonical entry hashing
+streams without an extra whole-entry allocation. No limit, deadline, command
+identity or durability requirement changes.
+
+**All 48 selected correctness controls pass.** They include the unchanged-body
+backlog and late-commit regressions in both image modes, actual paired sync
+failure, corruption refusal, admission pressure, cancellation/close joins,
+uncommitted-suffix refusal, digest compatibility and park/wake behavior. The
+merged SDK reply-fencing and independent archive-publication controls also pass.
+Both regression bodies fail their new barrier-sharing oracle on the retained
+earlier runtime after completing their original correctness and cleanup checks.
+Locked all-feature builds, strict Clippy, formatting, layout and native dependency
+checks pass.
+
+**Merged service qualification remains FAILED: 5/13 complete selections pass.**
+The table preserves the earlier pair (`08472ab3`), late-hint (`492ba983`) and
+merged (`bb1b2cac`) campaigns. These are separate native RF3 conformance captures,
+not a matched throughput or latency comparison. C2 and C4 retain two and four
+in-flight Queue requests respectively.
+
+| Complete native selection | Early pair | Late hint | Merged #182 |
+| --- | ---: | ---: | ---: |
+| SQL bindings | 2/2 | 1/2 | 2/2 |
+| KV bindings | 2/2 | 2/2 | 1/2 |
+| Queue callbacks | 2/2 | 1/2 | 1/2 |
+| Queue C2, both image modes | 1/2 | 1/2 | 0/2 |
+| Separate extent-backed load | 0/1 | 1/1 | 1/1 |
+| Materialized Queue C4 | 0/2 | 0/2 | 0/2 |
+| Extent-backed Queue C4 | 0/2 | 0/2 | 0/2 |
+
+Combined C2 counts require both image modes to finish. A passing materialized
+phase cannot qualify a case whose later extent phase fails or never runs. All
+eight executed load-phase cleanup reports show three node/host close attempts,
+joined domains and zero cleanup errors; an unexecuted mode earns no cleanup
+credit. The merged failures report request deadlines. Before #182, one callback
+restart/close returned `Unobserved`, withholding producer-quiescence proof;
+that observation does not establish that producers remained active and remains
+retained separately.
+
+Eighteen available, unsaturated failure snapshots record paired preparations
+and verified cache reuse, with zero SQL and optional-prefetch admission-refusal
+counters. Manifest preparation averages about **100–167 ms** across those
+aggregate snapshots. They include setup and failed load, and are neither request
+percentiles nor additive latency components. The manifest store already packs
+changed pages into immutable files. Measure packed-file sync, directory sync,
+root publication and successor availability separately before choosing the next
+change. This checkpoint qualifies no end-to-end speedup.
+
+The original requested three-node, 1-vCPU/2-GiB Colima/RustFS comparison has no new
+admitted case or passing reserve/resource witness. All failed captures, immutable
+executables and exact retained copies remain outside this documentation tree.
+Full service, OPT/CG/SDK/recovery/release and constrained performance acceptance
+remain open. See the [current priorities](remaining-work.md#current-optimization-follow-up).
+
 ## Live apply phase observations
 
 Compiler inputs `be721db4` add three bounded live-apply observations to separate

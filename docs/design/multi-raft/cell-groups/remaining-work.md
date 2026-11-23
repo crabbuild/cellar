@@ -8,7 +8,43 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The current delivery is [PR #182](https://github.com/crabbuild/cellar/pull/182),
+## Current optimization follow-up
+
+PR [#183](https://github.com/crabbuild/cellar/pull/183) includes merged main
+`ff5cdec33` (#182) and bounded committed-pair preparation at compiler inputs
+`bb1b2cac`. All 48 selected correctness controls pass, including fresh SDK reply
+fences and archive-retirement isolation. The repeated native service campaign
+passes **5/13** complete selections: SQL **2/2**, KV **1/2**, Queue callbacks
+**1/2**, combined C2 **0/2**, separate extent load **1/1**, and C4 **0/4**.
+These passes do not qualify full service or a low-latency/throughput gain. See
+[exact scope and retained earlier failures](optimization-progress.md#committed-preparation-with-main-182).
+
+The next optimization priorities are:
+
+1. **P0: Close repeatable ordinary service.** Reproduce the remaining KV,
+   callback and Queue C2/C4 request deadlines with their original identities,
+   typed ambiguity, admission banks and 3,000-ms RPC / 5,000-ms callback /
+   30-second drain windows. Preserve exact delivery/uniqueness and the independent
+   producer-quiescence proof at retained restart/close. Keep all failed controls.
+2. **P0: Account for the remaining persistence path.** Separate packed-manifest
+   file sync, directory sync, selector publication and the point at which an
+   eligible committed successor becomes available. Current aggregate manifest
+   means are about 100–167 ms; refusal counters do not establish a quota repair.
+   Require an owning red-to-green regression and the complete unchanged service
+   campaign for each next reduction or overlap of measured work.
+3. **P1: Close complete optimization and recovery acceptance.** Finish the
+   remaining OPT routing/read negative paths, bounded scheduling fairness,
+   physical reclamation and reserve-aware lifecycle work, then the combined
+   SDK/public/fault and fenced recovery matrix. The broader primitive delivery
+   milestones below remain required.
+4. **P1: Run the requested constrained comparison after admission passes.**
+   Require fresh evidence for three 1-vCPU/2-GiB RF3 nodes/three groups and the
+   original shared RustFS reserve before the SQL/KV/Queue Quorum, Quorum+S3,
+   Fleet and Bucket matrix at C1/4/16 with reversed repeats. The last original
+   RustFS witness reports zero available bytes against the unchanged 6-GiB
+   reserve. No new original-store probe or constrained case is admitted here.
+
+Merged main `ff5cdec33` includes [PR #182](https://github.com/crabbuild/cellar/pull/182),
 based on main `0f3b18e79` after merged #181 and #167. Runtime `37d53e781`
 adds original-invocation checks after SDK polling and at queued reply delivery.
 The public RF3 regression passes both image forms; 1,417 library tests pass.
