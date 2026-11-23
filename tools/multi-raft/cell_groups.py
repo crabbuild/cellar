@@ -46,6 +46,7 @@ CASES = (
     "rustfs_controller_archive_publishes_stable_cuts",
     "rustfs_controller_archive_reconciles_exact_intent_and_joins_close",
     "rustfs_controller_archive_reservation_recovers_after_immutable_response_loss",
+    "rustfs_s3_unrelated_publication_precedes_held_retirement",
     "rustfs_unproved_s3_responses_refuse",
     "rustfs_s3_commands_require_exact_archived_results",
     "rustfs_s3_replays_from_peer_archive_without_new_upload",

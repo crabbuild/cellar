@@ -419,7 +419,9 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
     if let Err(error) = &closed {
         eprintln!("Workflow lifecycle joined close failed: {error:#}");
     }
-    if work.is_err() || closed.is_err() {
+    // Real RustFS qualification retains successful, joined voter media for
+    // independent inspection as well as disks from failed recovery attempts.
+    if real || work.is_err() || closed.is_err() {
         for root in std::mem::take(&mut cluster.roots) {
             eprintln!(
                 "retained Workflow lifecycle disk: {}",

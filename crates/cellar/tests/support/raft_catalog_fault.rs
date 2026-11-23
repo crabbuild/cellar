@@ -327,6 +327,7 @@ pub struct Store {
     pub denied_prefix_reads: AtomicUsize,
     pub deny_group_archive_writes: AtomicBool,
     pub deny_sandbox_parent_writes: AtomicBool,
+    pub sandbox_parent_archive_prefix: std::sync::Mutex<Option<Path>>,
     pub denied_sandbox_parent_writes: AtomicUsize,
     pub deny_binding_settlement_writes: AtomicBool,
     pub denied_binding_settlement_writes: AtomicUsize,
@@ -605,16 +606,16 @@ impl ObjectStore for Store {
                 .fetch_add(1, Ordering::AcqRel);
             return Err(failure());
         }
-        // The exact parent record separates source input/terminal proof from
-        // the child's S3 proof. Tests arm this before Delete or after its effect.
-        let sandbox_parent = b"\"scope\":\"Counter:sandbox-floor\"";
+        // Match the configured parent group's archive keys, not SQLite bytes.
+        // An extent delta need not repeat the parent's unchanged scope record.
+        // Child archives stay available even when their payload names a parent.
         if self.deny_sandbox_parent_writes.load(Ordering::Acquire)
-            && path.as_ref().contains("/cell-group-archives/")
-            && payload.iter().any(|bytes| {
-                bytes
-                    .windows(sandbox_parent.len())
-                    .any(|part| part == sandbox_parent)
-            })
+            && self
+                .sandbox_parent_archive_prefix
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|prefix| path.prefix_match(prefix).is_some())
         {
             self.denied_sandbox_parent_writes
                 .fetch_add(1, Ordering::AcqRel);

@@ -32,6 +32,219 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 SDK replies retain original invocation authority
+
+Runtime `37d53e781`, on main `0f3b18e79`, closes two reply-authority defects.
+An owned SDK poll previously checked its source permit only before polling;
+a poll could finish after revocation or the original deadline. A completed
+reply could also remain queued until a later invocation of the same cached
+cell consumed it. Entry, poll return and queued delivery now validate the same
+original invocation, activation fence and deadlines. Temporary framework
+privileges are restored before return validation. Refusal preserves entered
+target work, original identities, retained receipts and uncertain outcomes.
+
+The public RF3 regression reproduces the queued-value escape on the preceding
+runtime: one constructor, one target query and one value delivered into the
+next invocation. The corrected source passes both image forms with one
+constructor, one refused stale reply, two target queries and one successful
+fresh query. Replaying the source receipt repeats no SDK work. The initial
+functional red uses opt0; current gates use locked opt1 with assertions,
+overflow checks and unchanged API budgets. No latency gain is inferred.
+
+| Current-source gate | Result |
+| --- | --- |
+| Host library, including six reply-authority regressions | 1,417 pass; two existing ignores |
+| Public queued SDK reply regression | Both image forms pass |
+| Filesystem transactions and descriptor recovery | Both image forms pass |
+| Ordinary alarms | Both image forms pass |
+| Ordinary Queue callbacks, leases and retained recovery | Both image forms pass; earlier intermittent failures remain open |
+| Ordinary Workflow | Materialized passes; extent `create/delete-held` fails its original three-second binding deadline after large-stream operations |
+| Public EventStream activation/Consume | Materialized Consume fails its original three-second deadline; the later image form is unrun |
+| Seven affected Docker/Sandbox functions with real RustFS | **FAILED: 5/7 complete functions, 19/22 configuration markers** |
+| Managed Workflow S3 voter replacement, park/wake and retained restart | Both image forms pass |
+
+All four Container recovery configurations and all eight Container/Sandbox
+source-proof refusal configurations pass. Both Quorum Sandbox configurations
+complete files, generation replacement, interrupted Exec/Delete, retained
+restart and autonomous cleanup. Requested-S3 cleanup custody and Start final
+output/Ready recovery pass both forms. Unexpected five-second failures remain
+materialized S3 Sandbox `Create9`, extent S3 `DestroyJob8`, and materialized
+interrupted `Delete2` in the requested-S3 deletion profile. A completed physical
+operation alone supplies no successful public result.
+
+The failing EventStream trace shows the first child returning and its source
+writer resuming immediately. Explicit business sync and the next intent proof
+precede ACK submission with approximately 1,078 ms remaining; ACK has not
+returned at the original deadline. The separate complete traced replay passes
+in 48.543 seconds. This narrows the timing boundary without repairing or
+clearing the canonical failure. Workflow fails at `create/delete-held` after
+3,135 ms, following its large-stream phase; its original ambiguous result is
+retained.
+
+Managed Workflow additionally passes twice on identical production inputs,
+including real S3 image fetch, local replacement reads, durable stream bytes,
+completed-step non-replay, public wakeup and joined shutdown. The fixture-only
+follow-up `bf5056b33` retains successful real-RustFS voter disks. Its unchanged
+drill passes both image forms and preserves all eight closed voter directories.
+This is one Workflow group with host-native RF3 and a replacement standby;
+independent Linux and the complete multi-primitive recovery matrix remain open.
+
+Full all-target/all-feature host/container Clippy, canonical formatting,
+layout, docs and native-dependency checks pass at runtime `37d53e781`.
+The retention-only follow-up also passes its locked build, strict affected
+target Clippy and canonical formatting. Production inputs remain unchanged.
+All owned test processes and qualification VMs stop and join.
+
+Verified evidence and second copies include
+`CG-17-sdk-reply-37d53e781-3022` (4,345 files and 44 retained roots),
+`CG-17-queued-reply-public-red-a76006be0-3009` (98 files),
+`CG-17-submission-seal-reply-current-37d53e781-3024` (6,480 files), and
+`CG-17-submission-seal-reply-closed-media-bf5056b33-3036` (427 files and
+eight closed voter directories). Earlier source-specific results below retain
+their scope. CG-17, combined recovery/load/disk-loss qualification, default
+cutover and legacy removal remain open.
+
+### CG-17 independent publication during archive retirement
+
+Draft [PR #182](https://github.com/crabbuild/cellar/pull/182) is based on main
+`0f3b18e79`, including merged #181 and #167. Runtime **`0adc0eb8d`** adds one
+bounded, joined predecessor-retirement lane using the existing I/O banks.
+Same-group journal writes remain serialized. Cleanup supplies no S3 proof or
+compaction authority and does not reset publication fairness.
+
+The original native red at `e63bd830d` holds an actual predecessor-release CAS
+and blocks the first independent S3 write beyond its original five seconds.
+On the integrated runtime, the strengthened oracle passes in both image modes
+natively and against real RustFS: two independent exact S3 receipts return while
+the release remains held, then the original group publishes again. Three other
+real-RustFS functions pass in both modes: next-intent retirement coalescing,
+response-before-retirement and foreground-before-queued-background.
+
+The complete integrated Docker/RustFS campaign remains **FAILED: 6/10 functions,
+18/25 configuration markers**. All original IDs, minima and 5s/3s/60s budgets
+remain required.
+
+| Integrated case | Result at `0adc0eb8d` |
+| --- | --- |
+| Three physical safety cases | All pass |
+| Container recovery | Both extent profiles pass; materialized Quorum `docker-a Read5` and materialized S3 `docker-a Write2` exceed 5s |
+| Container and Sandbox source-proof refusal | All eight profiles pass |
+| Sandbox lifecycle/recovery | Both Quorum profiles pass the complete oracle, including files, generation replacement, interrupted Exec/Delete, retained restart and autonomous cleanup; materialized S3 `DestroyJob8` and extent S3 `Start1` exceed 5s |
+| Requested-S3 retirement floor | Both initial `Start1` calls exceed 5s before the retirement oracle |
+| Interrupted Delete input/restart/restore | Both image modes pass |
+| Start final output/explicit Ready/receipt recovery | Materialized S3 passes; extent S3 fails the explicit `confirm_ready` oracle |
+
+The focused extent/S3 Start trace passes in 3.395s on identical source. A separate
+full recovery trace fails three profiles, including a replacement Create whose
+provider completes only 138ms before the original deadline. These diagnostic
+results neither replace canonical failures nor establish one common cause.
+
+The explicit-Ready failure also exposes a qualification weakness: the parent
+archive cut searches payloads for a scope marker. An extent delta need not repeat
+unchanged parent metadata. The follow-up selects the actual parent group's
+archive-key prefix, blocks opaque chunks and control writes, and leaves child
+archives available. On **`bd238f365`**, all five owning tests and all six real
+RustFS configurations pass: Start final output/explicit Ready/original receipt,
+Delete input/restart/restore and requested-S3 retirement floor. Original business
+assertions, IDs, minima and budgets remain unchanged. Production runtime inputs
+match `0adc0eb8d`; this is stronger qualification, not a general deadline repair.
+
+The wider native baseline is **FAILED and incomplete: 25 passing functions,
+two failures and 135 not executed**. All 22 storage persistence/crash functions
+pass. The Axum KV binding function passes separately after an interrupted attempt
+was explicitly recorded without result credit. The original two EventStream
+failures are extent-mode `Counter:event-sink Read6` returning ambiguous
+`Execution(Refused(Unavailable))` after retained recovery, and public consumption
+returning HTTP 503 with an ambiguous ingress deadline. The remaining cohort was
+stopped to diagnose these owning boundaries. No whole-primitive acceptance or
+retry-policy change follows from the partial baseline. Failure-only capture now
+preserves the original read error before private execution converts its refusal;
+the exact read/outbox replay passes on `1b6dfb3f7` in 145.319s with unchanged
+production. The separate activation/Consume function reproduces its original
+deadline failure in 56.497s on that source. Two child responses return and source
+checkpoints complete before the enclosing request expires. This narrows the
+failure boundary without establishing a runtime cause or repair. Both original
+failures remain open.
+
+The canonical public SQL suite passes **3/3 exact real-RustFS functions** on
+`1b6dfb3f7`: native SDK/actual CLI, Axum/operator access, and interrupted binding
+recovery without replaying business calls. Both image modes and Quorum/S3 source
+recovery are exercised; destination recovery uses its declared Quorum minimum.
+The canonical public KV suite passes **2/2 functions** on the same source,
+including native/Axum and actual CLI, conditions, expiry, 1-MiB/25-MiB payloads,
+retained restart, receipt replay, archive outage and quorum refusal. Original
+deadlines, quotas, IDs and minima are unchanged. These are host-native voters
+sharing one process; their scope stays separate from the Linux campaign below.
+
+Evidence **`CG-17-public-sql-kv-1b6dfb3f7-2979`** has **6,145 verified files**,
+frozen source, test/CLI executables and a verified second copy. SQL's test runner
+and VM shutdown both succeed; its wrapper subsequently fails copying a misnamed
+evidence script. The original wrapper and explicit packaging-only repair are
+retained, with no rerun or result change. The separate failed activation replay
+retains all three voter disks in **`CG-17-event-activation-1b6dfb3f7-2981`**.
+
+The independent Linux public SQL/KV daemon campaign on **`41e68a7bf`** passes
+all four configurations through `tools/multi-raft/daemon.py --primitives`:
+
+| Image | Namespace minimum | Result | Duration |
+| --- | --- | --- | --- |
+| Materialized | Quorum | PASS | 145.476s |
+| Materialized | S3 | PASS | 215.260s |
+| Extents | Quorum | PASS | 150.968s |
+| Extents | S3 | PASS | 212.011s |
+
+Each configuration uses three separate Linux voter containers, **one CPU / 3 GiB
+each**, separate retained directories on guest ext4, and real RustFS at **one CPU
+/ 2 GiB**, with swap limits checked. The public SDK, compiled CLI and native/Axum
+daemon paths verify four logical cells in two physical groups, SQL rollback and
+primary-session reads, KV reads/writes, renewed node leases before retained
+startup admission, leader SIGKILL, retained return, archive-write refusal and
+restoration, minority write/protected-read refusal and joined shutdown. Original
+runner oracles, deadlines and admission remain unchanged. Axum handlers use the
+daemon's public listener. The three voters share one physical VM; this does not
+qualify independent physical failure domains, other primitive families, load,
+replacement, split/merge, park/wake, reclamation or all-voter disk loss.
+
+Evidence **`CG-17-linux-sql-kv-sealed-41e68a7bf-2991`** contains the exact Linux
+image and full source, logs/ledgers and all four retained guest directories:
+**2,632 regular files**, verified against guest hashes before and after export,
+in four archives. Its **48-file outer manifest** and second copy verify. Only
+the waiting orchestration parent was held; exports began after the unchanged
+daemon runner completed. Voter work and request budgets were untouched. The original
+backend/VM cleanup then resumed and joined successfully. This closes the scoped
+basic SQL/KV Linux daemon gate, not full CG-17 or the separate native EventStream
+and Container/Sandbox failures. Runtime inputs are unchanged by the intervening
+documentation commit.
+
+Evidence **`CG-17-archive-cut-baseline-bd238f365-2969`** has **7,370 verified
+files, 17 available native roots**, including all six explicitly retained failed
+EventStream voter roots, the separate RustFS campaign, three frozen executables,
+full source and a verified second copy. The interrupted KV attempt has no retained
+result or available root and earns no pass; its unchanged independent replacement
+is separately recorded.
+
+The locked optimized build, **1,411 library tests / two existing ignores**,
+strict all-target/all-feature Clippy, **76 runner tests**, formatting, layout,
+docs and native dependencies pass at `0adc0eb8d`. The native archive target ends
+**53 pass / one fail / 45 ignored**. Local original 800-ms command and enrollment
+controls pass. Remote enrollment fails before the intended retained-S3 state,
+both natively and against real RustFS, with one initializer entered, active SQL
+and no retained S3 work. This does not establish a public deadline overrun or
+missing callback.
+
+Evidence **`CG-17-retirement-main-rustfs-0adc0eb8d-2950`** is sealed with
+**10,416 files, 91 canonical roots, 31 available native roots**, full frozen
+source, three executables and a verified second copy. Separate diagnostic and
+real-archive runs are retained with their exact source and results. All owned
+processes and the 4-CPU/8-GiB VM are stopped; RustFS objects/volumes remain at
+1 CPU/2 GiB. Native RF3 shares one process. The earlier pre-#167 baseline
+`CG-17-retirement-isolation-rustfs-0b280ddc6-2937` remains separately sealed;
+its 8/10 functions and 20/25 markers do not qualify the integrated source.
+
+All 32 full CG-17 cases and CG-13/15/16 remain open. The generated implementation
+index receives no new acceptance credit. Follow the
+[full delivery milestones](remaining-work.md#primitive-delivery-priority).
+
 ### CG-17 Sandbox Start output proof
 
 Shared `SandboxCatalog::start_child` now stages Ready after verifying the exact

@@ -178,7 +178,15 @@ impl Cell for Caller {
                     let page = self
                         .0
                         .read(&context, None, events::ReadOptions::default())
-                        .await?;
+                        .await
+                        .inspect_err(|error| {
+                            // Capture the original failure before private execution
+                            // converts its typed refusal into a command result.
+                            eprintln!(
+                                "EventStream read failure cell={:?}: {error:?}",
+                                context.identity().map(|identity| &identity.scope)
+                            );
+                        })?;
                     json!(page
                         .records
                         .iter()

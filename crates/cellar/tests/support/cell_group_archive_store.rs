@@ -15,6 +15,7 @@ pub struct Gate {
     pub entered: Notify,
     pub release: Notify,
     pub publication_index: AtomicU64,
+    pub retirement_waiting: AtomicBool,
     reads_released: AtomicBool,
 }
 
@@ -31,6 +32,14 @@ impl Gate {
         if !self.reads_released.load(Ordering::Acquire) {
             released.await;
         }
+    }
+}
+
+struct RetirementWait<'a>(&'a AtomicBool);
+
+impl Drop for RetirementWait<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 
@@ -326,6 +335,8 @@ impl ObjectStore for Store {
                         < before["holds"].as_array().unwrap().len()
                 {
                     self.retirement.lock().unwrap().take();
+                    gate.retirement_waiting.store(true, Ordering::Release);
+                    let _waiting = RetirementWait(&gate.retirement_waiting);
                     gate.publication_index.store(index, Ordering::Release);
                     gate.entered.notify_one();
                     gate.release.notified().await;

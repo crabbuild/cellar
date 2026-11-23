@@ -1237,3 +1237,32 @@ async fn rustfs_s3_evicted_receipt_does_not_archive_unrelated_cells() -> Result<
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_unrelated_publication_precedes_held_retirement() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_unrelated_publication_precedes_held_retirement(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_unrelated_publication_precedes_held_retirement() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_unrelated_publication_precedes_held_retirement(
+                rooted,
+                rustfs::store("unrelated-publication-held-retirement", rooted)?,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}

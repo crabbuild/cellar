@@ -8,7 +8,41 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-## Current main: service deadlines remain open
+The current delivery is [PR #182](https://github.com/crabbuild/cellar/pull/182),
+based on main `0f3b18e79` after merged #181 and #167. Runtime `37d53e781`
+adds original-invocation checks after SDK polling and at queued reply delivery.
+The public RF3 regression passes both image forms; 1,417 library tests pass.
+The [current qualification](progress.md#cg-17-sdk-replies-retain-original-invocation-authority)
+still has request deadline failures. Default cutover and full primitive
+acceptance remain open.
+
+The immediate delivery order is:
+
+1. Close ordinary request deadlines: EventStream Consume and extent Workflow
+   `create/delete-held` retain their original three-second failures. Real RustFS
+   Sandbox still fails materialized S3 `Create9`, extent S3 `DestroyJob8`, and
+   materialized interrupted `Delete2` within the original five-second contract.
+   Preserve exact identities, source/target minima and uncertain outcomes.
+2. Complete the primitive API inventory and public/recovery contracts. Current
+   native filesystem, alarms and Queue gates pass, but their full lifecycle
+   matrix remains required. Close Container/provider scope, WebSocket/session
+   ownership and remaining callback/binding coverage before full CG-17 acceptance.
+3. Qualify every primitive through managed replacement, movement, split/merge,
+   wake, archive outage, reclamation and fenced zero-quorum recovery. Managed
+   Workflow S3 replacement, public wake and retained restart pass both image
+   forms; `bf5056b33` also retains eight closed voter directories. The complete
+   cross-primitive and fresh-incarnation matrix remains open.
+4. Run the unified public daemon, independent Linux voter, load, crash and
+   disk-loss matrix on one final source. Earlier Linux SQL/KV qualification
+   remains pinned to `41e68a7bf`; it does not qualify subsequent runtime edits.
+   Default backend cutover and removal of legacy Raft paths follow these gates.
+
+The [full delivery milestones](#primitive-delivery-priority) and task acceptance
+definitions retain their original requirements; no acceptance case is waived.
+
+## Optimization status before #182
+
+### Current main: service deadlines remain open
 
 PR #167 is merged. Reverification of main `0f3b18e7`, compiler inputs
 `31dfbc55`, passes the original SQL binding and Queue callback cases. The
@@ -34,7 +68,7 @@ about 91–109 ms in the aggregate snapshots; immutable inspection about
 0.9–1.2 ms. These are diagnostic operation means, not request percentiles or a
 speedup. See the [phase measurements](optimization-progress.md#live-apply-phase-observations).
 
-The next work, in order:
+The priorities at this checkpoint were:
 
 1. **Account for manifest/image persistence and receipt settlement barriers.**
    The live-apply phase split is implemented and tested. Count actual file and
@@ -63,7 +97,7 @@ open.
 
 ## Prior integration checkpoints
 
-The optimization PR integrated main `a85ab6f6c` (#180). Compiler inputs
+An earlier optimization checkpoint integrates main `a85ab6f6c` (#180). Compiler inputs
 `4bcd59fd` pass **1,410 library tests / two existing ignores**, **29/30 selected
 native controls**, strict all-feature/all-target Cellar/container Clippy,
 **60 Python tests** and repository checks. The S3 read-source reuse case fails
@@ -1548,53 +1582,79 @@ by this comparison or by a scoped native optimization pass.
 
 ## Primitive delivery priority
 
-**Prioritize full CG-17 closure.** Every primitive and all
-[32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-Draft [PR #181](https://github.com/crabbuild/cellar/pull/181) follows merged #180
-on latest fetched main `a85ab6f6c`. Runtime `b16b64036` combines the prior
-backend expiry/receipt fix with high-level Sandbox Ready batching. Explicit
-confirmation and all input/final output proofs retain their durability contract.
+All four requested stages remain required: ordinary paths, complete primitives,
+managed recovery and qualified public cutover. PR #182 integrates merged #181
+and #167 at runtime `0adc0eb8d`. The archive-retirement isolation regression and
+three existing real-RustFS archive functions pass both images. Library and static
+checks pass, but the canonical Docker/Sandbox campaign is **FAILED: 6/10
+functions, 18/25 configuration markers**. Both extent Container and both Quorum
+Sandbox lifecycle profiles pass; several original S3/request deadlines and the
+extent explicit-Ready oracle remain open. Remote enrollment's original 800-ms
+control still fails before the retained-S3 precondition. See
+[exact results and custody](progress.md#cg-17-independent-publication-during-archive-retirement).
 
-Canonical actual Docker/RustFS is **FAILED: 8/10 functions, 19/25 configuration
-markers**. All physical safety, Container/Sandbox source refusal, requested-S3
-retirement-floor, interrupted-Delete/restart and new Start output-proof cases
-pass. Materialized Quorum Container and Sandbox pass complete recovery oracles.
-Six ordinary response-deadline profiles remain failed; scoped passes do not
-establish complete primitive or cutover support. See
-[current results](progress.md#cg-17-sandbox-start-output-proof).
+The archive-key correction at `bd238f365` passes five owning tests and all six
+real RustFS floor/Delete/Start configurations. It preserves every original proof,
+identity, minimum and budget. The wider native baseline has 25 passing functions
+(including all 22 storage persistence/crash functions and Axum KV), two failing
+EventStream functions and 135 unrun functions. Prioritize the recovered extent
+Read6 typed refusal and public Consume ingress deadline alongside the ordinary
+Container/Sandbox deadlines. Failure-only Read diagnostics preserve the original
+cause before selecting a production change. Separate successful traces and
+pre-#167 results cannot clear canonical failures.
+On `1b6dfb3f7`, canonical public SQL passes 3/3 real-RustFS functions and KV passes
+2/2, including native SDK/actual CLI and Axum, both image modes, original recovery
+budgets and quorum refusal. SQL interrupted binding recovery and large KV
+payload/condition/expiry paths pass. Independent constrained Linux daemon
+qualification now passes all four SQL/KV configurations at `41e68a7bf`: both
+images and Quorum/S3 minima, three one-CPU/3-GiB voters with separate retained
+ext4 directories, and real RustFS at one CPU/2 GiB. Native/Axum daemon handlers,
+compiled CLI, rollback, renewed startup leases, leader kill, retained restart,
+archive-write refusal/restoration, minority refusal and joined shutdown pass.
+The exact EventStream read replay
+passes with unchanged production, while activation/Consume reproduces its
+deadline failure; neither earlier failure is considered fixed. Verified source,
+executables, raw results and failed media are retained separately.
+All [32 required cases](primitive-acceptance-cases.md) remain in scope.
 
-The next feature deliveries are:
+Deliver and close these milestones in order:
 
-1. Close six ordinary request failures: Container materialized/extent S3
-   `docker-a Write2` and extent Quorum `docker-b Destroy4`; Sandbox both S3 Start1
-   calls after physical Create and extent Quorum `FileList4`. Distinguish the
-   measured parent archive verification span (1.6s versus 0.1s baseline),
-   blocking-domain admission and owner churn before another optimization.
-   Preserve ambiguity, original IDs, minima and 5s/3s/60s budgets. Keep the
-   separate 800ms admission, post-retained-restart named S3 `Relay7` and historical
-   post-reclamation failures. Do not relabel the initial current-source control
-   failures or infer a universal latency cure from the final passing regression.
-2. Qualify the full ordinary recovery oracles together after the next causal
-   change. Input/floor/restart and Start proof controls now pass both image
-   modes on one source; the two ordinary functions still keep the suite failed.
-   Keep all ten functions and 25 configurations in the canonical runner.
-3. Complete ordinary Container/Sandbox application execution, interactive APIs,
-   ports, HTTP/WebSocket and provider-volume contracts with physical fencing.
-4. Finish Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron, filesystem
-   and payload features, including receipt/payload GC. Deliver real full
-   acceptance drivers and complete API/feature/recovery manifests. Focused
-   component passes must not be presented as full-case acceptance.
-5. Close CG-13 recovery, CG-15 qualification and CG-16 cutover. Independent Linux
-   voters, physical disk loss, load and provider-volume recovery remain separate
-   from native RF3 and real-RustFS component profiles.
+1. **Ordinary paths on combined main.** Preserve the passing SQL/KV host-native
+   and independent Linux daemon gates, then fix
+   the exact current Container/Sandbox deadline and confirmation failures, remote
+   enrollment boundary and #167's SQL/Queue service failures. Keep
+   source IDs, typed ambiguity, minima and all original request/recovery budgets.
+   Preserve failed media before repeating a case. No default cutover while these
+   paths remain unqualified.
+2. **CG17-01/02 complete acceptance packages.** Finish the partial public API and
+   deployment inventory and real Storage/SQL/KV drivers. The independent validator
+   exists; a partial inventory and aliases of focused helpers cannot satisfy the
+   full cases. Cover transactions, rollback, conditional updates, consistency,
+   versions, binding boundaries and supported feature/entry-point configurations.
+3. **CG17-03 through CG17-07 feature contracts.** Complete callbacks and binding
+   recovery, due work, SQL sessions/KV expiry, Queue, EventStream, Workflow,
+   filesystem/payload and receipt GC. Finish ordinary Container application
+   entrypoints, interactive/network/WebSocket APIs, provider fencing and volume
+   recovery. Every public operation needs its documented behavior and real
+   acceptance evidence; bounded exec is not the complete Container family.
+4. **CG17-08, CG-13 and CG-15 recovery/release gates.** Exercise every stateful
+   family through independent Linux-voter leader loss, partitions, replacement,
+   retained restart, split/merge/placement and park/wake. Use real RustFS outage,
+   bounded archive debt, physical reclamation and permanently fenced all-voter
+   disk loss with fresh incarnation. Run load, cancellation, capacity and joined
+   shutdown with complete data/effect ledgers on one frozen source.
+5. **CG-16 cutover.** Route SDK, daemon, native/Axum, CLI/admin and examples through
+   the qualified shared backend, refuse missing quorum and remove per-cell Raft
+   plumbing. Keep read consistency explicit and preserve other supported
+   durability contracts. Existing Fleet data is not silently reinterpreted.
 
-Earlier bootstrap, binding/Consume/Ack, provider deadlines and broader source
-failures remain distinct retained controls. Earlier fixes do not clear unrelated
-deadline failures or accept a complete primitive family. Full plan validation
-still fails on missing
-historical CG-01 evidence. The generated index credits only DONE tasks; CG-17 has
-no accepted full-task evidence. All oracles, case names and dependencies remain
-unchanged. Historical checkpoints below retain their source boundaries.
+Close the goal only when all required case oracles and dependency gates pass,
+the complete API/configuration/scenario report passes the independent validator,
+and the release source passes the integrated public/fault matrix and hard-cutover
+checks. Record verified coverage and missing cells after each delivery; generated
+task credit changes only with complete accepted evidence. Historical CG-01
+custody is still missing from the full local plan validator. Earlier timing,
+post-restart named S3 Relay7 and post-reclamation failures retain their scope.
 
 Runtime `6836d6a6c` delivers the ordinary named-provider lifecycle handoff and
 nonwaiting shared-group background admission. The actual custom-provider Start

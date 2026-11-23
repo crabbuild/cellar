@@ -53,6 +53,9 @@ impl RaftCellHandle {
     /// the target request ID/input; this does not join two cell transactions.
     /// Open source transactions refuse. Proven SDK waits release the writer,
     /// including when a child invokes the same cell.
+    /// Consume the response in the originating invocation: a queued response
+    /// cannot transfer its source authority to a later invocation. A refused
+    /// response does not establish whether the target command committed.
     pub fn command(
         &self,
         contract: &OperationContract,
@@ -91,6 +94,8 @@ impl RaftCellHandle {
     /// A dependent query proves preceding source writes. An unchanged Quorum
     /// image can reuse its existing proof; S3 sources still require archival.
     /// Target consistency remains independent of source durability.
+    /// Inside a Raft RPC, consume the response in that same invocation and
+    /// before its original deadline; queued values retain the source fence.
     pub fn query(
         &self,
         invocation: super::super::ProposalId,
