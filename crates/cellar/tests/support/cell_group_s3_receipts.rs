@@ -1051,7 +1051,7 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
             h.fixture.cell_options(&h.cell).await?).await?;
         let mut response = Box::pin(selection.response());
         tokio::time::timeout(Duration::from_secs(5), async {
-            tokio::select! {
+            cellar::asyncrt::select! {
                 _ = foreground.entered.notified() => Ok::<_, anyhow::Error>(()),
                 result = response.as_mut() => {
                     result.context("foreground proof completed before its required publication")?;
