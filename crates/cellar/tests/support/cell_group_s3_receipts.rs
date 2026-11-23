@@ -1062,3 +1062,116 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
     let closed = h.close().await;
     work.and(closed)
 }
+
+pub(crate) async fn s3_unrelated_publication_precedes_held_retirement(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let mut h = Harness::configured_resources(
+        rooted,
+        store,
+        2,
+        Durability::Quorum,
+        None,
+        None,
+        Some(Resources::QueuedBackgroundArchives),
+    )
+    .await?;
+    h.retain_disks("unrelated-retirement");
+    let (background, remote) = &h.background_archives[0];
+    let group = background.birth.route().history;
+    let previous = h.controllers[0]
+        .archive_status(group)?
+        .context("background archive status")?
+        .published
+        .context("background initial cut")?
+        .position()
+        .index;
+    let held = remote.hold_retirement_after(previous.get());
+
+    struct Release(Arc<archive_controller::archive_store::Gate>);
+
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.0.release.notify_one();
+        }
+    }
+    let release = Release(held.clone());
+    let work = async {
+        let cut = archive_controller::add(&h.fixture, background.birth.route(), false, 1).await?;
+        archive_controller::published(&h.controllers[0], group, cut).await?;
+        tokio::time::timeout(Duration::from_secs(5), held.entered.notified())
+            .await
+            .context("predecessor retirement did not enter its actual CAS")?;
+        anyhow::ensure!(held.publication_index.load(Ordering::Acquire) >= cut.get());
+        // A different group needs a new archive, not a replay of an already
+        // covered receipt. Its original five-second request cannot depend on
+        // completion of the other group's predecessor-release operation.
+        let response = h
+            .command(1, b"independent", Durability::S3, Duration::from_secs(5))
+            .await?
+            .response()
+            .await
+            .context("unrelated S3 publication waited behind held retirement")?;
+        anyhow::ensure!(response.durability() == Durability::S3);
+        anyhow::ensure!(
+            response
+                .local_receipt()
+                .context("independent receipt")?
+                .receipt
+                .result()
+                == b"independent"
+        );
+        anyhow::ensure!(
+            h.calls.load(Ordering::Acquire) == 1,
+            "business callback replayed"
+        );
+        anyhow::ensure!(
+            held.retirement_waiting.load(Ordering::Acquire),
+            "retirement stopped waiting before the independent response"
+        );
+        anyhow::ensure!(
+            !h.controllers[0]
+                .archive_status(group)?
+                .context("held archive status")?
+                .stopped
+        );
+        drop(response);
+        let second = h
+            .command(2, b"continued", Durability::S3, Duration::from_secs(5))
+            .await?
+            .response()
+            .await
+            .context("continued independent S3 publication stalled")?;
+        anyhow::ensure!(second.durability() == Durability::S3);
+        anyhow::ensure!(
+            second
+                .local_receipt()
+                .context("continued receipt")?
+                .receipt
+                .result()
+                == b"continued"
+        );
+        anyhow::ensure!(
+            h.calls.load(Ordering::Acquire) == 2 && held.retirement_waiting.load(Ordering::Acquire),
+            "continuation replayed or the held release escaped its gate"
+        );
+        drop(second);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    drop(release);
+    let resumed = async {
+        if work.is_ok() {
+            let cut =
+                archive_controller::add(&h.fixture, background.birth.route(), false, 2).await?;
+            archive_controller::published(&h.controllers[0], group, cut)
+                .await
+                .context("held group failed to resume after predecessor release")?;
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let closed = h.close().await;
+    work.and(resumed).and(closed)
+}

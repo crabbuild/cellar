@@ -266,6 +266,48 @@ pub(super) async fn finish(context: &Context, execution: &ControllerExecution) -
     Ok(())
 }
 
+pub(super) enum Maintenance {
+    Quiet {
+        published: Box<GroupManifest>,
+        retained: bool,
+    },
+    PublicationRequired,
+}
+
+/// Quiet predecessor release owns no new ticket, image or archive proof. Clear
+/// its durable debt while still quiet; if apply advances during I/O, the next
+/// intent combines that update with its existing barrier. A crash retries the
+/// same idempotent release rather than assuming the old hold disappeared.
+pub(super) async fn maintain(
+    context: &Context,
+    execution: &ControllerExecution,
+    runtime: &CellGroupRuntime,
+) -> Result<Maintenance> {
+    context.authority.require_current().await?;
+    let mut record = load(context, execution).await?;
+    if !matches!(record.pending, Pending::None) {
+        return Ok(Maintenance::PublicationRequired);
+    }
+    let Some(published) = record.head.as_ref().map(|head| head.marker().clone()) else {
+        return Ok(Maintenance::PublicationRequired);
+    };
+    let retirement = retire(context, execution, &mut record).await?;
+    let current = runtime
+        .log()
+        .cell_group(&context.registry.route().history)
+        .and_then(|group| group.group_manifest())
+        .map_err(|error| Error::Runtime(error.into()))?
+        .ok_or(Error::Runtime(RuntimeError::NotReady))?;
+    if current.position().index <= published.position().index {
+        retirement.flush(context, execution, &record).await?;
+    }
+    let retained = retirement == Retirement::Retained;
+    Ok(Maintenance::Quiet {
+        published: Box::new(published),
+        retained,
+    })
+}
+
 /// Initial acquisition and a renewed reservation use the same exact intent,
 /// supersession handling and independent physical verification.
 async fn acquire(

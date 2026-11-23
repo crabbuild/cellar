@@ -33,6 +33,7 @@ pub(crate) use receipts::{
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
     s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
+    s3_unrelated_publication_precedes_held_retirement,
 };
 pub(crate) use remote::{
     s3_remote_deadlines, s3_remote_outputs, s3_remote_receipt_reconciliation,
@@ -467,6 +468,14 @@ impl Harness {
             .into_iter()
             .find(|phase| phase.name == name)
             .with_context(|| format!("missing command phase {name}"))
+    }
+
+    fn retain_disks(&mut self, reason: &str) {
+        self.fixture.cluster._root.disable_cleanup(true);
+        eprintln!(
+            "retained {reason} disk: {}",
+            self.fixture.cluster._root.path().display()
+        );
     }
 
     async fn waiting(&self) -> Result<()> {
@@ -925,7 +934,8 @@ pub(crate) async fn s3_deadline(
     store: Arc<dyn object_store::ObjectStore>,
     cancel: bool,
 ) -> Result<()> {
-    let h = Harness::new(rooted, store, 1).await?;
+    let mut h = Harness::new(rooted, store, 1).await?;
+    h.retain_disks("s3-command-deadline");
     h.remote.outage.store(true, Ordering::Release);
     let call = h
         .command(1, b"first", Durability::S3, Duration::from_millis(800))

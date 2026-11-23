@@ -30,6 +30,19 @@ impl PublicationQueue {
         self.groups.retain(|queued| *queued != group);
     }
 
+    /// Cleanup shares roster membership, but supplies no publication turn.
+    /// In particular, continuous cleanup must not renew the foreground burst
+    /// while another group is waiting for background publication.
+    pub(super) fn next_maintenance(
+        &mut self,
+        classify: impl FnMut(GroupHistory) -> Eligibility,
+    ) -> Option<GroupHistory> {
+        let foreground_turns = self.foreground_turns;
+        let selected = self.next(classify);
+        self.foreground_turns = foreground_turns;
+        selected
+    }
+
     /// Keep FIFO order within each class. A blocked group consumes no turn;
     /// every launched foreground attempt counts, including failed attempts.
     /// Classification prunes expired/cancelled outputs before granting priority.

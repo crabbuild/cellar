@@ -35,12 +35,20 @@ pub(crate) fn callback_active() -> bool {
 }
 
 /// The private SDK adapter alone polls under this scope, after its source root
-/// is proven. Application SQL callbacks retain the ordinary dispatch refusal.
+/// is proven. Entry and return use the same live source permit. Application SQL
+/// callbacks retain the ordinary dispatch refusal.
 pub(crate) fn framework_dispatch<T>(
     permit: &crate::application::storage::RaftDispatchPermit,
     callback: impl FnOnce() -> T,
 ) -> anyhow::Result<T> {
-    permit.check()?;
+    with_framework_dispatch(|| permit.check(), callback)
+}
+
+fn with_framework_dispatch<T>(
+    check: impl Fn() -> anyhow::Result<()>,
+    callback: impl FnOnce() -> T,
+) -> anyhow::Result<T> {
+    check()?;
 
     struct Restore(bool, bool);
 
@@ -50,12 +58,23 @@ pub(crate) fn framework_dispatch<T>(
             FRAMEWORK_DISPATCH.with(|active| active.set(self.1));
         }
     }
-    let _restore = Restore(
-        CALLBACK_ACTIVE.with(|active| active.replace(false)),
-        FRAMEWORK_DISPATCH.with(|active| active.replace(true)),
-    );
-    Ok(callback())
+    let result = {
+        let _restore = Restore(
+            CALLBACK_ACTIVE.with(|active| active.replace(false)),
+            FRAMEWORK_DISPATCH.with(|active| active.replace(true)),
+        );
+        callback()
+    };
+    // A single poll can cross the original deadline or lose its source fence.
+    // Restore the caller's scope before validating and possibly dropping its
+    // result. Refusing that result does not undo an entered child operation.
+    check()?;
+    Ok(result)
 }
+
+#[cfg(test)]
+#[path = "framework_dispatch_tests.rs"]
+mod framework_dispatch_tests;
 
 struct CallbackGuard;
 

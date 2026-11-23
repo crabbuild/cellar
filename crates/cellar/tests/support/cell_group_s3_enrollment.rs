@@ -379,6 +379,7 @@ pub(crate) async fn s3_enrollment_deadline(
     cancel: bool,
 ) -> Result<()> {
     let mut h = Harness::new(rooted, store, 1).await?;
+    h.retain_disks("s3-enrollment-deadline");
     h.cell.cell = CellId::new("expired-s3-enrollment")?;
     h.remote.outage.store(true, Ordering::Release);
     let call = h

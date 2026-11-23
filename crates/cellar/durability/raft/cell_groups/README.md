@@ -401,6 +401,13 @@ checkpoint is skipped before capture so quorum apply and sibling checkpoint work
 continue. This is a prerequisite for retained-log admission, not its byte/disk
 bound or the physical Raft file reclamation gate.
 
+The node controller has separate bounded lanes for publication, retained proofs
+and quiet predecessor release. Publication and release for the same group remain
+serialized, while another group can publish during a held release. All lanes
+use the existing archive I/O pools and join before storage closes. A release
+completion clears cleanup debt; it supplies no archive proof or compaction
+authority. Interrupted release retains its original durable operation for retry.
+
 An archive upload selects its exact reservation intent in the durable local
 journal before the allocation CAS. Ordinary uploads keep that intent selected
 through immutable object writes: the persistent live reservation reconstructs

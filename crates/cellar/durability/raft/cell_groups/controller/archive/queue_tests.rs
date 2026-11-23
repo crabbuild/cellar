@@ -93,3 +93,40 @@ fn blocked_and_removed_groups_neither_consume_turns_nor_reorder_ready_work() {
     assert_eq!(queue.next(|_| Eligibility::Foreground), Some(group(2)));
     assert_eq!(queue.next(|_| Eligibility::Foreground), None);
 }
+
+#[test]
+fn continuous_cleanup_preserves_bounded_background_publication() {
+    let mut queue = PublicationQueue::default();
+    for number in 1..=3 {
+        queue.enqueue(group(number));
+    }
+    let mut foreground_run = 0;
+    let mut publications = 0;
+    for _ in 0..180 {
+        let cleanup = queue.next_maintenance(|selected| {
+            if selected == group(3) {
+                Eligibility::Background
+            } else {
+                Eligibility::Blocked
+            }
+        });
+        assert_eq!(cleanup, Some(group(3)));
+        queue.enqueue(group(3));
+        let next = queue
+            .next(|selected| match selected {
+                value if value == group(1) => Eligibility::Background,
+                value if value == group(2) => Eligibility::Foreground,
+                _ => Eligibility::Blocked,
+            })
+            .unwrap();
+        if next == group(1) {
+            publications += 1;
+            foreground_run = 0;
+        } else {
+            foreground_run += 1;
+            assert!(foreground_run <= 2, "cleanup renewed the foreground burst");
+        }
+        queue.enqueue(next);
+    }
+    assert_eq!(publications, 60);
+}

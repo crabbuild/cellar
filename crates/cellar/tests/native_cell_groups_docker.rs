@@ -68,6 +68,11 @@ async fn sandbox_completion_observer_preserves_reconciled_loss_cut() -> anyhow::
     sandbox_execution::reconciled_first_reply_keeps_the_loss_cut().await
 }
 
+#[tokio::test]
+async fn sandbox_archive_cut_matches_group_without_payload_markers() -> anyhow::Result<()> {
+    sandbox_execution::archive_cut_uses_group_keys().await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated Linux Docker, a pinned local scaffold image and real RustFS"]
 async fn rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum() -> anyhow::Result<()> {
