@@ -102,7 +102,7 @@ The canonical public KV suite passes **2/2 functions** on the same source,
 including native/Axum and actual CLI, conditions, expiry, 1-MiB/25-MiB payloads,
 retained restart, receipt replay, archive outage and quorum refusal. Original
 deadlines, quotas, IDs and minima are unchanged. These are host-native voters
-sharing one process; independent Linux daemon qualification remains required.
+sharing one process; their scope stays separate from the Linux campaign below.
 
 Evidence **`CG-17-public-sql-kv-1b6dfb3f7-2979`** has **6,145 verified files**,
 frozen source, test/CLI executables and a verified second copy. SQL's test runner
@@ -110,6 +110,39 @@ and VM shutdown both succeed; its wrapper subsequently fails copying a misnamed
 evidence script. The original wrapper and explicit packaging-only repair are
 retained, with no rerun or result change. The separate failed activation replay
 retains all three voter disks in **`CG-17-event-activation-1b6dfb3f7-2981`**.
+
+The independent Linux public SQL/KV daemon campaign on **`41e68a7bf`** passes
+all four configurations through `tools/multi-raft/daemon.py --primitives`:
+
+| Image | Namespace minimum | Result | Duration |
+| --- | --- | --- | --- |
+| Materialized | Quorum | PASS | 145.476s |
+| Materialized | S3 | PASS | 215.260s |
+| Extents | Quorum | PASS | 150.968s |
+| Extents | S3 | PASS | 212.011s |
+
+Each configuration uses three separate Linux voter containers, **one CPU / 3 GiB
+each**, separate retained directories on guest ext4, and real RustFS at **one CPU
+/ 2 GiB**, with swap limits checked. The public SDK, compiled CLI and native/Axum
+daemon paths verify four logical cells in two physical groups, SQL rollback and
+primary-session reads, KV reads/writes, renewed node leases before retained
+startup admission, leader SIGKILL, retained return, archive-write refusal and
+restoration, minority write/protected-read refusal and joined shutdown. Original
+runner oracles, deadlines and admission remain unchanged. Axum handlers use the
+daemon's public listener. The three voters share one physical VM; this does not
+qualify independent physical failure domains, other primitive families, load,
+replacement, split/merge, park/wake, reclamation or all-voter disk loss.
+
+Evidence **`CG-17-linux-sql-kv-sealed-41e68a7bf-2991`** contains the exact Linux
+image and full source, logs/ledgers and all four retained guest directories:
+**2,632 regular files**, verified against guest hashes before and after export,
+in four archives. Its **48-file outer manifest** and second copy verify. Only
+the waiting orchestration parent was held; exports began after the unchanged
+daemon runner completed. Voter work and request budgets were untouched. The original
+backend/VM cleanup then resumed and joined successfully. This closes the scoped
+basic SQL/KV Linux daemon gate, not full CG-17 or the separate native EventStream
+and Container/Sandbox failures. Runtime inputs are unchanged by the intervening
+documentation commit.
 
 Evidence **`CG-17-archive-cut-baseline-bd238f365-2969`** has **7,370 verified
 files, 17 available native roots**, including all six explicitly retained failed

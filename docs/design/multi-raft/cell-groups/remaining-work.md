@@ -1525,7 +1525,12 @@ On `1b6dfb3f7`, canonical public SQL passes 3/3 real-RustFS functions and KV pas
 2/2, including native SDK/actual CLI and Axum, both image modes, original recovery
 budgets and quorum refusal. SQL interrupted binding recovery and large KV
 payload/condition/expiry paths pass. Independent constrained Linux daemon
-qualification is next for this basic path. The exact EventStream read replay
+qualification now passes all four SQL/KV configurations at `41e68a7bf`: both
+images and Quorum/S3 minima, three one-CPU/3-GiB voters with separate retained
+ext4 directories, and real RustFS at one CPU/2 GiB. Native/Axum daemon handlers,
+compiled CLI, rollback, renewed startup leases, leader kill, retained restart,
+archive-write refusal/restoration, minority refusal and joined shutdown pass.
+The exact EventStream read replay
 passes with unchanged production, while activation/Consume reproduces its
 deadline failure; neither earlier failure is considered fixed. Verified source,
 executables, raw results and failed media are retained separately.
@@ -1533,7 +1538,8 @@ All [32 required cases](primitive-acceptance-cases.md) remain in scope.
 
 Deliver and close these milestones in order:
 
-1. **Ordinary paths on combined main.** Qualify the integrated source, then fix
+1. **Ordinary paths on combined main.** Preserve the passing SQL/KV host-native
+   and independent Linux daemon gates, then fix
    the exact current Container/Sandbox deadline and confirmation failures, remote
    enrollment boundary and #167's SQL/Queue service failures. Keep
    source IDs, typed ambiguity, minima and all original request/recovery budgets.

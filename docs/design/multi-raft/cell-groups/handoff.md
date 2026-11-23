@@ -53,7 +53,26 @@ outage and quorum refusal retain their original assertions and budgets. Evidence
 `CG-17-public-sql-kv-1b6dfb3f7-2979` has 6,145 verified files plus a verified
 second copy. SQL's original wrapper fails only during final script packaging,
 after the runner and shutdown succeed; its explicit repair changes no result.
-These scoped passes do not qualify independent Linux voters or full primitives.
+These host-native results remain separate from the Linux campaign.
+
+The public SQL/KV daemon now passes **4/4 independent Linux configurations** on
+`41e68a7bf`: both image forms and Quorum/S3 namespace minima. Three voter
+containers each enforce one CPU / 3 GiB with separate ext4-backed retained disks;
+real RustFS enforces one CPU / 2 GiB. The independent oracle covers SDK/compiled
+CLI, native/Axum daemon handlers, four logical cells in two groups, SQL rollback,
+KV, renewed startup leases, retained restart, leader SIGKILL, archive-write
+refusal/restoration, minority write/protected-read refusal and joined shutdown.
+Source, original deadlines, IDs and budgets stay frozen. One VM does not prove
+independent physical failure domains or the remaining primitive/release gates.
+
+Evidence `CG-17-linux-sql-kv-sealed-41e68a7bf-2991` retains source/image and four
+guest directories with 2,632 regular files in hash-verified archives, plus a
+verified second copy. All owned processes and VMs are stopped. The new lab is
+`cellar-multi-raft-x7`, Colima home
+`/Volumes/Workspace/crabbuild-target/l2987`; its objects and disks remain retained.
+Preserve its frozen image and evidence before any later build. The original
+waiting orchestration parent was held only for post-run custody, then resumed
+its unmodified joined cleanup; no test process or original deadline was paused.
 
 Evidence `CG-17-archive-cut-baseline-bd238f365-2969` has 7,370 verified files,
 17 available native roots, all six explicitly retained failed EventStream voter
@@ -61,9 +80,10 @@ roots, separate RustFS proof results, three frozen executables/full source and a
 verified second copy. The earlier source-specific evidence remains separately
 sealed. See the [current checkpoint](progress.md#cg-17-independent-publication-during-archive-retirement).
 
-Next qualify the basic SQL/KV daemon with independent constrained Linux voters
-and real RustFS, while retaining native EventStream and Container/Sandbox failures
-as separate open gates. Then close ordinary public Storage and inventory acceptance, all
+Next close native EventStream and Container/Sandbox deadline/refusal failures,
+the remote enrollment boundary and current-source SQL/Queue service gates.
+The basic independent Linux SQL/KV gate is green. Then close ordinary public
+Storage and inventory acceptance, all
 primitive public/recovery contracts, managed transitions and independent
 Linux-voter/load/crash/disk-loss qualification. All 32 full cases remain required.
 CG-16 cutover and legacy removal follow the complete release gates. Preserve
