@@ -93,6 +93,12 @@ async fn rustfs_native_sandbox_deletion_preserves_input_proof() -> anyhow::Resul
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated Linux Docker, a pinned local scaffold image and real RustFS"]
+async fn rustfs_native_sandbox_start_shares_parent_output_proof() -> anyhow::Result<()> {
+    sandbox_execution::qualify_start_output().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "diagnostic: original extent/S3 Start against isolated Docker and RustFS"]
 async fn profile_rustfs_extent_s3_sandbox_start() -> anyhow::Result<()> {
     sandbox_execution::profile_start().await

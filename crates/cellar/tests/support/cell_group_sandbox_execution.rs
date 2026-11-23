@@ -97,6 +97,7 @@ type CompletionKey = ([u8; 32], [u8; 16]);
 struct Peer {
     backend: Arc<dyn ExecutionControllerBackend>,
     retirement_cut: Option<Arc<catalog_fault::Store>>,
+    cut_after_create: AtomicBool,
     creates: AtomicUsize,
     executes: AtomicUsize,
     writes: AtomicUsize,
@@ -127,6 +128,7 @@ impl Peer {
         Arc::new(Self {
             backend,
             retirement_cut,
+            cut_after_create: AtomicBool::new(false),
             creates: AtomicUsize::new(0),
             executes: AtomicUsize::new(0),
             writes: AtomicUsize::new(0),
@@ -184,6 +186,14 @@ impl Peer {
         // can complete durably after its execute waiter is cancelled, leaving
         // reconciliation as the first observer. Repeated receipts are not work.
         let lose = match original.operation.kind {
+            ExecutionOperationKind::Create if self.cut_after_create.load(Ordering::Acquire) => {
+                self.retirement_cut
+                    .as_ref()
+                    .context("Create output cut store missing")?
+                    .deny_sandbox_parent_writes
+                    .store(true, Ordering::Release);
+                false
+            }
             ExecutionOperationKind::Execute if self.lose_exec.swap(false, Ordering::AcqRel) => {
                 *self.original_exec.lock().unwrap() = Some(original);
                 true
@@ -360,6 +370,9 @@ struct Track {
     factories: AtomicUsize,
     refuse: AtomicBool,
     calls: AtomicUsize,
+    ready_returns: AtomicUsize,
+    confirms_started: AtomicUsize,
+    confirms_returned: AtomicUsize,
     old: Mutex<Option<Context>>,
 }
 
@@ -392,16 +405,27 @@ impl Cell for Parent {
                 .get_or_insert_with(|| context.clone());
             let catalog = SandboxCatalog::open(&context)?;
             let value = match operation.as_str() {
-                "Create" | "Spare" => serde_json::to_value(
-                    catalog
+                "Create" | "Spare" => {
+                    let allocation = catalog
                         .start_child(
                             &context,
                             if operation == "Spare" { "spare" } else { "job" },
                             "SANDBOX",
                             parameters(),
                         )
-                        .await?,
-                )?,
+                        .await?;
+                    self.track.ready_returns.fetch_add(1, Ordering::AcqRel);
+                    serde_json::to_value(allocation)?
+                }
+                "ConfirmReady" => {
+                    let allocation = catalog
+                        .get(&context, "job")?
+                        .context("Sandbox confirmation allocation")?;
+                    self.track.confirms_started.fetch_add(1, Ordering::AcqRel);
+                    let confirmed = catalog.confirm_ready(&context, &allocation).await?;
+                    self.track.confirms_returned.fetch_add(1, Ordering::AcqRel);
+                    serde_json::to_value(confirmed)?
+                }
                 "Exec" => {
                     self.storage.put_json("business", &json!(12))?;
                     let allocation = catalog
@@ -657,6 +681,10 @@ pub async fn qualify_delete_input() -> Result<()> {
     run(Scenario::DeleteInput).await
 }
 
+pub async fn qualify_start_output() -> Result<()> {
+    run(Scenario::StartOutput).await
+}
+
 pub async fn profile_retirement() -> Result<()> {
     run(Scenario::RetirementProfile).await
 }
@@ -678,11 +706,13 @@ enum Scenario {
     RecoveryProfile,
     DeleteInputProfile,
     RetirementProfile,
+    StartOutput,
 }
 
 async fn run(scenario: Scenario) -> Result<()> {
     let outage = matches!(scenario, Scenario::Outage);
     let minimum_custody = matches!(scenario, Scenario::MinimumCustody);
+    let start_output = matches!(scenario, Scenario::StartOutput);
     let profile = matches!(scenario, Scenario::StartProfile);
     let retirement_profile = matches!(scenario, Scenario::RetirementProfile);
     let trace = profile
@@ -712,13 +742,18 @@ async fn run(scenario: Scenario) -> Result<()> {
             if minimum_custody && minimum != Durability::S3 {
                 continue;
             }
+            if start_output && minimum != Durability::S3 {
+                continue;
+            }
             if delete_input && minimum != Durability::Quorum {
                 continue;
             }
             let store = Arc::new(catalog_fault::Store::around(rustfs::store(
                 &format!(
                     "native-sandbox-{}-{minimum:?}",
-                    if minimum_custody {
+                    if start_output {
+                        "start-output"
+                    } else if minimum_custody {
                         "floor"
                     } else if outage {
                         "proof"
@@ -757,9 +792,10 @@ async fn run(scenario: Scenario) -> Result<()> {
             .await?;
             let peer = Peer::new(
                 backend.clone(),
-                minimum_custody.then(|| store.clone()),
+                (minimum_custody || start_output).then(|| store.clone()),
                 trace,
             );
+            peer.cut_after_create.store(start_output, Ordering::Release);
             let controller = ExecutionController::create(
                 domain.clone(),
                 ExecutionControllerOptions {
@@ -809,7 +845,7 @@ async fn run(scenario: Scenario) -> Result<()> {
             named_service::activate(&cluster,"sandbox-archive").await?;
             ensure!(cluster.hosts.iter().all(|host|host.resource_usage().host.controller.groups==2),"both Sandbox namespaces must have a live managed group");
             let history=|name:&str|->Result<CellHistory>{Ok(CellHistory{cluster:cluster.history.cluster,namespace:cluster.history.namespace,cell:CellId::new(format!("Counter:{name}"))?,incarnation:IncarnationId::new([227;16])?})};
-            let a=history(if minimum_custody {"sandbox-floor"}else{"sandbox-parent"})?;let b=history("sandbox-independent")?;
+            let a=history(if minimum_custody || start_output {"sandbox-floor"}else{"sandbox-parent"})?;let b=history("sandbox-independent")?;
             for (index,h) in [&a,&b].iter().enumerate() {let leader=managed_fixture::leader(&cluster.hosts,cluster.history).await?;cluster.hosts[leader].cell((*h).clone())?.enroll(CellEnrollmentRequest{creation:ProposalId::new([228+index as u8;16])?,durability:minimum},TIMEOUT).await?;}
             if outage {
                 let before=store.denied_group_archive_writes.load(Ordering::Acquire);store.deny_group_archive_writes.store(true,Ordering::Release);
@@ -820,6 +856,35 @@ async fn run(scenario: Scenario) -> Result<()> {
                 ensure!(track.calls.load(Ordering::Acquire)==1 && store.denied_group_archive_writes.load(Ordering::Acquire)>before,"archive cut did not enter the public Sandbox callback/proof");
                 ensure!(peer.creates.load(Ordering::Acquire)==0 && peer.executes.load(Ordering::Acquire)==0 && docker_execution::physical_resources(&domain,&policy).await?==0,"Sandbox entered physical work without source/target S3 proof");
                 store.deny_group_archive_writes.store(false,Ordering::Release);
+            } else if start_output {
+                let first_options=options(1,Durability::S3)?;
+                let error=call_options(&cluster,&a,first_options.clone(),"Create").await.err().context("Sandbox Start escaped its final parent S3 proof")?;
+                unknown(&error,first_options.id)?;
+                ensure!(peer.creates.load(Ordering::Acquire)==1 && store.denied_sandbox_parent_writes.load(Ordering::Acquire)>0,"Start-output cut did not follow actual Create/source input proof");
+                let projected=state(&cluster,&a,0).await?;
+                ensure!(projected["job"]["state"]=="ready","Start-output cut did not reach verified child receipt and parent Ready transition: {projected}");
+                ensure!(track.ready_returns.load(Ordering::Acquire)==1,"owned Start waited for a separate parent Ready proof instead of its final output gate");
+                let error=call(&cluster,&a,Durability::S3,2,"ConfirmReady").await.err().context("explicit confirm_ready skipped its S3 checkpoint")?;
+                unknown(&error,options(2,Durability::S3)?.id)?;
+                ensure!(track.confirms_started.load(Ordering::Acquire)==1 && track.confirms_returned.load(Ordering::Acquire)==0,"explicit confirm_ready lost its independently durable contract");
+                store.deny_sandbox_parent_writes.store(false,Ordering::Release);
+                let leader=managed_fixture::leader(&cluster.hosts,cluster.history).await?;
+                let cell=cluster.hosts[leader].cell(a.clone())?;
+                let request=CellReceiptRequest{id:first_options.id,contract:cell.contract("Run")?,input:serde_json::to_vec("Create")?,durability:Durability::S3};
+                let original=cellar::asyncrt::timeout(TIMEOUT,async {
+                    loop {
+                        if let Ok(observed)=cell.receipt(request.clone(),std::time::Duration::from_secs(5)).await {
+                            if observed.receipt().is_some(){return Ok::<_,anyhow::Error>(observed);}
+                        }
+                        cellar::asyncrt::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.context("original Start receipt did not recover after parent archive restoration")??;
+                ensure!(original.command()==first_options.id && original.durability()>=Durability::S3);
+                let receipt=original.receipt().context("original Start receipt missing")?;
+                ensure!(receipt.command()==first_options.id && receipt.minimum_durability()>=Durability::S3);
+                let allocation:SandboxAllocation=serde_json::from_slice(receipt.result())?;
+                ensure!(allocation==serde_json::from_value::<SandboxAllocation>(projected["job"].clone())? && allocation.state==SandboxAllocationState::Ready && allocation.generation==1,"recovered Start result changed its original allocation");
+                ensure!(track.calls.load(Ordering::Acquire)==2 && track.ready_returns.load(Ordering::Acquire)==1 && peer.creates.load(Ordering::Acquire)==1 && peer.executes.load(Ordering::Acquire)==0 && peer.deletes.load(Ordering::Acquire)==0,"Start receipt recovery replayed business or provider work");
             } else if delete_input {
                 let created=call(&cluster,&a,Durability::Quorum,1,"Create").await?;
                 let deleted=call(&cluster,&a,Durability::Quorum,2,"DestroyJob").await?;
@@ -930,7 +995,9 @@ async fn run(scenario: Scenario) -> Result<()> {
                 track.refuse.store(false,Ordering::Release);ensure!(call(&cluster,&a,minimum,11,"Create").await.is_err(),"retired Sandbox parent reopened admission");
                 ensure!(peer.creates.load(Ordering::Acquire)==3);
             }
-            if delete_input {
+            if start_output {
+                eprintln!("sandbox_start_output_configuration {}",json!({"extents":rooted,"minimum":"S3","original_request_ms":5000,"parent_final_proof_required":true,"explicit_ready_proof_required":true,"original_receipt_recovered":true,"callback_replay":false,"physical_replay":false}));
+            } else if delete_input {
                 eprintln!("sandbox_delete_input_configuration {}",json!({"extents":rooted,"namespace_minimum":"Quorum","delete_minimum":"S3","original_request_ms":5000,"real_engine":true,"ordinary_command_slots":ORDINARY_COMMAND_SLOTS,"sql_workers":1}));
             } else if minimum_custody {
                 eprintln!("sandbox_floor_configuration {}",json!({"extents":rooted,"minimum":"S3","namespace_minimum":"Quorum","target_minimum":"S3","original_request_ms":5000,"real_engine":true,"denied_parent_archive_writes":store.denied_sandbox_parent_writes.load(Ordering::Acquire),"ordinary_command_slots":ORDINARY_COMMAND_SLOTS,"sql_workers":1}));
