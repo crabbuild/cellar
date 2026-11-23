@@ -1019,6 +1019,14 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
     let second = &h.background_archives[1];
     let active = first.1.hold_publication();
     let queued = second.1.hold_publication();
+    let current = h.controllers[0]
+        .archive_status(h.route.history)?
+        .context("foreground archive status")?
+        .published
+        .context("foreground initial publication")?
+        .position()
+        .index;
+    let foreground = h.remote.hold_publication_after(current.get());
 
     struct Release(Vec<Arc<archive_controller::archive_store::Gate>>);
 
@@ -1029,7 +1037,7 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
             }
         }
     }
-    let release = Release(vec![active.clone(), queued.clone()]);
+    let release = Release(vec![active.clone(), queued.clone(), foreground.clone()]);
     let work = async {
         archive_controller::add(&h.fixture, first.0.birth.route(), false, 1).await?;
         tokio::time::timeout(Duration::from_secs(5), active.entered.notified()).await?;
@@ -1042,11 +1050,21 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
         let selection = lookup.select(&h.fixture.runtimes[0], &h.fixture.appliers[&(0, h.route.history)].0,
             h.fixture.cell_options(&h.cell).await?).await?;
         let mut response = Box::pin(selection.response());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::select! {
+                _ = foreground.entered.notified() => Ok::<_, anyhow::Error>(()),
+                result = response.as_mut() => {
+                    result.context("foreground proof completed before its required publication")?;
+                    anyhow::bail!("an unpublished required cut supplied a receipt")
+                }
+            }
+        }).await.context("required foreground publication never entered")??;
         anyhow::ensure!(tokio::time::timeout(Duration::from_millis(30), response.as_mut()).await.is_err(),
-            "held older publication cannot cover the new receipt");
+            "held required publication cannot cover the new receipt");
         // Same controller channel: complete a Quorum command after admission of
         // the S3 request, before releasing the active background publication.
         drop(h.command(2, b"barrier", Durability::Quorum, Duration::from_secs(5)).await?.response().await?);
+        foreground.release.notify_one();
         active.release.notify_one();
         let response = response.await.with_context(|| format!(
             "foreground receipt waited behind queued background publication: extents={rooted}, required={required:?}, queued_background_entered={}",
