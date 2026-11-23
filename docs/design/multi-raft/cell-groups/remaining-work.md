@@ -8,7 +8,15 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The optimization PR now integrates main `a85ab6f6c` (#180). Compiler inputs
+The current delivery is [PR #182](https://github.com/crabbuild/cellar/pull/182),
+based on main `0f3b18e79` after merged #181 and #167. Its current-source
+[qualification](progress.md#cg-17-independent-publication-during-archive-retirement)
+remains failed; follow the [full delivery milestones](#primitive-delivery-priority).
+No default cutover or full primitive acceptance is claimed.
+
+## Earlier optimization checkpoints
+
+An earlier optimization checkpoint integrates main `a85ab6f6c` (#180). Compiler inputs
 `4bcd59fd` pass **1,410 library tests / two existing ignores**, **29/30 selected
 native controls**, strict all-feature/all-target Cellar/container Clippy,
 **60 Python tests** and repository checks. The S3 read-source reuse case fails
@@ -1493,26 +1501,29 @@ by this comparison or by a scoped native optimization pass.
 
 ## Primitive delivery priority
 
-The goal includes all four requested stages: ordinary paths, complete primitives,
-managed recovery, and qualified public cutover. All
-[32 required cases](primitive-acceptance-cases.md) remain in scope. PR #181 is
-merged; current main `0f3b18e79` also includes the large #167 optimization change.
-The follow-up branch `codex/cg17-archive-retirement` integrates one bounded quiet
-retirement lane with that main. Combined qualification is pending.
+All four requested stages remain required: ordinary paths, complete primitives,
+managed recovery and qualified public cutover. PR #182 integrates merged #181
+and #167 at runtime `0adc0eb8d`. The archive-retirement isolation regression and
+three existing real-RustFS archive functions pass both images. Library and static
+checks pass, but the canonical Docker/Sandbox campaign is **FAILED: 6/10
+functions, 18/25 configuration markers**. Both extent Container and both Quorum
+Sandbox lifecycle profiles pass; several original S3/request deadlines and the
+extent explicit-Ready oracle remain open. Remote enrollment's original 800-ms
+control still fails before the retained-S3 precondition. See
+[exact results and custody](progress.md#cg-17-independent-publication-during-archive-retirement).
 
-The pre-#167 `0b280ddc6` baseline passes the two-image native/RustFS isolation
-regression and both existing real retirement/proof controls. Its full bounded
-Docker/Sandbox gate remains **FAILED: 8/10 functions, 20/25 markers**. Container
-recovery passes all four configurations. Sandbox still misses original receipt
-verification and five-second request boundaries; requested-S3 floor failures
-occur before the retirement oracle. Three original short-deadline native controls
-also remain failed. See the [exact results](progress.md#cg-17-independent-publication-during-archive-retirement).
+The immediate qualification correction selects the actual parent group's archive
+keys. Payload-marker matching can miss extent deltas that omit unchanged scope
+metadata. Require the stronger fault-selection regression and original real
+floor/Delete/Start oracles before interpreting the explicit-Ready result.
+Separate successful traces and pre-#167 results cannot clear canonical failures.
+All [32 required cases](primitive-acceptance-cases.md) remain in scope.
 
 Deliver and close these milestones in order:
 
 1. **Ordinary paths on combined main.** Qualify the integrated source, then fix
-   remaining Sandbox receipt recovery, Spare7 and S3 Start1 failures, original
-   short-deadline native boundaries and #167's SQL/Queue service failures. Keep
+   the exact current Container/Sandbox deadline and confirmation failures, remote
+   enrollment boundary and #167's SQL/Queue service failures. Keep
    source IDs, typed ambiguity, minima and all original request/recovery budgets.
    Preserve failed media before repeating a case. No default cutover while these
    paths remain unqualified.

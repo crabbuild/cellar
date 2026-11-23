@@ -33,6 +33,38 @@ use tokio::sync::Notify;
 
 const ORDINARY_COMMAND_SLOTS: usize = 3;
 
+async fn configure_parent_archive_cut(
+    cluster: &ManagedCluster,
+    store: &catalog_fault::Store,
+) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let catalog = verification::Catalog::new(
+        fixture.store.clone(),
+        verification::CatalogOptions {
+            prefix: "managed/".into(),
+            ..Default::default()
+        },
+    )?;
+    let namespace = catalog
+        .existing_namespace(fixture.declaration.namespace.clone())
+        .await?;
+    // Select the actual immutable archive binding established by the fixture.
+    // This is fault routing only, never serving or archive-proof authority.
+    let mut binding = Sha256::new();
+    binding.update(b"cellar-cell-group-archive-history-1\0");
+    binding.update(cluster.history.cluster.bytes());
+    binding.update(cluster.history.namespace.bytes());
+    binding.update(cluster.history.group.bytes());
+    binding.update(cluster.history.incarnation.bytes());
+    *store.sandbox_parent_archive_prefix.lock().unwrap() =
+        Some(object_store::path::Path::from(format!(
+            "{}cell-group-archives/cellar-cell-group-archive-checkpoint-1/{}",
+            namespace.data_prefix(),
+            hex::encode(binding.finalize())
+        )));
+    Ok(())
+}
+
 struct TimingAdapter(NativeContainerAdapter);
 
 impl ContainerAdapter for TimingAdapter {
@@ -281,7 +313,8 @@ impl Peer {
 #[path = "cell_group_sandbox_observation_tests.rs"]
 mod observation_tests;
 pub(super) use observation_tests::{
-    reconciled_completion_is_counted_once, reconciled_first_reply_keeps_the_loss_cut,
+    archive_cut_uses_group_keys, reconciled_completion_is_counted_once,
+    reconciled_first_reply_keeps_the_loss_cut,
 };
 
 impl ExecutionControllerBackend for Peer {
@@ -844,6 +877,7 @@ async fn run(scenario: Scenario) -> Result<()> {
             // before any public Sandbox call or archive fault is admitted.
             named_service::activate(&cluster,"sandbox-archive").await?;
             ensure!(cluster.hosts.iter().all(|host|host.resource_usage().host.controller.groups==2),"both Sandbox namespaces must have a live managed group");
+            configure_parent_archive_cut(&cluster, &store).await?;
             let history=|name:&str|->Result<CellHistory>{Ok(CellHistory{cluster:cluster.history.cluster,namespace:cluster.history.namespace,cell:CellId::new(format!("Counter:{name}"))?,incarnation:IncarnationId::new([227;16])?})};
             let a=history(if minimum_custody || start_output {"sandbox-floor"}else{"sandbox-parent"})?;let b=history("sandbox-independent")?;
             for (index,h) in [&a,&b].iter().enumerate() {let leader=managed_fixture::leader(&cluster.hosts,cluster.history).await?;cluster.hosts[leader].cell((*h).clone())?.enroll(CellEnrollmentRequest{creation:ProposalId::new([228+index as u8;16])?,durability:minimum},TIMEOUT).await?;}
@@ -866,7 +900,9 @@ async fn run(scenario: Scenario) -> Result<()> {
                 ensure!(track.ready_returns.load(Ordering::Acquire)==1,"owned Start waited for a separate parent Ready proof instead of its final output gate");
                 let error=call(&cluster,&a,Durability::S3,2,"ConfirmReady").await.err().context("explicit confirm_ready skipped its S3 checkpoint")?;
                 unknown(&error,options(2,Durability::S3)?.id)?;
-                ensure!(track.confirms_started.load(Ordering::Acquire)==1 && track.confirms_returned.load(Ordering::Acquire)==0,"explicit confirm_ready lost its independently durable contract");
+                let started = track.confirms_started.load(Ordering::Acquire);
+                let returned = track.confirms_returned.load(Ordering::Acquire);
+                ensure!(started == 1 && returned == 0,"explicit confirm_ready lost its independently durable contract: started={started} returned={returned} allocation={projected}");
                 store.deny_sandbox_parent_writes.store(false,Ordering::Release);
                 let leader=managed_fixture::leader(&cluster.hosts,cluster.history).await?;
                 let cell=cluster.hosts[leader].cell(a.clone())?;

@@ -34,53 +34,68 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ### CG-17 independent publication during archive retirement
 
-A quiet predecessor release previously occupied the node publication lane. The
-native red on `e63bd830d` holds that actual release CAS after a newer archive is
-published, then the first independent S3 write exceeds its original five-second
-budget. Runtime `0b280ddc6` adds one bounded, joined retirement lane. Same-group
-journal writers stay serialized and all lanes use the existing I/O banks. The
-lane supplies no archive proof or compaction authority. It consumes an old
-foreground wake at admission while preserving new arrivals and retry backoff.
+Draft [PR #182](https://github.com/crabbuild/cellar/pull/182) is based on main
+`0f3b18e79`, including merged #181 and #167. Runtime **`0adc0eb8d`** adds one
+bounded, joined predecessor-retirement lane using the existing I/O banks.
+Same-group journal writes remain serialized. Cleanup supplies no S3 proof or
+compaction authority and does not reset publication fairness.
 
-The strengthened regression passes both image modes natively and against real
-RustFS: two independent exact S3 receipts return while the release remains held,
-then the original group resumes. Two existing real-RustFS functions also pass
-both modes: next-intent retirement coalescing and response-before-retirement.
+The original native red at `e63bd830d` holds an actual predecessor-release CAS
+and blocks the first independent S3 write beyond its original five seconds.
+On the integrated runtime, the strengthened oracle passes in both image modes
+natively and against real RustFS: two independent exact S3 receipts return while
+the release remains held, then the original group publishes again. Three other
+real-RustFS functions pass in both modes: next-intent retirement coalescing,
+response-before-retirement and foreground-before-queued-background.
 
-The complete pre-#167 Docker/RustFS baseline remains **FAILED: 8/10 functions,
-20/25 configuration markers**. All four bounded native Container recovery
-profiles now pass, alongside three physical safety cases, all eight source-proof
-refusal profiles, both interrupted-Delete profiles and both Start output-proof
-profiles. Materialized Quorum Sandbox passes its complete oracle. Remaining
-profiles are materialized S3 Sandbox original-receipt lookup verification,
-extent Quorum `Spare7`, extent S3 `Start1`, and both requested-S3 floor initial
-`Start1` calls. Those initial failures do not qualify the later retirement oracle.
-No general latency cure or full Container/Sandbox support is claimed.
+The complete integrated Docker/RustFS campaign remains **FAILED: 6/10 functions,
+18/25 configuration markers**. All original IDs, minima and 5s/3s/60s budgets
+remain required.
 
-Existing native archive controls finish **30 pass / three fail / 34 ignored**;
-the new two-image isolation test passes separately. The command and enrollment
-deadline tests fail waiting for retained S3 work after original 800-ms calls;
-that wait has a 15-second bound. The remote case reports one entered callback,
-active SQL and no retained S3 work at transport timeout. These failures do not
-establish public deadline overrun or a missing business callback. The first two
-fixtures deleted their temporary voter roots on early return; their source,
-executable and logs survive. The follow-up preserves those roots before calls.
+| Integrated case | Result at `0adc0eb8d` |
+| --- | --- |
+| Three physical safety cases | All pass |
+| Container recovery | Both extent profiles pass; materialized Quorum `docker-a Read5` and materialized S3 `docker-a Write2` exceed 5s |
+| Container and Sandbox source-proof refusal | All eight profiles pass |
+| Sandbox lifecycle/recovery | Both Quorum profiles pass the complete oracle, including files, generation replacement, interrupted Exec/Delete, retained restart and autonomous cleanup; materialized S3 `DestroyJob8` and extent S3 `Start1` exceed 5s |
+| Requested-S3 retirement floor | Both initial `Start1` calls exceed 5s before the retirement oracle |
+| Interrupted Delete input/restart/restore | Both image modes pass |
+| Start final output/explicit Ready/receipt recovery | Materialized S3 passes; extent S3 fails the explicit `confirm_ready` oracle |
 
-Locked optimized build, strict affected Clippy and canonical formatting pass at
-`0b280ddc6`; runner, layout and dependency checks retain their recorded source
-boundaries. Evidence **`CG-17-retirement-isolation-rustfs-0b280ddc6-2937`** is
-sealed with **8,045 files, 91 canonical roots and seven available native roots**,
-frozen source/executables, the native red, separate timing/stack controls and a
-verified second copy. All owned processes and the 4-CPU/8-GiB VM are stopped;
-RustFS objects/volumes remain retained at 1 CPU/2 GiB. Native RF3 shares a process.
+The focused extent/S3 Start trace passes in 3.395s on identical source. A separate
+full recovery trace fails three profiles, including a replacement Create whose
+provider completes only 138ms before the original deadline. These diagnostic
+results neither replace canonical failures nor establish one common cause.
 
-PR #181 is merged at `bb8664a71`. Latest fetched main **`0f3b18e79`** also merges
-#167 and changes routing, persistence, archive admission and read-source reuse.
-The retirement lane is integrated on `codex/cg17-archive-retirement`, preserving
-those admission, capacity and proof rules; **combined-source qualification is
-pending**. The baseline above predates #167. All 32 full CG-17 cases and
-CG-13/15/16 remain open; the generated index receives no new acceptance credit.
-See the [delivery priorities](remaining-work.md#primitive-delivery-priority).
+The explicit-Ready failure also exposes a qualification weakness: the parent
+archive cut searches payloads for a scope marker. An extent delta need not repeat
+unchanged parent metadata. The follow-up selects the actual parent group's
+archive-key prefix, blocks opaque chunks and control writes, and leaves child
+archives available. It retains the original business assertions and adds the
+actual confirmation counters to failures. That fixture correction requires its
+own owning and real-RustFS qualification; it is not a production deadline repair.
+
+The locked optimized build, **1,411 library tests / two existing ignores**,
+strict all-target/all-feature Clippy, **76 runner tests**, formatting, layout,
+docs and native dependencies pass at `0adc0eb8d`. The native archive target ends
+**53 pass / one fail / 45 ignored**. Local original 800-ms command and enrollment
+controls pass. Remote enrollment fails before the intended retained-S3 state,
+both natively and against real RustFS, with one initializer entered, active SQL
+and no retained S3 work. This does not establish a public deadline overrun or
+missing callback.
+
+Evidence **`CG-17-retirement-main-rustfs-0adc0eb8d-2950`** is sealed with
+**10,416 files, 91 canonical roots, 31 available native roots**, full frozen
+source, three executables and a verified second copy. Separate diagnostic and
+real-archive runs are retained with their exact source and results. All owned
+processes and the 4-CPU/8-GiB VM are stopped; RustFS objects/volumes remain at
+1 CPU/2 GiB. Native RF3 shares one process. The earlier pre-#167 baseline
+`CG-17-retirement-isolation-rustfs-0b280ddc6-2937` remains separately sealed;
+its 8/10 functions and 20/25 markers do not qualify the integrated source.
+
+All 32 full CG-17 cases and CG-13/15/16 remain open. The generated implementation
+index receives no new acceptance credit. Follow the
+[full delivery milestones](remaining-work.md#primitive-delivery-priority).
 
 ### CG-17 Sandbox Start output proof
 

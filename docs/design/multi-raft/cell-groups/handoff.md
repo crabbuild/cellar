@@ -6,32 +6,43 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current archive retirement and combined-main delivery
 
-Continue on `codex/cg17-archive-retirement`, based on main `0f3b18e79` after
-merged #181 and #167. The local integration preserves #167's verification
-cohorts, reuse index and capacity waits while adding one quiet-retirement lane.
-Combined-source build and runtime qualification are pending. Do not push to the
-merged #181 branch or relabel the earlier baseline as qualification of this main.
+Continue on `codex/cg17-archive-retirement`, draft PR #182, based on main
+`0f3b18e79` after merged #181 and #167. Runtime `0adc0eb8d` preserves verification
+cohorts, reuse/capacity handling and physical proof custody while adding one
+bounded quiet-retirement lane. All owned test processes and the RustFS VM have
+stopped and joined.
 
-The completed `0b280ddc6` baseline passes the new native and real-RustFS
-isolation regression in both image modes, plus four real retirement/proof
-scenarios. Its full Docker campaign remains FAILED, **8/10 functions, 20/25
-markers**, with all four bounded Container recovery profiles passing. Sandbox
-still fails materialized S3 original-receipt verification, extent Quorum Spare7,
-extent S3 Start1 and both requested-S3 floor initial Start1 calls. Existing native
-archive controls have 30 passes and three original short-deadline failures.
-The first two failed native fixtures lost temporary voter roots; the new fixture
-custody change preserves future failures without changing calls or assertions.
+Current-source checks pass: optimized build, 1,411 library tests / two existing
+ignores, strict all-target/all-feature Clippy, 76 runner tests, formatting, layout,
+docs and native dependencies. Four real archive functions pass both images.
+Native archive controls finish 53 pass / one fail / 45 ignored; original remote
+enrollment still fails before the retained-S3 precondition, natively and on
+RustFS. Preserve that distinction from a public deadline overrun.
 
-Evidence `CG-17-retirement-isolation-rustfs-0b280ddc6-2937` has 8,045 verified
-files, 91 canonical roots, seven available native roots and a verified second
-copy. All owned processes and the RustFS VM stopped and joined. See the
-[source-specific checkpoint](progress.md#cg-17-independent-publication-during-archive-retirement).
+Canonical Docker/Sandbox qualification is **FAILED: 6/10 functions, 18/25
+markers**. Both extent Container and both Quorum Sandbox lifecycles pass.
+Failures remain materialized Quorum Container Read5, materialized S3 Write2,
+materialized S3 Sandbox DestroyJob8, extent S3 Start1, both requested-S3 initial
+Start1 calls and extent S3 explicit Ready confirmation. All eight source-proof
+refusal profiles and both interrupted-Delete profiles pass. Separate trace
+successes do not clear these failures.
 
-Next finish the combined-source ordinary paths, then complete the inventory and
-real Storage/SQL/KV acceptance drivers. Continue through every primitive family,
-managed recovery and the independent Linux-voter/load/disk-loss matrix before
-CG-16 cutover. All 32 full cases remain required; focused passes cannot close
-that gate. Preserve original identities, proof/minimum rules and request budgets.
+The next fixture correction targets the actual parent archive-key prefix rather
+than searching extent payloads for unchanged scope bytes. Run its pure fault
+selection oracle and all affected RustFS floor/Delete/Start functions without
+changing any original assertion or budget. Do not attribute the earlier explicit
+Ready failure to a production proof bypass until its phase/counters are known.
+
+Evidence `CG-17-retirement-main-rustfs-0adc0eb8d-2950` has 10,416 verified files,
+91 canonical roots, 31 available native roots, three frozen executables/full
+source and a verified second copy. Pre-#167 evidence remains separately sealed.
+See the [current-source checkpoint](progress.md#cg-17-independent-publication-during-archive-retirement).
+
+Then close ordinary public Storage/SQL/KV paths and inventory acceptance, all
+primitive public/recovery contracts, managed transitions and independent
+Linux-voter/load/crash/disk-loss qualification. All 32 full cases remain required.
+CG-16 cutover and legacy removal follow the complete release gates. Preserve
+source IDs, typed ambiguity, original minima and request/recovery budgets.
 
 ## Previous shared Sandbox and completion delivery
 

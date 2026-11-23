@@ -3,6 +3,42 @@
 //! A provider can retain a known outcome before its caller receives the reply.
 use super::*;
 
+pub(crate) async fn archive_cut_uses_group_keys() -> Result<()> {
+    use object_store::{path::Path, ObjectStore};
+
+    let store = catalog_fault::Store::default();
+    let parent = Path::from("managed/parent/cell-group-archives/checkpoint/group");
+    *store.sandbox_parent_archive_prefix.lock().unwrap() = Some(parent.clone());
+    store
+        .deny_sandbox_parent_writes
+        .store(true, Ordering::Release);
+    // Neither ordinary extent bytes nor control records contain the old marker.
+    // Every write in the selected group must still fail.
+    for suffix in ["chunks/extent", "indexes/manifest", "registry"] {
+        ensure!(store
+            .put(&parent.child(suffix), b"opaque delta".to_vec().into())
+            .await
+            .is_err());
+    }
+    ensure!(store.denied_sandbox_parent_writes.load(Ordering::Acquire) == 3);
+    let marker = b"{\"scope\":\"Counter:sandbox-floor\"}";
+    let child = Path::from("managed/child/cell-group-archives/checkpoint/group/chunks/data");
+    store.put(&child, marker.to_vec().into()).await?;
+    let neighbor = Path::from("managed/parent/cell-group-archives/checkpoint/group-other/registry");
+    store.put(&neighbor, marker.to_vec().into()).await?;
+    ensure!(store.get(&child).await?.bytes().await?.as_ref() == marker);
+    ensure!(store.denied_sandbox_parent_writes.load(Ordering::Acquire) == 3);
+    store
+        .deny_sandbox_parent_writes
+        .store(false, Ordering::Release);
+    let restored = parent.child("chunks/extent");
+    store
+        .put(&restored, b"restored delta".to_vec().into())
+        .await?;
+    ensure!(store.get(&restored).await?.bytes().await?.as_ref() == b"restored delta");
+    Ok(())
+}
+
 struct LostReturn {
     identity: BackendIdentity,
     committed: Notify,
