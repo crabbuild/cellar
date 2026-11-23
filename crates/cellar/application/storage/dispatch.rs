@@ -7,6 +7,9 @@ use crate::asyncrt::DomainToken;
 use crate::raft::cell_groups::CellActivationFence;
 use std::{future::Future, task::Poll, time::Duration};
 
+#[path = "dispatch_reply.rs"]
+mod reply;
+
 #[derive(Clone)]
 pub(crate) struct RaftDispatchContext {
     pub domain: DomainToken,
@@ -56,8 +59,9 @@ pub(crate) struct RaftDispatch {
     target: Option<(DomainToken, u64, u64)>,
 }
 
-/// Only the owned checkpoint task can create this permit, after exact apply
-/// and the invocation's required archive proof. It owns no SQLite/image pin.
+/// Original invocation authority for owned I/O and queued response delivery.
+/// The I/O task separately proves exact apply and required archival before
+/// entering the target. This permit owns no SQLite/image pin.
 pub(crate) struct RaftDispatchPermit(RaftDispatch);
 
 pub(crate) struct DispatchCall<T> {
@@ -404,6 +408,7 @@ impl RaftDispatch {
         let read_only = matches!(proof, SourceProof::Read);
         let started = Arc::new(AtomicBool::new(false));
         let submitted = started.clone();
+        let response_permit = RaftDispatchPermit(self.clone());
         let prepared = (|| -> Result<_> {
             self.remaining()?;
             let resources = &self.authority.resources;
@@ -483,11 +488,14 @@ impl RaftDispatch {
         let receive = prepared?;
         Ok(DispatchCall {
             started,
-            future: Box::pin(async move {
-                receive
-                    .await
-                    .map_err(|_| anyhow!(consensus::RuntimeError::Closed))?
-            }),
+            future: Box::pin(reply::receive(
+                async move {
+                    receive
+                        .await
+                        .map_err(|_| anyhow!(consensus::RuntimeError::Closed))?
+                },
+                move || response_permit.check(),
+            )),
         })
     }
 }

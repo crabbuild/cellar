@@ -21,6 +21,14 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::Notify;
 
+#[path = "support/cell_group_dispatch_reply.rs"]
+mod dispatch_reply;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queued_sdk_replies_refuse_a_later_invocation() -> Result<()> {
+    dispatch_reply::qualify().await
+}
+
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
 // The host fixture controls wall clocks, test processes and on-disk faults.
