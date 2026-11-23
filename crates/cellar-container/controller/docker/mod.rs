@@ -6,6 +6,9 @@
 //! tree before admission, including detached children. No mutation is replayed.
 mod engine;
 mod journal;
+#[cfg(test)]
+#[path = "receipt_tests.rs"]
+mod receipt_tests;
 mod work;
 use super::{Reply, Request};
 use crate::Limits;
@@ -628,6 +631,54 @@ impl DockerBackend {
             })?
             .await?
     }
+
+    async fn reconcile_operation(
+        &self,
+        current: ExecutionClaim,
+        original: ExecutionPendingOperation,
+    ) -> Result<Option<ExecutionOutcome>> {
+        // Existing immutable receipts are read-only and remain available while
+        // unrelated physical fencing holds admission. Unknown stays unknown.
+        let existing = self
+            .journal
+            .view(|state| Ok(state.original_operation(&current, &original)?.cloned()))?;
+        if let Some(existing) = existing {
+            // An entered operation keeps its exact receipt, including unknown
+            // outcomes. Expiry never converts physical uncertainty into refusal.
+            return Ok(existing.outcome);
+        }
+        if u64::try_from(cellar::asyncrt::wall_ms())? < original.operation.expires_unix_ms {
+            return Ok(None);
+        }
+        // Only sealing absence must exclude physical reservation and job
+        // installation. Engine inventory is never authoritative here.
+        let _admission = self.admission.lock().await;
+        self.update(move |state| {
+            // Validate again in the durable transition. A cancelled waiter can
+            // release admission while its owned journal write is still joining.
+            if let Some(existing) = state.original_operation(&current, &original)? {
+                return Ok(existing.outcome.clone());
+            }
+            let outcome = ExecutionOutcome::ExpiredBeforeSubmission;
+            state
+                .slots
+                .get_mut(&journal::key(&original.claim))
+                .context("original Docker history missing")?
+                .operations
+                .insert(
+                    hex(&original.operation.id),
+                    PhysicalOperation {
+                        claim: original.claim,
+                        operation: original.operation,
+                        outcome: Some(outcome.clone()),
+                    },
+                );
+            // A delayed execute must encounter this exact immutable receipt.
+            // Reply only after the tombstone has been synced successfully.
+            Ok(Some(outcome))
+        })
+        .await
+    }
 }
 
 impl ExecutionControllerBackend for DockerBackend {
@@ -670,21 +721,10 @@ impl ExecutionControllerBackend for DockerBackend {
         original: ExecutionPendingOperation,
     ) -> HandlerFuture<Option<ExecutionOutcome>> {
         Box::pin(async move {
-            self.journal.check(&current)?;
-            self.journal.view(|state| {
-                let slot = state
-                    .slots
-                    .get(&journal::key(&original.claim))
-                    .context("original Docker history missing")?;
-                let Some(operation) = slot.operations.get(&hex(&original.operation.id)) else {
-                    return Ok(None);
-                };
-                ensure!(
-                    operation.claim == original.claim && operation.operation == original.operation,
-                    ExecutionControllerFailure::ConflictingRequest
-                );
-                Ok(operation.outcome.clone())
-            })
+            let service = self.clone();
+            self.domain
+                .run(async move { service.reconcile_operation(current, original).await })
+                .await?
         })
     }
 

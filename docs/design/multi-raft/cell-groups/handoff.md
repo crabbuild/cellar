@@ -6,56 +6,57 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current shared Sandbox and completion delivery
 
-Continue on `codex/cg17-s3-completion`; open PR #180 uses
-`codex/cg17-shared-sandbox-bridge`. Latest fetched main `09cdcf423` is included.
-Runtime **`f71e467f0`** renews a reservation only after a fresh registry read
-proves it unallocated and permanently superseded. It journals at most one
-successor per fair turn. An exact peer cut is acquired and physically recovered;
-otherwise the successor reserves against the current selected parent. Unknown
-or committed allocations keep their original identity. The earlier exact-lease
-Sandbox cleanup fix and all ownership, minimum, proof and budget checks remain.
+Continue on draft [PR #181](https://github.com/crabbuild/cellar/pull/181), branch
+`codex/cg17-container-expiry-recovery`, based on latest fetched main `a85ab6f6c`.
+PR #180 is merged. Runtime **`b16b64036`** adds high-level shared Sandbox Ready
+batching after verified child completion. Source input proof, child receipt and
+final source output proof remain mandatory; explicit `confirm_ready`, `reserve`,
+Fleet and Delete keep their existing checkpoints.
 
-The contention oracle fails on pre-change `0e134bdf6` and passes in both modes
-natively and against real RustFS. Qualification caught and corrected an
-intermediate peer-replay regression. Preserve that failed `0ea8020ec` control;
-the final unchanged peer oracle passes even with new uploads denied.
+The new actual-Docker/RustFS regression fails at its intended extra-Ready-wait
+assertion in both modes on old production `ebbaf48d8`. Both modes pass the whole
+unchanged oracle in the final `b16b64036` canonical run: public final success
+and explicit confirmation remain S3 gated, then receipt-only recovery returns
+the original allocation without business/provider replay.
 
-**Native aggregate remains FAILED.** Full archive (41/0/17 ignored), full
-controller (33/0/34 ignored), both six-cut seed modes and ordinary named bindings
-pass. A separate unchanged 800ms admission control fails after passing in the
-full suite. Strict affected Clippy and the locked optimized build pass. The
-earlier 62 unit passes belong to intermediate `0ea8020ec`, not the final source.
+**Canonical qualification remains FAILED: 8/10 functions, 19/25 markers.** Three
+physical safety cases, all eight source-proof refusal profiles, both requested-S3
+retirement-floor profiles, both interrupted-Delete/restart/restore profiles and
+both new Start output-proof profiles pass. Materialized Quorum Container and
+Sandbox each pass their complete lifecycle/recovery oracle.
 
-**Real RustFS remains FAILED: 6/9 functions, 20/24 configuration markers.**
-All three archive protocols, interrupted deletion/restart/restore, parent-proof
-refusal and physical outage pass both modes. Both Quorum Sandbox profiles now
-pass the full file/generation/lost-Exec/lost-Delete/autonomous-cleanup oracle.
-Extent requested-S3 retirement also passes. Do not infer an exclusive cause for
-historical deadline variability or accept a full primitive family.
+The six remaining ordinary failures are Container materialized S3 `docker-a
+Write2`, extent Quorum `docker-b Destroy4`, extent S3 `docker-a Write2`; Sandbox
+materialized/extent S3 Start1 after physical Create and extent Quorum `FileList4`.
+Keep original IDs, typed ambiguity, minima and 5s/3s/60s budgets. Earlier current-
+source controls also fail before the new regression boundary and are retained.
+The unchanged extent/S3 trace spends about 1.6s in parent archive verification
+versus 0.1s in the baseline, leaving only about 0.3s after child input proof.
+Next distinguish network/verification I/O, blocking-domain admission and owner
+churn at that exact span; no exclusive cause or general latency cure is proven.
+Do not repeat broad timing campaigns without another causal implementation.
 
-Next correct the exact remaining calls: materialized S3 named-binding command 7
-and both Sandbox S3 Create1 requests miss their original 5s limit; materialized
-retirement Create/Retire succeed but no physical Delete occurs before the test
-limit. Inspect retained operation/claim journals and phase timestamps, preserve
-ambiguity and original IDs, and establish a causal regression before changing
-the response or reconciliation path. Retain the separate 800ms native failure.
-Do not increase 5s/3s/60s budgets or run another broad timing campaign without a
-measured implementation change.
+The backend expiry seal and concurrent receipt-read behavior from `78ddac563`
+remain. Earlier 38 Container/19 execution-controller unit passes stay pinned to
+that source. Current locked optimized build, strict affected Clippy, 44 runner
+checks, format/layout/dependency/docs pass. The expanded runner keeps all old
+cases and adds the two-mode Start output proof test.
 
-Evidence **`CG-17-peer-selection-real-f71e467f0-2835`** has frozen source/five
-current executables, raw logs, real/native roots, controller state, separate
-causal/intermediate controls and a checksum-verified second copy. The owned
-4-CPU/8-GiB VM and all processes are stopped/joined; RustFS objects and volumes
-remain retained at 1 CPU/2 GiB. RF3 uses one macOS process and one SQL worker per
-voter. See [current results](progress.md#cg-17-bounded-archive-reservation-renewal)
-and [priorities](remaining-work.md#primitive-delivery-priority).
+Evidence **`CG-17-start-output-rustfs-b16b64036-2904`** has 6,278 verified files,
+91 current retained roots, frozen source/executable, separate causal red and
+initial/timing failures, and a verified second copy. The owned 4-CPU/8-GiB VM is
+stopped/joined; RustFS objects/volumes remain retained at 1 CPU/2 GiB. RF3 shares
+one macOS process, one SQL worker per voter. No independent-voter/load/volume-DR
+claim is made. See [results](progress.md#cg-17-sandbox-start-output-proof) and
+[priorities](remaining-work.md#primitive-delivery-priority).
 
-All 32 full CG-17 cases remain required and unaccepted. Complete the real public
-acceptance drivers and ordinary application execution, interactive APIs, ports,
-HTTP/WebSocket, provider volumes and full feature/recovery ledgers. CG-13/15/16,
-independent constrained voters, load, disk-loss/volume recovery and cutover
-remain open. Keep the full design goal active; scoped passes are not full-case
-acceptance. The generated index remains current with unchanged task credit.
+All 32 full CG-17 cases remain required and unaccepted. Full public acceptance
+drivers, API/feature/recovery ledgers, ordinary application execution, interactive
+APIs, ports, HTTP/WebSocket and provider volumes remain unfinished. CG-13/15/16,
+independent constrained voters, load, disk-loss/volume recovery and cutover stay
+open. Preserve the separate 800ms admission, post-restart named S3 `Relay7` and
+historical post-reclamation failures. The generated index retains its existing
+credit; the full plan validator still lacks historical CG-01 evidence.
 
 ## Previous durable controller delivery
 

@@ -19,6 +19,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+#[path = "cell_group_docker_receipts.rs"]
+pub(super) mod receipts;
+
 struct RefuseHistory;
 
 impl DockerHistoryFence for RefuseHistory {

@@ -248,9 +248,9 @@ impl SandboxCatalog {
         })
     }
 
-    // An owned child call may combine this private transition and its exact
-    // binding intent in the mandatory input proof. Public transitions still
-    // await sync before returning an allocation to application code.
+    // Owned child calls combine private transitions with their mandatory input
+    // or final output proof. Explicit public transition methods still await sync
+    // before returning an allocation to application code.
     fn prepare_transition(
         &self,
         context: &Context,

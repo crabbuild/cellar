@@ -30,6 +30,12 @@ async fn docker_backend_joins_processes_and_retains_original_receipts() -> anyho
 async fn docker_backend_shutdown_fences_processes_when_journal_fails() -> anyhow::Result<()> {
     docker_backend::qualify_failed_shutdown().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated Linux Docker and a pinned local scaffold image"]
+async fn docker_backend_seals_expired_unsubmitted_deletes_without_replay() -> anyhow::Result<()> {
+    docker_backend::receipts::qualify().await
+}
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
 #[path = "support/cell_group_named_service.rs"]
@@ -84,6 +90,12 @@ async fn rustfs_native_sandbox_retirement_preserves_requested_s3_minimum() -> an
 #[ignore = "requires isolated Linux Docker, a pinned local scaffold image and real RustFS"]
 async fn rustfs_native_sandbox_deletion_preserves_input_proof() -> anyhow::Result<()> {
     sandbox_execution::qualify_delete_input().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated Linux Docker, a pinned local scaffold image and real RustFS"]
+async fn rustfs_native_sandbox_start_shares_parent_output_proof() -> anyhow::Result<()> {
+    sandbox_execution::qualify_start_output().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

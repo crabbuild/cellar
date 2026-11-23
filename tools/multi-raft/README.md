@@ -151,13 +151,20 @@ python3 tools/multi-raft/cell_groups.py --suite native-docker --keep-going \
   --target-directory "$HOME/Workspace/crabbuild-target/cellar-my-checkout"
 ```
 
-The runner refuses another profile's socket or a mutable image tag. It retains
+The runner refuses another profile's socket or a mutable image tag. Each
+independent case receives a fresh store prefix, recorded with its command, so
+its deterministic catalog identities cannot inherit another case's minima.
+It retains
 the exact source, executable and selection evidence. The standalone physical
 case uses trusted host metadata and checks backend/controller restart, original
 receipts, actual kernel limits, deadline termination, detached-process fencing
 and rejection of unfenced incarnations. A second standalone case injects an
 actual backend journal-write failure and requires the process to be stopped
-before test cleanup, while shutdown still reports the storage error. Each public
+before test cleanup, while shutdown still reports the storage error. A third
+standalone case holds a controller-submitted Delete before physical admission
+until its original deadline, then requires a durable no-submission receipt,
+retained restart, refusal of late original delivery and a successful new Delete.
+Live absence and entered uncertainty cannot authorize replay. Each public
 case runs both image modes and Quorum/S3 minima against real RustFS: normal Context/Container execution,
 lost replies, retained voter restart, leader transfer, stale claims and actual
 source-archive refusal before provider entry. Two additional Sandbox cases check
@@ -167,7 +174,13 @@ business constructor refuses. Independent target S3 minima must refuse
 unproved work. A separate two-image case performs explicit S3 retirement in
 a Quorum-default namespace, cuts actual parent archive writes after physical
 Delete, and checks retained autonomous confirmation with business construction
-unavailable. The planned total is 19 configurations across six fixed test
+unavailable. A further two-image case interrupts Delete input proof, restarts
+the retained voters and requires autonomous recovery after archive restoration.
+A further two-image S3 case cuts parent archive writes after physical Create.
+High-level Start must return to its callback without an extra Ready checkpoint,
+while the final public output and explicit `confirm_ready` remain S3 gated.
+Restoration must recover the original receipt without callback or provider replay.
+The planned total is 25 configurations across ten fixed test
 functions; any failed selection leaves the whole campaign failed.
 
 RF3 shares one native process; this is not independent-voter, sustained-load,

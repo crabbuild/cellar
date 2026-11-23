@@ -36,6 +36,17 @@ reconciled from its exact retained outcome. Unknown create, command or write
 outcomes are never inferred from a missing response or replayed. Missing,
 corrupt, incompatible or ambiguous mutation state refuses reopening.
 
+An expired controller submission may have been cancelled before reaching this
+backend. Reconciliation serializes with physical admission and checks the exact
+current fence and original history. If the original operation is absent, it
+syncs an immutable `ExpiredBeforeSubmission` receipt before returning that
+proof. Delayed delivery and retained restart must encounter the same receipt.
+A live absent request remains uncertain. Any existing physical operation keeps
+its original outcome, including unknown state; container absence or expiry
+cannot turn it into a refusal or authorize replay.
+Existing receipt reads remain concurrent with physical admission and fencing;
+only sealing absence takes that admission lock and syncs a new record.
+
 Backend shutdown closes admission and attempts process termination, job joining
 and a final process scan even if journal deactivation or an earlier cleanup
 step fails. A storage failure is still returned after these attempts; successful
@@ -71,6 +82,15 @@ bind the source history, parent nonce, generation, target name and immutable
 execution policy. Both namespaces prove their own minimum before effects or
 results. Changed or missing history pins refuse admission. This does not yet
 provide managed fresh-history Sandbox recovery.
+
+High-level shared `SandboxCatalog::start_child` proves its reservation and exact
+child-call intent before target I/O. After verifying the durable child receipt,
+it stages Ready together with private binding completion. The next gated source
+effect, explicit checkpoint or final command output proves that source metadata;
+an unavailable final S3 proof still refuses public success. Explicit
+`reserve`/`confirm_ready` calls and Fleet retain their separately awaited
+checkpoints. Receipt-only recovery must preserve the original allocation without
+replaying the callback or provider Create.
 
 Parent cleanup runs bounded shared work independently of business construction.
 It retains exact deletion identities and confirmation debt until a mandatory

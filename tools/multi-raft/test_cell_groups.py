@@ -36,6 +36,7 @@ class SqlCampaignTests(unittest.TestCase):
             cli.write_bytes(b"SQL CLI fixture")
             output = root / "evidence"
             executed = []
+            observed_prefixes = []
 
             def run(argv, **kwargs):
                 if argv[0] == "git":
@@ -65,6 +66,7 @@ class SqlCampaignTests(unittest.TestCase):
                     self.assertNotEqual(retained, cli)
                     self.assertEqual(retained.read_bytes(), b"SQL CLI fixture")
                 executed.append(selection)
+                observed_prefixes.append(env["CELLAR_CELL_GROUPS_RUSTFS_PREFIX"])
                 if fault == "tamper":
                     retained.write_bytes(b"changed after capture")
                 body = ("test result: ok. 0 passed; 0 failed; 0 ignored;\n" if fault == "zero"
@@ -104,6 +106,13 @@ class SqlCampaignTests(unittest.TestCase):
                 else:
                     cell_groups.main()
             record = json.loads((output / "record.json").read_text())
+            if suite == "native-docker":
+                expected = [f"{record['prefix']}/case-{number:02}"
+                            for number in range(1, len(executed) + 1)]
+                self.assertEqual(observed_prefixes, expected)
+                self.assertEqual(len(set(observed_prefixes)), len(executed))
+                self.assertEqual([entry["store_prefix"] for entry in record["commands"]],
+                                 [record["prefix"], *expected])
             if fault:
                 self.assertEqual(record["status"], "FAILED")
                 self.assertEqual(len(executed), len(cases) if keep_going else 1)
@@ -118,16 +127,18 @@ class SqlCampaignTests(unittest.TestCase):
                                  0 if suite == "immutable-payloads" else
                                  1 if suite == "binding-settlement-diagnostic" else 2)
                 if suite == "native-docker":
-                    self.assertEqual(summary["rustfs_cases"], 6)
+                    self.assertEqual(summary["rustfs_cases"], 7)
                     self.assertEqual(record["planned_configurations"], {
                         "docker_backend_joins_processes_and_retains_original_receipts": 1,
                         "docker_backend_shutdown_fences_processes_when_journal_fails": 1,
+                        "docker_backend_seals_expired_unsubmitted_deletes_without_replay": 1,
                         "rustfs_native_docker_executes_and_recovers_shared_quorum": 4,
                         "rustfs_native_docker_refuses_execution_without_source_proof": 4,
                         "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum": 4,
                         "rustfs_native_sandboxes_refuse_unproved_parent_dispatch": 4,
                         "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum": 2,
                         "rustfs_native_sandbox_deletion_preserves_input_proof": 2,
+                        "rustfs_native_sandbox_start_shares_parent_output_proof": 2,
                     })
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
@@ -311,12 +322,14 @@ class ProviderJournalCampaignTests(unittest.TestCase):
         self.assertEqual(cases, (
             "docker_backend_joins_processes_and_retains_original_receipts",
             "docker_backend_shutdown_fences_processes_when_journal_fails",
+            "docker_backend_seals_expired_unsubmitted_deletes_without_replay",
             "rustfs_native_docker_executes_and_recovers_shared_quorum",
             "rustfs_native_docker_refuses_execution_without_source_proof",
             "rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum",
             "rustfs_native_sandboxes_refuse_unproved_parent_dispatch",
             "rustfs_native_sandbox_retirement_preserves_requested_s3_minimum",
             "rustfs_native_sandbox_deletion_preserves_input_proof",
+            "rustfs_native_sandbox_start_shares_parent_output_proof",
         ))
         self.campaign(suite="native-docker")
 

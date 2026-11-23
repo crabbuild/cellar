@@ -38,41 +38,40 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-[PR #180](https://github.com/crabbuild/cellar/pull/180) now includes bounded
-renewal of proven superseded archive reservations and physical verification of
-matching peer cuts. Runtime `f71e467f0` passes both native archive/controller
-suites (41 and 33 cases), both six-cut crash modes and all four named-binding
-profiles. The native aggregate still fails a separate unchanged 800ms admission
-control. Earlier unit results retain their intermediate source pin.
+Draft [PR #181](https://github.com/crabbuild/cellar/pull/181) follows merged #180
+on latest fetched main `a85ab6f6c`. Runtime `b16b64036` combines the prior
+backend expiry/receipt fix with high-level Sandbox Ready batching. Explicit
+confirmation and all input/final output proofs retain their durability contract.
 
-Real RustFS remains **FAILED, 6/9 functions and 20/24 configuration markers**.
-All three archive protocols, interrupted Delete-input/restart/restore,
-source-proof refusal and physical outage pass both modes. Both Quorum Sandbox
-recovery profiles pass their complete autonomous cleanup oracle; extent
-requested-S3 retirement passes. See
-[current results](progress.md#cg-17-bounded-archive-reservation-renewal).
+Canonical actual Docker/RustFS is **FAILED: 8/10 functions, 19/25 configuration
+markers**. All physical safety, Container/Sandbox source refusal, requested-S3
+retirement-floor, interrupted-Delete/restart and new Start output-proof cases
+pass. Materialized Quorum Container and Sandbox pass complete recovery oracles.
+Six ordinary response-deadline profiles remain failed; scoped passes do not
+establish complete primitive or cutover support. See
+[current results](progress.md#cg-17-sandbox-start-output-proof).
 
 The next feature deliveries are:
 
-1. Close materialized S3 binding command 7 and both Sandbox S3 Create1 deadline
-   failures. Materialized retirement Create/Retire now succeed but fail to enter
-   physical Delete before the original test limit. Trace these exact retained
-   operations, proof waits and reconciliation claims before changing the path.
-   Preserve ambiguity, identities, minimum custody and 5s/3s/60s limits. Retain
-   the separate 800ms native failure and earlier 15s post-reclamation failure;
-   current suite passes do not establish their cause or cure. No further broad
-   timing campaign without a causal implementation change.
-2. Qualify all original input/floor/restart oracles together on one source. The
-   interrupted Delete-input and Quorum recovery oracles now pass both modes,
-   but materialized retirement and normal S3 execution still block the combined
-   gate and complete Container/Sandbox support.
+1. Close six ordinary request failures: Container materialized/extent S3
+   `docker-a Write2` and extent Quorum `docker-b Destroy4`; Sandbox both S3 Start1
+   calls after physical Create and extent Quorum `FileList4`. Distinguish the
+   measured parent archive verification span (1.6s versus 0.1s baseline),
+   blocking-domain admission and owner churn before another optimization.
+   Preserve ambiguity, original IDs, minima and 5s/3s/60s budgets. Keep the
+   separate 800ms admission, post-retained-restart named S3 `Relay7` and historical
+   post-reclamation failures. Do not relabel the initial current-source control
+   failures or infer a universal latency cure from the final passing regression.
+2. Qualify the full ordinary recovery oracles together after the next causal
+   change. Input/floor/restart and Start proof controls now pass both image
+   modes on one source; the two ordinary functions still keep the suite failed.
+   Keep all ten functions and 25 configurations in the canonical runner.
 3. Complete ordinary Container/Sandbox application execution, interactive APIs,
    ports, HTTP/WebSocket and provider-volume contracts with physical fencing.
 4. Finish Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron, filesystem
    and payload features, including receipt/payload GC. Deliver real full
-   acceptance drivers and complete API/feature/recovery manifests. The declared
-   target still has no planned full entry points; focused passes must not be
-   presented as full-case acceptance.
+   acceptance drivers and complete API/feature/recovery manifests. Focused
+   component passes must not be presented as full-case acceptance.
 5. Close CG-13 recovery, CG-15 qualification and CG-16 cutover. Independent Linux
    voters, physical disk loss, load and provider-volume recovery remain separate
    from native RF3 and real-RustFS component profiles.
