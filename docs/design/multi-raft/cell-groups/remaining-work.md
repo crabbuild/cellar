@@ -8,7 +8,53 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The optimization PR now integrates main `a85ab6f6c` (#180). Compiler inputs
+## Current main: service deadlines remain open
+
+PR #167 is merged. Reverification of main `0f3b18e7`, compiler inputs
+`31dfbc55`, passes the original SQL binding and Queue callback cases. The
+original KV case fails rooted `PublicLarge` with a definite runtime overload.
+Two fixed, unchanged rooted Queue C4 controls reach load and fail three and four
+producers respectively with deadline errors. Both report joined cleanup without
+errors. These are native RF3 fixtures, not the constrained Colima comparison.
+
+A one-function SQL continuation scheduling experiment at inputs `28b5d89c`
+also fails both fixed C4 repetitions, with four producer failures in each.
+Its cleanup reports pass, but it closes neither the service deadline nor a
+throughput/latency gate. The runtime change is rejected and restored to main.
+All failed media, immutable executables and independently checked copies remain
+retained outside this documentation tree. See the
+[current-main evidence](optimization-progress.md#merged-main-service-reverification).
+
+The next work, in order:
+
+1. **Measure image preparation and publication at their owning boundaries.**
+   Separate LTX replay, immutable SQLite inspection, image/manifest persistence
+   and receipt publication. Count actual file and directory barriers before
+   choosing another change. The current C4 snapshots show no SQL admission
+   refusals; changing admission limits is not an established repair.
+2. **Reduce demonstrated work within existing bounds.** Assess opportunistic
+   preparation/publication of a contiguous committed prefix, preserving exact
+   receipts, Ready/sync ordering, complete root publication, original deadlines,
+   FIFO and physical task custody. Existing engine persistence batching and
+   per-image directory batching already exist; their presence does not qualify
+   end-to-end apply batching or justify removing a persistence barrier.
+3. **Close repeatable Quorum service before performance acceptance.** Require
+   unchanged SQL/KV/Queue conformance, C2/C4 load and drain in both image modes,
+   source-proof refusal, original-ID reconciliation and joined recovery/cleanup.
+   Retain every failed control when evaluating a candidate.
+4. **Run the requested constrained comparison after its admission gates pass.**
+   The original RustFS setup still lacks a passing capacity witness against its
+   unchanged 6 GiB reserve. No new RustFS probe or constrained case was admitted
+   during this reverification. Three-node resource evidence and the complete
+   SQL/KV/Queue comparison remain open.
+
+No fully working primitive release or low-latency/throughput improvement is
+qualified by this checkpoint. The broader OPT/CG/SDK/recovery gates below remain
+open.
+
+## Prior integration checkpoints
+
+The optimization PR integrated main `a85ab6f6c` (#180). Compiler inputs
 `4bcd59fd` pass **1,410 library tests / two existing ignores**, **29/30 selected
 native controls**, strict all-feature/all-target Cellar/container Clippy,
 **60 Python tests** and repository checks. The S3 read-source reuse case fails

@@ -10,6 +10,75 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+## Merged main service reverification
+
+Main `0f3b18e7` includes merged PR #167. Compiler inputs `31dfbc55` pass one
+unchanged full SQL binding selection and one unchanged Queue callback selection.
+The unchanged KV selection fails rooted `PublicLarge`: its 25 MiB put returns
+HTTP 503 with `Runtime(Overloaded)` and `ambiguous=false`; its first target
+attempt starts with 1,430 ms remaining. This is not a verified repair or an RPC
+deadline failure.
+
+Separate diagnostic inputs `70fa62b3` leave the production library unchanged
+and add only test-side resource snapshots around `PublicLarge`. One full case
+passes materialized conformance but fails rooted startup/cleanup with lease
+fencing. Two fixed repetitions also fail: one after rooted service with lease
+fencing, the other with a materialized public-write deadline and a separate
+rooted failure. Around the materialized deadline, payload operation and byte
+usage are zero before and after the request; SQL work remains retained. These
+samples do not identify the bank that refused the earlier overload or establish
+usage at the instant of that refusal.
+
+The existing cold-preparation control passes. A separate serial diagnostic
+runs the existing KV revision control first to enable its existing tracing,
+then passes full KV conformance in both image modes. That traced pass does not
+close the unchanged KV failure or establish service repeatability. No deadline,
+resource limit, command identity or source-proof assertion changes.
+
+Two fixed, untraced rooted C4 controls on clean inputs `31dfbc55` both reach the
+original four-request envelope. They fail three and four producers respectively
+with deadline errors, while reporting three node shutdown attempts, three host
+close attempts, joined domains and zero cleanup errors. Original producer
+identities, offered batches, errors and terminal synthetic media remain retained.
+
+The first C4 failure includes these aggregate operation observations:
+
+| Observation | Mean duration |
+| --- | ---: |
+| Engine file synchronization, across the three node snapshots | About 38 ms |
+| SQL image preparation, node 0 | About 129 ms |
+| SQL image preparation, nodes 1 and 2 | About 244 and 247 ms |
+| SQL publication, node 0 | About 163 ms |
+
+The samples include setup/load work and different operation lifetimes; they are
+not request percentiles, additive latency components or a controlled throughput
+comparison. All six SQL admission-refusal counters are zero on every node.
+These observations prioritize preparation/publication accounting over quota
+changes, without proving which individual filesystem operation caused a failed
+request.
+
+A bounded SQL continuation-pass experiment, compiler inputs `28b5d89c`, removes
+early returns after completed retirements/preparations so ready RPCs can receive
+a turn before queued SQL. Its only runtime input change is that scheduling
+function. The correct-profile build, formatting, layout, native dependency and
+documentation checks pass. Both fixed, untraced original rooted C4 repetitions
+still fail four producers; both report joined cleanup with zero errors. The
+strict 528-delivery/528-unique-ID qualification gate remains failed. The candidate
+is rejected and its runtime source restored to main; no performance improvement
+is claimed.
+
+All captures above have observed terminal process exits, immutable artifact
+bindings and independently checked retained copies. A compiler/formatter overlap
+is rejected before native execution. An initial reused-artifact audit also
+rejects Cargo's mutable executable path after a later diagnostic rebuild;
+the successor audit verifies the original immutable parent executable and
+identifies that replacement explicitly. Both rejections remain retained.
+
+The original RustFS reserve gate still has no passing witness, and no constrained
+Colima/RustFS case is admitted here. Current Quorum service, complete OPT/CG/SDK/
+recovery/release and throughput/latency acceptance remain open. See
+[current priorities](remaining-work.md#current-main-service-deadlines-remain-open).
+
 ## Integration with main #180
 
 Main `a85ab6f6c` adds shared Sandbox execution and autonomous cleanup. The
@@ -2627,7 +2696,7 @@ own source.
 
 The user explicitly requested local RustFS storage and Colima containers for
 nodes. The verified dedicated profile is `cellar-multi-raft-6aff` under the
-existing workspace-volume home `/Volumes/Workspace/crabbuild-target/c6aff`
+existing workspace-volume target directory
 (8 CPUs, 18 GiB, 100-GiB backing ceiling). Actual VZ paths and the backing file
 were checked on that volume. Two initial owned profiles used the default home
 because the requested custom directory did not exist; they and their initial
@@ -2683,7 +2752,7 @@ exited zero. Both fixture controllers exited zero. These results retain the
 original request, resource and workload limits.
 
 The private artifact root is
-`/Volumes/Workspace/crabbuild-target/cellar-ios-6afff9f4-tikv/qualification`.
+`workspace build target/cellar-ios-6afff9f4-tikv/qualification`.
 `linux-daemon-build.json` records the successful build and verification;
 `managed-daemon-a2bbabae57f1/` retains the summary, mode reports and event ledgers.
 RustFS objects, logs and voter disks remain available. Credentials stay outside
