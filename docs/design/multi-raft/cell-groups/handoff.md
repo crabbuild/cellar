@@ -6,48 +6,51 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current shared Sandbox and completion delivery
 
-Continue on `codex/cg17-s3-completion`; open PR #180 uses
-`codex/cg17-shared-sandbox-bridge`. Latest fetched main `09cdcf423` is included.
-Runtime **`f71e467f0`** renews a reservation only after a fresh registry read
-proves it unallocated and permanently superseded. It journals at most one
-successor per fair turn. An exact peer cut is acquired and physically recovered;
-otherwise the successor reserves against the current selected parent. Unknown
-or committed allocations keep their original identity. The earlier exact-lease
-Sandbox cleanup fix and all ownership, minimum, proof and budget checks remain.
+PR #180 merged at main `a85ab6f6c`. Continue on
+`codex/cg17-container-expiry-recovery`, based on that latest fetched main.
+Integration `bc9c8caf5` carries only the six new commits and has the identical
+tracked tree of qualifier **`78ddac563`** before checkpoint documentation.
+All 2,505 selected Rust/manifest/lock hashes match the frozen source.
 
-The contention oracle fails on pre-change `0e134bdf6` and passes in both modes
-natively and against real RustFS. Qualification caught and corrected an
-intermediate peer-replay regression. Preserve that failed `0ea8020ec` control;
-the final unchanged peer oracle passes even with new uploads denied.
+The backend now resolves controller-submitted operations that expired before
+physical delivery by syncing an immutable original-identity expiry receipt.
+Only that absent/expired transition takes physical admission and rechecks the
+current fence/history. Live absence stays uncertain; an entered operation keeps
+its original outcome, including unknown state. Existing receipt reads remain
+concurrent. No original operation is replayed or cleared from container absence.
 
-**Native aggregate remains FAILED.** Full archive (41/0/17 ignored), full
-controller (33/0/34 ignored), both six-cut seed modes and ordinary named bindings
-pass. A separate unchanged 800ms admission control fails after passing in the
-full suite. Strict affected Clippy and the locked optimized build pass. The
-earlier 62 unit passes belong to intermediate `0ea8020ec`, not the final source.
+Two causal controls are retained: actual Docker pre-change `c56a88378` leaves
+the submitted Delete permanently unknown; intermediate `5513796e0` blocks a known
+receipt on physical admission. Both unchanged oracles pass on the final source,
+including the separate absence-lock control. The physical regression also checks
+retained backend/controller restart, late delivery, metadata conflicts and a
+completed replacement Delete. **38 Container, 19 execution-controller and 44
+runner tests pass**, with strict Clippy and locked builds.
 
-**Real RustFS remains FAILED: 6/9 functions, 20/24 configuration markers.**
-All three archive protocols, interrupted deletion/restart/restore, parent-proof
-refusal and physical outage pass both modes. Both Quorum Sandbox profiles now
-pass the full file/generation/lost-Exec/lost-Delete/autonomous-cleanup oracle.
-Extent requested-S3 retirement also passes. Do not infer an exclusive cause for
-historical deadline variability or accept a full primitive family.
+**The canonical real RustFS campaign remains FAILED: 5/9 functions, 12/23
+configuration markers.** Three physical safety cases, both four-profile
+source-refusal functions and complete materialized Quorum Container recovery
+pass. Other Container failures are materialized S3 `docker-b Destroy4`, extent
+Quorum `docker-a Read5` and extent S3 `docker-a Write2`. All ordinary Sandbox
+Create1 calls and both retirement-floor Create1 calls expire. The Delete-input
+case now passes its initial parent Create/DestroyJob but fails a separate
+`Counter:sandbox-floor` Create1 before the archive cut. Do not mislabel that
+failure as the first parent Create. Independent case prefixes fixed the earlier
+`PayloadConflict` setup refusal; they do not cure public deadlines.
 
-Next correct the exact remaining calls: materialized S3 named-binding command 7
-and both Sandbox S3 Create1 requests miss their original 5s limit; materialized
-retirement Create/Retire succeed but no physical Delete occurs before the test
-limit. Inspect retained operation/claim journals and phase timestamps, preserve
-ambiguity and original IDs, and establish a causal regression before changing
-the response or reconciliation path. Retain the separate 800ms native failure.
-Do not increase 5s/3s/60s budgets or run another broad timing campaign without a
-measured implementation change.
+Next locate and correct the measured public completion/admission wait. Keep
+original IDs, strongest minima, typed ambiguity and 5s/3s/60s budgets. Preserve
+the separate 800ms admission and post-retained-restart named S3 `Relay7` failures;
+this backend profile did not rerun those gates. Do not combine historical
+complete Sandbox passes with the current failed source or run broad timing
+campaigns without a causal implementation change.
 
-Evidence **`CG-17-peer-selection-real-f71e467f0-2835`** has frozen source/five
-current executables, raw logs, real/native roots, controller state, separate
-causal/intermediate controls and a checksum-verified second copy. The owned
-4-CPU/8-GiB VM and all processes are stopped/joined; RustFS objects and volumes
-remain retained at 1 CPU/2 GiB. RF3 uses one macOS process and one SQL worker per
-voter. See [current results](progress.md#cg-17-bounded-archive-reservation-renewal)
+Evidence **`CG-17-receipt-read-rustfs-78ddac563-2877`** has 6,843 verified files,
+83 real and 44 native retained roots, frozen executables/source, separate failed
+controls and a verified second copy. Owned processes and the 4-CPU/8-GiB VM are
+stopped/joined. RustFS objects/volumes remain retained at 1 CPU/2 GiB. RF3 shares
+one macOS process and one SQL worker per voter. See
+[current results](progress.md#cg-17-durable-expiry-receipts-and-concurrent-recovery)
 and [priorities](remaining-work.md#primitive-delivery-priority).
 
 All 32 full CG-17 cases remain required and unaccepted. Complete the real public

@@ -32,6 +32,81 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 durable expiry receipts and concurrent recovery
+
+An expired controller submission can remain durable even when cancellation
+prevents its delivery to the physical backend. Returning unknown forever at
+that boundary permanently blocks later cleanup. Runtime `78ddac563` closes
+this reproduced gap without inferring success from container absence.
+
+The backend first validates the current fence and original logical history.
+An existing operation retains its exact outcome, including unknown state.
+A live absent operation remains uncertain. Only expired absence takes physical
+admission and syncs an immutable `ExpiredBeforeSubmission` receipt. The durable
+transition rechecks authority. Late original delivery and retained restart must
+encounter that same receipt before a new attempt can proceed. Existing receipt
+reads remain concurrent with fencing and physical I/O. Formats, original IDs,
+minimum custody, process joining and all request/maintenance budgets remain.
+
+The actual Docker regression fails on pre-change `c56a88378`: the controller
+retains its submitted Delete while backend reconciliation returns unknown.
+It passes after the fix, including backend/controller restart, changed-metadata
+refusal, late original delivery, live absence and a completed replacement Delete.
+Qualification also caught an intermediate regression: `5513796e0` waits for
+physical admission even to read an existing receipt. The corrected source
+passes that unchanged concurrency test while still requiring admission to seal
+absence; entered unknown operations remain unknown.
+
+All **38 Container library tests, 19 execution-controller tests and 44 runner
+checks pass**, with strict affected Clippy and locked optimized builds. These
+execution-controller tests are distinct from the earlier archive-controller
+matrix. The runner now gives independent native-Docker cases distinct store
+prefixes and records each prefix. This corrects the intermediate campaign's
+final-case `PayloadConflict` setup failure without changing business identities,
+budgets, minima or proof assertions.
+
+The complete canonical native-Docker/RustFS campaign remains **FAILED:
+5/9 whole functions, 12/23 configuration success markers**:
+
+| Case | Result on `78ddac563` |
+| --- | --- |
+| Physical process fence/receipt recovery | Pass |
+| Shutdown with journal failure | Pass |
+| Expired unsubmitted Delete recovery | Pass, including retained restart and delayed original delivery |
+| Ordinary Container recovery | Materialized Quorum passes the complete oracle; materialized S3 `docker-b Destroy4`, extent Quorum `docker-a Read5` and extent S3 `docker-a Write2` miss their original 5s limits |
+| Container source-proof refusal | All four image/minimum profiles pass |
+| Ordinary Sandbox recovery | All four Create1 calls expire; both Quorum calls entered physical Create, while both S3 calls had no observed physical Create |
+| Sandbox source-proof refusal | All four profiles pass their retained-reservation and no-effect assertions |
+| Requested-S3 retirement floor | Both Create1 calls expire before retirement; materialized entered physical Create, extent did not |
+| Interrupted Delete input/restart/restore | Both initial parent Create and DestroyJob calls succeed; a separate `Counter:sandbox-floor` Create1 expires after physical entry, before the intended archive cut/restart oracle |
+
+The backend expiry and receipt-concurrency regressions are causally closed at
+their owning boundaries. They do not establish a cure for the remaining public
+response deadlines. Historical complete Quorum Sandbox passes remain pinned to
+their earlier sources and are not current qualification credit. The unchanged
+800ms S3 admission failure and post-retained-restart named-binding S3 `Relay7`
+failure also remain open; this backend profile does not rerun them.
+
+Evidence `CG-17-receipt-read-rustfs-78ddac563-2877` is sealed with **6,843 files,
+83 real and 44 native retained roots**, current executables/source, separate
+causal/intermediate controls and a checksum-verified second copy. The owned
+4-CPU/8-GiB VM and all processes are stopped/joined. RustFS remains bounded at
+1 CPU/2 GiB; objects and provider volumes remain retained in the stopped VM.
+RF3 shares one macOS process with one SQL worker per voter. No independent-voter,
+load or provider-volume disaster qualification is claimed.
+
+PR #180 merged while this work was running. Follow-up source `bc9c8caf5` starts
+from latest fetched main `a85ab6f6c`, carries only the six new commits and has
+the exact tracked tree of tested `78ddac563` before these checkpoint updates.
+All 2,505 selected Rust/manifest/lock hashes match; the full source is retained.
+The generated implementation index and acceptance oracles remain unchanged.
+
+Next close public response completion, including the exact failed read/write/
+destroy calls and cold Sandbox admission, before another combined release gate.
+Preserve original 5s/3s/60s limits and typed uncertainty. Then finish ordinary
+application execution and full public-family drivers. All **32 full CG-17 cases
+and the remaining CG-13/15/16 architecture/cutover gates remain required**.
+
 ### CG-17 bounded archive reservation renewal
 
 Runtime `f71e467f0` closes a reproduced archive coordination stall. A competing
