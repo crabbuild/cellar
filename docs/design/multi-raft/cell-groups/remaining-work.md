@@ -38,31 +38,34 @@ full disaster profile remain open.
 
 **Prioritize full CG-17 closure.** Every primitive and all
 [32 required acceptance cases](primitive-acceptance-cases.md) remain in scope.
-[PR #180](https://github.com/crabbuild/cellar/pull/180) now includes exact
-lease-fenced shared Sandbox cleanup retry. Runtime `ee8c87e57` passes all 41
-native archive cases, both six-cut seed crash matrices, five repeated bounded
-outage checks in both modes and 52 library units. The obsolete import-sync and
-known-route outage fixture boundaries are corrected with their substantive
-cancellation, receipt and debt/reclamation assertions preserved.
+[PR #180](https://github.com/crabbuild/cellar/pull/180) now includes bounded
+renewal of proven superseded archive reservations and physical verification of
+matching peer cuts. Runtime `f71e467f0` passes both native archive/controller
+suites (41 and 33 cases), both six-cut crash modes and all four named-binding
+profiles. The native aggregate still fails a separate unchanged 800ms admission
+control. Earlier unit results retain their intermediate source pin.
 
-Real RustFS remains **FAILED, 3/5 functions and 8/14 configuration markers**.
-Both physical outage modes, both complete interrupted Delete-input/restart/
-restore modes and all four source-proof refusal profiles pass. Ordinary recovery
-and requested-S3 retirement remain failed. See
-[current results](progress.md#cg-17-lease-fenced-cleanup-and-restored-safety-controls).
+Real RustFS remains **FAILED, 6/9 functions and 20/24 configuration markers**.
+All three archive protocols, interrupted Delete-input/restart/restore,
+source-proof refusal and physical outage pass both modes. Both Quorum Sandbox
+recovery profiles pass their complete autonomous cleanup oracle; extent
+requested-S3 retirement passes. See
+[current results](progress.md#cg-17-bounded-archive-reservation-renewal).
 
 The next feature deliveries are:
 
-1. Close foreground deadline failures and localize the extent retirement timeout.
-   Materialized Quorum FileStat3, ordinary S3 Create1 and retirement-floor Create1
-   still fail. Preserve their exact calls, proof custody and 5s/3s/60s limits;
-   distinguish failed restart from terminal proof before changing cleanup again.
-   Retain the earlier intermittent 15s post-reclamation Quorum write failure;
-   current passes do not establish its cause. No further broad timing campaign
-   without a causal implementation change.
+1. Close materialized S3 binding command 7 and both Sandbox S3 Create1 deadline
+   failures. Materialized retirement Create/Retire now succeed but fail to enter
+   physical Delete before the original test limit. Trace these exact retained
+   operations, proof waits and reconciliation claims before changing the path.
+   Preserve ambiguity, identities, minimum custody and 5s/3s/60s limits. Retain
+   the separate 800ms native failure and earlier 15s post-reclamation failure;
+   current suite passes do not establish their cause or cure. No further broad
+   timing campaign without a causal implementation change.
 2. Qualify all original input/floor/restart oracles together on one source. The
-   interrupted Delete-input oracle now passes both modes, but does not qualify
-   the separate retirement-floor scenario or complete Container/Sandbox support.
+   interrupted Delete-input and Quorum recovery oracles now pass both modes,
+   but materialized retirement and normal S3 execution still block the combined
+   gate and complete Container/Sandbox support.
 3. Complete ordinary Container/Sandbox application execution, interactive APIs,
    ports, HTTP/WebSocket and provider-volume contracts with physical fencing.
 4. Finish Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron, filesystem

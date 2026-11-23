@@ -32,6 +32,78 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 bounded archive reservation renewal
+
+Runtime `f71e467f0` closes a reproduced archive coordination stall. A competing
+allocation can consume a reservation's monotonic registry slot permanently.
+Previously that definitive failure waited for the configured outage retry.
+The coordinator now reads the registry again and permits one replacement per
+fair turn only after proving the original is both unallocated and superseded.
+It journals the replacement before its CAS. Pending intents and committed
+tickets, including lost replies, retain their original identity.
+
+If the selected peer archive exactly matches the current local cut, renewal
+acquires that archive and runs independent physical recovery rather than
+uploading again. Otherwise it reserves against the current selected parent.
+Ownership checks, complete durability proofs, admission limits, format 1,
+reclamation coverage and original request/maintenance/restoration budgets remain.
+
+The new contention oracle fails on pre-change `0e134bdf6`: a paused reservation
+loses to an independent acquisition, then misses its unchanged 5s publication
+bound with a 10s outage cadence. The corrected implementation passes both image
+modes natively and against real RustFS. Qualification also caught an intermediate
+regression in `0ea8020ec`, which uploaded despite an available peer cut. The
+unchanged peer-replay oracle passes on the old source, fails on that intermediate
+source and passes on `f71e467f0`, including real RustFS with new uploads denied.
+Both failed sources, executables and retained disks remain separate controls.
+
+Strict affected Clippy and the locked five-target optimized build pass. The
+current native archive suite passes **41/0/17 ignored**, and the controller suite
+passes **33/0/34 ignored**. Both six-cut SIGKILL seed modes and all four ordinary
+named-binding configurations pass. However, the native aggregate remains
+**FAILED**: a separate repetition of the unchanged 800ms S3 command-admission
+control fails after passing in the full controller suite. No budget was raised
+or failure waived. Earlier 62 focused units passed on intermediate `0ea8020ec`;
+they are not presented as current-source unit qualification.
+
+Real RustFS remains **FAILED: 6/9 complete functions, 20/24 configuration success
+markers**:
+
+| Case | Result on `f71e467f0` |
+| --- | --- |
+| Reservation contention | Both image modes pass the original bounded-progress and old-intent fencing oracle |
+| Failed chunk recovery | Both modes preserve the original committed reservation ticket |
+| Peer archive replay | Both modes pass with new generation uploads denied |
+| Ordinary named bindings | Both Quorum modes and extent S3 pass; materialized S3 command 7 returns an ambiguous 5s deadline failure |
+| Interrupted Delete input/restart/restore | Both modes pass the complete proof-refusal and autonomous recovery oracle |
+| Requested-S3 retirement floor | Extent passes; materialized Create and Retire succeed, but physical Delete is not entered before the original test limit |
+| Ordinary Sandbox recovery | Both Quorum modes pass the entire lost-Exec/file/generation/lost-Delete/restart/terminal-cleanup oracle; both S3 Create1 requests expire at 5s after physical Create |
+| Unproved parent dispatch | All four image/minimum profiles refuse before effects as required |
+| Bounded archive outage | Both modes pass, including four physical RustFS stop/start transitions and restored reclamation |
+
+The complete Quorum Sandbox passes are progress, not evidence that this change
+caused every historical timing improvement. Earlier deadline and retirement
+failures remain retained. The first-Create phase diagnostics exposed actual
+archive contention but do not establish it as the sole public-response delay.
+Their temporary archive-error observer is removed from production/test source.
+
+Evidence `CG-17-peer-selection-real-f71e467f0-2835` retains five current frozen
+executables, full Git source, selected source hashes, 57 real and 55 native
+retained roots, controller journals and separate causal/intermediate sources.
+All 10,999 manifest files and the second copy are verified. The owned 4-CPU/8-GiB VM and
+all processes are stopped/joined; RustFS objects and volumes remain retained at
+1 CPU/2 GiB. RF3 shares one macOS process with one SQL worker per voter. No own
+compiler, formatter or evidence copy overlapped the real runtime. Latest fetched
+main `09cdcf423` remains included.
+
+Next close the exact materialized binding/S3 Sandbox response failures and
+materialized retirement reconciliation before another combined gate. Preserve
+the separate 800ms native failure and all original identities, minima and
+5s/3s/60s limits. Then complete ordinary application execution and full public
+primitive drivers. All **32 full CG-17 cases remain unaccepted**; CG-13/15/16,
+independent voters, load, provider-volume recovery and cutover remain required.
+The generated implementation index and acceptance oracles are unchanged.
+
 ### CG-17 lease-fenced cleanup and restored safety controls
 
 Runtime `ee8c87e57` binds shared Sandbox cleanup retry to its exact claimed

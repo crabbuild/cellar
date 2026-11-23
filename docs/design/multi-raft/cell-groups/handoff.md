@@ -8,49 +8,46 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 Continue on `codex/cg17-s3-completion`; open PR #180 uses
 `codex/cg17-shared-sandbox-bridge`. Latest fetched main `09cdcf423` is included.
-Runtime **`ee8c87e57`** gives shared Sandbox cleanup an exact, fenced native-work
-lease instead of an unrelated 30s retry delay. Reason, generation, attempt, due,
-claimed state and expiry must match; the strongest minimum is checked first.
-Allocation retry and successor wake remain atomic, and old completion cannot
-clear the successor. Fleet policy, unknown-operation reconciliation, proofs and
-all original 5s/3s/60s budgets remain unchanged.
+Runtime **`f71e467f0`** renews a reservation only after a fresh registry read
+proves it unallocated and permanently superseded. It journals at most one
+successor per fair turn. An exact peer cut is acquired and physically recovered;
+otherwise the successor reserves against the current selected parent. Unknown
+or committed allocations keep their original identity. The earlier exact-lease
+Sandbox cleanup fix and all ownership, minimum, proof and budget checks remain.
 
-**Native gates pass:** five shared Sandbox SQL units, twelve native-work units,
-35 Container units, the full archive matrix (41 passed, 0 failed, 17 RustFS-only
-ignored), both six-cut SIGKILL seed matrices and five quiet outage repetitions
-in both modes. Strict affected Clippy, formatting and locked build pass.
-Import/seed fixtures now observe the actual durable final image sync. Outage
-coverage distinguishes refused cold discovery from permitted authenticated
-known-route Quorum reception, retaining receipt deduplication and the unchanged
-archive-debt/reclamation bounds. An earlier `da4aba12b` post-reclamation 15s
-Quorum timeout remains a concern despite its unchanged repeat and current passes;
-the Sandbox change does not establish its cause or cure.
+The contention oracle fails on pre-change `0e134bdf6` and passes in both modes
+natively and against real RustFS. Qualification caught and corrected an
+intermediate peer-replay regression. Preserve that failed `0ea8020ec` control;
+the final unchanged peer oracle passes even with new uploads denied.
 
-**Real RustFS remains FAILED: 3/5 functions, 8/14 configuration markers.**
-Both physical outage modes, both complete interrupted Delete-input/restart/
-restore modes and all four source-proof refusal profiles pass. Delete recovery
-requires no business constructor, preserves the original S3 input and reaches
-terminal confirmation within 60s with exact physical deletions. This is a real
-advance over the prior quiet restoration failure, which remains retained.
+**Native aggregate remains FAILED.** Full archive (41/0/17 ignored), full
+controller (33/0/34 ignored), both six-cut seed modes and ordinary named bindings
+pass. A separate unchanged 800ms admission control fails after passing in the
+full suite. Strict affected Clippy and the locked optimized build pass. The
+earlier 62 unit passes belong to intermediate `0ea8020ec`, not the final source.
 
-Do not call retirement or ordinary recovery closed. Both retirement-floor S3
-Create1 requests expire before the intended fault. Materialized Quorum FileStat3
-and both ordinary S3 Create1 requests expire at 5s. Extent Quorum reaches
-retirement after all file/generation operations, then returns a generic elapsed
-error; restart versus terminal-confirmation phase is not yet localized. Preserve
-these exact calls, original identities, minima, ambiguity and physical journals.
-Next add precise failure context at that retirement boundary, identify the
-measured critical response path and fix it without dropping proofs or changing
-budgets. Avoid another speculative metadata/scheduling optimization or broad
-rerun without a causal change.
+**Real RustFS remains FAILED: 6/9 functions, 20/24 configuration markers.**
+All three archive protocols, interrupted deletion/restart/restore, parent-proof
+refusal and physical outage pass both modes. Both Quorum Sandbox profiles now
+pass the full file/generation/lost-Exec/lost-Delete/autonomous-cleanup oracle.
+Extent requested-S3 retirement also passes. Do not infer an exclusive cause for
+historical deadline variability or accept a full primitive family.
 
-Evidence **`CG-17-sandbox-lease-real-ee8c87e57-2771`** is sealed with 6,426
-manifest files, six current executables, full source, 50 real and 24 native
-roots and a verified second copy. Older diagnostic/control pins are separate.
-The owned 4-CPU/8-GiB VM and all processes are stopped/joined; actual RustFS
-objects/volumes remain retained at 1 CPU/2 GiB. Native RF3 uses one macOS process
-and one SQL worker per voter. See
-[current results](progress.md#cg-17-lease-fenced-cleanup-and-restored-safety-controls)
+Next correct the exact remaining calls: materialized S3 named-binding command 7
+and both Sandbox S3 Create1 requests miss their original 5s limit; materialized
+retirement Create/Retire succeed but no physical Delete occurs before the test
+limit. Inspect retained operation/claim journals and phase timestamps, preserve
+ambiguity and original IDs, and establish a causal regression before changing
+the response or reconciliation path. Retain the separate 800ms native failure.
+Do not increase 5s/3s/60s budgets or run another broad timing campaign without a
+measured implementation change.
+
+Evidence **`CG-17-peer-selection-real-f71e467f0-2835`** has frozen source/five
+current executables, raw logs, real/native roots, controller state, separate
+causal/intermediate controls and a checksum-verified second copy. The owned
+4-CPU/8-GiB VM and all processes are stopped/joined; RustFS objects and volumes
+remain retained at 1 CPU/2 GiB. RF3 uses one macOS process and one SQL worker per
+voter. See [current results](progress.md#cg-17-bounded-archive-reservation-renewal)
 and [priorities](remaining-work.md#primitive-delivery-priority).
 
 All 32 full CG-17 cases remain required and unaccepted. Complete the real public
