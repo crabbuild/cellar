@@ -49,6 +49,7 @@ pub(crate) enum Operation {
     SqlImagePrepare,
     SqlImageInspect,
     SqlManifestPrepare,
+    SqlManifestRecheck,
     SqlArchiveCapture,
     SqlOther,
     ObjectGet,
@@ -102,7 +103,7 @@ pub(crate) enum Operation {
     CellCheckpointProof,
 }
 
-const OPERATIONS: [Operation; 63] = [
+const OPERATIONS: [Operation; 64] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -115,6 +116,7 @@ const OPERATIONS: [Operation; 63] = [
     Operation::SqlImagePrepare,
     Operation::SqlImageInspect,
     Operation::SqlManifestPrepare,
+    Operation::SqlManifestRecheck,
     Operation::SqlArchiveCapture,
     Operation::SqlOther,
     Operation::ObjectGet,
@@ -183,6 +185,7 @@ impl Operation {
             Self::SqlImagePrepare => "sql_image_prepare",
             Self::SqlImageInspect => "sql_image_inspect",
             Self::SqlManifestPrepare => "sql_manifest_prepare",
+            Self::SqlManifestRecheck => "sql_manifest_recheck",
             Self::SqlArchiveCapture => "sql_archive_capture",
             Self::SqlOther => "sql_other",
             Self::ObjectGet => "object_get",
@@ -323,9 +326,15 @@ pub(crate) enum Counter {
     CellBindingRecoveryClaims,
     CellBindingRecoverySettlements,
     CellIngressSequenceHints,
+    CellApplyPreparedPairs,
+    CellApplyPrefetchHits,
+    CellApplyPrefetchEvictions,
+    CellApplyPrefetchNoSuccessor,
+    CellApplyPrefetchAdmissionRefusals,
+    CellApplyPrefetchSkipped,
 }
 
-const COUNTERS: [Counter; 82] = [
+const COUNTERS: [Counter; 88] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -408,6 +417,12 @@ const COUNTERS: [Counter; 82] = [
     Counter::CellBindingRecoveryClaims,
     Counter::CellBindingRecoverySettlements,
     Counter::CellIngressSequenceHints,
+    Counter::CellApplyPreparedPairs,
+    Counter::CellApplyPrefetchHits,
+    Counter::CellApplyPrefetchEvictions,
+    Counter::CellApplyPrefetchNoSuccessor,
+    Counter::CellApplyPrefetchAdmissionRefusals,
+    Counter::CellApplyPrefetchSkipped,
 ];
 
 impl Counter {
@@ -422,6 +437,12 @@ impl Counter {
             Self::CellCommandSubmissionRejections => "cell_command_submission_rejections",
             Self::CellCommandSettlementOverloads => "cell_command_settlement_overloads",
             Self::CellIngressSequenceHints => "cell_ingress_sequence_hints",
+            Self::CellApplyPreparedPairs => "cell_apply_prepared_pairs",
+            Self::CellApplyPrefetchHits => "cell_apply_prefetch_hits",
+            Self::CellApplyPrefetchEvictions => "cell_apply_prefetch_evictions",
+            Self::CellApplyPrefetchNoSuccessor => "cell_apply_prefetch_no_successor",
+            Self::CellApplyPrefetchAdmissionRefusals => "cell_apply_prefetch_admission_refusals",
+            Self::CellApplyPrefetchSkipped => "cell_apply_prefetch_skipped",
             Self::CellBindingRecoveryClaims => "cell_binding_recovery_claims",
             Self::CellBindingRecoverySettlements => "cell_binding_recovery_settlements",
             Self::CellNameSelections => "cell_name_quorum_selections",

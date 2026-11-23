@@ -342,9 +342,19 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
                                     drop(event);
                                     let prepare = work.clone();
                                     let applier = applier.clone();
-                                    let next =
-                                        crate::asyncrt::blocking(move || applier.prepare(&prepare))
-                                            .await??;
+                                    let next = crate::asyncrt::blocking(move || {
+                                        let performance = crate::raft::performance::Registry::new(
+                                            crate::asyncrt::services().domain_token().ok_or(
+                                                crate::raft::execution::ExecutionError::Invalid(
+                                                    "park transport apply domain",
+                                                ),
+                                            )?,
+                                        );
+                                        applier
+                                            .prepare(&prepare, &performance, None, |_| Ok(None))
+                                            .map(|result| result.first)
+                                    })
+                                    .await??;
                                     runtime
                                         .complete_apply(history, work, next)
                                         .await

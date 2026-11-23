@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 #[allow(dead_code)]
 pub(super) mod physical;
 
-async fn pending(
+pub(super) async fn pending(
     rooted: bool,
     manifest: bool,
 ) -> Result<(

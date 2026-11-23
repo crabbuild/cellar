@@ -10,6 +10,7 @@ mod rpc_commit;
 pub(super) use rpc_cache::RpcCache;
 pub(crate) use rpc_commit::RpcCommitContext;
 mod apply;
+mod apply_cache;
 mod checkpoint_task;
 mod cleanup_task;
 mod preparation;
@@ -481,6 +482,7 @@ struct Handle {
     resources: ResourceObserver,
     admission: Arc<Admission>,
     apply_admission: Arc<Budget>,
+    apply_cache: Arc<apply_cache::ApplyCache>,
     activations: Arc<RpcCache>,
     closing: Arc<AtomicBool>,
     stop: Arc<Notify>,
@@ -559,6 +561,7 @@ impl CellGroupSqlPool {
                 log.performance(),
             ),
             apply_admission: Budget::new(limits.node_bytes, log.limits().max_groups),
+            apply_cache: Arc::new(apply_cache::ApplyCache::default()),
             activations,
             closing: closing.clone(),
             stop: stop.clone(),
@@ -566,6 +569,7 @@ impl CellGroupSqlPool {
             performance: log.performance(),
         });
         let cleanup_domain = domain.clone();
+        let apply_cache = inner.apply_cache.clone();
         // Cleanup owns the join handles, so cancelling a close waiter cannot
         // release physical workers. Domain shutdown also joins this cleanup.
         domain.spawn_cleanup(async move {
@@ -580,6 +584,7 @@ impl CellGroupSqlPool {
             closing.store(true, Ordering::Release);
             let result = pool.join().await.map_err(|e| RuntimeError::Protocol(e.to_string()));
             drop(pool);
+            apply_cache.clear();
             drop(_physical_lease);
             terminal.complete(result);
         }).map_err(|_| unavailable())?;
@@ -587,7 +592,9 @@ impl CellGroupSqlPool {
     }
 
     pub(crate) fn retire_group(&self, history: GroupHistory) -> Result<bool, ExecutionError> {
-        self.inner.admission.retire(history)
+        let drained = self.inner.admission.retire(history)?;
+        drop(self.inner.apply_cache.take(history)?);
+        Ok(drained)
     }
 
     pub(crate) fn resume_reclaimed_member(

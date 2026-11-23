@@ -294,11 +294,58 @@ pub(crate) fn entry_position(entry: &Entry) -> LogPosition {
     }
 }
 
+/// Canonical protobuf hashing uses bounded serializer scratch, including for a
+/// committed successor which has not obtained physical-apply input admission.
 pub(crate) fn entry_digest(entry: &Entry) -> Result<[u8; 32], RuntimeError> {
-    Ok(Sha256::digest(
-        entry
-            .write_to_bytes()
-            .map_err(|e| RuntimeError::Protocol(e.to_string()))?,
-    )
-    .into())
+    struct Sink(Sha256);
+
+    impl std::io::Write for Sink {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut sink = Sink(Sha256::new());
+    entry
+        .write_to_writer(&mut sink)
+        .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+    Ok(sink.0.finalize().into())
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::*;
+
+    #[test]
+    fn streamed_entry_digest_matches_canonical_protobuf() -> Result<(), RuntimeError> {
+        for length in [0, 1, 4095, 4096, 4097, 65536] {
+            let mut entry = Entry {
+                entry_type: ::raft::prelude::EntryType::EntryConfChangeV2,
+                index: u64::MAX - 1,
+                term: u64::MAX - 2,
+                data: (0..length)
+                    .map(|index| (index % 251) as u8)
+                    .collect::<Vec<_>>()
+                    .into(),
+                context: b"canonical-context".to_vec().into(),
+                sync_log: true,
+                ..Default::default()
+            };
+            entry
+                .mut_unknown_fields()
+                .add_length_delimited(99, b"unknown-field".to_vec());
+            let bytes = entry
+                .write_to_bytes()
+                .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+            assert_eq!(
+                entry_digest(&entry)?,
+                <[u8; 32]>::from(Sha256::digest(bytes))
+            );
+        }
+        Ok(())
+    }
 }

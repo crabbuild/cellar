@@ -146,7 +146,7 @@ pub(super) async fn queued(rooted: bool, read_between: bool, max_events: usize) 
             pool.mark_submitted(cell.clone(), command.proposal()).await?;
             prepared.push(command);
         }
-        let log = &fixture.cluster.voters[0].log;
+        let log = fixture.cluster.voters[0].log.clone();
         let group = log.cell_group(&route.history)?;
         let before = log.performance_snapshot();
         let gate = fixture.cluster.voters[0].gate.clone();
@@ -224,7 +224,29 @@ pub(super) async fn queued(rooted: bool, read_between: bool, max_events: usize) 
         let entry_delta = entries(&after) - entries(&before);
         let batch_delta = batches(&after) - batches(&before);
         assert_eq!(entry_delta, count as u64);
+        // Hold only physical apply while the real peers finish the already
+        // queued committed prefix. This models a busy SQL worker and makes the
+        // two-entry preparation opportunity independent of image I/O timing.
+        let mut held_apply = BTreeMap::new();
+        let first_work = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                fixture.pump(&[route.history], &mut held_apply).await?;
+                let status = fixture.runtimes[0].status(route.history).await?;
+                if status.committed >= last && held_apply.contains_key(&route.history) {
+                    break Ok::<_, anyhow::Error>(held_apply.remove(&route.history).context("held prefix apply")?);
+                }
+                tokio::task::yield_now().await;
+            }
+        }).await??;
+        let applier = fixture.appliers[&(0, route.history)].1.clone();
+        pool.prepare_apply(&applier, first_work).await?.complete(&fixture.runtimes[0]).await?;
         fixture.drive(Some(last)).await?;
+        let applied = log.performance_snapshot();
+        let manifest_preparations = |sample: &RaftPerformanceSnapshot| -> Result<u64> {
+            Ok(sample.operations.iter().find(|op| op.name == "sql_manifest_prepare")
+                .context("manifest preparation observation")?.succeeded)
+        };
+        let manifest_batches = manifest_preparations(&applied)? - manifest_preparations(&before)?;
         for ((cell, command), proposal) in cells.iter().zip(prepared).zip(&accepted) {
             let record = super::enrollment::resolved(&fixture, &pool, 0, cell, command.proposal()).await?;
             assert_eq!(record.record().creation(), command.proposal());
@@ -256,15 +278,19 @@ pub(super) async fn queued(rooted: bool, read_between: bool, max_events: usize) 
         assert_eq!(pool.usage()?.retained_operations, 0);
         assert_eq!(pool.usage()?.retained_bytes, 0);
         eprintln!("queued submission observations: rooted={rooted} read_between={read_between} entries={entry_delta} batches={batch_delta} callbacks={count} replicated_cells={count}");
-        Ok::<_, anyhow::Error>(batch_delta)
+        Ok::<_, anyhow::Error>((batch_delta, manifest_batches))
     }).catch_unwind().await;
     drop(held_sync.take());
     let closed = fixture.close().await;
-    let batches = match checked {
+    let (batches, manifest_batches) = match checked {
         Ok(result) => result?,
         Err(panic) => std::panic::resume_unwind(panic),
     };
     closed?;
+    if !read_between && max_events != 4 {
+        assert_eq!(manifest_batches, 2,
+            "three committed cells must share one two-entry manifest preparation without changing per-entry publication");
+    }
     // All correctness checks and joined shutdown precede the performance oracle.
     assert_eq!(
         batches,
@@ -815,3 +841,13 @@ pub(super) async fn rejections(rooted: bool) -> Result<()> {
     }
     fixture.close().await
 }
+
+#[path = "cell_group_sql_apply_prefetch.rs"]
+mod prefetch;
+pub(crate) use prefetch::{verify as prepared_prefetch, Check as PrefetchCheck};
+
+#[path = "cell_group_sql_apply_late_prefetch.rs"]
+mod late_prefetch;
+pub(crate) use late_prefetch::verify as late_committed_prefetch;
+
+pub(crate) use late_prefetch::uncommitted as uncommitted_prefetch;

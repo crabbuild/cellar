@@ -2005,3 +2005,107 @@ async fn rooted_commit_metadata_joins_applied_root_publication() -> Result<()> {
 async fn deferred_commit_ticket_refuses_another_replica_engine() -> Result<()> {
     Box::pin(runtime_fixture::foreign_commit_ticket()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_prefetch_read_failure_keeps_selected_root() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        false,
+        runtime_fixture::PrefetchCheck::ReadFailure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_prefetch_close_releases_charged_successor() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        false,
+        runtime_fixture::PrefetchCheck::Close,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_prefetch_yields_capacity_to_original_apply() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        false,
+        runtime_fixture::PrefetchCheck::Pressure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_committed_prefetch_read_failure_keeps_selected_root() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        true,
+        runtime_fixture::PrefetchCheck::ReadFailure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_committed_prefetch_close_releases_charged_successor() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        true,
+        runtime_fixture::PrefetchCheck::Close,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_committed_prefetch_yields_capacity_to_original_apply() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        true,
+        runtime_fixture::PrefetchCheck::Pressure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_prefetch_sync_failure_preserves_selected_root() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        false,
+        runtime_fixture::PrefetchCheck::SyncFailure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_committed_prefetch_sync_failure_preserves_selected_root() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        true,
+        runtime_fixture::PrefetchCheck::SyncFailure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_successor_arriving_during_image_preparation_shares_manifest_barrier(
+) -> Result<()> {
+    Box::pin(runtime_fixture::late_committed_prefetch(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn late_prefetch_cancelled_close_joins_new_reservation() -> Result<()> {
+    Box::pin(runtime_fixture::late_committed_prefetch(false, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_committed_successor_arriving_during_image_preparation_shares_manifest_barrier(
+) -> Result<()> {
+    Box::pin(runtime_fixture::late_committed_prefetch(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_late_prefetch_cancelled_close_joins_new_reservation() -> Result<()> {
+    Box::pin(runtime_fixture::late_committed_prefetch(true, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn locally_durable_uncommitted_successor_is_not_prefetched() -> Result<()> {
+    Box::pin(runtime_fixture::uncommitted_prefetch(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_locally_durable_uncommitted_successor_is_not_prefetched() -> Result<()> {
+    Box::pin(runtime_fixture::uncommitted_prefetch(true)).await
+}

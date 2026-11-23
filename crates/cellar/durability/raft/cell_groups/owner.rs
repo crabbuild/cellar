@@ -57,6 +57,17 @@ pub struct CellGroupTicket {
     pub(super) admission: Option<Arc<crate::raft::budget::Permit>>,
     pub(crate) preparation: Option<Arc<crate::raft::budget::Permit>>,
     pub(crate) prepared_image: Option<Arc<crate::raft::execution::CellPreparedImage>>,
+    pub(crate) prefetch: Option<Arc<std::sync::OnceLock<CellGroupApplyPrefetch>>>,
+}
+
+/// Preparation hint for one exact, already committed successor. It supplies no
+/// publication or execution authority; the successor keeps its own apply ticket.
+pub(crate) struct CellGroupApplyPrefetch {
+    pub(crate) position: LogPosition,
+    pub(crate) digest: [u8; 32],
+    pub(crate) encoded_bytes: usize,
+    pub(crate) pending_commit: Option<HardState>,
+    pub(crate) prepared_image: Option<Weak<crate::raft::execution::CellPreparedImage>>,
 }
 
 impl CellGroupTicket {
@@ -74,6 +85,11 @@ impl CellGroupTicket {
             && self.position == other.position
             && self.digest == other.digest
             && self.pending_commit == other.pending_commit
+            && match (&self.prefetch, &other.prefetch) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }
     }
 
     pub(super) fn covers_committed_entry(
@@ -81,13 +97,42 @@ impl CellGroupTicket {
         group: &GroupLog<GroupHistory>,
         cache: &crate::raft::cache::CachedGroup,
     ) -> bool {
-        cache.hard_state.commit >= self.position.index.get()
+        self.covers_committed_index(
+            group,
+            cache,
+            self.position.index.get(),
+            self.pending_commit.as_ref(),
+        )
+    }
+
+    pub(super) fn covers_prefetch(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        cache: &crate::raft::cache::CachedGroup,
+        next: &CellGroupApplyPrefetch,
+    ) -> bool {
+        self.covers_committed_index(
+            group,
+            cache,
+            next.position.index.get(),
+            next.pending_commit.as_ref(),
+        )
+    }
+
+    fn covers_committed_index(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        cache: &crate::raft::cache::CachedGroup,
+        index: u64,
+        pending: Option<&HardState>,
+    ) -> bool {
+        cache.hard_state.commit >= index
             || (Arc::ptr_eq(&self.lease.0, &group.consensus_claimed)
                 && self.lease.0.load(Ordering::Acquire)
-                && self.pending_commit.as_ref().is_some_and(|hard| {
+                && pending.is_some_and(|hard| {
                     hard.term == cache.hard_state.term
                         && hard.vote == cache.hard_state.vote
-                        && hard.commit >= self.position.index.get()
+                        && hard.commit >= index
                         && hard.commit <= cache.last_index()
                 }))
     }
@@ -2029,6 +2074,7 @@ impl CellGroupOwner {
                     .map_err(|_| RuntimeError::Closed)?,
             ));
         }
+        self.refresh_prefetch()?;
         Ok(())
     }
 
@@ -2836,6 +2882,7 @@ impl CellGroupOwner {
                 self.deferred_commit = None;
             }
         }
+        self.refresh_prefetch()?;
         Ok(())
     }
 
@@ -3009,6 +3056,7 @@ impl CellGroupOwner {
             admission: None,
             preparation: None,
             prepared_image: None,
+            prefetch: None,
         })
     }
 
@@ -3107,6 +3155,7 @@ impl CellGroupOwner {
                 queued_at_ms,
             });
         }
+        self.refresh_prefetch()?;
         Ok(())
     }
 
@@ -3147,7 +3196,9 @@ impl CellGroupOwner {
         {
             return Ok(false);
         }
+        drop(cache);
         self.deferred_commit = Some(hard);
+        self.refresh_prefetch()?;
         Ok(true)
     }
 
@@ -3461,6 +3512,7 @@ impl CellGroupOwner {
                     // Physical preparation and publication have settled. Its
                     // reservation must not deadlock admission of Applied.
                     ticket.admission = None;
+                    ticket.prefetch = None;
                     return Ok(Some(CellGroupEffect::Applied {
                         ticket,
                         manifest: Box::new(self.current.marker().clone()),
@@ -3613,7 +3665,9 @@ impl CellGroupOwner {
                     }
                     ticket.prepared_image =
                         self.proposals.prepared_image(ticket.position, &entry.data);
+                    ticket.prefetch = self.prefetch_slot(&entry);
                     self.applying = Some(ticket.clone());
+                    self.refresh_prefetch()?;
                     return Ok(Some(CellGroupEffect::Apply(Box::new(CellGroupApply {
                         ticket,
                         entry,
@@ -3622,6 +3676,83 @@ impl CellGroupOwner {
                 }
             }
         }
+    }
+
+    fn prefetch_slot(
+        &self,
+        entry: &Entry,
+    ) -> Option<Arc<std::sync::OnceLock<CellGroupApplyPrefetch>>> {
+        if self.options.max_events < 2
+            || self.current.marker().root().depth() > 14
+            || entry.get_entry_type() != EntryType::EntryNormal
+            || entry.data.is_empty()
+        {
+            return None;
+        }
+        // Fixed metadata only, inside the existing ticket envelope. No entry
+        // bytes or image pin can attach after transfer without apply admission.
+        Some(Arc::new(std::sync::OnceLock::new()))
+    }
+
+    fn refresh_prefetch(&self) -> Result<(), RuntimeError> {
+        let Some(ticket) = &self.applying else {
+            return Ok(());
+        };
+        let Some(slot) = ticket.prefetch.as_ref().filter(|slot| slot.get().is_none()) else {
+            return Ok(());
+        };
+        let Some(first) = self.apply.front().map(|pending| &pending.entry) else {
+            return Ok(());
+        };
+        if entry_position(first) != ticket.position {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        let Some(index) = first.index.checked_add(1) else {
+            return Ok(());
+        };
+        if index > self.node.raft.raft_log.committed {
+            return Ok(());
+        }
+        let cache = self.group.read()?;
+        let Some(next) = cache.entries.get(&index) else {
+            return Ok(());
+        };
+        if next.get_entry_type() != EntryType::EntryNormal || next.data.is_empty() {
+            return Ok(());
+        }
+        if let Some(queued) = self.apply.get(1) {
+            if &queued.entry != next {
+                return Ok(());
+            }
+        }
+        let pending_commit = if cache.hard_state.commit >= index {
+            None
+        } else {
+            let mut hard = self.node.raft.hard_state();
+            if hard.term != cache.hard_state.term
+                || hard.vote != cache.hard_state.vote
+                || hard.commit < index
+            {
+                return Ok(());
+            }
+            // This is preparation-only evidence of a real committed, locally
+            // durable prefix. It never changes the current publication ticket.
+            hard.commit = index;
+            Some(hard)
+        };
+        let hint = CellGroupApplyPrefetch {
+            position: entry_position(next),
+            digest: entry_digest(next)?,
+            encoded_bytes: next.compute_size() as usize,
+            pending_commit,
+            prepared_image: self
+                .proposals
+                .prepared_image(entry_position(next), &next.data)
+                .map(|image| Arc::downgrade(&image)),
+        };
+        drop(cache);
+        let _ = slot.set(hint);
+        Ok(())
     }
 
     fn validate_apply(

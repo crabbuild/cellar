@@ -1180,3 +1180,9 @@ pub(super) use sql::controller_routed_queries;
 pub(super) use sql::automatic_queries_finish_catalog_refresh;
 pub(super) use sql::automatic_queries_keep_first_progress;
 pub(super) use sql::automatic_queries_leave_blocked_local;
+
+pub(super) use sql::{prepared_prefetch, PrefetchCheck};
+
+pub(super) use sql::late_committed_prefetch;
+
+pub(super) use sql::uncommitted_prefetch;

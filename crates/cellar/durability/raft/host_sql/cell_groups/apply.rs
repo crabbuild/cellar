@@ -19,6 +19,11 @@ pub(in crate::raft::host_sql) struct ApplyRequest {
     pub group: GroupHistory,
     applier: CellGroupApplier,
     work: CellGroupApply,
+    cache: Arc<super::apply_cache::ApplyCache>,
+    cached: Option<crate::raft::cell_groups::PrefetchedApply>,
+    prefetch_admission: Arc<Budget>,
+    prefetch_retention: Arc<std::sync::OnceLock<Arc<crate::raft::budget::Permit>>>,
+    business_admission: Arc<Admission>,
     reply: oneshot::Sender<ApplyResult>,
     _slot: Arc<tokio::sync::OwnedSemaphorePermit>,
     _queued_slot: Option<tokio::sync::OwnedSemaphorePermit>,
@@ -86,6 +91,11 @@ impl ApplyTasks {
             .clone()
             .ok_or(ExecutionError::Invalid("unadmitted physical group apply"))?;
         let lane = request._slot.clone();
+        let cached = request
+            .cached
+            .as_ref()
+            .map(|value| value.reservation.clone());
+        let prefetch = request.prefetch_retention.clone();
         request._queued_slot.take();
         let owner = domain.clone();
         let physical = domain
@@ -95,7 +105,7 @@ impl ApplyTasks {
             // Keep ownership through the actual task join. Deliver only after
             // releasing join custody, including a failed preparation's physical
             // reservations, before sending its result.
-            let retention = (admission, lane);
+            let retention = (admission, lane, cached, prefetch);
             let joined = physical.await;
             drop(retention);
             let (reply, result) = joined?;
@@ -169,12 +179,27 @@ impl CellGroupSqlPool {
             return Err(ExecutionError::Invalid("apply pool engine"));
         }
         let bytes = applier.reservation_bytes(&work)?;
-        let reservation = Arc::new(
-            self.inner
-                .apply_admission
-                .acquire(bytes)
-                .ok_or_else(overloaded)?,
-        );
+        let mut cached = self.inner.apply_cache.take(applier.history())?;
+        let reservation = match self.inner.apply_admission.acquire(bytes) {
+            Some(permit) => permit,
+            None => {
+                // Discard joined immutable prefetches before refusing original
+                // apply work. This is admission only, never a mutation retry.
+                let count = usize::from(cached.take().is_some()) + self.inner.apply_cache.clear();
+                self.inner.performance.increment(
+                    crate::raft::performance::Counter::CellApplyPrefetchEvictions,
+                    count as u64,
+                );
+                self.inner
+                    .apply_admission
+                    .acquire(bytes)
+                    .ok_or_else(overloaded)?
+            }
+        };
+        let reservation = Arc::new(reservation);
+        // This fixed-size anchor is retained by ApplyTasks outside the
+        // physical closure. Any late permit survives through the actual join.
+        let prefetch_retention = Arc::new(std::sync::OnceLock::new());
         work.ticket.preparation = Some(reservation.clone());
         let group = applier.history();
         let mut hash = Sha256::new();
@@ -206,6 +231,11 @@ impl CellGroupSqlPool {
                 group,
                 applier: applier.clone(),
                 work,
+                cache: self.inner.apply_cache.clone(),
+                cached,
+                prefetch_admission: self.inner.apply_admission.clone(),
+                prefetch_retention,
+                business_admission: self.inner.admission.clone(),
                 reply,
                 _slot: slot,
                 _queued_slot: Some(queued_slot),
@@ -228,6 +258,11 @@ impl ApplyRequest {
         let Self {
             applier,
             work,
+            cache,
+            cached,
+            prefetch_admission,
+            prefetch_retention,
+            business_admission,
             reply,
             _slot,
             queued,
@@ -239,7 +274,26 @@ impl ApplyRequest {
         } else {
             queued.finish(true);
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                applier.prepare(&work, performance)
+                applier.prepare(&work, performance, cached, |bytes| {
+                    if stopped.load(Ordering::Acquire)
+                        || domain.mono_ms().is_err()
+                        || !business_admission.may_prefetch(work.base.marker().route().history)?
+                    {
+                        return Ok(None);
+                    }
+                    let Some(permit) = prefetch_admission.acquire(bytes) else {
+                        performance.increment(
+                            crate::raft::performance::Counter::CellApplyPrefetchAdmissionRefusals,
+                            1,
+                        );
+                        return Ok(None);
+                    };
+                    let permit = Arc::new(permit);
+                    prefetch_retention.set(permit.clone()).map_err(|_| {
+                        ExecutionError::Invalid("late prefetch admission already anchored")
+                    })?;
+                    Ok(Some(permit))
+                })
             }))
             .unwrap_or_else(|panic| {
                 Err(crate::raft::execution::storage(
@@ -250,7 +304,26 @@ impl ApplyRequest {
                 if stopped.load(Ordering::Acquire) || domain.mono_ms().is_err() {
                     return Err(unavailable());
                 }
-                Ok(CellGroupPreparedApply { work, prepared })
+                let crate::raft::cell_groups::ApplyPreparation {
+                    first,
+                    next,
+                    reused,
+                } = prepared;
+                if let Some(next) = next {
+                    cache.insert(work.base.marker().route().history, next, || {
+                        business_admission.may_prefetch(work.base.marker().route().history)
+                    })?;
+                    performance
+                        .increment(crate::raft::performance::Counter::CellApplyPreparedPairs, 1);
+                }
+                if reused {
+                    performance
+                        .increment(crate::raft::performance::Counter::CellApplyPrefetchHits, 1);
+                }
+                Ok(CellGroupPreparedApply {
+                    work,
+                    prepared: first,
+                })
             })
         };
         timer.finish(result.is_ok());

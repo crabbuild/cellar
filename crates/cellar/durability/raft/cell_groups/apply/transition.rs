@@ -2,6 +2,7 @@
 
 //! Physical transitions shared by live committed apply and archive data replay.
 //! This module supplies preparation, never a persistence ticket or serving right.
+use super::super::root::PreparedCellUpdate;
 use super::*;
 use crate::application::consensus::group_protocol::{CellGroupEntry, GroupCommand};
 use crate::raft::member_state::GroupMembership;
@@ -41,30 +42,25 @@ impl Storage {
                 "recovery cannot reuse a local preparation",
             ));
         }
-        let Storage {
-            tree,
-            pages,
-            images,
-            limits,
-            max_effect_rows,
-        } = self;
         if entry.get_entry_type() == ::raft::prelude::EntryType::EntryConfChangeV2 {
             let (conf, membership) = configuration.ok_or(ExecutionError::Invalid(
                 "configuration replay state missing",
             ))?;
-            return tree
-                .prepare_membership(pages, base, entry, conf, membership)
+            return self
+                .tree
+                .prepare_membership(&self.pages, base, entry, conf, membership)
                 .map_err(storage);
         }
         // Check page owner and contiguous prefix before any image allocation/I/O.
-        let unchanged = tree
-            .prepare_unchanged(pages, base, entry_position(entry))
+        let unchanged = self
+            .tree
+            .prepare_unchanged(&self.pages, base, entry_position(entry))
             .map_err(storage)?;
         if entry.data.is_empty() {
             return Ok(unchanged);
         }
-        let decoded =
-            CellGroupEntry::decode(&entry.data, base.marker().route(), *limits).map_err(storage)?;
+        let decoded = CellGroupEntry::decode(&entry.data, base.marker().route(), self.limits)
+            .map_err(storage)?;
         if let GroupCommand::Activate {
             transition,
             publication,
@@ -130,6 +126,54 @@ impl Storage {
         if !base.marker().is_active() {
             return Err(ExecutionError::Invalid("group is not active"));
         }
+        let update = self.prepare_cell_update(
+            base,
+            entry,
+            decoded,
+            verify_existing,
+            prepared_image,
+            observations,
+        )?;
+        let Some(update) = update else {
+            return Ok(unchanged);
+        };
+        self.finish_cell_update(base, update, observations)
+    }
+
+    pub(super) fn finish_cell_update(
+        &mut self,
+        base: &PreparedGroupManifest,
+        update: PreparedCellUpdate,
+        observations: ApplyObservations<'_>,
+    ) -> Result<PreparedGroupManifest, ExecutionError> {
+        observations.measure(
+            crate::raft::performance::Operation::SqlManifestPrepare,
+            || {
+                self.tree
+                    .prepare_update(
+                        &mut self.pages,
+                        base,
+                        update.leaf,
+                        update.expected.as_ref(),
+                        update.image,
+                    )
+                    .map_err(storage)
+            },
+        )
+    }
+
+    pub(super) fn prepare_cell_update(
+        &self,
+        base: &PreparedGroupManifest,
+        entry: &Entry,
+        decoded: CellGroupEntry<'_>,
+        verify_existing: bool,
+        prepared_image: Option<&crate::raft::execution::CellPreparedImage>,
+        observations: ApplyObservations<'_>,
+    ) -> Result<Option<PreparedCellUpdate>, ExecutionError> {
+        if !base.marker().is_active() {
+            return Err(ExecutionError::Invalid("group is not active"));
+        }
         let witness = CommitWitness {
             group: base.marker().route().history,
             position: entry_position(entry),
@@ -138,26 +182,24 @@ impl Storage {
         let next = match decoded.command {
             GroupCommand::Enroll { cell, image, files } => {
                 let decision = decide_enrollment(
-                    tree.route(),
+                    self.tree.route(),
                     EnrollmentPhase::Active,
                     &entry.data,
                     base.pin_cell(&cell.cell).map(|(leaf, _)| &leaf.enrollment),
-                    *limits,
+                    self.limits,
                 );
                 match decision {
-                    Ok(EnrollmentDecision::Existing(_)) | Err(EnrollmentError::Conflict) => {
-                        unchanged
-                    }
+                    Ok(EnrollmentDecision::Existing(_)) | Err(EnrollmentError::Conflict) => None,
                     Ok(EnrollmentDecision::Propose(record)) => {
-                        let prepared = images.prepare_with_image(
+                        let prepared = self.images.prepare_with_image(
                             images::ImageApply {
                                 cell: &cell,
                                 sequence: 1,
-                                schema: tree.route().schema_digest,
+                                schema: self.tree.route().schema_digest,
                                 base: None,
                                 image,
                                 files: &files,
-                                max_effect_rows: *max_effect_rows,
+                                max_effect_rows: self.max_effect_rows,
                                 observations,
                             },
                             verify_existing,
@@ -176,13 +218,11 @@ impl Storage {
                             witness,
                             effects: prepared.effects,
                         };
-                        observations.measure(
-                            crate::raft::performance::Operation::SqlManifestPrepare,
-                            || {
-                                tree.prepare_update(pages, base, leaf, None, prepared.pin)
-                                    .map_err(storage)
-                            },
-                        )?
+                        Some(PreparedCellUpdate {
+                            leaf,
+                            expected: None,
+                            image: prepared.pin,
+                        })
                     }
                     Err(error) => return Err(storage(error)),
                 }
@@ -192,15 +232,15 @@ impl Storage {
                     .pin_cell(&mutation.cell.cell)
                     .ok_or(ExecutionError::Invalid("apply cell missing"))?;
                 mutation.check_base(&old.version).map_err(storage)?;
-                let prepared = images.prepare_with_image(
+                let prepared = self.images.prepare_with_image(
                     images::ImageApply {
                         cell: &mutation.cell,
                         sequence: mutation.sequence.get(),
-                        schema: tree.route().schema_digest,
+                        schema: self.tree.route().schema_digest,
                         base: Some(&image_base),
                         image: mutation.result,
                         files: &mutation.files,
-                        max_effect_rows: *max_effect_rows,
+                        max_effect_rows: self.max_effect_rows,
                         observations,
                     },
                     verify_existing,
@@ -218,18 +258,16 @@ impl Storage {
                     witness,
                     effects: prepared.effects,
                 };
-                observations.measure(
-                    crate::raft::performance::Operation::SqlManifestPrepare,
-                    || {
-                        tree.prepare_update(pages, base, leaf, Some(&old.version), prepared.pin)
-                            .map_err(storage)
-                    },
-                )?
+                Some(PreparedCellUpdate {
+                    leaf,
+                    expected: Some(old.version.clone()),
+                    image: prepared.pin,
+                })
             }
             _ => {
                 return Err(ExecutionError::Invalid(
                     "unsupported group apply administration",
-                ))
+                ));
             }
         };
         Ok(next)

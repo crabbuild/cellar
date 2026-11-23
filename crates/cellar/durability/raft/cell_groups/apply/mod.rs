@@ -3,7 +3,9 @@
 //! Worker-owned physical preparation; only the Raft owner can publish its result.
 
 pub(super) mod images;
+mod prefetch;
 mod recovery;
+pub(crate) use prefetch::{ApplyPreparation, PrefetchedApply};
 mod summary;
 mod transition;
 pub use images::CellGroupApplyImages;
@@ -224,7 +226,7 @@ impl CellGroupApplier {
 
     /// Called only by the shared blocking SQL worker. The try-lock detects an
     /// invalid concurrent owner instead of blocking one worker behind another.
-    pub(crate) fn prepare(
+    fn prepare_single(
         &self,
         work: &CellGroupApply,
         performance: &Arc<crate::raft::performance::Registry>,
