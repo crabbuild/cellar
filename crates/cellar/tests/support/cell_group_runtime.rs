@@ -992,6 +992,7 @@ pub(super) use sql::{
     s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
     s3_remote_deadlines, s3_remote_outputs, s3_remote_receipt_reconciliation,
     s3_remote_slow_delivery, s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
+    s3_unrelated_publication_precedes_held_retirement,
 };
 pub(super) use sql::{
     background_admission, capacity_terminal_refusals, capacity_wait_shutdown,

@@ -1,11 +1,12 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! One bounded, fair archive lane on the existing node controller. Published
-//! markers are observations, never S3 command settlement or serving authority.
+//! Bounded publication, retained-proof and quiet-retirement lanes on the node
+//! controller. Published markers never supply S3 settlement or serving authority.
 pub(super) mod foreground;
 mod job;
 mod journal;
 pub(super) mod late;
+mod maintenance;
 mod provision;
 mod queue;
 #[cfg(test)]
@@ -276,6 +277,8 @@ struct Entry {
     reply: Option<RegistrationReply>,
     queued: bool,
     latest_applied: Option<LogIndex>,
+    published_index: Option<LogIndex>,
+    maintenance_pending: bool,
     dirty: bool,
     fatal: bool,
     stopping: bool,
@@ -311,6 +314,7 @@ pub(super) struct ProofCompleted {
 pub(super) enum Completed {
     Publication(Box<PublicationCompleted>),
     Proof(ProofCompleted),
+    Maintenance(Box<maintenance::Completed>),
 }
 
 #[derive(Default)]
@@ -324,6 +328,8 @@ pub(super) struct Manager {
     active_group: Option<GroupHistory>,
     proof_job: Option<BoxFuture<'static, ProofCompleted>>,
     proof_group: Option<GroupHistory>,
+    maintenance_job: Option<BoxFuture<'static, maintenance::Completed>>,
+    maintenance_group: Option<GroupHistory>,
     proof_queue: VecDeque<GroupHistory>,
     capacity_waits: BTreeSet<GroupHistory>,
     // One node-wide completed verification lets covered observations share the
@@ -376,6 +382,8 @@ impl Manager {
                 reply: Some(request.reply),
                 queued: true,
                 latest_applied: None,
+                published_index: None,
+                maintenance_pending: false,
                 dirty: true,
                 fatal: false,
                 stopping: false,
@@ -431,6 +439,8 @@ impl Manager {
                 reply: None,
                 queued: true,
                 latest_applied: None,
+                published_index: None,
+                maintenance_pending: false,
                 dirty: true,
                 fatal: false,
                 stopping: false,
@@ -551,18 +561,37 @@ impl Manager {
     }
 
     pub fn running(&self) -> bool {
-        self.job.is_some() || self.proof_job.is_some()
+        self.job.is_some() || self.proof_job.is_some() || self.maintenance_job.is_some()
     }
 
     pub async fn next(&mut self) -> Completed {
-        match (self.job.as_mut(), self.proof_job.as_mut()) {
-            (Some(publication), Some(proof)) => crate::asyncrt::select! {
-                completed = publication => Completed::Publication(Box::new(completed)),
-                completed = proof => Completed::Proof(completed),
-            },
-            (Some(publication), None) => Completed::Publication(Box::new(publication.await)),
-            (None, Some(proof)) => Completed::Proof(proof.await),
-            (None, None) => unreachable!("active archive work"),
+        let (publication, proof, maintenance) = (
+            self.job.as_mut(),
+            self.proof_job.as_mut(),
+            self.maintenance_job.as_mut(),
+        );
+        let publication = async {
+            match publication {
+                Some(job) => job.await,
+                None => std::future::pending().await,
+            }
+        };
+        let proof = async {
+            match proof {
+                Some(job) => job.await,
+                None => std::future::pending().await,
+            }
+        };
+        let maintenance = async {
+            match maintenance {
+                Some(job) => job.await,
+                None => std::future::pending().await,
+            }
+        };
+        crate::asyncrt::select! {
+            completed = publication => Completed::Publication(Box::new(completed)),
+            completed = proof => Completed::Proof(completed),
+            completed = maintenance => Completed::Maintenance(Box::new(completed)),
         }
     }
 
@@ -741,12 +770,14 @@ impl Manager {
 
     pub fn launch(&mut self, runtime: &CellGroupRuntime, shared: &Shared, now: u64) {
         self.launch_proof(now);
+        self.launch_maintenance(runtime, shared, now);
         if self.job.is_some() {
             return;
         }
         // A proof batch temporarily owns its requests outside the entry. That
         // group remains foreground while the independent proof lane is active.
         let proof_group = self.proof_group;
+        let maintenance_group = self.maintenance_group;
         let entries = &mut self.entries;
         let Some(group) = self.queue.next(|group| {
             let Some(entry) = entries.get_mut(&group) else {
@@ -757,7 +788,7 @@ impl Manager {
                 return Eligibility::Remove;
             }
             settlement::prune(&mut entry.waiters, now);
-            if entry.retry_at > now {
+            if entry.retry_at > now || maintenance_group == Some(group) {
                 Eligibility::Blocked
             } else if entry.waiters.is_empty() && proof_group != Some(group) {
                 if shared.foregrounds.blocks(group, now) {
@@ -954,6 +985,9 @@ impl Manager {
                 self.complete_publication(*completed, shared, now, closing)
             }
             Completed::Proof(completed) => self.complete_proof(completed, shared, now, closing),
+            Completed::Maintenance(completed) => {
+                self.complete_maintenance(*completed, shared, now, closing)
+            }
         }
     }
 
@@ -975,6 +1009,7 @@ impl Manager {
             .expect("completed archive owner");
         entry.context = completed.context;
         entry.capacity_wait = None;
+        entry.maintenance_pending = completed.maintenance_pending;
         let retry_interval = entry
             .registration
             .publisher
@@ -1001,6 +1036,7 @@ impl Manager {
         match result {
             Ok(marker) => {
                 let covered = marker.position().index;
+                entry.published_index = Some(covered);
                 status.published = Some(marker);
                 status.error = None;
                 if let Some(coverage) = &completed.coverage {
@@ -1027,6 +1063,7 @@ impl Manager {
                         let latest = entry
                             .latest_applied
                             .map_or(applied, |seen| seen.max(applied));
+                        entry.latest_applied = Some(latest);
                         entry.dirty = latest > covered || completed.maintenance_pending;
                     }
                     Err(error) => {
@@ -1040,6 +1077,7 @@ impl Manager {
                 }
             }
             Err(error) => {
+                entry.maintenance_pending = false;
                 entry.fatal = !retryable(&error);
                 if !entry.fatal && !entry.waiters.is_empty() {
                     entry.capacity_wait = completed.capacity_wait;
@@ -1131,6 +1169,7 @@ impl Manager {
         }
         if self.active_group == Some(group)
             || self.proof_group == Some(group)
+            || self.maintenance_group == Some(group)
             || self
                 .entries
                 .get(&group)
@@ -1165,7 +1204,8 @@ impl Manager {
         self.handoff = None;
         let publication = self.job.take();
         let proof = self.proof_job.take();
-        let (publication, proof) = futures_util::future::join(
+        let maintenance = self.maintenance_job.take();
+        let (publication, proof, maintenance) = futures_util::future::join3(
             async {
                 match publication {
                     Some(job) => Some(job.await),
@@ -1178,6 +1218,12 @@ impl Manager {
                     None => None,
                 }
             },
+            async {
+                match maintenance {
+                    Some(job) => Some(job.await),
+                    None => None,
+                }
+            },
         )
         .await;
         if let Some(completed) = publication {
@@ -1185,6 +1231,9 @@ impl Manager {
         }
         if let Some(completed) = proof {
             self.complete_proof(completed, shared, 0, true);
+        }
+        if let Some(completed) = maintenance {
+            self.complete_maintenance(completed, shared, 0, true);
         }
         for (group, entry) in &mut self.entries {
             entry.execution.join().await;

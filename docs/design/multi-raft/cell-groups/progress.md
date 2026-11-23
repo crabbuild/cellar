@@ -32,6 +32,56 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 independent publication during archive retirement
+
+A quiet predecessor release previously occupied the node publication lane. The
+native red on `e63bd830d` holds that actual release CAS after a newer archive is
+published, then the first independent S3 write exceeds its original five-second
+budget. Runtime `0b280ddc6` adds one bounded, joined retirement lane. Same-group
+journal writers stay serialized and all lanes use the existing I/O banks. The
+lane supplies no archive proof or compaction authority. It consumes an old
+foreground wake at admission while preserving new arrivals and retry backoff.
+
+The strengthened regression passes both image modes natively and against real
+RustFS: two independent exact S3 receipts return while the release remains held,
+then the original group resumes. Two existing real-RustFS functions also pass
+both modes: next-intent retirement coalescing and response-before-retirement.
+
+The complete pre-#167 Docker/RustFS baseline remains **FAILED: 8/10 functions,
+20/25 configuration markers**. All four bounded native Container recovery
+profiles now pass, alongside three physical safety cases, all eight source-proof
+refusal profiles, both interrupted-Delete profiles and both Start output-proof
+profiles. Materialized Quorum Sandbox passes its complete oracle. Remaining
+profiles are materialized S3 Sandbox original-receipt lookup verification,
+extent Quorum `Spare7`, extent S3 `Start1`, and both requested-S3 floor initial
+`Start1` calls. Those initial failures do not qualify the later retirement oracle.
+No general latency cure or full Container/Sandbox support is claimed.
+
+Existing native archive controls finish **30 pass / three fail / 34 ignored**;
+the new two-image isolation test passes separately. The command and enrollment
+deadline tests fail waiting for retained S3 work after original 800-ms calls;
+that wait has a 15-second bound. The remote case reports one entered callback,
+active SQL and no retained S3 work at transport timeout. These failures do not
+establish public deadline overrun or a missing business callback. The first two
+fixtures deleted their temporary voter roots on early return; their source,
+executable and logs survive. The follow-up preserves those roots before calls.
+
+Locked optimized build, strict affected Clippy and canonical formatting pass at
+`0b280ddc6`; runner, layout and dependency checks retain their recorded source
+boundaries. Evidence **`CG-17-retirement-isolation-rustfs-0b280ddc6-2937`** is
+sealed with **8,045 files, 91 canonical roots and seven available native roots**,
+frozen source/executables, the native red, separate timing/stack controls and a
+verified second copy. All owned processes and the 4-CPU/8-GiB VM are stopped;
+RustFS objects/volumes remain retained at 1 CPU/2 GiB. Native RF3 shares a process.
+
+PR #181 is merged at `bb8664a71`. Latest fetched main **`0f3b18e79`** also merges
+#167 and changes routing, persistence, archive admission and read-source reuse.
+The retirement lane is integrated on `codex/cg17-archive-retirement`, preserving
+those admission, capacity and proof rules; **combined-source qualification is
+pending**. The baseline above predates #167. All 32 full CG-17 cases and
+CG-13/15/16 remain open; the generated index receives no new acceptance credit.
+See the [delivery priorities](remaining-work.md#primitive-delivery-priority).
+
 ### CG-17 Sandbox Start output proof
 
 Shared `SandboxCatalog::start_child` now stages Ready after verifying the exact

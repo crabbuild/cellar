@@ -4,10 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current shared Sandbox and completion delivery
+## Current archive retirement and combined-main delivery
 
-Continue on draft [PR #181](https://github.com/crabbuild/cellar/pull/181), branch
-`codex/cg17-container-expiry-recovery`, based on latest fetched main `a85ab6f6c`.
+Continue on `codex/cg17-archive-retirement`, based on main `0f3b18e79` after
+merged #181 and #167. The local integration preserves #167's verification
+cohorts, reuse index and capacity waits while adding one quiet-retirement lane.
+Combined-source build and runtime qualification are pending. Do not push to the
+merged #181 branch or relabel the earlier baseline as qualification of this main.
+
+The completed `0b280ddc6` baseline passes the new native and real-RustFS
+isolation regression in both image modes, plus four real retirement/proof
+scenarios. Its full Docker campaign remains FAILED, **8/10 functions, 20/25
+markers**, with all four bounded Container recovery profiles passing. Sandbox
+still fails materialized S3 original-receipt verification, extent Quorum Spare7,
+extent S3 Start1 and both requested-S3 floor initial Start1 calls. Existing native
+archive controls have 30 passes and three original short-deadline failures.
+The first two failed native fixtures lost temporary voter roots; the new fixture
+custody change preserves future failures without changing calls or assertions.
+
+Evidence `CG-17-retirement-isolation-rustfs-0b280ddc6-2937` has 8,045 verified
+files, 91 canonical roots, seven available native roots and a verified second
+copy. All owned processes and the RustFS VM stopped and joined. See the
+[source-specific checkpoint](progress.md#cg-17-independent-publication-during-archive-retirement).
+
+Next finish the combined-source ordinary paths, then complete the inventory and
+real Storage/SQL/KV acceptance drivers. Continue through every primitive family,
+managed recovery and the independent Linux-voter/load/disk-loss matrix before
+CG-16 cutover. All 32 full cases remain required; focused passes cannot close
+that gate. Preserve original identities, proof/minimum rules and request budgets.
+
+## Previous shared Sandbox and completion delivery
+
+Merged [PR #181](https://github.com/crabbuild/cellar/pull/181) used branch
+`codex/cg17-container-expiry-recovery` and main `a85ab6f6c`.
 PR #180 is merged. Runtime **`b16b64036`** adds high-level shared Sandbox Ready
 batching after verified child completion. Source input proof, child receipt and
 final source output proof remain mandatory; explicit `confirm_ready`, `reserve`,
