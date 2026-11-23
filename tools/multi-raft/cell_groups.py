@@ -972,7 +972,7 @@ def main():
         if args.suite == "native-docker":
             record["docker_backend"] = docker_configuration(remote["profile"], os.environ)
             record["planned_configurations"] = dict(zip(cases, (1, 1, 1, 4, 4, 4, 4, 2, 2, 2), strict=True))
-            record["limitations"] = ("Three standalone physical-backend cases and six host-native RF3 suites. "
+            record["limitations"] = ("Three standalone physical-backend cases and seven host-native RF3 suites. "
                                      + limitations)
         bucket = remote["owner"] + "-cg-" + secrets.token_hex(4)
         record["s3_probe"] = probe(remote["endpoint"], bucket,

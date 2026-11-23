@@ -32,6 +32,68 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 Sandbox Start output proof
+
+Shared `SandboxCatalog::start_child` now stages Ready after verifying the exact
+child receipt and private binding completion. The next mandatory source effect,
+explicit checkpoint or final command output proves that metadata. This removes
+an extra independently awaited Ready checkpoint. Public `confirm_ready`,
+`reserve`, Fleet behavior and Delete input proofs retain their existing gates.
+No public S3 success escapes an unavailable final proof.
+
+The original extent/S3 trace on `78ddac563` spends about 681ms in that extra
+checkpoint after the child reply. A new actual-Docker/RustFS regression on
+pre-change production `ebbaf48d8` reaches verified child completion and parent
+Ready in both image modes, then fails the assertion that high-level Start
+returns to its callback. On runtime **`b16b64036`**, the same complete oracle
+passes both modes in the canonical campaign: an actual parent archive cut
+refuses final public success, explicit `confirm_ready` still awaits S3, and
+restoration recovers the original S3 receipt/allocation without callback or
+provider Create replay.
+
+The complete current-source campaign is **FAILED: 8/10 whole functions and
+19/25 configuration success markers**. The runner adds the new two-image case
+without removing any original case, assertion or 5s/3s/60s budget.
+
+| Case | Result on `b16b64036` |
+| --- | --- |
+| Three physical backend safety cases | All pass, including expiry seals, late delivery and failed-journal shutdown |
+| Container recovery | Complete materialized Quorum passes; materialized S3 `docker-a Write2`, extent Quorum `docker-b Destroy4` and extent S3 `docker-a Write2` exceed 5s |
+| Container source-proof refusal | All four image/minimum profiles pass |
+| Sandbox lifecycle/recovery | Complete materialized Quorum passes, including lost Exec/Delete, files, generation replacement and constructor-independent terminal cleanup; both S3 Start1 calls exceed 5s after physical Create, and extent Quorum `FileList4` exceeds 5s |
+| Sandbox source-proof refusal | All four retained-reservation/no-effect profiles pass |
+| Requested-S3 retirement floor | Both image modes pass archive-cut refusal and autonomous confirmation after restoration |
+| Interrupted Delete input/restart/restore | Both image modes pass, including the unchanged three-checkpoint bound and original-generation recovery |
+| Start final output/explicit Ready/receipt-only recovery | Both S3 image modes pass |
+
+The first `b16b64036` control and unchanged timing replay failed earlier in their
+original request budgets, before the intended Ready/output boundary. They remain
+retained alongside the final passing regression. In the replay, parent archive
+verification takes about 1.6s versus 0.1s in the baseline, leaving about 0.3s after
+the child input proof. This is a measured next boundary, not proof of one cause
+or an overall latency cure. No failed run is replaced by a later pass.
+
+Locked optimized public build, strict affected Clippy, **44 runner checks**,
+canonical formatting, layout, native dependencies and docs pass. Earlier
+38 Container/19 execution-controller results remain pinned to `78ddac563`;
+this Sandbox delivery does not relabel them as current unit execution.
+
+Evidence **`CG-17-start-output-rustfs-b16b64036-2904`** is sealed with **6,278
+files and 91 current retained roots**, the frozen executable/source, original
+causal red, both timing profiles, initial failed control and a checksum-verified
+second copy. The 4-CPU/8-GiB VM and all owned processes are stopped/joined;
+RustFS uses 1 CPU/2 GiB. RF3 shares one macOS process and one SQL worker per
+voter. Provider volumes/objects remain retained in the stopped VM, separately
+from the file evidence.
+
+Draft [PR #181](https://github.com/crabbuild/cellar/pull/181) remains based on
+latest fetched main `a85ab6f6c`, which merged #180. Six ordinary response-deadline
+profiles remain failed. The separate 800ms admission, post-restart named S3
+`Relay7` and historical post-reclamation failures are not rerun here. All 32
+full CG-17 cases, ordinary application entrypoints/interactive/network adapters,
+independent voters/load/volume recovery and CG-13/15/16 cutover remain open.
+The generated implementation index retains its existing task credit.
+
 ### CG-17 durable expiry receipts and concurrent recovery
 
 An expired controller submission can remain durable even when cancellation
