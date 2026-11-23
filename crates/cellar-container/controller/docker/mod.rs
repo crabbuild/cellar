@@ -6,6 +6,9 @@
 //! tree before admission, including detached children. No mutation is replayed.
 mod engine;
 mod journal;
+#[cfg(test)]
+#[path = "receipt_tests.rs"]
+mod receipt_tests;
 mod work;
 use super::{Reply, Request};
 use crate::Limits;
