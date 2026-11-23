@@ -32,6 +32,75 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 foreground publication with retained replay custody
+
+Draft [PR #184](https://github.com/crabbuild/cellar/pull/184) starts from main
+`ff5cdec33`, which merged #182. Runtime `f668d0193` fixes an independent archive
+blocking defect: an entered background publication retained the node's only
+checkpoint and replay operations after verification had already finished.
+Another group's S3 requests could not publish. The original regression fails
+on `275482860`; a publication-lane-only candidate also fails on `ca4f47283`.
+The `05b0f66a0` trace records 503 foreground attempts ending in checkpoint Busy
+while the background CAS remains held.
+
+The controller now admits one bounded foreground publication beside an entered
+background publication. Completed replay releases its operation slots while
+retaining physical pins, the source witness and charges in the original byte
+banks. Publication reacquires the original proof admission before returning
+coverage. Same-group journal writes remain serialized; original deadlines,
+identities, durability floors, conditional publication and joined shutdown
+remain required. No I/O or memory limit increases.
+
+Test-only `8b9fece2d` strengthens the existing priority oracle: hold the receipt's
+own required publication, preserve the no-early-ack assertion, and leave the
+older queued background publication held. This permits legitimate concurrent
+publication without making the assertion depend on filesystem speed.
+Production inputs remain identical to `f668d0193`.
+
+| Source-pinned gate | Result |
+| --- | --- |
+| Six native archive controls, including retained receipt admission, late proof reuse and expired-caller shutdown | All pass in both image forms |
+| Real RustFS held-background publication and strengthened queued-priority controls | Both functions pass in both image forms |
+| Ordinary Workflow, including large streams and `create/delete-held` | Both image forms pass; no causal latency or repeatability claim |
+| Original public EventStream Consume | Two canonical replays fail the original three-second deadline |
+| Seven original Docker/Sandbox functions against real RustFS | **FAILED: 5/7 functions, 18/22 configuration markers** |
+| Full library, six threads | First run: 1,416 pass / three fail / two existing ignores; repeat: 1,418 pass / one fail / two existing ignores |
+| Isolated replays of the four library failures | All pass, with unchanged assertions and budgets |
+| Locked optimized builds, strict all-feature/all-target Cellar/container Clippy and canonical formatting | Pass |
+
+The library failures are LocalStore checkpoint/lease progress, two TLS park/wake
+cases, and peer-tunnel idle-expiry reuse. Their isolated passes do not clear the
+failed full runs. The separate EventStream trace fails initial activation before
+Consume; it does not explain or qualify the canonical Consume failures.
+
+In the Docker/Sandbox campaign, all eight source-proof refusal profiles,
+requested-S3 cleanup custody, interrupted Delete recovery and Start/output/Ready
+proof recovery pass both forms. Normal Container recovery passes three of four
+profiles; materialized S3 `Create1` expires. Normal Sandbox passes materialized
+Quorum. Materialized S3 does not reach the intended second physical Exec in the
+lost-reply control; extent Quorum and S3 `Create1` expire after provider entry.
+All original 5s/3s/60s request, maintenance and recovery budgets remain intact.
+Adding the new archive function gives **6/8 complete functions**; it does not
+clear the failed primitive functions.
+
+Closed evidence includes `CG-17-publication-bypass-red-275482860-3047`,
+`CG-17-publication-slot-failure-05b0f66a0-3065` (171 files, two retained roots),
+and `CG-17-submission-seal-publication-custody-f668d0193-3071` (4,925 files,
+90 retained roots). The latter two have verified second copies. Final native
+controls retain separate test and runtime pins in
+`CG-17-publication-custody-native-8b9fece2d-3089` (1,715 files, 79 roots).
+The final real-RustFS priority run is
+`CG-17-submission-seal-publication-final-8b9fece2d-3086` (206 files, two roots).
+Both have verified second copies. All owned test processes and qualification VMs stop and
+join; the unrelated default Colima profile is untouched.
+
+Next close EventStream's ordinary checkpoint/acknowledgement path and the exact
+normal Container/Sandbox completion deadlines. Complete primitive API and
+callback/session/provider coverage, then qualify managed recovery and the
+combined independent Linux/load/crash/disk-loss matrix on one source.
+CG-17 acceptance, default cutover and legacy removal remain open; task counts
+and acceptance requirements are unchanged.
+
 ### CG-17 SDK replies retain original invocation authority
 
 Runtime `37d53e781`, on main `0f3b18e79`, closes two reply-authority defects.

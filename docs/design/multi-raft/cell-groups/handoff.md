@@ -4,10 +4,42 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current SDK reply authority and managed recovery checkpoint
+## Current archive publication checkpoint
 
-Continue draft PR #182 on `codex/cg17-archive-retirement`; origin/main remains
-`0f3b18e79` after #181/#167. Runtime `37d53e781` validates source authority after
+Continue draft [PR #184](https://github.com/crabbuild/cellar/pull/184) on
+`codex/cg17-request-deadlines`, based on main `ff5cdec33` after merged #182.
+Runtime `f668d0193` adds one bounded foreground publication while an unrelated
+background CAS remains entered. It releases only joined replay operations,
+retains immutable custody and original byte charges, and reacquires proof
+admission before returning coverage. Same-group journals remain serialized.
+Native held-publication and expired-caller shutdown controls pass both images.
+Test-only `8b9fece2d` strengthens the queued-priority oracle; six final native
+archive functions and two final RustFS archive functions pass both image forms.
+
+Ordinary Workflow passes both forms. EventStream Consume fails two unchanged
+three-second replays; a separate trace fails before Consume during activation.
+The real Docker/Sandbox gate remains **FAILED: 5/7 functions, 18/22 markers**.
+Materialized S3 Container Create1, the materialized S3 Sandbox lost-Exec cut and
+extent Quorum/S3 Sandbox Create1 remain open. All eight proof-refusal profiles,
+requested-S3 cleanup custody, interrupted Delete and Start/output/Ready proof
+recovery pass both forms. Original 5s/3s/60s budgets remain unchanged.
+
+The first six-thread library run has 1,416 passes, three failures and two ignores;
+the repeat has 1,418 passes, one failure and two ignores. All four failures pass
+isolated replay; neither full run is green. Strict all-feature/all-target
+Cellar/container Clippy, locked builds and formatting pass. The RustFS bundle
+retains 4,925 verified files and 90 roots with a verified second copy. All owned
+labs stop and join. See [exact source and scope](progress.md#cg-17-foreground-publication-with-retained-replay-custody).
+
+Next repair the ordinary EventStream and Container/Sandbox completion paths,
+complete primitive contracts, then run combined managed recovery and independent
+Linux/load/crash/disk-loss qualification on one source. Default cutover, legacy
+removal and CG-17 acceptance remain gated; no task count changes.
+
+## Earlier SDK reply authority and managed recovery checkpoint
+
+Merged PR #182 was based on main `0f3b18e79` after #181/#167.
+Runtime `37d53e781` validates source authority after
 each owned SDK poll and when a completed queued reply reaches its application.
 The public cached-cell regression reproduces the old cross-invocation escape
 and passes both image forms after the fix. Preserve original deadlines,
@@ -47,8 +79,8 @@ are unchanged.
 
 ## Archive retirement baseline before SDK reply fencing
 
-Continue on `codex/cg17-archive-retirement`, draft PR #182, based on main
-`0f3b18e79` after merged #181 and #167. Runtime `0adc0eb8d` preserves verification
+Earlier PR #182 was based on main `0f3b18e79` after merged #181 and #167.
+Runtime `0adc0eb8d` preserves verification
 cohorts, reuse/capacity handling and physical proof custody while adding one
 bounded quiet-retirement lane. All owned test processes and the RustFS VM have
 stopped and joined.

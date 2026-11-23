@@ -8,21 +8,26 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The current delivery is [PR #182](https://github.com/crabbuild/cellar/pull/182),
-based on main `0f3b18e79` after merged #181 and #167. Runtime `37d53e781`
-adds original-invocation checks after SDK polling and at queued reply delivery.
-The public RF3 regression passes both image forms; 1,417 library tests pass.
-The [current qualification](progress.md#cg-17-sdk-replies-retain-original-invocation-authority)
-still has request deadline failures. Default cutover and full primitive
-acceptance remain open.
+The current delivery is draft [PR #184](https://github.com/crabbuild/cellar/pull/184),
+based on main `ff5cdec33` after merged #182. Runtime `f668d0193` allows a bounded
+foreground S3 publication while another group's background CAS remains entered,
+retaining verified data and original admission limits. The native and real
+RustFS regression passes both image forms; test-only `8b9fece2d` also qualifies
+the strengthened queued-priority oracle. Ordinary Workflow passes both forms.
+The [current qualification](progress.md#cg-17-foreground-publication-with-retained-replay-custody)
+still fails ordinary EventStream and some Container/Sandbox deadlines. Full
+parallel library runs also remain red despite passing isolated controls.
+Default cutover and full primitive acceptance remain open.
 
 The immediate delivery order is:
 
-1. Close ordinary request deadlines: EventStream Consume and extent Workflow
-   `create/delete-held` retain their original three-second failures. Real RustFS
-   Sandbox still fails materialized S3 `Create9`, extent S3 `DestroyJob8`, and
-   materialized interrupted `Delete2` within the original five-second contract.
-   Preserve exact identities, source/target minima and uncertain outcomes.
+1. Close ordinary request deadlines: EventStream Consume fails two current-source
+   replays at three seconds. Workflow passes both image forms on this source;
+   repeatability and combined recovery remain required. The real RustFS normal
+   paths still fail materialized S3 Container `Create1`, materialized S3 Sandbox's
+   intended lost-Exec cut, and extent Quorum/S3 Sandbox `Create1`. Preserve original
+   five-second requests, identities, source/target minima and uncertain outcomes.
+   Resolve full parallel library failures without weakening their assertions.
 2. Complete the primitive API inventory and public/recovery contracts. Current
    native filesystem, alarms and Queue gates pass, but their full lifecycle
    matrix remains required. Close Container/provider scope, WebSocket/session
