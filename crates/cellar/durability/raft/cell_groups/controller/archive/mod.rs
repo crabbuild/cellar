@@ -326,6 +326,12 @@ pub(super) struct Manager {
     queue: PublicationQueue,
     job: Option<BoxFuture<'static, PublicationCompleted>>,
     active_group: Option<GroupHistory>,
+    active_background: bool,
+    // One foreground publication may bypass an already entered background
+    // publication for another group. Both retain the existing physical banks;
+    // this adds no quota and never permits two writers for one journal.
+    foreground_job: Option<BoxFuture<'static, PublicationCompleted>>,
+    foreground_group: Option<GroupHistory>,
     proof_job: Option<BoxFuture<'static, ProofCompleted>>,
     proof_group: Option<GroupHistory>,
     maintenance_job: Option<BoxFuture<'static, maintenance::Completed>>,
@@ -561,12 +567,16 @@ impl Manager {
     }
 
     pub fn running(&self) -> bool {
-        self.job.is_some() || self.proof_job.is_some() || self.maintenance_job.is_some()
+        self.job.is_some()
+            || self.foreground_job.is_some()
+            || self.proof_job.is_some()
+            || self.maintenance_job.is_some()
     }
 
     pub async fn next(&mut self) -> Completed {
-        let (publication, proof, maintenance) = (
+        let (publication, foreground, proof, maintenance) = (
             self.job.as_mut(),
+            self.foreground_job.as_mut(),
             self.proof_job.as_mut(),
             self.maintenance_job.as_mut(),
         );
@@ -582,6 +592,12 @@ impl Manager {
                 None => std::future::pending().await,
             }
         };
+        let foreground = async {
+            match foreground {
+                Some(job) => job.await,
+                None => std::future::pending().await,
+            }
+        };
         let maintenance = async {
             match maintenance {
                 Some(job) => job.await,
@@ -590,6 +606,7 @@ impl Manager {
         };
         crate::asyncrt::select! {
             completed = publication => Completed::Publication(Box::new(completed)),
+            completed = foreground => Completed::Publication(Box::new(completed)),
             completed = proof => Completed::Proof(completed),
             completed = maintenance => Completed::Maintenance(Box::new(completed)),
         }
@@ -771,13 +788,16 @@ impl Manager {
     pub fn launch(&mut self, runtime: &CellGroupRuntime, shared: &Shared, now: u64) {
         self.launch_proof(now);
         self.launch_maintenance(runtime, shared, now);
-        if self.job.is_some() {
+        let bypass = self.job.is_some();
+        if self.foreground_job.is_some() || bypass && !self.active_background {
             return;
         }
         // A proof batch temporarily owns its requests outside the entry. That
         // group remains foreground while the independent proof lane is active.
         let proof_group = self.proof_group;
         let maintenance_group = self.maintenance_group;
+        let active_group = self.active_group;
+        let foreground_group = self.foreground_group;
         let entries = &mut self.entries;
         let Some(group) = self.queue.next(|group| {
             let Some(entry) = entries.get_mut(&group) else {
@@ -788,10 +808,14 @@ impl Manager {
                 return Eligibility::Remove;
             }
             settlement::prune(&mut entry.waiters, now);
-            if entry.retry_at > now || maintenance_group == Some(group) {
+            if entry.retry_at > now
+                || maintenance_group == Some(group)
+                || active_group == Some(group)
+                || foreground_group == Some(group)
+            {
                 Eligibility::Blocked
             } else if entry.waiters.is_empty() && proof_group != Some(group) {
-                if shared.foregrounds.blocks(group, now) {
+                if bypass || shared.foregrounds.blocks(group, now) {
                     Eligibility::Blocked
                 } else {
                     Eligibility::Background
@@ -803,7 +827,8 @@ impl Manager {
             return;
         };
         let entry = self.entries.get_mut(&group).expect("archive roster entry");
-        if entry.waiters.is_empty() && proof_group != Some(group) {
+        let background = entry.waiters.is_empty() && proof_group != Some(group);
+        if background {
             shared.foregrounds.background_started(group);
         }
         entry.queued = false;
@@ -846,8 +871,7 @@ impl Manager {
         tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                 group = ?group.group, stage = "launch", waiters = count);
         settlement::prune(&mut waiters, now);
-        self.active_group = Some(group);
-        self.job = Some(Box::pin(async move {
+        let publication: BoxFuture<'static, PublicationCompleted> = Box::pin(async move {
             let mut maintenance_pending = false;
             let mut completed_coverage = None;
             let result = std::panic::AssertUnwindSafe(async {
@@ -976,7 +1000,15 @@ impl Manager {
                 coverage: completed_coverage,
                 capacity_wait: capacity.take(),
             }
-        }));
+        });
+        if bypass {
+            self.foreground_group = Some(group);
+            self.foreground_job = Some(publication);
+        } else {
+            self.active_group = Some(group);
+            self.active_background = background;
+            self.job = Some(publication);
+        }
     }
 
     pub fn complete(&mut self, completed: Completed, shared: &Shared, now: u64, closing: bool) {
@@ -998,8 +1030,15 @@ impl Manager {
         now: u64,
         closing: bool,
     ) {
-        self.job = None;
-        self.active_group = None;
+        if self.foreground_group == Some(completed.group) {
+            self.foreground_job = None;
+            self.foreground_group = None;
+        } else {
+            assert_eq!(self.active_group, Some(completed.group));
+            self.job = None;
+            self.active_group = None;
+            self.active_background = false;
+        }
         self.handoff = None;
         self.capacity_waits.remove(&completed.group);
         let admitted_through = self.admissions.current();
@@ -1168,6 +1207,7 @@ impl Manager {
             entry.capacity_wait = None;
         }
         if self.active_group == Some(group)
+            || self.foreground_group == Some(group)
             || self.proof_group == Some(group)
             || self.maintenance_group == Some(group)
             || self
@@ -1203,30 +1243,44 @@ impl Manager {
         self.capacity_waits.clear();
         self.handoff = None;
         let publication = self.job.take();
+        let foreground = self.foreground_job.take();
         let proof = self.proof_job.take();
         let maintenance = self.maintenance_job.take();
-        let (publication, proof, maintenance) = futures_util::future::join3(
-            async {
-                match publication {
-                    Some(job) => Some(job.await),
-                    None => None,
-                }
-            },
-            async {
-                match proof {
-                    Some(job) => Some(job.await),
-                    None => None,
-                }
-            },
-            async {
-                match maintenance {
-                    Some(job) => Some(job.await),
-                    None => None,
-                }
-            },
+        let ((publication, foreground), (proof, maintenance)) = futures_util::future::join(
+            futures_util::future::join(
+                async {
+                    match publication {
+                        Some(job) => Some(job.await),
+                        None => None,
+                    }
+                },
+                async {
+                    match foreground {
+                        Some(job) => Some(job.await),
+                        None => None,
+                    }
+                },
+            ),
+            futures_util::future::join(
+                async {
+                    match proof {
+                        Some(job) => Some(job.await),
+                        None => None,
+                    }
+                },
+                async {
+                    match maintenance {
+                        Some(job) => Some(job.await),
+                        None => None,
+                    }
+                },
+            ),
         )
         .await;
         if let Some(completed) = publication {
+            self.complete_publication(completed, shared, 0, true);
+        }
+        if let Some(completed) = foreground {
             self.complete_publication(completed, shared, 0, true);
         }
         if let Some(completed) = proof {

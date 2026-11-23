@@ -1155,6 +1155,20 @@ pub(crate) async fn s3_foreground_progresses_during_background_publication(
             anyhow::ensure!(gate.publication_waiting.load(Ordering::Acquire));
             held.release.notify_one();
             archive_controller::published(&h.controllers[0], group, cut).await?;
+            let error = call
+                .response()
+                .await
+                .err()
+                .context("expired foreground call reported success")?;
+            anyhow::ensure!(
+                error.ambiguous,
+                "expiry lost an entered mutation's ambiguity"
+            );
+            anyhow::ensure!(gate.publication_waiting.load(Ordering::Acquire));
+            anyhow::ensure!(
+                h.calls.load(Ordering::Acquire) == 3,
+                "expired foreground mutation replayed"
+            );
             let mut closed = Box::pin(h.controllers[0].close());
             anyhow::ensure!(
                 tokio::time::timeout(Duration::from_secs(1), closed.as_mut())
@@ -1165,15 +1179,6 @@ pub(crate) async fn s3_foreground_progresses_during_background_publication(
             anyhow::ensure!(gate.publication_waiting.load(Ordering::Acquire));
             drop(resume);
             closed.await?;
-            let error = call
-                .response()
-                .await
-                .err()
-                .context("closed foreground call reported success")?;
-            anyhow::ensure!(
-                error.ambiguous,
-                "closing lost an entered mutation's ambiguity"
-            );
         }
         Ok::<_, anyhow::Error>(())
     }
