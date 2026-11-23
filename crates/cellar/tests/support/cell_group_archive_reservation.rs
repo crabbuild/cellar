@@ -55,6 +55,10 @@ pub(crate) async fn archive_reservation_renews_known_superseded_intent(
     let mut competing = None;
     let mut held = None;
     let work = async {
+        controller::wait_for(async || {
+            Ok(controllers[0].archive_status(route.history)?.is_some())
+        })
+        .await?;
         published(&controllers[0], route.history, initial).await?;
         let registry = config
             .directory
