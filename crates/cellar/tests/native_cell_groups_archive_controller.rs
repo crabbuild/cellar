@@ -1253,6 +1253,52 @@ async fn s3_unrelated_publication_precedes_held_retirement() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_foreground_progresses_during_background_publication() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_progresses_during_background_publication(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                false,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shutdown_joins_entered_foreground_publication() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_progresses_during_background_publication(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                true,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_foreground_progresses_during_background_publication() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_progresses_during_background_publication(
+                rooted,
+                rustfs::store("foreground-during-background", rooted)?,
+                false,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_s3_unrelated_publication_precedes_held_retirement() -> Result<()> {
     for rooted in [false, true] {

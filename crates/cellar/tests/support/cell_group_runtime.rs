@@ -986,6 +986,7 @@ pub(super) use sql::{
     follower_bootstraps_first_prefix, full_backend_outage, output_during_apply, output_progress,
     peer_connection_idle, retirement_coalesces_next_archive_intent, s3_commands, s3_deadline,
     s3_enrollment, s3_enrollment_deadline, s3_evicted_receipt_ignores_unarchived_sibling,
+    s3_foreground_progresses_during_background_publication,
     s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_missing_sibling, s3_namespace_minimum, s3_newer_receipt_bypasses_inflight_maintenance,

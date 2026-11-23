@@ -29,6 +29,7 @@ use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
     s3_evicted_receipt_ignores_unarchived_sibling,
+    s3_foreground_progresses_during_background_publication,
     s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
