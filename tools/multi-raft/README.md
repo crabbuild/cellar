@@ -151,7 +151,10 @@ python3 tools/multi-raft/cell_groups.py --suite native-docker --keep-going \
   --target-directory "$HOME/Workspace/crabbuild-target/cellar-my-checkout"
 ```
 
-The runner refuses another profile's socket or a mutable image tag. It retains
+The runner refuses another profile's socket or a mutable image tag. Each
+independent case receives a fresh store prefix, recorded with its command, so
+its deterministic catalog identities cannot inherit another case's minima.
+It retains
 the exact source, executable and selection evidence. The standalone physical
 case uses trusted host metadata and checks backend/controller restart, original
 receipts, actual kernel limits, deadline termination, detached-process fencing

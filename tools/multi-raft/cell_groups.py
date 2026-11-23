@@ -1010,6 +1010,11 @@ def main():
             record["build_environment"] = {key: env[key] for key in ("CARGO_INCREMENTAL", "CARGO_BUILD_JOBS")}
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
+            if args.suite == "native-docker" and number != 0:
+                # Standalone cases reuse deterministic catalog identities with
+                # different declared minima. They must not inherit each other's
+                # catalog, receipts or archive state within the same campaign.
+                env["CELLAR_CELL_GROUPS_RUSTFS_PREFIX"] = f"{prefix}/case-{number:02}"
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
@@ -1038,6 +1043,8 @@ def main():
             record["commands"].append({"argv": argv, "exit_code": result.returncode,
                                        "elapsed_seconds": round(time.monotonic() - started, 3),
                                        "output": log.name, "sha256": sha(log)})
+            if args.suite == "native-docker":
+                record["commands"][-1]["store_prefix"] = env["CELLAR_CELL_GROUPS_RUSTFS_PREFIX"]
             match = re.search(rf"Running [^\n]*\(([^\n)]+/{re.escape(target)}-[a-f0-9]+)\)", output)
             if match:
                 executable = Path(match[1])

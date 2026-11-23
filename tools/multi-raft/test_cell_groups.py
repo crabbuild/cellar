@@ -36,6 +36,7 @@ class SqlCampaignTests(unittest.TestCase):
             cli.write_bytes(b"SQL CLI fixture")
             output = root / "evidence"
             executed = []
+            observed_prefixes = []
 
             def run(argv, **kwargs):
                 if argv[0] == "git":
@@ -65,6 +66,7 @@ class SqlCampaignTests(unittest.TestCase):
                     self.assertNotEqual(retained, cli)
                     self.assertEqual(retained.read_bytes(), b"SQL CLI fixture")
                 executed.append(selection)
+                observed_prefixes.append(env["CELLAR_CELL_GROUPS_RUSTFS_PREFIX"])
                 if fault == "tamper":
                     retained.write_bytes(b"changed after capture")
                 body = ("test result: ok. 0 passed; 0 failed; 0 ignored;\n" if fault == "zero"
@@ -104,6 +106,13 @@ class SqlCampaignTests(unittest.TestCase):
                 else:
                     cell_groups.main()
             record = json.loads((output / "record.json").read_text())
+            if suite == "native-docker":
+                expected = [f"{record['prefix']}/case-{number:02}"
+                            for number in range(1, len(executed) + 1)]
+                self.assertEqual(observed_prefixes, expected)
+                self.assertEqual(len(set(observed_prefixes)), len(executed))
+                self.assertEqual([entry["store_prefix"] for entry in record["commands"]],
+                                 [record["prefix"], *expected])
             if fault:
                 self.assertEqual(record["status"], "FAILED")
                 self.assertEqual(len(executed), len(cases) if keep_going else 1)
