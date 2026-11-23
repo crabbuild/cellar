@@ -1183,6 +1183,23 @@ pub(crate) async fn s3_foreground_progresses_during_background_publication(
         Ok::<_, anyhow::Error>(())
     }
     .await;
+    if work.is_err() {
+        eprintln!(
+            "foreground publication pools: io={:?} owners={:?} tails={:?} checkpoints={:?}",
+            h.archive.io.usage(),
+            h.archive.owners.usage(),
+            h.archive.tails.usage(),
+            h.archive.checkpoints.usage(),
+        );
+        for selected in [group, h.route.history] {
+            if let Some(status) = h.controllers[0].archive_status(selected)? {
+                eprintln!(
+                    "foreground publication status: group={:?} attempts={} error={:?}",
+                    selected.group, status.attempts, status.error,
+                );
+            }
+        }
+    }
     drop(release);
     let resumed = if work.is_ok() && !join_foreground {
         archive_controller::published(

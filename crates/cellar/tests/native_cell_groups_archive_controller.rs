@@ -1268,6 +1268,16 @@ async fn s3_foreground_progresses_during_background_publication() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "diagnostic only: unchanged foreground publication gate with phase tracing"]
+async fn trace_foreground_during_background_publication() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::group_archive=debug")
+        .with_test_writer()
+        .try_init();
+    s3_foreground_progresses_during_background_publication().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn shutdown_joins_entered_foreground_publication() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(
