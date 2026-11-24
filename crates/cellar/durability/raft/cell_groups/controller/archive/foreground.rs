@@ -102,7 +102,7 @@ impl Foregrounds {
             .unwrap_or_else(|e| e.into_inner())
             .get(&group)
             .and_then(|g| g.window.as_ref())
-            .is_some_and(|w| w.deferring && w.users != 0 && now < w.deadline)
+            .is_some_and(|w| w.deferring && (w.users != 0 || w.coalesce_idle) && now < w.deadline)
     }
 
     pub(super) fn background_started(&self, group: GroupHistory) {
@@ -290,6 +290,7 @@ mod tests {
     fn failed_calls_and_old_receipts_do_not_renew_a_window() {
         let owner = owner(1, &[3]);
         drop(owner.admit(group(3), 50, 10, index(5)).unwrap());
+        assert!(!owner.blocks(group(3), 11));
         let replay = owner.admit(group(3), 100, 20, index(5)).unwrap();
         replay.completed(index(5));
         let later = owner.admit(group(3), 200, 60, index(6)).unwrap();
@@ -374,6 +375,25 @@ mod tests {
         drop(groups);
         current.completed(index(3));
         assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
+    }
+
+    #[test]
+    fn an_old_quorum_guard_cannot_coalesce_a_returned_groups_idle_window() {
+        let owner = owner(1, &[3]);
+        let old = owner.admit(group(3), 50, 10, index(1)).unwrap();
+        owner.forget(group(3));
+        owner.register(group(3)).unwrap();
+        let current = owner.admit(group(3), 100, 20, index(2)).unwrap();
+        drop(old.coalesce_until_deadline());
+        drop(current);
+        assert!(!owner.blocks(group(3), 30));
+        assert!(
+            !owner.groups.lock().unwrap()[&group(3)]
+                .window
+                .as_ref()
+                .unwrap()
+                .coalesce_idle
+        );
     }
 
     #[test]
