@@ -7457,3 +7457,20 @@ The lab also reproduced a RustFS startup race. Liveness was HTTP 200 while
 the first signed bucket request received HTTP 503. The local preparation and
 primitive comparison now share the storage/IAM readiness check. A fresh backend
 passed all seven signed operations on its first probe after the fix.
+
+## Parse current Raft persistence and apply measurements
+
+The analysis tool now accepts the current native inventory of 64 operation
+histograms and 88 counters, including committed image and manifest preparation,
+checkpoint phases, and apply prefetch. It retains the previously supported
+inventories and the exact inventory before #183. A delta still requires the
+same owner, complete vocabulary and bounds at both samples.
+
+The corrected analyzer accepted the retained start/end snapshots of all three
+voters in each SQL and KV baseline and candidate case. Mean Raft file sync
+spanned 5.2–8.7 ms across those cases, compared with 12.9–22.0 ms for image
+preparation and 10.9–17.3 ms for manifest preparation. The samples cover whole
+cases and include overlapping operations. Correlate individual requests with
+the persistence and apply phases before attributing the write tail. Derived
+phase totals are retained in `read-rf3-validated-performance-phases.json`
+alongside the original run ledgers.

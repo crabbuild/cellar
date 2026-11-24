@@ -65,12 +65,25 @@ COMMAND_OPERATIONS = FIRST_GROUP_OPERATIONS + (
     'cell_command_output_wait',
     'cell_command_s3_freshness',
 )
-OPERATIONS = COMMAND_OPERATIONS + (
+SETTLEMENT_OPERATIONS = COMMAND_OPERATIONS + (
     'cell_command_prepare',
     'cell_command_submit',
     'cell_command_settle',
 )
-COUNTERS = (
+CHECKPOINT_OPERATIONS = SETTLEMENT_OPERATIONS + (
+    'cell_checkpoint_prepare',
+    'cell_checkpoint_submit',
+    'cell_checkpoint_handoff',
+    'cell_checkpoint_proof',
+)
+APPLY_PHASE_OFFSET = CHECKPOINT_OPERATIONS.index('sql_archive_capture')
+OPERATIONS = CHECKPOINT_OPERATIONS[:APPLY_PHASE_OFFSET] + (
+    'sql_image_prepare',
+    'sql_image_inspect',
+    'sql_manifest_prepare',
+    'sql_manifest_recheck',
+) + CHECKPOINT_OPERATIONS[APPLY_PHASE_OFFSET:]
+SETTLEMENT_COUNTERS = (
     'engine_file_read_bytes',
     'engine_file_write_requested_bytes',
     'engine_file_write_completed_bytes',
@@ -150,6 +163,20 @@ COUNTERS = (
     'cell_command_submission_rejections',
     'cell_command_settlement_overloads',
 )
+CHECKPOINT_COUNTERS = SETTLEMENT_COUNTERS + (
+    'cell_name_quorum_selections',
+    'cell_binding_recovery_claims',
+    'cell_binding_recovery_settlements',
+    'cell_ingress_sequence_hints',
+)
+COUNTERS = CHECKPOINT_COUNTERS + (
+    'cell_apply_prepared_pairs',
+    'cell_apply_prefetch_hits',
+    'cell_apply_prefetch_evictions',
+    'cell_apply_prefetch_no_successor',
+    'cell_apply_prefetch_admission_refusals',
+    'cell_apply_prefetch_skipped',
+)
 RECOVERY_COUNTERS = COUNTERS[:COUNTERS.index('cell_command_rpc_attempts')]
 # The main-line archive used these routing counters before the recovery block.
 MAIN_ROUTING_COUNTERS = (
@@ -206,8 +233,10 @@ SCHEMAS = ((LEGACY_OPERATIONS, LEGACY_COUNTERS, LEGACY_BOUNDS),
            (FIRST_GROUP_OPERATIONS, COUNTERS[:COUNTERS.index('sql_node_admission_refusals')], BOUNDS),
            (FIRST_GROUP_OPERATIONS[:-3], MAIN_ROUTING_COUNTERS, BOUNDS),
            (FIRST_GROUP_OPERATIONS, RECOVERY_COUNTERS, BOUNDS),
-           (FIRST_GROUP_OPERATIONS, COUNTERS, BOUNDS),
-           (COMMAND_OPERATIONS, COUNTERS, BOUNDS),
+           (FIRST_GROUP_OPERATIONS, SETTLEMENT_COUNTERS, BOUNDS),
+           (COMMAND_OPERATIONS, SETTLEMENT_COUNTERS, BOUNDS),
+           (SETTLEMENT_OPERATIONS, SETTLEMENT_COUNTERS, BOUNDS),
+           (CHECKPOINT_OPERATIONS, CHECKPOINT_COUNTERS, BOUNDS),
            (OPERATIONS, COUNTERS, BOUNDS))
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
 
