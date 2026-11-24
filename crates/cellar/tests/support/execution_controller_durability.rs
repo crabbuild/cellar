@@ -94,7 +94,7 @@ async fn backend_submission_has_one_durable_reservation_and_one_result() -> Resu
     let provider = Arc::new(Provider::default());
     let controller = ExecutionController::create(
         d.clone(),
-        options(root.path().into()),
+        options(root.path().join("controller")),
         provider.clone(),
         [31; 32],
     )
@@ -161,7 +161,7 @@ async fn failed_reservation_barrier_never_enters_backend() -> Result<()> {
     let provider = Arc::new(Provider::default());
     let controller = ExecutionController::create(
         d.clone(),
-        options(root.path().into()),
+        options(root.path().join("controller")),
         provider.clone(),
         [32; 32],
     )
