@@ -41,9 +41,9 @@ impl HostFileIo for CountedFile {
             reads.calls += 1;
             reads.max_length = reads.max_length.max(length);
             let shorten = !reads.injected
-                && reads.short_at.is_some_and(|at| {
-                    offset <= at && offset.saturating_add(length as u64) > at
-                });
+                && reads
+                    .short_at
+                    .is_some_and(|at| offset <= at && offset.saturating_add(length as u64) > at);
             reads.injected |= shorten;
             shorten
         };
@@ -167,12 +167,10 @@ fn extent_inspection_amortizes_wal_reads_without_skipping_prefix_validation() {
         let wal_length = std::fs::metadata(db.wal_path()).unwrap().len();
         assert!(wal_length > 2 * WINDOW as u64);
         *reads.lock().unwrap() = Reads::default();
-        let observed = observe_extents(&db, None, binding(), bytes.len() as u64, 64 << 20)
-            .unwrap();
+        let observed = observe_extents(&db, None, binding(), bytes.len() as u64, 64 << 20).unwrap();
         assert_eq!(observed.manifest().root(), expected.root());
-        let budget = wal_length.div_ceil(WINDOW as u64)
-            + bytes.len() as u64 / u64::from(page_size)
-            + 8;
+        let budget =
+            wal_length.div_ceil(WINDOW as u64) + bytes.len() as u64 / u64::from(page_size) + 8;
         {
             let cost = reads.lock().unwrap();
             assert!(cost.max_length <= WINDOW);
@@ -196,7 +194,10 @@ fn extent_inspection_amortizes_wal_reads_without_skipping_prefix_validation() {
         assert_eq!(same.work().image_bytes_read, 0);
         {
             let cost = reads.lock().unwrap();
-            assert!(cost.calls > 0, "unchanged cuts still reverify actual WAL bytes");
+            assert!(
+                cost.calls > 0,
+                "unchanged cuts still reverify actual WAL bytes"
+            );
             assert!(cost.max_length <= WINDOW);
             assert!(cost.calls <= wal_length.div_ceil(WINDOW as u64) + 8);
         }
@@ -219,14 +220,20 @@ fn image_inspection_refuses_short_reads_and_corruption_across_read_windows() {
         assert!(db
             .committed_image_digest(image.len() as u64, page_size, 64 << 20)
             .is_err());
-        assert!(reads.lock().unwrap().injected, "short-read cut was not reached");
+        assert!(
+            reads.lock().unwrap().injected,
+            "short-read cut was not reached"
+        );
         *reads.lock().unwrap() = Reads::default();
         let mut corrupt = wal.clone();
         corrupt[boundary] ^= 1;
         std::fs::write(db.wal_path(), corrupt).unwrap();
         let refused = db.committed_image_digest(image.len() as u64, page_size, 64 << 20);
         std::fs::write(db.wal_path(), wal).unwrap();
-        assert!(refused.is_err(), "a read-window boundary hid WAL corruption");
+        assert!(
+            refused.is_err(),
+            "a read-window boundary hid WAL corruption"
+        );
         super::compare(&db, &writer);
         drop(writer);
         db.close().unwrap();

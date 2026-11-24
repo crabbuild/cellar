@@ -306,6 +306,11 @@ two matching, checksum-verified headers fix the committed frame boundary,
 geometry, salts and last-frame checksum. Corrupt or missing committed bytes
 refuse observation instead of selecting an older transaction with the same
 database length. Uncommitted spilled frames remain outside that boundary.
+WAL verification streams through 64 KiB read windows and reuses its frame
+buffers. Frames crossing a window, including 64 KiB SQLite pages, retain their
+ordinary checksum, salt and committed-boundary checks. Extent observations
+still hash the entire actual committed prefix on every call; no verified WAL
+bytes are cached across observations. Short reads refuse the observation.
 The metadata sample borrows the WAL write lock for its 96-byte copy and refuses
 contention; it does not checkpoint. Unsupported WAL-index formats also refuse
 observation.

@@ -30,6 +30,43 @@ fn exact(file: &mut HostFile, offset: u64, length: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+const WAL_READ_WINDOW: usize = 65536;
+
+/// Stream the exact committed prefix. This is local to one observation: no
+/// previously verified WAL bytes or frame checks survive into a later cut.
+struct WalWindow<'a> {
+    file: &'a mut HostFile,
+    next: u64,
+    end: u64,
+    bytes: Vec<u8>,
+    cursor: usize,
+}
+
+impl WalWindow<'_> {
+    fn read_into(&mut self, mut output: &mut [u8]) -> Result<()> {
+        while !output.is_empty() {
+            if self.cursor == self.bytes.len() {
+                let length = self
+                    .end
+                    .saturating_sub(self.next)
+                    .min(WAL_READ_WINDOW as u64) as usize;
+                if length == 0 {
+                    return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
+                }
+                self.bytes = exact(self.file, self.next, length)?;
+                self.next += length as u64;
+                self.cursor = 0;
+            }
+            let length = output.len().min(self.bytes.len() - self.cursor);
+            let (part, rest) = output.split_at_mut(length);
+            part.copy_from_slice(&self.bytes[self.cursor..self.cursor + length]);
+            self.cursor += length;
+            output = rest;
+        }
+        Ok(())
+    }
+}
+
 impl CommittedOverlay {
     pub fn open(
         db: &Db,
@@ -79,45 +116,55 @@ impl CommittedOverlay {
         }
         let mut prefix = [0; 32];
         let mut previous_prefix = None;
-        while offset < committed_end {
-            let frame = exact(&mut wal, offset, WAL_FRAME_HEADER_SIZE)?;
-            let data = exact(
-                &mut wal,
-                offset + WAL_FRAME_HEADER_SIZE as u64,
-                page_size as usize,
-            )?;
-            let (pgno, size) = reader
-                .consume_frame(&frame, &data, true)
-                .map_err(Error::from)?;
-            if pgno == 0 || pgno == lock_pgno(page_size) {
-                return Err(Error::Other("invalid image inspection WAL page".into()));
-            }
-            if let Some(hash) = &mut hash {
-                hash.update(&frame);
-                hash.update(&data);
-            }
-            pending.insert(pgno, offset + WAL_FRAME_HEADER_SIZE as u64);
-            offset += frame_length;
-            if offset == committed_end && (size == 0 || !cut.matches_last_frame(&frame)) {
-                return Err(Error::Other(
-                    "committed WAL frame differs from SQLite's index".into(),
-                ));
-            }
-            if size != 0 {
-                while let Some((page, position)) = pending.pop_first() {
-                    pages.insert(page, position);
+        {
+            let mut input = WalWindow {
+                file: &mut wal,
+                next: offset,
+                end: committed_end,
+                bytes: Vec::new(),
+                cursor: 0,
+            };
+            let mut frame = [0; WAL_FRAME_HEADER_SIZE];
+            let mut data = vec![0; page_size as usize];
+            while offset < committed_end {
+                // Header and page can cross read-window boundaries, including
+                // SQLite's 64-KiB pages. Every frame still reaches the ordinary
+                // checksum/salt verifier and optional full-prefix SHA-256.
+                input.read_into(&mut frame)?;
+                input.read_into(&mut data)?;
+                let (pgno, size) = reader
+                    .consume_frame(&frame, &data, true)
+                    .map_err(Error::from)?;
+                if pgno == 0 || pgno == lock_pgno(page_size) {
+                    return Err(Error::Other("invalid image inspection WAL page".into()));
                 }
-                // A truncated page must not reappear from an older transaction
-                // if a later commit grows the database again.
-                while pages.last_key_value().is_some_and(|(page, _)| *page > size) {
-                    pages.pop_last();
+                if let Some(hash) = &mut hash {
+                    hash.update(frame);
+                    hash.update(&data);
                 }
-                commit = size;
-                commit_end = offset;
-                if let Some(hash) = &hash {
-                    prefix = hash.clone().finalize().into();
-                    if previous_end == Some(offset) {
-                        previous_prefix = Some(prefix);
+                pending.insert(pgno, offset + WAL_FRAME_HEADER_SIZE as u64);
+                offset += frame_length;
+                if offset == committed_end && (size == 0 || !cut.matches_last_frame(&frame)) {
+                    return Err(Error::Other(
+                        "committed WAL frame differs from SQLite's index".into(),
+                    ));
+                }
+                if size != 0 {
+                    while let Some((page, position)) = pending.pop_first() {
+                        pages.insert(page, position);
+                    }
+                    // A truncated page must not reappear from an older transaction
+                    // if a later commit grows the database again.
+                    while pages.last_key_value().is_some_and(|(page, _)| *page > size) {
+                        pages.pop_last();
+                    }
+                    commit = size;
+                    commit_end = offset;
+                    if let Some(hash) = &hash {
+                        prefix = hash.clone().finalize().into();
+                        if previous_end == Some(offset) {
+                            previous_prefix = Some(prefix);
+                        }
                     }
                 }
             }
