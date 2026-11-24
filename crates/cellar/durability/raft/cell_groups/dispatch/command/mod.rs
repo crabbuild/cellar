@@ -610,6 +610,27 @@ impl CellCommandInvocation {
                 archive.require_runtime(runtime)?;
                 archive.require_group(attempt.route())?;
             }
+        } else if self
+            .dispatcher
+            .class
+            .is_cell_rpc(&self.request.contract.operation)
+        {
+            // Quorum callbacks also create dependent checkpoints. Coalesce
+            // their intermediate background cuts without requiring an archive
+            // registration for Quorum serving. This optional scheduling hint
+            // grants no durability or authority; all execution/output checks
+            // remain mandatory. Unlike a proved S3 result, Quorum completion
+            // cannot renew this cohort's original background deferral window.
+            if let Some(archive) = &self.dispatcher.s3 {
+                self.archive_invocation = archive
+                    .invocation(
+                        runtime,
+                        attempt.route(),
+                        attempt.deadline_ms(),
+                        authority.cell().witness.position.index,
+                    )
+                    .ok();
+            }
         }
         let (proposal, preview) = self
             .dispatcher
