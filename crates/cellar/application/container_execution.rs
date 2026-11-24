@@ -300,6 +300,61 @@ impl ExecutionGrant {
 }
 
 impl BindingJournal {
+    pub(super) fn inspect_execution<T, F, Fut>(
+        &self,
+        context: &Context,
+        lifecycle: BindingLifecycleGuard,
+        authority: Arc<dyn ExecutionFenceAuthority>,
+        kind: super::containers::ExecutionOperationKind,
+        payload: Vec<u8>,
+        inspect: F,
+    ) -> HandlerFuture<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(ExecutionClaim, super::containers::ExecutionOperation, Vec<u8>) -> Fut
+            + Send
+            + 'static,
+        Fut: std::future::Future<Output = Result<T>> + Send + 'static,
+    {
+        let prepared = (|| {
+            ensure!(
+                matches!(
+                    kind,
+                    super::containers::ExecutionOperationKind::Read
+                        | super::containers::ExecutionOperationKind::Inspect
+                ),
+                "inspection cannot submit a mutation"
+            );
+            let claim = self.prepare_claim(
+                context,
+                &lifecycle,
+                authority.as_ref(),
+                crate::storage::container_execution::ClaimPurpose::Execute,
+            )?;
+            // This provisional grant never escapes. Only the owned dispatch
+            // below can activate it, after the exact source checkpoint proof.
+            let grant = ExecutionGrant {
+                journal: self.clone(),
+                claim,
+                lifecycle: Some(Arc::new(lifecycle)),
+                authority: authority.clone(),
+            };
+            let operation = grant.next_operation(context, kind, &payload)?;
+            Ok((grant, operation))
+        })();
+        let (grant, operation) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => return Box::pin(async move { Err(error) }),
+        };
+        grant.dispatch(context, move |claim| async move {
+            // Retain the same lifecycle hold through activation and bounded
+            // inspection. No SQL continuation or second source proof is needed
+            // between two controller calls using this exact immutable claim.
+            authority.activate(claim.clone()).await?;
+            inspect(claim, operation, payload).await
+        })
+    }
+
     /// Stage the exact execution claim in this invocation's private SQLite
     /// transaction without controller I/O or a durability acknowledgement.
     /// Lifecycle admission must remain held. This metadata is not permission
