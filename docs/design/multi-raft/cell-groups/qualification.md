@@ -442,8 +442,10 @@ Native asynchronous callbacks can coalesce background archive attempts for their
 group while producing dependent checkpoints. Quorum callbacks use an optional
 scheduling hint; archive registration is not required for Quorum serving. The
 hint grants no authority or durability, and Quorum completion cannot renew it.
-For Quorum callbacks, that same finite window also spans idle gaps between
-dependent child calls. Later arrivals cannot extend its first deadline; expiry
+For authenticated framework child callbacks with Quorum, that same finite window
+also spans idle gaps between dependent calls. Ordinary Public/System callbacks
+retain their existing post-return archival cadence. Later children cannot extend
+the cohort's first deadline; expiry
 opens the background lane even under continued traffic. A fresh final S3 proof
 still ends an idle cohort immediately. An ordinary failed S3 call receives no
 additional idle deferral. No proof, timer, task or physical archive pin is held

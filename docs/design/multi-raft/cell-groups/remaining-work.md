@@ -19,7 +19,9 @@ profile fails autonomous recovery after archive restoration.
 
 Candidate `0c6974661` implements bounded coalescing across idle Quorum child-call
 gaps and passes 11 isolated production scheduling-module checks after the
-intended two-check semantic failure. Its integrated qualification is pending;
+intended two-check semantic failure. The final idle-gap admission is restricted
+to authenticated Event children, preserving Public/System callback cadence.
+Its integrated qualification is pending;
 this does not close a public deadline case.
 
 Priorities are to qualify this change against the exact Consume path, fix the

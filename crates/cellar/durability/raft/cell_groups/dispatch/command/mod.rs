@@ -629,7 +629,14 @@ impl CellCommandInvocation {
                         attempt.deadline_ms(),
                         authority.cell().witness.position.index,
                     )
-                    .map(|invocation| invocation.coalesce_until_deadline())
+                    .map(|invocation| match self.admission_kind {
+                        // Only authenticated framework children need the idle
+                        // gap before their parent submits another dependent
+                        // call. Public/System callbacks keep their existing
+                        // post-return background archival cadence.
+                        CommandAdmission::Event => invocation.coalesce_until_deadline(),
+                        CommandAdmission::Public | CommandAdmission::System => invocation,
+                    })
                     .ok();
             }
         }

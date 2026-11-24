@@ -48,7 +48,12 @@ isolated exact-module check with actual Cellar error/domain types, not the
 full library or public qualification. Later children cannot renew the window;
 expiry opens background work and a fresh S3 proof ends an idle cohort. This
 changes optional archival scheduling, not input/output proof requirements.
+The final admission path narrows this idle hint to authenticated Event children;
+ordinary Public/System callbacks keep their existing post-return archive cadence.
 Its current-source integrated build and original deadline rerun are pending.
+The broader `65330c2f4` static checks were interrupted when this admission review
+superseded that candidate; its queued public build never executed. No static or
+public pass is claimed for that interrupted work.
 The first opt-in public probe build at `f229f9b11` was interrupted before any
 test execution after severe shared-host contention was observed. It supplies
 no build or test pass. Preserve the actual timed failures below.
