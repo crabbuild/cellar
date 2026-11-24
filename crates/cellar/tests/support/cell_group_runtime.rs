@@ -116,6 +116,7 @@ impl RuntimeCluster {
             let (runtime, receiver) = CellGroupRuntime::start(
                 cluster.voters[n].log.clone(),
                 RaftRuntimeOptions {
+                    max_groups: cluster.options.max_groups,
                     tick_interval_ms: None,
                     election_seed: Some([71; 32]),
                     max_events,
@@ -944,6 +945,7 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
 
 #[path = "cell_group_sql.rs"]
 mod sql;
+pub(super) use sql::commit_metadata_checkpoint;
 pub(super) use sql::commit_metadata_publication;
 pub(super) use sql::foreign_commit_ticket;
 

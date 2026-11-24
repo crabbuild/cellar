@@ -3072,7 +3072,15 @@ impl CellGroupOwner {
         &mut self,
         mut write: GroupWrite<GroupHistory>,
     ) -> Result<Box<CellGroupPersist>, RuntimeError> {
-        if let Some(commit) = &self.deferred_commit {
+        // A local checkpoint compacts an already durable applied cut. Keep its
+        // write independent of later commit metadata, which remains deferred
+        // until an ordinary persistence write can publish it.
+        if let Some(commit) = self.deferred_commit.as_ref().filter(|_| {
+            !matches!(
+                &write.snapshot,
+                Some(SnapshotChange::CellGroupCheckpoint(_))
+            )
+        }) {
             match &write.hard_state {
                 Some(hard) if hard.commit < commit.commit => {
                     return Err(RuntimeError::Protocol("deferred commit regression".into()));

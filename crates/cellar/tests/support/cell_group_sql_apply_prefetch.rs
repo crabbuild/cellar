@@ -12,6 +12,8 @@ pub(crate) enum Check {
     SyncFailure,
     Close,
     Pressure,
+    ItemPressure,
+    ItemPressureReadFailure,
 }
 
 pub(crate) async fn verify(rooted: bool, check: Check) -> Result<()> {
@@ -22,8 +24,26 @@ pub(crate) async fn verify(rooted: bool, check: Check) -> Result<()> {
         Arc::new(super::super::apply_faults::physical::FaultFileSystem {
             faults: faults.clone(),
         });
-    let cluster =
-        Cluster::with_storage(RaftRuntimeOptions::default(), root, filesystem.clone()).await?;
+    let cluster = if matches!(check, Check::ItemPressure | Check::ItemPressureReadFailure) {
+        Cluster::with_store_log_limits(
+            RaftRuntimeOptions {
+                max_groups: 2,
+                ..Default::default()
+            },
+            root,
+            filesystem.clone(),
+            [6; 32],
+            Arc::new(object_store::memory::InMemory::new()),
+            Durability::Quorum,
+            ClusterLogLimits {
+                max_groups: Some(2),
+                ..Default::default()
+            },
+        )
+        .await?
+    } else {
+        Cluster::with_storage(RaftRuntimeOptions::default(), root, filesystem.clone()).await?
+    };
     let fixture = RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000).await?;
     let (mut fixture, route, _, _) = enroll_sql_cells(fixture, rooted, filesystem).await?;
     let limits = CellSqlLimits {
@@ -130,7 +150,7 @@ pub(crate) async fn verify(rooted: bool, check: Check) -> Result<()> {
         let ready = pool.prepare_apply(&applier, first_work).await?;
         assert_eq!(count("cell_apply_prepared_pairs")? - pairs_before, 1, "committed backlog did not prepare a pair");
         assert_eq!(barriers() - before_barrier, 1, "two committed closures must share one actual directory barrier");
-        let mut retained_first = matches!(check, Check::Pressure).then(|| ready.clone());
+        let mut retained_first = matches!(check, Check::Pressure | Check::ItemPressure | Check::ItemPressureReadFailure).then(|| ready.clone());
         ready.complete(&fixture.runtimes[0]).await?;
         let work = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -151,7 +171,30 @@ pub(crate) async fn verify(rooted: bool, check: Check) -> Result<()> {
             assert!(pool.prepare_apply(&applier, work).await.is_err());
             assert_eq!(group.group_manifest()?.as_ref(), Some(&before));
         } else {
-            if matches!(check, Check::Pressure) {
+            if matches!(check, Check::ItemPressure) {
+                // The previous physical result and this committed successor
+                // fill the original two-item bank. Reusing an already charged
+                // successor must not require a third item or another barrier.
+                assert!(retained_first.is_some());
+                assert_eq!(pool.usage()?.apply_retained_operations, 2);
+                let hits = count("cell_apply_prefetch_hits")?;
+                let evictions = count("cell_apply_prefetch_evictions")?;
+                let barriers_before = barriers();
+                let bytes_before = pool.usage()?.apply_retained_bytes;
+                let ready = pool.prepare_apply(&applier, work).await?;
+                assert_eq!(count("cell_apply_prefetch_hits")? - hits, 1,
+                    "the admitted committed successor must survive item pressure");
+                assert_eq!(count("cell_apply_prefetch_evictions")?, evictions);
+                assert_eq!(barriers(), barriers_before);
+                assert_eq!(pool.usage()?.apply_retained_operations, 2);
+                assert!(pool.usage()?.apply_retained_bytes > bytes_before,
+                    "reusing the item must keep both preparation byte charges");
+                assert!(pool.usage()?.apply_retained_bytes <= limits.node_bytes);
+                assert_eq!(group.group_manifest()?.as_ref(), Some(&before),
+                    "charged preparation is not publication");
+                ready.complete(&fixture.runtimes[0]).await?;
+                drop(retained_first.take());
+            } else if matches!(check, Check::Pressure) {
                 assert!(retained_first.is_some());
                 let before = count("cell_apply_prefetch_evictions")?;
                 pool.prepare_apply(&applier, work).await?.complete(&fixture.runtimes[0]).await?;
@@ -159,6 +202,10 @@ pub(crate) async fn verify(rooted: bool, check: Check) -> Result<()> {
                     "prefetch must yield its charged capacity to the original apply");
                 drop(retained_first.take());
             } else {
+            if matches!(check, Check::ItemPressureReadFailure) {
+                assert!(retained_first.is_some());
+                assert_eq!(pool.usage()?.apply_retained_operations, 2);
+            }
             let failed = Arc::new(AtomicBool::new(false));
             let observed = failed.clone();
             *faults.read_open.lock().unwrap() = Some(Arc::new(move |path| {
@@ -173,10 +220,15 @@ pub(crate) async fn verify(rooted: bool, check: Check) -> Result<()> {
             let phase = |snapshot: &RaftPerformanceSnapshot| -> Result<u64> { Ok(snapshot.operations.iter().find(|operation| operation.name == "sql_manifest_recheck").context("cached page recheck")?.failed) };
             assert_eq!(phase(&phase_after)? - phase(&phase_before)?, 1);
             assert_eq!(group.group_manifest()?.as_ref(), Some(&before));
+            if matches!(check, Check::ItemPressureReadFailure) {
+                assert_eq!(pool.usage()?.apply_retained_operations, 1,
+                    "failed physical recheck must join before releasing the reused reservation");
+            }
             *faults.read_open.lock().unwrap() = None;
             // Repeating physical preparation of this exact already-committed
             // entry is safe. It neither resubmits a mutation nor changes IDs.
             pool.prepare_apply(&applier, work).await?.complete(&fixture.runtimes[0]).await?;
+            drop(retained_first.take());
             }
             fixture.drive(Some(accepted.last().context("last accepted")?.position.index)).await?;
             for ((cell, command), original) in cells[1..].iter().zip(&prepared).zip(&accepted[1..]) {

@@ -10,6 +10,161 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+Earlier local qualification bundles have been cleaned up. Their source-pinned
+prose records observations made at those checkpoints; it does not assert that
+the old raw media or privacy caches are still available. The current campaign
+starts a fresh private evidence baseline and keeps generated outputs outside
+this tree.
+
+## Fresh main and constrained-runtime verification
+
+Main `86cfe5d1c` includes #184 and #185. The bounded-cache follow-up
+`6a0690913`, compiler inputs `fe495002`, fits eight idle successor hints within
+the existing 512-byte node bound. A compact lookup tag remains discardable:
+the full 256-bit history/schema scope must still match, and every command keeps
+its original authority, fingerprint, deadline and durability checks. The owning
+eight-target rotation fails before the change and passes afterward; forced
+lookup collisions cannot select another scope's sequence.
+
+The full library passes **1,430 tests / zero failures / two existing ignores**.
+All **13 selected public RF3 controls** pass, including both image forms of
+successor reuse and all eight SQL interrupted-parent recovery configurations.
+Strict all-feature/all-target Clippy and repository checks pass.
+
+The unchanged native service campaign passes **8/13 complete functions**:
+SQL, KV and Queue callbacks each **2/2**, combined Queue C2 **1/2**, combined
+C4 **0/1**, separate materialized C4 **1/2**, and extent-backed C4 **0/2**.
+Main's separate clean C4 control passes materialized **1/1** and fails both
+extent-backed repeats. The earlier three controls alongside compilation fail
+all three and remain diagnostic observations. These are not a matched full
+service performance comparison. Original request, callback and drain windows,
+identities, unknown outcomes and admission limits remain unchanged.
+
+A fresh Colima VM provides five CPUs and 11.65 GiB usable memory. Each case
+uses three independent 1-vCPU/2-GiB nodes, three RF3 groups, shared RustFS and
+separate capped store/client containers, with no container swap. The original
+6-GiB filesystem reserve passes before every case. Adjacent baseline/candidate
+pairs alternate source order across SQL, KV and Queue and all four durability
+modes. Both images use identical Rust, Python and runtime package versions.
+
+The **five-second, one-repeat smoke** at C1/4/16 passes **16/24 source cases**.
+All Fleet/Bucket cases pass; **8/12 Raft cases fail**, including every Queue
+Raft case. Failed windows retain incomplete settlement probes and unconfirmed
+mutations. Runtime/connection closure and subsequent `NotFound` observations
+require diagnosis; they are not proof that an unconfirmed mutation did not
+commit. A targeted failed Queue quorum trace retains healthy node-lease
+renewals. Separate SQL trace, C16-only and untraced controls pass, so those
+passes do not erase the original failures or establish a repair.
+
+The full 30-second, two-repeat comparison remains unqualified. This checkpoint
+closes the bounded working-set regression, not full service, low-latency or
+OPT/CG/recovery/release acceptance. Follow [the remaining priorities](remaining-work.md#current-optimization-follow-up).
+
+## Preserve committed prefetch under item pressure
+
+Compiler inputs `a53855fb` address a second bounded admission problem. When
+original apply work cannot acquire another item, a uniquely owned cached
+successor can carry its existing active item into that apply. Its entire cached
+byte charge remains held, and the full ordinary workspace is charged in
+addition, against the same unchanged bank. Shared ownership, byte pressure,
+another bank, an inactive item or overflow retain the original refusal or
+optional-prefetch eviction path. Physical join custody prevents promotion while
+the earlier preparation is still running.
+
+The full entry, base, group, engine and page-owner checks and actual page-read
+recheck remain required before publication. Reusing preparation does not admit
+another operation or establish a durable receipt. The original command and
+required durability proof remain individual.
+
+Four owning regressions fail on the test-only baseline `0d579b07`: both image
+forms lose their expected cache hit, and both injected read failures miss the
+physical cached-page recheck. All four pass on `a53855fb`, including unchanged
+selected roots after failure and reservation release after physical join.
+Twelve existing controls also pass, covering byte-pressure eviction, real read
+and sync faults, close, late cancellation and uncommitted successors in both
+image forms. The full library passes **1,431 tests / zero failures / two existing
+ignores**. Strict all-feature/all-target Clippy, formatting, layout and native
+dependency checks pass. Public and
+service requalification keeps the original identities and time windows. All
+**13 public RF3 selections** pass, including all eight interrupted-SQL recovery
+configurations.
+
+The unchanged native service campaign passes **6/13 complete selections**:
+SQL, KV and Queue callbacks each **2/2**, combined Queue C2 **0/2**, combined C4
+**0/1**, materialized C4 **0/2**, and extent-backed C4 **0/2**. Failed producer
+responses retain their ambiguous deadline outcomes. All captured processes join;
+nine structured Queue cleanup records report joined domains and zero errors.
+Original and retained fixture copies match. These captures and the earlier
+`fe495002` campaign are separate observations, not a matched performance result.
+
+The first failed rooted C2 snapshot has no optional-prefetch eviction or
+admission refusal.
+Its available, unsaturated aggregate observations report log file sync means of
+about **45–48 ms**, manifest preparation **138–157 ms**, and follower image
+preparation **162–170 ms**. They include setup and failed work, are not request
+percentiles, and must not be added as latency components. Native fixtures occupy
+an external USB APFS SSD.
+
+Six unchanged rooted C4 controls bracket internal-filesystem baseline/candidate
+ABBA runs with candidate USB runs. Both sources pass both internal runs, each
+delivering all **528 messages uniquely**. The candidate passes **1/2** USB runs.
+Its internal enqueue-batch p50 is **693–730 ms** and p99 **1,095–1,239 ms**;
+the baseline ranges overlap. These controls establish neither a native code
+speedup nor a repair of all USB failures. The harness originally placed runtime
+fixtures on USB alongside build artifacts. Full service requalification on the
+normal internal persistent temporary filesystem passes **13/13 complete
+selections**, including every original C2/C4 selection and reverse-order repeat.
+Cargo artifacts remain on Workspace. The original failed storage profile, time
+windows and media remain retained; no identity, durability minimum or admission
+assertion changes. Both complete captures have unchanged source and verified
+closed fixture copies. These native results do not qualify the pending capped
+Colima performance comparison.
+
+Separate temporary error-only probes at `e263e8e2` retain Queue and SQL deadline
+failures with all 15 observed node outcomes recorded as `Stopped` and no captured
+runtime/controller/quarantine failure. Those probes have been removed. This is
+a distinct failure pattern; it neither reproduces nor repairs the original
+runtime closures. Both the service and constrained comparison gates remain
+required. All measurements are scoped to the shared host, as requested.
+
+## Keep deferred commit metadata out of local checkpoints
+
+The paired `a53855fb` smoke completes all 24 source cases. All 12 Fleet/Bucket
+cases pass; all 12 Quorum/Quorum+S3 cases fail on both main and candidate.
+A private error-only reproduction captures the first runtime failure:
+`Storage(Invalid("mixed local checkpoint write"))`. Later controller closure and
+`NotFound` observations are consequences of that failure in this reproduction.
+
+Compiler inputs `61ed9d55` keep a local checkpoint's write independent of the
+later deferred commit metadata. The checkpoint compacts an already durable
+applied cut; the deferred HardState remains available for the next ordinary
+persistence write. Storage validation, applied-root publication, execution
+authority and exact receipt/durability requirements remain unchanged.
+
+Both image forms fail before the fix with the captured mixed-checkpoint error.
+They pass afterward, preserving the entire retained suffix and HardState while
+refusing successor authority until the original applied-root sync completes.
+All **38 checkpoint/commit controls**, **16 prefetch/admission controls**,
+**1,431 library tests** (two existing ignores), **13 public RF3 selections** and
+the unchanged **13 native service selections** pass. Strict all-feature/all-target
+Clippy, formatting, layout, native dependency and documentation checks pass.
+The Linux image's compiler inputs and executable hashes match this candidate.
+
+In the requested capped Colima topology, SQL and KV pass all four durability
+modes at C1/4/16. Each SQL Quorum voter publishes three actual local checkpoints;
+the run crosses the repaired boundary. The smoke then stops at Queue Quorum C16:
+C1/C4 delivery and settlement pass, but C16 retains ambiguous deadline responses.
+All runtimes remain healthy. A fresh C16-only diagnostic verifies warmup and
+then receives two immediate ambiguous `Overloaded` responses. These are separate
+admission/tail-latency failures, not recurrence of the mixed-checkpoint error.
+Unconfirmed mutations and failed settlement probes remain retained privately.
+
+The smoke uses five-second windows, three-second warmup and one repeat on the
+shared host. Queue's other three modes and the full 30-second, two-repeat matrix
+remain unqualified on this candidate. No performance ratio is inferred from
+main's failed Raft cases. No deadline, quota, durability minimum or validation
+assertion has been relaxed, and generated results remain outside the PR.
+
 ## Verified ingress successors across requests
 
 Starting from merged main `49828ff6` (#183), compiler inputs `99a34233` retain
@@ -7319,3 +7474,183 @@ Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
 See source-bound qualification
 for exact source/executable/profile/log hashes, intermittent controls, retained
 media, reuse and environment limits.
+
+## Authenticate remote read replies once
+
+The shared-cell query transport authenticates the signed version with the
+invocation's immutable key configuration, history and schema. It carries the
+observation and signed validity interval together in the decoded reply. The
+caller samples its wall clock again and enforces that interval before checking
+the requested version floor. Existing route, quorum, and authorization checks
+remain part of read admission. Command and receipt wire tests cover their own
+identity and durability checks through the shared token representation.
+
+In eight alternating paired samples of 6,000 iterations on the native host,
+the median mean cost of reply token validation moved from 101.8 to 50.5 μs.
+The harness compiles both versions of the token validation source with the same
+dependency artifacts and verifies matching outcomes at the signed time bounds.
+This measures token validation in isolation. The source and samples are retained
+under `cellar-0d50-quorum/read-freshness-bench` on the workspace target volume.
+
+The 42 query-wire tests passed, along with the full Cellar library suite
+(1,429 passed and two ignored), strict Clippy, module layout, formatting,
+documentation, and native dependency checks.
+
+The sequential baseline and candidate smoke used three RF3 groups on three
+voters, each capped at 1 vCPU and 2 GiB, and a fresh local RustFS per case.
+Both builds used the same compiler and harness configuration. Each SQL and KV
+read and write window verified at four concurrent clients over two 15-second
+repetitions.
+
+| Verified operation | Baseline p99 ms | Candidate p99 ms | Baseline requests/s | Candidate requests/s |
+| --- | ---: | ---: | ---: | ---: |
+| SQL read | 7.31–9.76 | 6.64–7.04 | 1,135–1,244 | 1,316–1,320 |
+| KV read | 11.49–23.08 | 6.57–17.82 | 710–1,067 | 943–1,425 |
+| SQL write | 1,130–1,648 | 247–386 | 19.5–21.9 | 26.2–33.8 |
+| KV write | 325–1,539 | 389–869 | 17.6–28.9 | 26.3–26.7 |
+
+Write timings also shifted substantially. Attribution of an end-to-end gain
+requires more controlled repetitions. Both runs failed overall on Queue. The
+baseline failed after 14 acknowledgements and four unconfirmed mutations in
+the second enqueue window. The candidate acknowledged 263 batches in the first
+window, then hit `Runtime(Closed)` before delivery and settlement could verify.
+The pre-shutdown admin probes reported `NotFound` on two voters in each run.
+A baseline Queue replay with lease tracing reproduced the closure. Its failing
+voter renewed its RustFS lease with roughly five seconds of authority remaining
+about 200 ms before exit. The first controller closure remains unresolved.
+Ledgers are retained under `cellar-0d50-quorum/read-rf3-baseline`,
+`read-rf3-candidate`, and `read-rf3-queue-baseline-trace`.
+
+## Local quorum smoke at main 86cfe5d1
+
+The constrained lab ran three Linux voters and three RF3 groups, with leaders
+balanced across voters. The optimized `lab` binaries were cross-built with
+Rust 1.99.1. Each voter, the client and the pinned RustFS each had a 1-vCPU,
+2-GiB cgroup and zero swap. SQL and KV used 24 extent-backed cells each.
+Queue used 24 queues and 24 dead-letter cells. The smoke ran one repetition
+at concurrency one and four with eight-second timed windows. Other host work
+overlapped the run. All three fresh stores had more than 37 GiB free on `/data`.
+
+| Verified operation | Clients | Requests/s | p50 ms | p95 ms | p99 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SQL write | 1 | 1.23 | 683 | 2,119 | 2,119 |
+| SQL write | 4 | 2.46 | 1,331 | 3,495 | 4,650 |
+| SQL read | 1 | 6.00 | 81 | 880 | 1,411 |
+| SQL read | 4 | 92.74 | 15 | 180 | 463 |
+| KV write | 1 | 0.89 | 840 | 1,964 | 1,964 |
+| KV read | 1 | 6.47 | 78 | 567 | 927 |
+| Queue enqueue, eight messages per request | 1 | 2.11 | 237 | 4,402 | 4,402 |
+| Queue enqueue, eight messages per request | 4 | 5.73 | 634 | 1,330 | 1,377 |
+
+SQL and Queue passed. Queue delivered all 520 acknowledged messages across the
+two timed windows, with zero duplicates and zero settled backlog or dead letters.
+KV failed its four-client write window with two ambiguous deadlines after 10
+acknowledged writes. Its four-client read window did not run. All nine voters
+exited zero and the cgroup samples recorded zero OOM events. The overall result
+remains failed. The ledgers retain the original attempts and verified windows
+under `cellar-0d50-quorum/primitive-early` on the workspace target volume.
+
+An independent smoke after the build finished passed all 16 windows using the
+same compiler inputs, executable hashes and client. SQL read p99 was 6.6/15.5 ms
+at concurrency one/four and write p99 was 122/492 ms. KV read p99 was 30.1/19.1 ms
+and write p99 was 323/2,483 ms. Queue enqueue p99 was 504/1,323 ms and all 1,104
+messages in the timed windows were delivered exactly once in the observed run.
+The repeat is retained under `cellar-0d50-quorum/primitive-smoke`. Compilation
+overlapped the first capture. The runs show sensitivity to the environment
+and leave an isolated estimate of that effect open.
+
+The 30-second concurrency-16 Quorum capture passed SQL writes and reads at
+17.0 and 833.2 requests/s, respectively, with p99 of 2,022 and 58.8 ms. KV
+verified 543 writes at 17.8 requests/s and p99 of 1,959 ms. Its read window
+failed two of 23,315 requests with `Version(Expired)` and
+`Transport(Authentication)`. Colima adjusted the guest clock during the
+load process lifetime. The ledger leaves correlation to the individual refusals
+open. Queue warmup recorded 69 acknowledged batches and 11 ambiguous failures
+before the timed phase. The consumer saw every acknowledged message plus
+messages outside that acknowledgement set and eight duplicate deliveries.
+The failed window retains all attempt identities for reconciliation. Evidence
+is retained under `primitive-c16`.
+
+The managed daemon fault suite passed on both materialized and extent images
+with three Linux voters at the same limits. Two cells shared one physical RF3
+group in each case. The ledger verifies native/Axum replies, parking and wake,
+an actual leader SIGKILL, successor election before restart and retained receipt
+reconciliation. A scoped archive-write fault allowed Quorum operations and
+refused explicit S3 acknowledgements until publication recovered. Maintenance
+kept the returning voter paused until resume. Losing two voters blocked new
+writes and protected reads. Evidence is retained under `managed-daemon-retry`.
+The initial daemon package used the benchmark entrypoint and owner-only file
+permissions. That attempt stopped before boot and is retained separately.
+
+The managed SQL/KV suite passed all four combinations of materialized/extents
+and Quorum/S3 minima. Both image modes exercised two physical RF3 groups with
+two cells per group on every voter. The independent verifier checked SQL
+rollback, exact readback, archive faults, leader SIGKILL, retained generations,
+and minority refusals through the native and Axum adapters on the daemon
+listener. The process, limit and operation records are under
+`cellar-0d50-quorum/managed-primitives`.
+
+The SQL counters across the full observed interval averaged 80 ms per Raft
+engine file sync, 168 ms per image preparation and 171 ms per manifest
+preparation in the first smoke. The repeat averaged 7.6, 18.4 and 17.0 ms,
+respectively. These populations differ and their intervals may overlap. Split
+manifest file sync, directory sync and selector publication on the same request
+timeline before choosing another persistence change. The separate native and
+Axum EventStream replays, including one using RustFS, reproduced ambiguous
+`Consume` deadlines. One Axum capture spent 1.60 seconds between capture and
+apply of the source checkpoint before ACK. In the RustFS replay the target ACK
+returned before the parent expired. These outcomes retain both source and target
+timing as priorities. The local smoke leaves the low-latency and sustained-load
+gates open.
+
+The standalone post-build replay failed all three EventStream `Consume`
+selections at the original deadline and passed the RustFS Outbox source-proof
+control. The earlier Outbox startup timeout remains in the first run. Separate
+logs are retained under `native-events` and `native-events-after-build`.
+
+The lab also reproduced a RustFS startup race. Liveness was HTTP 200 while
+the first signed bucket request received HTTP 503. The local preparation and
+primitive comparison now share the storage/IAM readiness check. A fresh backend
+passed all seven signed operations on its first probe after the fix.
+
+## Parse current Raft persistence and apply measurements
+
+The analysis tool now accepts the current native inventory of 64 operation
+histograms and 88 counters, including committed image and manifest preparation,
+checkpoint phases, and apply prefetch. It retains the previously supported
+inventories and the exact inventory before #183. A delta still requires the
+same owner, complete vocabulary and bounds at both samples.
+
+The corrected analyzer accepted the retained start/end snapshots of all three
+voters in each SQL and KV baseline and candidate case. Mean Raft file sync
+spanned 5.2–8.7 ms across those cases, compared with 12.9–22.0 ms for image
+preparation and 10.9–17.3 ms for manifest preparation. The samples cover whole
+cases and include overlapping operations. Correlate individual requests with
+the persistence and apply phases before attributing the write tail. Derived
+phase totals are retained in `read-rf3-validated-performance-phases.json`
+alongside the original run ledgers.
+
+## Reproduce KV version refusals under a clock step
+
+The [primitive comparison runner](../../../../tools/perf/primitive_compare.md)
+can record signed version time refusals at authentication and at the caller's
+final check. The load ledger records the failed request's ingress voter,
+wall-clock completion and elapsed time within the window.
+
+The four-client control verified its warmup, 66 timed writes and 3,252 timed
+reads on three RF3 groups backed by local RustFS. Each voter had 1 vCPU and
+2 GiB. The same image and workload verified 104 writes before the fault run
+introduced 24 backward clock steps of roughly 104 ms during the read window.
+The fault run restored the original guest clock progression after the pulses.
+
+The four failed reads matched their ingress voters' logs. The signed replies
+appeared 81–102 ms future-issued. Three requests returned
+`Transport(Authentication)` and one returned `Version(Expired)` after reply
+authentication. The verifier recorded 1,375 correct read results and refused
+qualification of the window. The controlled fault reproduces both historical
+C16 symptoms. The earlier run lacks exact timestamps for its failed requests.
+
+Two new C16 attempts stopped in warmup with 12 and 13 unconfirmed writes,
+respectively, before the read phase. They retain the existing ambiguity rules
+and provide no C16 read measurements. The ledgers and the clock-step samples
+are retained under `cellar-0d50-quorum/kv-version-clock-*`.

@@ -5,12 +5,16 @@ import copy
 from pathlib import Path
 import re
 import unittest
-from raft_metrics import BOUNDS, COUNTERS, FIELDS, FIRST_GROUP_OPERATIONS, OPERATIONS, delta, phases, periodic, samples, snapshot
+from raft_metrics import (
+    BOUNDS, CHECKPOINT_COUNTERS, CHECKPOINT_OPERATIONS, COMMAND_OPERATIONS,
+    COUNTERS, FIELDS, FIRST_GROUP_OPERATIONS, OPERATIONS, SETTLEMENT_COUNTERS,
+    SETTLEMENT_OPERATIONS, delta, periodic, phases, samples, snapshot,
+)
 
 
-def observation(source='1' * 32, stamp=1, operations=OPERATIONS):
+def observation(source='1' * 32, stamp=1, operations=OPERATIONS, counters=COUNTERS):
     return {'source': source, 'available': True, 'saturated': False, 'sampled_at_us': str(stamp),
-            'counters': [{'name': name, 'value': '0'} for name in COUNTERS],
+            'counters': [{'name': name, 'value': '0'} for name in counters],
             'operations': [{'name': name, **dict.fromkeys(FIELDS, '0'),
                             'buckets': [{'upper_us': None if upper is None else str(upper), 'count': '0'} for upper in BOUNDS]}
                            for name in operations]}
@@ -176,7 +180,7 @@ class ReclamationVocabulary(unittest.TestCase):
                 snapshot(raw)
 
     def test_retained_first_group_windows_keep_all_operations(self):
-        raw = observation(operations=FIRST_GROUP_OPERATIONS)
+        raw = observation(operations=FIRST_GROUP_OPERATIONS, counters=SETTLEMENT_COUNTERS)
         later = copy.deepcopy(raw)
         later['sampled_at_us'] = '2'
         self.assertEqual(tuple(delta(raw, later)['operations']), FIRST_GROUP_OPERATIONS)
@@ -263,14 +267,18 @@ class ReclamationVocabulary(unittest.TestCase):
             delta(before, observation(stamp=2))
 
     def test_command_phases_preserve_frozen_evidence_and_refuse_mixed_windows(self):
-        from raft_metrics import COMMAND_OPERATIONS
-        for operations in (COMMAND_OPERATIONS, OPERATIONS):
+        for operations, counters in ((COMMAND_OPERATIONS, SETTLEMENT_COUNTERS),
+                                     (SETTLEMENT_OPERATIONS, SETTLEMENT_COUNTERS),
+                                     (CHECKPOINT_OPERATIONS, CHECKPOINT_COUNTERS),
+                                     (OPERATIONS, COUNTERS)):
             with self.subTest(operations=len(operations)):
-                before = observation(operations=operations)
-                after = observation(stamp=2, operations=operations)
-                self.assertEqual(tuple(delta(before, after)['operations']), operations)
+                before = observation(operations=operations, counters=counters)
+                after = observation(stamp=2, operations=operations, counters=counters)
+                measured = delta(before, after)
+                self.assertEqual(tuple(measured['operations']), operations)
+                self.assertEqual(tuple(measured['counters']), counters)
         with self.assertRaises(ValueError):
-            delta(observation(operations=COMMAND_OPERATIONS), observation(stamp=2))
+            delta(observation(operations=CHECKPOINT_OPERATIONS, counters=CHECKPOINT_COUNTERS), observation(stamp=2))
 
 
 if __name__ == '__main__':

@@ -3,9 +3,17 @@
 //! Commit metadata joins the exact applied-root sync, never its acknowledgement.
 
 use super::*;
-use raft::Storage as _;
+use raft::{GetEntriesContext, Storage as _};
 
 pub(crate) async fn run(rooted: bool) -> Result<()> {
+    publication(rooted, false).await
+}
+
+pub(crate) async fn with_checkpoint(rooted: bool) -> Result<()> {
+    publication(rooted, true).await
+}
+
+async fn publication(rooted: bool, checkpoint_before_apply: bool) -> Result<()> {
     let (mut fixture, route, cell, _) = enrolled_sql_cells(rooted).await?;
     let work = tokio::time::timeout(Duration::from_secs(20), async {
         let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
@@ -39,6 +47,43 @@ pub(crate) async fn run(rooted: bool) -> Result<()> {
         anyhow::ensure!(group.group_manifest()?.as_ref() == Some(&before));
         anyhow::ensure!(matches!(fixture.runtimes[0].execution_authority(route.history, cell.clone()).await,
             Err(RuntimeError::NotReady)));
+
+        if checkpoint_before_apply {
+            // A real retained SQL proposal has committed, but its commit-only
+            // hard state still belongs to the later applied-root sync. The
+            // controller may checkpoint the held successor's preceding cut.
+            let hard = group.initial_state()?.hard_state;
+            let last = group.last_index()?;
+            let suffix = group.entries(hard.commit + 1, last + 1, None, GetEntriesContext::empty(false))?;
+            let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+            let checkpoint = pool.capture(&group, &apply.base)?.prepare_publication()?;
+            fixture.runtimes[0]
+                .checkpoint_before_apply(route.history, apply.ticket.clone(), checkpoint)
+                .await?;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if let Err(error) = fixture.runtimes[0].status(route.history).await {
+                        let completion = fixture.runtimes[0].close().await;
+                        anyhow::bail!("checkpoint with deferred commit stopped runtime: {error:?}; {completion:?}");
+                    }
+                    if group.checkpoint_manifest()?.as_ref() == Some(&before) {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+                Ok::<_, anyhow::Error>(())
+            }).await??;
+            anyhow::ensure!(group.initial_state()?.hard_state == hard,
+                "local checkpoint published the successor's deferred commit");
+            anyhow::ensure!(group.last_index()? == last,
+                "local checkpoint changed the retained suffix");
+            anyhow::ensure!(group.first_index()? == before.position().index.get() + 1);
+            anyhow::ensure!(group.entries(hard.commit + 1, last + 1, None, GetEntriesContext::empty(false))? == suffix,
+                "local checkpoint rewrote the retained suffix");
+            anyhow::ensure!(group.group_manifest()?.as_ref() == Some(&before));
+            anyhow::ensure!(matches!(fixture.runtimes[0].execution_authority(route.history, cell.clone()).await,
+                Err(RuntimeError::NotReady)), "checkpoint granted successor execution authority");
+        }
 
         // Exercise the production applier's sealed commit ticket, not only the
         // fixture's image builder. Preparation alone cannot publish the result.

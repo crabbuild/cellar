@@ -9,9 +9,26 @@ Only the Python standard library is required. Never serialize credentials.
 import datetime
 import hashlib
 import hmac
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+
+def wait_store_ready(endpoint):
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            with urllib.request.urlopen(endpoint + "/health/ready", timeout=2) as response:
+                if response.status == 200:
+                    return
+        except urllib.error.HTTPError as error:
+            error.close()
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            raise RuntimeError("RustFS readiness failed; retain this run for inspection")
+        time.sleep(0.5)
 
 
 def probe(endpoint, bucket, access, secret):

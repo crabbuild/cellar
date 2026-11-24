@@ -59,6 +59,31 @@ async fn idle_receipt_reuses_once_without_an_idle_owner_or_admission() {
 }
 
 #[tokio::test]
+async fn eight_idle_targets_reuse_successors_without_retaining_admission() {
+    let lanes = Arc::new(Lanes::default());
+    let budget = Budget::new(8192, 1);
+    assert!(std::mem::size_of::<super::super::sql_ingress_hints::Hints>() <= 512);
+    for round in 0..3 {
+        for target in 0..8 {
+            let history = cell(&format!("__Queue:{target}"));
+            let lane = enter(&lanes, &budget, &history);
+            let mut turn = lane.lock().await;
+            assert_eq!(turn.take_successor(&history, [4; 32], 20), None);
+            assert_eq!(
+                turn.take_node_successor(&history, [4; 32], 20),
+                (round != 0).then_some(5 + round)
+            );
+            assert_eq!(turn.take_node_successor(&history, [4; 32], 20), None);
+            turn.acknowledged(&history, command(5 + round), [4; 32], 100, 20);
+            drop(turn);
+            drop(lane);
+            assert!(lanes.active.lock().unwrap().is_empty());
+            assert_eq!(budget.usage(), (0, 0));
+        }
+    }
+}
+
+#[tokio::test]
 async fn acquiring_then_cancelling_consumes_both_copies_of_the_hint() {
     let lanes = Arc::new(Lanes::default());
     let budget = Budget::new(16_384, 2);
@@ -197,7 +222,7 @@ async fn terminal_wrong_client_or_expired_receipt_does_not_replenish() {
 async fn fixed_capacity_eviction_drops_advice_and_releases_every_active_owner() {
     let lanes = Arc::new(Lanes::default());
     let budget = Budget::new(8192, 1);
-    for i in 0..5 {
+    for i in 0..9 {
         let history = cell(&format!("__Queue:{i}"));
         let lane = enter(&lanes, &budget, &history);
         lane.lock()
@@ -207,7 +232,7 @@ async fn fixed_capacity_eviction_drops_advice_and_releases_every_active_owner() 
     assert!(lanes.active.lock().unwrap().is_empty());
     assert_eq!(budget.usage(), (0, 0));
     let mut hits = 0;
-    for i in 0..5 {
+    for i in 0..9 {
         let history = cell(&format!("__Queue:{i}"));
         let lane = enter(&lanes, &budget, &history);
         hits += usize::from(
@@ -217,7 +242,7 @@ async fn fixed_capacity_eviction_drops_advice_and_releases_every_active_owner() 
                 .is_some(),
         );
     }
-    assert_eq!(hits, 4);
+    assert_eq!(hits, 8);
     assert!(lanes.active.lock().unwrap().is_empty());
     assert_eq!(budget.usage(), (0, 0));
 }

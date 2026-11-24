@@ -587,6 +587,7 @@ pub(crate) use pipeline::unrelated_mutation as pipeline_unrelated_mutation;
 mod commit_publication;
 pub(crate) use commit_publication::foreign_ticket as foreign_commit_ticket;
 pub(crate) use commit_publication::run as commit_metadata_publication;
+pub(crate) use commit_publication::with_checkpoint as commit_metadata_checkpoint;
 
 #[path = "cell_group_prepared_apply.rs"]
 mod prepared_apply;

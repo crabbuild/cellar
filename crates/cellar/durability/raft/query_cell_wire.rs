@@ -5,7 +5,7 @@ use super::*;
 use crate::application::consensus::QueryAdmission;
 use crate::raft::cell_groups::{CellQueryConsistency, CellQueryRequest, CellQueryResponse};
 use crate::raft::leader_advice::LeaderAdvice;
-use crate::raft::version::{CellVersionObservation, CellVersionToken};
+use crate::raft::version::{AuthenticatedCellVersion, CellVersionToken};
 use cellar_logic::{cell_group::CellHistory, consensus::ProposalId};
 
 #[derive(Clone, Copy)]
@@ -26,7 +26,7 @@ pub(in crate::raft) struct CellQueryCall {
 
 pub(in crate::raft) struct CellQueryValue {
     pub result: Vec<u8>,
-    pub observation: CellVersionObservation,
+    pub version: AuthenticatedCellVersion,
     pub token: CellVersionToken,
     pub served_by: MemberId,
 }
@@ -261,13 +261,13 @@ pub(in crate::raft) fn decode_cell_reply(
     let result = if status == 0 {
         let token = CellVersionToken::from_encoded(&body.string(4096)?)
             .map_err(|_| TransportError::Authentication)?;
-        let observation = keys
-            .verify_cell(&token, cell, schema, now)
+        let version = keys
+            .authenticate_cell(&token, cell, schema, now)
             .map_err(|_| TransportError::Authentication)?;
         let length = u32::from_be_bytes(body.array()?) as usize;
         Ok(CellQueryValue {
             result: body.take(length)?.to_vec(),
-            observation,
+            version,
             token,
             served_by,
         })

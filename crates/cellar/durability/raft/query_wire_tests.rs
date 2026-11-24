@@ -203,7 +203,7 @@ fn query_wire_binds_channel_request_route_and_payload() {
     let value = cell::decode_cell_result(&reply, &cell, [9; 32], &keys(), 1000, 4096, member)
         .unwrap()
         .unwrap();
-    assert_eq!(value.observation, cell_observation());
+    assert_eq!(value.version.observation(), &cell_observation());
     assert_eq!(
         value.token,
         keys()
@@ -613,9 +613,12 @@ fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(decoded.observation, observation);
-    assert_eq!(decoded.observation.version.sequence.get(), 7);
-    assert_eq!(decoded.observation.witness.position.index.get(), 100);
+    assert_eq!(decoded.version.observation(), &observation);
+    assert_eq!(decoded.version.observation().version.sequence.get(), 7);
+    assert_eq!(
+        decoded.version.observation().witness.position.index.get(),
+        100
+    );
     assert_eq!(decoded.result, b"yes");
     assert_eq!(decoded.served_by, member);
     let mut wrong = observation.version.history.clone();
@@ -679,6 +682,26 @@ fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
         assert!(
             matches!(cell::decode_cell_result(&bytes, &observation.version.history, [9; 32], &keys(), 1000, 4096, member).unwrap(), Err(actual) if actual == error)
         );
+    }
+}
+
+#[test]
+fn shared_query_reply_rechecks_signed_time_after_transport() {
+    use crate::raft::version::VersionError;
+
+    let body = result_bytes();
+    let history = cell_history();
+    let member = MemberId::new(2).unwrap();
+    let keys = keys();
+    let decode = |now| cell::decode_cell_result(&body, &history, [9; 32], &keys, now, 4096, member);
+    let response = decode(1500).unwrap().unwrap();
+
+    for now in [0, 999, 2000, u64::MAX] {
+        assert!(matches!(decode(now), Err(TransportError::Authentication)));
+        assert_eq!(response.version.check_time(now), Err(VersionError::Expired));
+    }
+    for now in [1000, 1500, 1999] {
+        assert_eq!(response.version.check_time(now), Ok(()));
     }
 }
 
@@ -1254,7 +1277,7 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(decoded.value.observation, observation);
+    assert_eq!(decoded.value.version.observation(), &observation);
     assert_eq!(decoded.value.result, b"ok");
     let wrong = CommandId::new(call.request.id.client, 4).unwrap();
     assert!(command::decode_result(
@@ -2002,7 +2025,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
             retained.then_some(Durability::Quorum)
         );
         assert!(value.value.value.result.is_empty());
-        assert_eq!(value.value.value.observation, observation);
+        assert_eq!(value.value.value.version.observation(), &observation);
         assert_eq!(value.value.retry_until_ms, if retained { 9000 } else { 0 });
         for end in 0..body.len() {
             assert!(receipt::decode_result(

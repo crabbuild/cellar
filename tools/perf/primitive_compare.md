@@ -152,6 +152,14 @@ distinguish transport loss from cancellation; retain its ambiguity and actual
 readback outcome. This switch changes no lease, deadline, admission or resource
 limit.
 
+For signed cell version refusals, use `--version-clock-trace` with Raft modes.
+The node log records the signed validity bounds and the verifier's wall-clock
+sample when time validation fails. It identifies whether the failure occurred
+during authentication or at the caller's final time check. The load ledger
+records the ingress node and wall and monotonic completion times for failed
+requests. Use the monotonic offset to place failures within a window when the
+guest wall clock steps. No signed tokens or key material appear in this trace.
+
 If the successful load process exits between resource inspection and sampling,
 the runner retains its verified terminal state without inventing a final cgroup
 sample. Failed loads, changed ownership or limits, and stopped nodes or stores

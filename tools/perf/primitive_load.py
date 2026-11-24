@@ -92,8 +92,12 @@ def window(hosts, token, family, prefix, phase, concurrency, seconds):
                     elif phase != 'read':
                         expected[(entity, key)] = (identity, value)
                 except Exception as error:
-                    elapsed = (time.monotonic_ns() - entered) // 1000
+                    finished = time.monotonic_ns()
+                    elapsed = (finished - entered) // 1000
                     failures.append({'worker': worker_id, 'sequence': sequence, 'entity': entity,
+                                     'ingress_node': (worker_id + sequence) % len(hosts) + 1,
+                                     'finished_unix_ms': time.time_ns() // 1_000_000,
+                                     'finished_window_us': (finished - started_ns) // 1000,
                                      'identity': identity, 'error': str(error), 'mutation_outcome': 'unconfirmed' if phase != 'read' else 'read_failed'})
                     attempts.append(elapsed)
                     break  # Never replace an unknown mutation with a fresh-ID retry.
@@ -104,6 +108,7 @@ def window(hosts, token, family, prefix, phase, concurrency, seconds):
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
         futures = [executor.submit(worker, i) for i in range(concurrency)]
         start = time.monotonic()
+        started_ns = round(start * 1_000_000_000)
         deadline[0] = start + seconds
         barrier.wait()
         results = [future.result() for future in futures]

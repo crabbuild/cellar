@@ -2002,6 +2002,16 @@ async fn rooted_commit_metadata_joins_applied_root_publication() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_preserves_deferred_commit_for_applied_root() -> Result<()> {
+    Box::pin(runtime_fixture::commit_metadata_checkpoint(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_checkpoint_preserves_deferred_commit_for_applied_root() -> Result<()> {
+    Box::pin(runtime_fixture::commit_metadata_checkpoint(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn deferred_commit_ticket_refuses_another_replica_engine() -> Result<()> {
     Box::pin(runtime_fixture::foreign_commit_ticket()).await
 }
@@ -2029,6 +2039,42 @@ async fn committed_prefetch_yields_capacity_to_original_apply() -> Result<()> {
     Box::pin(runtime_fixture::prepared_prefetch(
         false,
         runtime_fixture::PrefetchCheck::Pressure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_prefetch_reuses_full_item_bank() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        false,
+        runtime_fixture::PrefetchCheck::ItemPressure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_committed_prefetch_reuses_full_item_bank() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        true,
+        runtime_fixture::PrefetchCheck::ItemPressure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn committed_prefetch_recheck_under_full_item_bank() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        false,
+        runtime_fixture::PrefetchCheck::ItemPressureReadFailure,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_committed_prefetch_recheck_under_full_item_bank() -> Result<()> {
+    Box::pin(runtime_fixture::prepared_prefetch(
+        true,
+        runtime_fixture::PrefetchCheck::ItemPressureReadFailure,
     ))
     .await
 }

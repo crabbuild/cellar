@@ -48,6 +48,7 @@ struct Cluster {
 
 #[derive(Clone, Copy)]
 struct ClusterLogLimits {
+    max_groups: Option<usize>,
     retention: CellGroupLogRetentionLimits,
     target_file_bytes: u64,
     purge_threshold_bytes: u64,
@@ -64,6 +65,7 @@ struct ClusterBirthOptions {
 impl Default for ClusterLogLimits {
     fn default() -> Self {
         Self {
+            max_groups: None,
             retention: Default::default(),
             target_file_bytes: 16 * 1024 * 1024,
             purge_threshold_bytes: 64 * 1024 * 1024,
@@ -277,6 +279,9 @@ impl Cluster {
                             ProcessGeneration::new([20; 16])?,
                             LogOpenMode::Create,
                         );
+                        if let Some(max_groups) = log_limits.max_groups {
+                            log.max_groups = max_groups;
+                        }
                         log.cell_group_retention = log_limits.retention;
                         log.target_file_bytes = log_limits.target_file_bytes;
                         log.purge_threshold_bytes = log_limits.purge_threshold_bytes;

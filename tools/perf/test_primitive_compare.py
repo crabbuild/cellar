@@ -71,6 +71,34 @@ def topology(family='sql', leaders=(1,2,3)):
 
 
 class ComparisonEvidenceTests(unittest.TestCase):
+    def test_read_proof_refusal_retains_ingress_and_clock_evidence(self):
+        clock = [100.0]
+
+        class RefusingClient:
+            def __init__(self, *_): pass
+            def close(self): pass
+            def request(self, node, operation, _):
+                if node != 1 or operation != 'read':
+                    raise AssertionError('unexpected request')
+                clock[0] = 100.003
+                raise ValueError('HTTP 503: cell dispatch: Version(Expired)')
+
+        with (patch('primitive_load.Client', RefusingClient),
+              patch('primitive_load.time.monotonic', side_effect=lambda: clock[0]),
+              patch('primitive_load.time.monotonic_ns', side_effect=[100_001_000_000, 100_003_000_000]),
+              patch('primitive_load.time.time_ns', return_value=1_700_000_000_104_000_000)):
+            row = window(['a', 'b', 'c'], 'secret', 'kv', 'clock', 'read', 1, 1)
+        self.assertFalse(row['verified'])
+        self.assertEqual(row['attempts'], 1)
+        self.assertEqual(row['attempt_latency_us'], [2000])
+        self.assertEqual(row['errors'], [{
+            'worker': 0, 'sequence': 1, 'entity': 0, 'identity': 'clock.0.1',
+            'ingress_node': 2, 'finished_unix_ms': 1_700_000_000_104,
+            'finished_window_us': 3000,
+            'error': 'HTTP 503: cell dispatch: Version(Expired)',
+            'mutation_outcome': 'read_failed',
+        }])
+
     def setUp(self):
         self.args = SimpleNamespace(repetitions=1, concurrency=[1], warmup=3, seconds=3)
 
@@ -285,11 +313,11 @@ class ComparisonEvidenceTests(unittest.TestCase):
             def __enter__(self):return self
             def __exit__(self,*_):pass
         unavailable=urllib.error.HTTPError('http://store/health/ready',503,'not ready',{},None)
-        with patch('primitive_compare.urllib.request.urlopen',side_effect=[unavailable,Ready()]) as request, patch('primitive_compare.time.sleep'):
+        with patch('store_probe.urllib.request.urlopen',side_effect=[unavailable,Ready()]) as request, patch('store_probe.time.sleep'):
             wait_store_ready('http://store')
         self.assertEqual(request.call_count,2)
         self.assertTrue(all(call.args[0]=='http://store/health/ready' for call in request.call_args_list))
-        with patch('primitive_compare.urllib.request.urlopen',side_effect=unavailable), patch('primitive_compare.time.monotonic',side_effect=[0,61]):
+        with patch('store_probe.urllib.request.urlopen',side_effect=unavailable), patch('store_probe.time.monotonic',side_effect=[0,61]):
             with self.assertRaisesRegex(RuntimeError,'readiness failed'):
                 wait_store_ready('http://store')
 

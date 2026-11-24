@@ -132,6 +132,18 @@ impl Permit {
         bytes <= self.bytes || self.grow_to(bytes)
     }
 
+    /// Charge additional work to this active item in its original bank.
+    /// Existing bytes remain charged; refusal changes neither dimension.
+    pub(crate) fn charge_more_in(&mut self, bank: &Arc<Budget>, bytes: usize) -> bool {
+        if !self.item || !Arc::ptr_eq(&self.owner, bank) {
+            return false;
+        }
+        let Some(total) = self.bytes.checked_add(bytes) else {
+            return false;
+        };
+        self.grow_to(total)
+    }
+
     /// Extend an admitted operation without consuming another item slot.
     /// Failure leaves its existing reservation unchanged.
     pub(crate) fn grow_to(&mut self, bytes: usize) -> bool {
@@ -325,6 +337,26 @@ mod tests {
         drop(other);
         assert!(pin.grow_to(100));
         drop(pin);
+        assert_eq!(budget.usage(), (0, 0));
+    }
+
+    #[test]
+    fn additional_work_keeps_one_active_item_in_the_same_bank() {
+        let budget = Budget::new(100, 1);
+        let other = Budget::new(100, 1);
+        let mut held = budget.acquire(60).unwrap();
+        assert!(!held.charge_more_in(&other, 20));
+        assert_eq!(other.usage(), (0, 0));
+        assert!(!held.charge_more_in(&budget, 41));
+        assert!(!held.charge_more_in(&budget, usize::MAX));
+        assert_eq!(budget.usage(), (60, 1));
+        assert!(held.charge_more_in(&budget, 40));
+        assert_eq!(budget.usage(), (100, 1));
+        assert!(budget.acquire(0).is_none());
+        let mut retained = held.retain_all();
+        assert!(!retained._permit.charge_more_in(&budget, 0));
+        assert_eq!(budget.usage(), (100, 0));
+        drop(retained);
         assert_eq!(budget.usage(), (0, 0));
     }
 
