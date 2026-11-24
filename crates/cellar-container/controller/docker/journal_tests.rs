@@ -170,6 +170,7 @@ async fn cancelled_submission_finishes_its_unentered_reservation() -> Result<()>
         None,
     ));
     let f = super::super::receipt_tests::fixture_in_domain(domain.clone()).await?;
+    let mut caller = None;
     let result = domain
         .run(async {
             // This is the real backend's reservation and original deadline. The
@@ -202,12 +203,13 @@ async fn cancelled_submission_finishes_its_unentered_reservation() -> Result<()>
             let pending_claim = claim.clone();
             let pending_operation = operation.clone();
             files.arm(false);
-            let caller = tokio::spawn(async move {
+            caller = Some(tokio::spawn(async move {
                 backend
                     .execute(pending_claim, pending_operation, payload)
                     .await
-            });
+            }));
             files.wait_entered().await?;
+            let caller = caller.take().context("submission caller")?;
             caller.abort();
             ensure!(caller.await.is_err_and(|error| error.is_cancelled()));
             while u64::try_from(cellar::asyncrt::wall_ms())? <= expires {
@@ -239,6 +241,10 @@ async fn cancelled_submission_finishes_its_unentered_reservation() -> Result<()>
         })
         .await;
     files.release();
+    if let Some(caller) = caller {
+        caller.abort();
+        let _ = caller.await;
+    }
     domain.shutdown().await;
     result?
 }
