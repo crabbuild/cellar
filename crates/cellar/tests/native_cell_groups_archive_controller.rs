@@ -24,6 +24,14 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn quiet_archive_coalesces_new_applies_but_serves_foreground_s3() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::quiet_archive_preserves_background_cadence(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_reservation_contention_does_not_wait_for_outage_retry() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(

@@ -1004,7 +1004,7 @@ pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
 pub(crate) use sql::{
-    s3_background_capacity_cadence, s3_capacity_release, s3_payload_capacity_release,
+    quiet_archive_preserves_background_cadence, s3_background_capacity_cadence, s3_capacity_release, s3_payload_capacity_release,
     FaultFileSystem, Faults,
 };
 

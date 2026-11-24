@@ -49,7 +49,7 @@ pub(crate) use connection_idle::peer_connection_idle;
 
 #[path = "cell_group_s3_capacity.rs"]
 mod capacity;
-pub(crate) use capacity::{s3_background_capacity_cadence, s3_capacity_release};
+pub(crate) use capacity::{quiet_archive_preserves_background_cadence, s3_background_capacity_cadence, s3_capacity_release};
 
 #[path = "cell_group_s3_payload_capacity.rs"]
 mod payload_capacity;
