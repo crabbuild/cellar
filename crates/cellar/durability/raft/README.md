@@ -385,6 +385,14 @@ Its bounded `GroupLog` caches become visible after sync. Storage lookups on the
 consensus worker perform no filesystem I/O. The filesystem is always supplied
 by the node; unsupported operations fail explicitly.
 
+A failed local engine mutation latches an I/O quarantine shared by all its
+file handles and queues. Later writes, truncations and durability barriers
+refuse, including the upstream engine's destructor cleanup. Already-entered
+work still belongs to its owner and must join; the failed cohort cannot publish
+caches or a durable completion. A new engine must pass ordinary recovery and
+admission before serving. Successful paths retain their required file and
+directory barriers.
+
 The same storage worker purges obsolete shared engine files after dirty writes,
 including on an idle node and after reopening. `ReplicaLogOptions.purge_interval_ms`
 defaults to `Some(1000)`; `None` leaves purge to the explicit `ReplicaLog::purge`
