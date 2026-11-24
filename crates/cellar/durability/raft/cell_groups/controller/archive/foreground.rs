@@ -14,6 +14,7 @@ struct Window {
     users: usize,
     deferring: bool,
     progressed: bool,
+    coalesce_idle: bool,
 }
 
 struct Group {
@@ -78,6 +79,7 @@ impl Foregrounds {
             users: 0,
             deferring: true,
             progressed: false,
+            coalesce_idle: false,
         });
         let users = window
             .users
@@ -133,6 +135,23 @@ impl Foregrounds {
 }
 
 impl Invocation {
+    /// Quorum child calls can finish before their parent submits its next
+    /// dependent call. Keep this cohort's first deadline across those idle
+    /// gaps. This supplies no archive progress and never extends the deadline.
+    pub(crate) fn coalesce_until_deadline(self) -> Self {
+        if let Some(owner) = self.owner.upgrade() {
+            let mut groups = owner.groups.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(registered) = groups.get_mut(&self.group) {
+                if Arc::ptr_eq(&registered.identity, &self.identity) {
+                    if let Some(window) = &mut registered.window {
+                        window.coalesce_idle = true;
+                    }
+                }
+            }
+        }
+        self
+    }
+
     /// Only the normal final S3 output and authority gates call this. Replaying
     /// a receipt at/before admission grants no new group progress and cannot
     /// renew a deferral window under continuous retry traffic.
@@ -215,6 +234,55 @@ mod tests {
         let c = owner.admit(group(3), 200, 60, index(2)).unwrap();
         assert!(!owner.blocks(group(3), 61));
         drop((a, b, c));
+        assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
+    }
+
+    #[test]
+    fn quorum_child_gaps_keep_only_the_first_original_deadline() {
+        let owner = owner(1, &[3]);
+        let a = owner
+            .admit(group(3), 50, 10, index(1))
+            .unwrap()
+            .coalesce_until_deadline();
+        drop(a);
+        assert!(
+            owner.blocks(group(3), 20),
+            "idle child gap opened background publication"
+        );
+        let b = owner
+            .admit(group(3), 100, 25, index(2))
+            .unwrap()
+            .coalesce_until_deadline();
+        drop(b);
+        assert!(owner.blocks(group(3), 49));
+        assert!(
+            !owner.blocks(group(3), 50),
+            "later child renewed the original deadline"
+        );
+        let c = owner
+            .admit(group(3), 200, 60, index(3))
+            .unwrap()
+            .coalesce_until_deadline();
+        assert!(!owner.blocks(group(3), 61));
+        owner.background_started(group(3));
+        assert!(!owner.blocks(group(3), 62));
+        drop(c);
+        assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
+    }
+
+    #[test]
+    fn a_fresh_s3_proof_finishes_idle_quorum_coalescing() {
+        let owner = owner(1, &[3]);
+        drop(
+            owner
+                .admit(group(3), 50, 10, index(1))
+                .unwrap()
+                .coalesce_until_deadline(),
+        );
+        assert!(owner.blocks(group(3), 20));
+        let proved = owner.admit(group(3), 100, 25, index(2)).unwrap();
+        proved.completed(index(3));
+        assert!(!owner.blocks(group(3), 30));
         assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
     }
 

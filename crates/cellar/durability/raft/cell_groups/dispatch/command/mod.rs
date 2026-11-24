@@ -629,6 +629,7 @@ impl CellCommandInvocation {
                         attempt.deadline_ms(),
                         authority.cell().witness.position.index,
                     )
+                    .map(|invocation| invocation.coalesce_until_deadline())
                     .ok();
             }
         }
