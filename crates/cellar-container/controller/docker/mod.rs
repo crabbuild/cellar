@@ -600,7 +600,19 @@ impl DockerBackend {
             operation: operation.clone(),
             outcome: None,
         };
-        self.update(move |state| state.reserve(stored)).await?;
+        self.update(move |state| {
+            // Another binding's physical write may have occupied the writer
+            // after the snapshot check. Expiry must not create a new unknown
+            // reservation for work that has never entered the Engine.
+            ensure!(
+                cellar::asyncrt::mono_ms() < deadline
+                    && u64::try_from(cellar::asyncrt::wall_ms())?
+                        < stored.operation.expires_unix_ms,
+                ExecutionControllerFailure::UnknownOperation
+            );
+            state.reserve(stored)
+        })
+        .await?;
         let replaced = self
             .jobs
             .lock()
