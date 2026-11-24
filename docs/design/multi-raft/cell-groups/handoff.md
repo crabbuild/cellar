@@ -4,39 +4,52 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current archive publication checkpoint
+## Current archive and request qualification checkpoint
 
 Continue [PR #184](https://github.com/crabbuild/cellar/pull/184) on
-`codex/cg17-request-deadlines`, now integrating main `49828ff6b` after #183/#182.
-The archive results below precede integration with #183's committed manifest
-preparation. Preserve both workstreams; combined runtime qualification is open.
-Runtime `f668d0193` adds one bounded foreground publication while an unrelated
-background CAS remains entered. It releases only joined replay operations,
-retains immutable custody and original byte charges, and reacquires proof
-admission before returning coverage. Same-group journals remain serialized.
-Native held-publication and expired-caller shutdown controls pass both images.
-Test-only `8b9fece2d` strengthens the queued-priority oracle; six final native
-archive functions and two final RustFS archive functions pass both image forms.
+`codex/cg17-request-deadlines`, based on main `49828ff6b` (#183/#182). Frozen
+runtime `a763e2f92` preserves the background archive interval after a quiet
+completion. Its controller regression fails on production-equivalent
+`df396e194` in 2.019 seconds and passes both forms after the fix: a Quorum apply
+stays coalesced, then a new S3 write obtains real proof within five seconds
+despite the 60-second background interval. Limits and same-group serialization
+are unchanged.
 
-Ordinary Workflow passes both forms. EventStream Consume fails two unchanged
-three-second replays; a separate trace fails before Consume during activation.
-The real Docker/Sandbox gate remains **FAILED: 5/7 functions, 18/22 markers**.
-Materialized S3 Container Create1, the materialized S3 Sandbox lost-Exec cut and
-extent Quorum/S3 Sandbox Create1 remain open. All eight proof-refusal profiles,
-requested-S3 cleanup custody, interrupted Delete and Start/output/Ready proof
-recovery pass both forms. Original 5s/3s/60s budgets remain unchanged.
+All six native archive controls pass. Both full library runs use six threads
+and pass 1,420 tests / zero failures / two existing ignores. Locked builds,
+strict all-feature/all-target Cellar/container Clippy, formatting, layout,
+dependencies and docs pass. Earlier failed library runs remain retained with
+their original sources; the current full gate is green.
 
-The first six-thread library run has 1,416 passes, three failures and two ignores;
-the repeat has 1,418 passes, one failure and two ignores. All four failures pass
-isolated replay; neither full run is green. Strict all-feature/all-target
-Cellar/container Clippy, locked builds and formatting pass. The RustFS bundle
-retains 4,925 verified files and 90 roots with a verified second copy. All owned
-labs stop and join. See [exact source and scope](progress.md#cg-17-foreground-publication-with-retained-replay-custody).
+Ordinary EventStream still fails both original three-second Consume replays.
+Retained serving-image files contain terminal ACK receipts and checkpoint 2 on
+all three voters, but that inspection does not establish the persisted selector
+or commit/response timing. Trace those boundaries; preserve the source proof
+and the original ambiguous outcome.
 
-Next repair the ordinary EventStream and Container/Sandbox completion paths,
-complete primitive contracts, then run combined managed recovery and independent
-Linux/load/crash/disk-loss qualification on one source. Default cutover, legacy
-removal and CG-17 acceptance remain gated; no task count changes.
+The current real RustFS campaign is **FAILED: 3/8 complete functions and 16/22
+Docker/Sandbox configuration markers**. Both Quorum Sandbox recovery/cleanup
+profiles pass, as do all four Sandbox source-proof refusals and both Delete
+input-proof profiles. Remaining failures are materialized S3 Container
+`docker-b Destroy4`, materialized Quorum `Destroy2` after archive restoration,
+materialized S3 Sandbox `FileWrite`, extent S3 retained receipt recovery,
+requested-minimum `Create1`, and the required Start-output fault cut. Keep failed
+functions failed; do not substitute earlier or isolated passing profiles.
+
+Current evidence is `CG-17-quiet-archive-current-native-a763e2f92-3120` and
+`CG-17-submission-seal-quiet-archive-fixed-a763e2f92-3116`, including 90 RustFS
+roots and verified second copies. The fresh VM witness records 4 CPUs/8 GiB,
+with RustFS limited to 1 CPU/2 GiB. RF3 voters are host-native in one process;
+independent Linux/load/disk-loss qualification remains open. All owned lab work
+stopped and joined; objects, voter data and independent controller journals stay
+retained. See [exact results and source boundaries](progress.md#cg-17-quiet-archive-cadence-and-merged-source-qualification).
+
+Next repair the ordinary EventStream and S3 completion paths. Audit repeated
+checkpoint and verification costs before optimizing; fresh-object verification,
+same-cell pending-output fencing and source/target durability cannot be relaxed.
+Then complete primitive/recovery contracts and run the combined Linux/load/crash/
+disk-loss matrix. Default cutover, legacy removal and CG-17's 32 full acceptance
+cases remain gated; task acceptance counts are unchanged.
 
 ## Earlier SDK reply authority and managed recovery checkpoint
 

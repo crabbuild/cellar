@@ -9,16 +9,16 @@ Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
 The current delivery is [PR #184](https://github.com/crabbuild/cellar/pull/184),
-integrating main `49828ff6b` after merged #183 and #182. Earlier runtime
-`f668d0193` allows a bounded
-foreground S3 publication while another group's background CAS remains entered,
-retaining verified data and original admission limits. The native and real
-RustFS regression passes both image forms; test-only `8b9fece2d` also qualifies
-the strengthened queued-priority oracle. Ordinary Workflow passes both forms.
-The [current qualification](progress.md#cg-17-foreground-publication-with-retained-replay-custody)
-still fails ordinary EventStream and some Container/Sandbox deadlines. Full
-parallel library runs also remain red despite passing isolated controls.
-Default cutover and full primitive acceptance remain open.
+integrating main `49828ff6b` after #183/#182. Runtime `a763e2f92` preserves the
+configured background archive interval after quiet completion; new S3 requests
+still wake immediately. Its real controller regression fails before the fix and
+passes both image forms afterward. Six native archive functions and two full
+six-thread library runs pass (1,420 tests and two existing ignores per run).
+The [current qualification](progress.md#cg-17-quiet-archive-cadence-and-merged-source-qualification)
+still fails both EventStream replays and the combined RustFS campaign:
+3/8 complete functions, with 16/22 Docker/Sandbox configuration markers.
+Earlier failed library runs retain their source pins; the current library gate
+passes. Default cutover and full primitive acceptance remain open.
 
 The `f668d0193`/`8b9fece2d` archive results and the #183 optimization results
 below precede this integration. They do not qualify the combined runtime.
@@ -63,13 +63,18 @@ The next optimization priorities are:
 
 The immediate delivery order is:
 
-1. Close ordinary request deadlines: EventStream Consume fails two current-source
-   replays at three seconds. Workflow passes both image forms on this source;
-   repeatability and combined recovery remain required. The real RustFS normal
-   paths still fail materialized S3 Container `Create1`, materialized S3 Sandbox's
-   intended lost-Exec cut, and extent Quorum/S3 Sandbox `Create1`. Preserve original
-   five-second requests, identities, source/target minima and uncertain outcomes.
-   Resolve full parallel library failures without weakening their assertions.
+1. Close ordinary request deadlines on `a763e2f92`. EventStream Consume fails
+   both original three-second replays; correlate ACK commit, response delivery
+   and source continuation before changing the path. Real RustFS still fails
+   materialized S3 Container `docker-b Destroy4`, materialized Quorum `Destroy2`
+   after archive restoration, materialized S3 Sandbox `FileWrite`, and extent S3
+   retained receipt recovery. Extent S3 requested-minimum `Create1` and the
+   Start-output fault cut also remain unqualified. Both Quorum Sandbox lifecycles
+   pass. Preserve 5s/3s/60s budgets, identities, source/target minima and ambiguous
+   outcomes. The same-cell pending-output fence and missing-object refusal
+   oracles remain required. Current parallel library runs pass; keep that gate
+   on subsequent runtime edits. Workflow's earlier passes still need current
+   source and combined recovery qualification.
 2. Complete the primitive API inventory and public/recovery contracts. Current
    native filesystem, alarms and Queue gates pass, but their full lifecycle
    matrix remains required. Close Container/provider scope, WebSocket/session

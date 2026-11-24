@@ -32,6 +32,66 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 quiet archive cadence and merged-source qualification
+
+Runtime `a763e2f92` in [PR #184](https://github.com/crabbuild/cellar/pull/184)
+includes main `49828ff6b` (#183). It fixes a background scheduling defect:
+after a quiet archive completion, a new applied write could bypass the configured
+minimum interval and immediately restart verification. The controller now keeps
+that interval after quiet completion. A new S3 request still wakes publication
+immediately; admission limits, durability floors and fencing are unchanged.
+
+The real controller regression fails on production-equivalent `df396e194` in
+2.019 seconds at the intended cadence assertion. It passes both image forms on
+`a763e2f92`: a Quorum write stays coalesced under a 60-second background interval,
+then a new S3 write obtains an actual proof within its original five seconds.
+The temporary Start timing probe was removed before this runtime was frozen.
+
+| Gate on `a763e2f92` | Result |
+| --- | --- |
+| New cadence regression and five existing archive controls | 6/6 functions pass, each in both image forms |
+| Full library, six threads, two runs | Each passes 1,420 tests / zero failures / two existing ignores |
+| Original public EventStream Consume, two runs | Both fail the original three-second deadline |
+| Eight real RustFS functions: archive control plus seven Docker/Sandbox functions | **FAILED: 3/8 complete functions; 16/22 Docker/Sandbox configuration markers** |
+| Locked optimized builds; strict all-feature/all-target Cellar/container Clippy; formatting, layout, dependencies and docs | Pass |
+
+Both Quorum Sandbox profiles complete execution, file operations, retained
+lost-Exec/Delete recovery and autonomous cleanup. All four Sandbox source-proof
+refusal profiles and both Delete-input-proof profiles pass. Remaining failures
+are materialized S3 Container `docker-b Destroy4`, materialized Quorum Container
+`Destroy2` after archive restoration, materialized S3 Sandbox `FileWrite`, and
+extent S3 Sandbox's retained original-receipt lookup. Extent S3 requested-minimum
+qualification expires at `Create1`; the extent Start-output control does not
+reach its required parent archive cut. These failed functions remain failed.
+
+The EventStream failures retain completed ACK receipts and subscription
+checkpoint 2 in all three voters' serving-image files. Offline image inspection
+does not bind those files to the persisted Raft selector or establish response
+timing. It narrows the next trace without authorizing an early response.
+The scheduling fix is not claimed to resolve the request deadlines or establish
+a performance improvement.
+
+The merged-source baseline `acccfaab4` also passed the six-thread library once,
+but failed both EventStream replays and both ordinary RustFS recovery functions
+(one of eight configuration profiles completed). A later diagnostic-only Start
+replay at `f8dcd430e`, with identical production inputs, passes in 3.87 seconds;
+that isolated result does not clear the failed functions above.
+
+Evidence includes `CG-17-merged-native-and-cadence-red-3114`, the separate
+`acccfaab4` RustFS baseline and trace bundles, and
+`CG-17-quiet-archive-current-native-a763e2f92-3120` plus
+`CG-17-submission-seal-quiet-archive-fixed-a763e2f92-3116`. Frozen executables,
+source archives, raw failures and closed voter/controller data have verified
+second copies. The RustFS campaign retains 90 roots. Its runtime witness records
+the owned 4-CPU/8-GiB VM and 1-CPU/2-GiB RustFS service. Voters remain host-native
+RF3 in one process; this does not qualify independent Linux voters, load or
+disk-loss recovery. The owned VM stopped and joined, with objects retained.
+
+The earlier parallel library failures are retained under their original source
+pins. Current full runs pass; no assertion, original request identity,
+durability minimum or 5s/3s/60s budget was weakened. CG-17's 32 full acceptance
+cases, default cutover and legacy removal remain open.
+
 ### PR #184 integration with main #183
 
 PR [#184](https://github.com/crabbuild/cellar/pull/184) integrates main
