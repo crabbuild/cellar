@@ -7,7 +7,12 @@ use cellar_ltx::{
     HostMetadata,
 };
 use sha2::{Digest, Sha256};
-use std::{io, path::Path, sync::atomic::AtomicBool};
+use std::{
+    collections::BTreeMap,
+    io,
+    path::{Path, PathBuf},
+    sync::atomic::AtomicBool,
+};
 
 #[derive(Debug)]
 struct Checkpoint {
@@ -18,11 +23,24 @@ struct Checkpoint {
 
 struct Files {
     first: Mutex<Option<std::result::Result<Checkpoint, String>>>,
+    candidates: Mutex<BTreeMap<PathBuf, PathBuf>>,
     store: Arc<catalog_fault::Store>,
     cut: AtomicBool,
 }
 
 impl Files {
+    fn candidate(&self, path: &Path) {
+        if path.extension().is_some_and(|e| e == "sqlite")
+            && path.to_string_lossy().contains("/raft-cells/images/")
+            && !path.to_string_lossy().contains("/archive-verifier/")
+        {
+            self.candidates
+                .lock()
+                .unwrap()
+                .insert(path.parent().unwrap().to_owned(), path.to_owned());
+        }
+    }
+
     fn inspect(&self, path: &Path) -> Result<Option<Checkpoint>> {
         let mut url =
             reqwest::Url::from_file_path(path).map_err(|_| anyhow::anyhow!("image URI"))?;
@@ -43,12 +61,12 @@ impl Files {
         if !source {
             return Ok(None);
         }
-        let claimed: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM __sys_raft_native_work WHERE reason='outbox' AND claimed=1)",
+        let outbox: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM __sys_raft_native_work WHERE reason='outbox')",
             [],
             |r| r.get(0),
         )?;
-        if !claimed {
+        if !outbox {
             return Ok(None);
         }
         let first = 1u64.to_be_bytes();
@@ -92,7 +110,9 @@ impl Files {
 
 impl FileSystem for Files {
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
-        DirectFileSystem.create_read_write(path)
+        let file = DirectFileSystem.create_read_write(path)?;
+        self.candidate(path);
+        Ok(file)
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
@@ -100,7 +120,11 @@ impl FileSystem for Files {
     }
 
     fn clone_read_write(&self, from: &Path, to: &Path) -> io::Result<Option<HostFile>> {
-        DirectFileSystem.clone_read_write(from, to)
+        let file = DirectFileSystem.clone_read_write(from, to)?;
+        if file.is_some() {
+            self.candidate(to);
+        }
+        Ok(file)
     }
 
     fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
@@ -144,20 +168,14 @@ impl FileSystem for Files {
     }
 
     fn sync_all(&self, path: &Path) -> io::Result<()> {
-        DirectFileSystem.sync_all(path)
-    }
-
-    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
-        DirectFileSystem.rename(from, to)?;
-        if to.extension().is_some_and(|e| e == "sqlite")
-            && to.to_string_lossy().contains("/raft-cells/images/")
-            && !to.to_string_lossy().contains("/archive-verifier/")
-        {
+        DirectFileSystem.sync_all(path)?;
+        let candidate = self.candidates.lock().unwrap().remove(path);
+        if let Some(candidate) = candidate {
             // Passive observation only: no I/O is held and no serving authority
             // is inferred from this uncommitted local generation.
             let mut first = self.first.lock().unwrap();
             if first.is_none() {
-                match self.inspect(to) {
+                match self.inspect(&candidate) {
                     Ok(None) => {}
                     value => {
                         *first = Some(value.map(|v| v.unwrap()).map_err(|e| format!("{e:#}")));
@@ -171,6 +189,10 @@ impl FileSystem for Files {
             }
         }
         Ok(())
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        DirectFileSystem.rename(from, to)
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
@@ -199,6 +221,7 @@ pub async fn qualify() -> Result<()> {
         let store = Arc::new(catalog_fault::Store::default());
         let files = Arc::new(Files {
             first: Mutex::new(None),
+            candidates: Mutex::new(BTreeMap::new()),
             store: store.clone(),
             cut: AtomicBool::new(false),
         });
