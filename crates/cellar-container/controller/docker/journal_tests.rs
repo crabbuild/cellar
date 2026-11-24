@@ -203,15 +203,15 @@ async fn cancelled_submission_finishes_its_unentered_reservation() -> Result<()>
             let pending_claim = claim.clone();
             let pending_operation = operation.clone();
             files.arm(false);
-            caller = Some(tokio::spawn(async move {
+            caller = Some(domain.spawn(async move {
                 backend
                     .execute(pending_claim, pending_operation, payload)
                     .await
-            }));
+            })?);
             files.wait_entered().await?;
             let caller = caller.take().context("submission caller")?;
             caller.abort();
-            ensure!(caller.await.is_err_and(|error| error.is_cancelled()));
+            ensure!(caller.await.is_err(), "submission caller was not cancelled");
             while u64::try_from(cellar::asyncrt::wall_ms())? <= expires {
                 cellar::asyncrt::sleep(Duration::from_millis(10)).await;
             }
