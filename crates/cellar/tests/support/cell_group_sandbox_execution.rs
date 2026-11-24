@@ -981,7 +981,23 @@ async fn run(scenario: Scenario) -> Result<()> {
                 ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.deletes.load(Ordering::Acquire)==1 && peer.executes.load(Ordering::Acquire)==0,"minimum custody replayed physical mutation");
                 ensure!(docker_execution::physical_resources(&domain,&policy).await?==0);
             } else {
-                let first=call(&cluster,&a,minimum,1,"Create").await?;let allocation:SandboxAllocation=serde_json::from_slice(&first.result)?;
+                let before = profile.then(|| cluster.hosts.iter().map(|host| host.performance()).collect::<Vec<_>>());
+                let first=call(&cluster,&a,minimum,1,"Create").await;
+                if let Some(before) = before {
+                    for (node, (host, before)) in cluster.hosts.iter().zip(before).enumerate() {
+                        let after = host.performance();
+                        ensure!(before.available && after.available && !before.saturated && !after.saturated && before.source == after.source, "profile observation changed owner or lost timing");
+                        for (before, after) in before.operations.iter().zip(&after.operations) {
+                            ensure!(before.name == after.name, "profile operation vocabulary changed");
+                            let count = after.count.checked_sub(before.count).context("profile count regressed")?;
+                            let sum = after.sum_us.checked_sub(before.sum_us).context("profile timing regressed")?;
+                            if count != 0 || after.started != before.started {
+                                eprintln!("CG17_START_PERF {}", json!({"node":node,"operation":after.name,"started":after.started-before.started,"count":count,"sum_us":sum,"failed":after.failed-before.failed,"abandoned":after.abandoned-before.abandoned}));
+                            }
+                        }
+                    }
+                }
+                let first=first?;let allocation:SandboxAllocation=serde_json::from_slice(&first.result)?;
                 ensure!(allocation.generation==1 && allocation.state==SandboxAllocationState::Ready);
                 if profile {
                     ensure!(peer.creates.load(Ordering::Acquire)==1 && peer.executes.load(Ordering::Acquire)==0,"diagnostic must use the original first Start");
