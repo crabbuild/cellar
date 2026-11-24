@@ -1162,16 +1162,17 @@ impl Manager {
             entry.proof_queued = true;
             self.proof_queue.push_back(completed.group);
         }
-        if entry.dirty
-            && !entry.fatal
+        if !entry.fatal
             && entry.waiters.is_empty()
             && matches!(
                 entry.registration.publisher,
                 CellGroupArchivePublisher::GroupLeader { .. }
             )
         {
-            // Coalesce background applied cuts and remote-head polling. This
-            // uses the controller's shared timer, never a task/timer per group.
+            // Preserve the interval even after a quiet completion: a later
+            // apply must not restart background verification immediately.
+            // New foreground arrivals still clear retry_at in settle(). This
+            // uses the shared timer, never a task/timer per group.
             entry.retry_at = entry.retry_at.max(now.saturating_add(retry_interval));
         }
         if entry.dirty && !entry.fatal && !entry.queued {

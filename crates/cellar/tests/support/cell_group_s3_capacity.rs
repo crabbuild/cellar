@@ -28,7 +28,11 @@ pub(crate) async fn quiet_archive_preserves_background_cadence(rooted: bool) -> 
             .await?;
         anyhow::ensure!(receipt.result() == b"quorum");
         anyhow::ensure!(
-            receipt.local_receipt().context("local Quorum receipt")?.position.index
+            receipt
+                .local_receipt()
+                .context("local Quorum receipt")?
+                .position
+                .index
                 > published.position().index
         );
         drop(receipt);
