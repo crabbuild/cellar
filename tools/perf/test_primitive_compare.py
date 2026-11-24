@@ -285,11 +285,11 @@ class ComparisonEvidenceTests(unittest.TestCase):
             def __enter__(self):return self
             def __exit__(self,*_):pass
         unavailable=urllib.error.HTTPError('http://store/health/ready',503,'not ready',{},None)
-        with patch('primitive_compare.urllib.request.urlopen',side_effect=[unavailable,Ready()]) as request, patch('primitive_compare.time.sleep'):
+        with patch('store_probe.urllib.request.urlopen',side_effect=[unavailable,Ready()]) as request, patch('store_probe.time.sleep'):
             wait_store_ready('http://store')
         self.assertEqual(request.call_count,2)
         self.assertTrue(all(call.args[0]=='http://store/health/ready' for call in request.call_args_list))
-        with patch('primitive_compare.urllib.request.urlopen',side_effect=unavailable), patch('primitive_compare.time.monotonic',side_effect=[0,61]):
+        with patch('store_probe.urllib.request.urlopen',side_effect=unavailable), patch('store_probe.time.monotonic',side_effect=[0,61]):
             with self.assertRaisesRegex(RuntimeError,'readiness failed'):
                 wait_store_ready('http://store')
 

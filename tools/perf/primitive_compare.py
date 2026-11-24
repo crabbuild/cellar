@@ -20,7 +20,7 @@ import urllib.request
 from primitive_load import latency_summary
 from raft_run import ROOT, RUSTFS, input_digest, parse_manifest, require, source_manifest
 sys.path.insert(0, str(ROOT / 'tools/multi-raft'))
-from store_probe import probe
+from store_probe import probe, wait_store_ready
 
 LABEL = 'io.cellar.primitive-comparison.run'
 GIB = 1024**3
@@ -276,21 +276,6 @@ def record_load_evidence(case_dir, record):
     record['windows'] = [{key:value for key,value in row.items() if key not in ('attempt_latency_us','success_latency_us','attempted_batches')} for row in rows]
     record['load_log_sha256'] = hashlib.sha256(log_path.read_bytes()).hexdigest()
     return rows
-
-
-def wait_store_ready(endpoint):
-    deadline = time.monotonic() + 60
-    while True:
-        try:
-            with urllib.request.urlopen(endpoint + '/health/ready', timeout=2) as response:
-                require(response.status == 200, 'RustFS readiness failed')
-            return
-        except OSError as error:
-            if isinstance(error, urllib.error.HTTPError):
-                error.close()
-            if time.monotonic() > deadline:
-                raise RuntimeError('RustFS readiness failed') from None
-            time.sleep(.5)
 
 
 def serving_leaders(observations, family):
