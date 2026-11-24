@@ -17,6 +17,9 @@ use std::{
 };
 use tokio::sync::Notify;
 
+#[path = "support/execution_controller_durability.rs"]
+mod durability;
+
 struct Provider {
     active: Mutex<Option<ExecutionClaim>>,
     results: Mutex<BTreeMap<[u8; 16], Vec<u8>>>,

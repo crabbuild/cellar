@@ -242,6 +242,14 @@ mod checkpoint_admission;
 mod s3_foreground;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn quorum_callbacks_coalesce_background_archives_until_completion() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(s3_foreground::qualify_quorum(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn s3_invocations_coalesce_intermediate_background_archives() -> Result<()> {
     for rooted in [false, true] {
         for expire in [false, true] {
