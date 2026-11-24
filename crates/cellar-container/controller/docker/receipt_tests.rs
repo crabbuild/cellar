@@ -337,6 +337,59 @@ async fn independent_binding_durable_expiry_does_not_wait_for_another_fence() ->
 }
 
 #[tokio::test]
+async fn absent_expiry_waits_for_its_own_binding_fence() -> Result<()> {
+    let f = fixture().await?;
+    let domain = f.backend.domain.clone();
+    let result = async {
+        let original = ExecutionPendingOperation {
+            claim: f.current.clone(),
+            operation: ExecutionOperation::new(
+                [5; 16],
+                ExecutionOperationKind::Delete,
+                b"same-binding-absent-delete",
+                1,
+            )?,
+        };
+        let physical = f
+            .backend
+            .admission
+            .resource(&journal::key(&f.current))
+            .await?;
+        let blocked = domain
+            .run(async {
+                cellar::asyncrt::timeout(
+                    Duration::from_millis(50),
+                    f.backend
+                        .clone()
+                        .reconcile(f.current.clone(), original.clone()),
+                )
+                .await
+            })
+            .await?;
+        ensure!(
+            blocked.is_err(),
+            "same-binding absence bypassed its physical fence"
+        );
+        ensure!(f
+            .backend
+            .journal
+            .view(|state| Ok(state.original_operation(&f.current, &original)?.is_none()))?);
+        drop(physical);
+        ensure!(
+            f.backend
+                .clone()
+                .reconcile(f.current.clone(), original)
+                .await?
+                == Some(ExecutionOutcome::ExpiredBeforeSubmission)
+        );
+        Ok(())
+    }
+    .await;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
 async fn queued_revocation_cannot_reactivate_after_shutdown_closes_admission() -> Result<()> {
     let f = fixture().await?;
     let domain = f.backend.domain.clone();
