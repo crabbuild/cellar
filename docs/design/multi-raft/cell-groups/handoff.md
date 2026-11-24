@@ -4,7 +4,60 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current archive and request qualification checkpoint
+## Current Outbox and merged-source qualification checkpoint
+
+Continue [PR #184](https://github.com/crabbuild/cellar/pull/184) on
+`codex/cg17-request-deadlines`. Runtime `10fb1775d` includes main `2a37acf6a`
+(#185); the documentation conflict is resolved. The Outbox implementation now
+proves its work claim, retry reservation and exact binding intent together
+before dispatch, avoiding a claim-only Raft checkpoint. Mandatory source proof,
+final output proof, operation identity and uncertain outcomes are unchanged.
+
+The owning public RF3 control fails at the intended assertion before the
+production fix and passes afterward. Current native and real RustFS controls
+pass Quorum/S3 materialized-source profiles, including source archive refusal,
+autonomous exactly-once recovery and unchanged destination records after replay
+of the original Emit receipt. The test observer's unrelated-directory-sync race
+has a separate failing-then-passing regression; it now observes only successful
+sync of the exact image handle.
+
+Both current full library runs pass 1,428 tests / zero failures / two existing
+ignores with six threads. Locked build, strict all-feature/all-target
+Cellar/container Clippy, formatting, layout, docs and native dependencies pass.
+The selected native campaign passes 7/10 gates; its three failures are original
+EventStream Consume in native, repeat and Axum at three seconds. Main #185's
+two public Queue successor regressions and both archive controls pass.
+
+The five-function real RustFS campaign remains **FAILED: 2/5 complete functions**.
+Outbox and held-background foreground progress pass. EventStream Consume fails.
+Container recovery passes 3/4 profiles; materialized S3 `docker-a Read5` fails
+its original five seconds. Sandbox recovery passes both complete Quorum
+profiles; materialized S3 `FileRead2` and extent S3 `Read5` fail. The latter
+reads `/workspace/once` after original lost-Exec receipt visibility; it is not
+status or another execution. Both current S3 Sandbox profiles consult original
+receipts before failing. Preserve intentional lost-response cuts separately
+from these unexpected deadlines. Requested-minimum and all refusal/output-fault
+functions still require current-source combined qualification.
+
+Evidence: `CG-17-outbox-merged-native-10fb1775d-3165` and
+`CG-17-submission-seal-merged-outbox-10fb1775d-3159`, with verified second
+copies, exact frozen binaries/source and retained failures. Earlier Outbox red,
+observer red and pre-main185 RustFS bundles remain separate and verified.
+A missing frozen artifact directory was recovered against original SHA-256
+values; two attempted library repeats never executed and are recorded as such.
+Both qualification labs are stopped; owned work has joined. RF3 remains
+host-native in one process with a four-CPU/eight-GiB Docker VM and one-CPU/two-GiB
+RustFS, not independent Linux-voter qualification.
+
+The immediate implementation priorities are EventStream's target ACK/source
+continuation critical path and S3 file-read proof/reconciliation costs. Do not
+return cached ACK success, remove a needed source proof or bypass uncertain
+mutator reconciliation. Then qualify the complete primitive API/recovery matrix
+and independent Linux/load/crash/disk-loss paths. Default cutover, legacy removal
+and CG-17's 32 full acceptance cases remain gated. Task acceptance counts are
+unchanged. See [the source-scoped results](progress.md#cg-17-outbox-proof-and-main-185-qualification).
+
+## Earlier archive and request qualification checkpoint
 
 Continue [PR #184](https://github.com/crabbuild/cellar/pull/184) on
 `codex/cg17-request-deadlines`, based on main `49828ff6b` (#183/#182). Frozen

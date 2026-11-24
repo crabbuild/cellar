@@ -32,6 +32,82 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 Outbox proof and main 185 qualification
+
+Runtime `10fb1775d` in [PR #184](https://github.com/crabbuild/cellar/pull/184)
+includes main `2a37acf6a` (#185), with the documentation conflict resolved.
+Outbox work now batches its claim, retry reservation and binding intent into
+the existing source proof before dispatch. It avoids a claim-only Raft
+checkpoint; it does not remove the input proof, change receipt identity or
+weaken final output durability. Ordinary alarm and provider entry gates remain
+unchanged.
+
+The owning RF3 control fails before the production change at `1a4f0b108`:
+the first work checkpoint has no intent or retry reservation. It passes after
+`06d79264a` and on the merged source below. Quorum and S3 source profiles inspect
+the actual first work image, check the original receipt minimum and exercise
+public delivery. The S3 profile cuts source archive writes, requires no target
+delivery through the original five-second callback, restores the archive and
+requires autonomous exactly-once recovery. Replaying the original Emit receipt
+must leave destination records unchanged. These new controls cover materialized
+images; they do not close the complete EventStream acceptance case.
+
+The test image observer has its own red-to-green control. An unrelated directory
+sync could inspect an unfinished image; `abfbf4746` reproduces that race.
+`91d24b70a` observes only successful sync of the exact image file handle, while
+forwarding its original I/O behavior. The malformed-image observation from the
+earlier real run remains a failed test-instrumentation result, not evidence of
+production corruption. Both the observer regression and public RustFS control
+pass with the corrected observer.
+
+| Gate on `10fb1775d` | Result |
+| --- | --- |
+| Full library, six threads, two complete runs | Each passes 1,428 tests / zero failures / two existing ignores |
+| Native Outbox Q/S3 proof control and observer regression | Both functions pass |
+| Main #185 public Queue successor controls | Both image-mode functions pass |
+| Quiet archive cadence and foreground progress during held publication | Both functions pass, each in both image forms |
+| Original EventStream Consume: native, unchanged repeat and Axum | All three fail the original three-second deadline |
+| Five real RustFS functions | **FAILED: 2/5 complete functions** |
+| Locked optimized build; strict all-feature/all-target Cellar/container Clippy; formatting, layout, dependencies and docs | Pass |
+
+The two passing RustFS functions are the new Outbox source-proof control
+(Quorum and S3 sources) and foreground progress during held background
+publication (both image forms). Ordinary EventStream again fails Consume at
+three seconds. Container recovery passes three of four profiles; materialized
+S3 `Counter:docker-a Read5` exceeds its original five seconds. Sandbox recovery
+passes both complete Quorum profiles, including retained lost-Exec/Delete
+recovery and autonomous cleanup. Its S3 profiles fail materialized `FileRead`
+(client 229, sequence 2) and extent `Read5` after the original lost-Exec receipt
+becomes visible. Both operations read files; `Read5` is not an execution or
+status operation. Intentional lost-response cuts are not counted as unexpected
+deadline failures. The two adapter functions remain failed despite five passing
+profiles out of their combined eight.
+
+The native campaign is 7/10 selected gates, separate from the second library
+run. The RustFS campaign does not rerun all earlier refusal, requested-minimum
+or output-fault functions. No earlier profile is substituted for those missing
+current-source gates. The prior EventStream ACK trace shows a source checkpoint
+apply before submission of target ACK, but no target ACK acceptance before
+expiry; later receipts do not prove a timely response or authorize early success.
+
+Current evidence is `CG-17-outbox-merged-native-10fb1775d-3165` and
+`CG-17-submission-seal-merged-outbox-10fb1775d-3159`, including frozen binaries,
+source archive, raw failures and closed voter/controller data. The first real
+Outbox success marker shares a Rust harness line; a separate raw-log audit
+records both source minima without changing the original summary or result.
+The missing frozen artifact directory was restored byte-for-byte against the
+original hashes before the second library run. Two intervening attempts never
+started tests and are retained as such. Current and pre-merge Outbox bundles
+have verified second copies; earlier source pins remain separate.
+
+All owned lab work has stopped and joined. The VM has four CPUs/eight GiB, with
+RustFS limited to one CPU/two GiB. RF3 voters run in one macOS process; this is
+not independent Linux-voter, load or disk-loss qualification. CG-17's 32 full
+acceptance cases, default cutover and legacy removal remain open. Next close
+the original EventStream Consume and S3 file-read paths, then complete the
+primitive and combined recovery matrix without changing their budgets or
+proof requirements.
+
 ### CG-17 quiet archive cadence and merged-source qualification
 
 Runtime `a763e2f92` in [PR #184](https://github.com/crabbuild/cellar/pull/184)
