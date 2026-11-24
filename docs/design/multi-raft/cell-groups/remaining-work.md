@@ -17,7 +17,12 @@ campaign passes 7/13 functions. Normal Container and Sandbox each pass only
 1/4 profiles. Several S3 requests expire before file reads, and a Delete-input
 profile fails autonomous recovery after archive restoration.
 
-Priorities are to measure the exact Consume persistence/proof costs, fix the
+Candidate `0c6974661` implements bounded coalescing across idle Quorum child-call
+gaps and passes 11 isolated production scheduling-module checks after the
+intended two-check semantic failure. Its integrated qualification is pending;
+this does not close a public deadline case.
+
+Priorities are to qualify this change against the exact Consume path, fix the
 remaining public deadline paths, and rerun the original positive, source-proof,
 minimum-custody and restoration controls together. Current-source full parallel
 library qualification is pending. Preserve all original 3s/5s request, 3s

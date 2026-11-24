@@ -39,6 +39,20 @@ their earlier delivery, causal controls and qualification boundaries.
 branch `codex/cg17-event-file-read-deadlines`. Runtime `ded5ef6ec` has
 not passed the combined deadline gate.
 
+Candidate `0c6974661` additionally coalesces idle gaps between dependent
+Quorum child calls, bounded by the same cohort's first original deadline.
+The production scheduling-module regression is red at `dbab55f5c` (eight
+existing checks pass, both new idle-gap checks fail) and green at `0c6974661`
+(11 checks pass, including obsolete-registration isolation). This is an
+isolated exact-module check with actual Cellar error/domain types, not the
+full library or public qualification. Later children cannot renew the window;
+expiry opens background work and a fresh S3 proof ends an idle cohort. This
+changes optional archival scheduling, not input/output proof requirements.
+Its current-source integrated build and original deadline rerun are pending.
+The first opt-in public probe build at `f229f9b11` was interrupted before any
+test execution after severe shared-host contention was observed. It supplies
+no build or test pass. Preserve the actual timed failures below.
+
 The implementation separates logical EventStream activation-pending reads from
 transient immutable-reader refusals; the latter must retry with fresh authority.
 Bounded Container read/stat/list now activate and reconcile under one proven I/O

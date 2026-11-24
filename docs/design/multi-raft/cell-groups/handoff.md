@@ -11,6 +11,15 @@ Continue draft [PR #186](https://github.com/crabbuild/cellar/pull/186) on
 new code. Main is `86cfe5d1c`. The last complete public qualification is
 runtime `ded5ef6ec`, **FAILED**, with all original budgets and assertions.
 
+New candidate `0c6974661` keeps a Quorum child cohort across idle gaps until
+its first original deadline. The exact production scheduling module passes
+11 isolated checks; red source `dbab55f5c` passes the eight old checks and
+fails the two new idle-gap checks. No timer, archive pin or authority is added.
+The strict integrated build, full library and original public/RustFS rerun
+remain required. The opt-in public probe build at `f229f9b11` was aborted
+before tests under severe host contention; do not count it as a pass or a
+semantic regression. Use the existing real source-scoped failures below.
+
 The controller suite passes 21 tests; the new Quorum and existing S3
 background-deferral controls pass both image forms. Both original native
 EventStream replays pass both image forms. Axum extent Consume still expires
