@@ -89,6 +89,35 @@ fn expiry_and_work_completion_rollback_together() -> Result<()> {
 }
 
 #[test]
+fn failed_sql_expiry_rolls_back_its_unproven_claim() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut database = CommandDatabase::open(&root.path().join("kv.sqlite"), None, 16 << 20)?;
+    let work = seed(&mut database, 1, false)?;
+    database.framework().execute_batch(
+        "CREATE TRIGGER reject_expiry BEFORE DELETE ON __sys_kv BEGIN SELECT RAISE(ABORT,'expiry refusal'); END;",
+    )?;
+    let failed = database.transaction(inputs(), |tx| run(tx, &work, AT));
+    assert!(format!("{:#}", failed.unwrap_err()).contains("expiry refusal"));
+    assert_eq!(
+        serde_json::to_value(native_work::due(database.framework(), AT)?)?,
+        serde_json::to_value(Some(&work))?
+    );
+    assert_eq!(
+        database
+            .framework()
+            .query_row("SELECT count(*) FROM __sys_kv", [], |r| r.get::<_, u64>(0))?,
+        1
+    );
+    database.framework().execute_batch("DROP TRIGGER reject_expiry")?;
+    database.transaction(inputs(), |tx| {
+        assert!(run(tx, &work, AT)?);
+        Ok(())
+    })?;
+    assert!(native_work::due(database.framework(), AT)?.is_none());
+    Ok(())
+}
+
+#[test]
 fn expiry_uses_captured_time_and_preserves_the_next_generation() -> Result<()> {
     let root = tempfile::tempdir()?;
     let mut database = CommandDatabase::open(&root.path().join("kv.sqlite"), None, 16 << 20)?;
