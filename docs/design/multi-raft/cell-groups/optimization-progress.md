@@ -127,6 +127,44 @@ a distinct failure pattern; it neither reproduces nor repairs the original
 runtime closures. Both the service and constrained comparison gates remain
 required. All measurements are scoped to the shared host, as requested.
 
+## Keep deferred commit metadata out of local checkpoints
+
+The paired `a53855fb` smoke completes all 24 source cases. All 12 Fleet/Bucket
+cases pass; all 12 Quorum/Quorum+S3 cases fail on both main and candidate.
+A private error-only reproduction captures the first runtime failure:
+`Storage(Invalid("mixed local checkpoint write"))`. Later controller closure and
+`NotFound` observations are consequences of that failure in this reproduction.
+
+Compiler inputs `61ed9d55` keep a local checkpoint's write independent of the
+later deferred commit metadata. The checkpoint compacts an already durable
+applied cut; the deferred HardState remains available for the next ordinary
+persistence write. Storage validation, applied-root publication, execution
+authority and exact receipt/durability requirements remain unchanged.
+
+Both image forms fail before the fix with the captured mixed-checkpoint error.
+They pass afterward, preserving the entire retained suffix and HardState while
+refusing successor authority until the original applied-root sync completes.
+All **38 checkpoint/commit controls**, **16 prefetch/admission controls**,
+**1,431 library tests** (two existing ignores), **13 public RF3 selections** and
+the unchanged **13 native service selections** pass. Strict all-feature/all-target
+Clippy, formatting, layout, native dependency and documentation checks pass.
+The Linux image's compiler inputs and executable hashes match this candidate.
+
+In the requested capped Colima topology, SQL and KV pass all four durability
+modes at C1/4/16. Each SQL Quorum voter publishes three actual local checkpoints;
+the run crosses the repaired boundary. The smoke then stops at Queue Quorum C16:
+C1/C4 delivery and settlement pass, but C16 retains ambiguous deadline responses.
+All runtimes remain healthy. A fresh C16-only diagnostic verifies warmup and
+then receives two immediate ambiguous `Overloaded` responses. These are separate
+admission/tail-latency failures, not recurrence of the mixed-checkpoint error.
+Unconfirmed mutations and failed settlement probes remain retained privately.
+
+The smoke uses five-second windows, three-second warmup and one repeat on the
+shared host. Queue's other three modes and the full 30-second, two-repeat matrix
+remain unqualified on this candidate. No performance ratio is inferred from
+main's failed Raft cases. No deadline, quota, durability minimum or validation
+assertion has been relaxed, and generated results remain outside the PR.
+
 ## Verified ingress successors across requests
 
 Starting from merged main `49828ff6` (#183), compiler inputs `99a34233` retain

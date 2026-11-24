@@ -945,6 +945,7 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
 
 #[path = "cell_group_sql.rs"]
 mod sql;
+pub(super) use sql::commit_metadata_checkpoint;
 pub(super) use sql::commit_metadata_publication;
 pub(super) use sql::foreign_commit_ticket;
 

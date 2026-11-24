@@ -12,17 +12,25 @@ The [fresh verification](optimization-progress.md#fresh-main-and-constrained-run
 starts from main `86cfe5d1c` (#184/#185). Draft
 [#187](https://github.com/crabbuild/cellar/pull/187) retains eight idle hints within
 the existing memory bound and reuses a joined committed successor's active item
-under full apply admission. Compiler inputs `a53855fb` pass **16 owning controls**,
-**1,431 library tests** with two existing ignores, and **13 public RF3 selections**.
-Strict Clippy, formatting and layout pass.
+under full apply admission. Compiler inputs `61ed9d55` also keep deferred commit
+metadata out of local checkpoint writes. Both new owning cases fail before that
+repair and pass afterward. All **38 checkpoint/commit controls**, **16 prefetch
+controls**, **1,431 library tests** with two existing ignores, **13 public RF3
+selections** and **13 native service selections** pass. Strict Clippy and
+repository checks pass.
 
 The USB-backed native service capture passes **6/13 complete selections**.
 Matched rooted C4 controls pass both baseline and candidate internal-filesystem
 runs; the candidate passes one of two USB runs. Full service requalification on
 the normal internal persistent temporary filesystem passes **13/13** with the
 original time windows, identities and admission limits. The earlier `fe495002`
-constrained smoke passes **16/24 source cases**; the new candidate comparison
-remains pending. Runtime closure and Queue deadline evidence stays retained.
+constrained smoke passes **16/24 source cases**. The paired `a53855fb` smoke
+passes every Fleet/Bucket case and fails every Raft case on both sources. The
+first captured runtime error is a mixed local checkpoint write; the repair
+passes SQL/KV smoke in all four modes and publishes actual checkpoints. Queue
+Quorum still fails C16 with healthy runtimes: the original sequence retains
+ambiguous deadlines, and a fresh C16-only diagnostic retains immediate ambiguous
+overload responses. Failed captures remain retained. Full comparison is pending.
 Earlier private bundles were cleaned up; the current campaign uses a new evidence
 baseline. The older source-pinned checkpoints below retain their historical scope.
 
@@ -66,26 +74,24 @@ C2 and C4 cap in-flight producer requests at two and four. Rooted cases use
 extent-backed SQL images; materialized cases use complete images.
 
 The baseline is `86cfe5d1c`, and the current candidate's compiler inputs are
-`a53855fb`. Its owning, library and selected public controls pass. Native storage
+`61ed9d55`. Its owning, library and selected public controls pass. Native storage
 controls distinguish the earlier USB profile from the normal temporary
 filesystem, where all 13 service selections pass. The new constrained comparison
 remains required. The current priorities are:
 
-1. **P0: Qualify the current candidate in the requested capped topology.**
-   Repeat the SQL/KV/Queue smoke with three 1-vCPU/2-GiB nodes, three RF3 groups,
-   shared RustFS and the original C1/4/16 workload. Native C2/C4 now pass on
-   internal storage with the original 3,000-ms RPC, 5,000-ms callback and
-   30-second drain windows. Keep the failed USB capture separate. Preserve
-   admission, delivery/uniqueness, source proofs, producer quiescence and joined
-   shutdown; account for image/manifest barriers and source-proof waiting before
-   changing persistence or its budgets.
-2. **P0: Diagnose and repair reproduced runtime closure.** Preserve the first runtime,
-   controller or quarantine error in the original Queue quorum reproduction.
-   Healthy node-lease renewals in a failed trace rule out lease expiry for that
-   reproduction. Later error-only probes retain deadline failures with normal
-   stopped outcomes, which do not explain the original closures. Require an
-   owning regression for a claimed repair and repeat the unchanged smoke; retain
-   unconfirmed mutation identities and incomplete settlement evidence.
+1. **P0: Resolve Queue admission and latency failures at C16.** The checkpoint
+   crash has an owning red/green regression and SQL/KV cross the repaired
+   boundary in capped containers. Queue retains healthy runtimes but fails on
+   ambiguous deadlines or immediate overload. Diagnose the refusing bank and
+   physical preparation/source-proof contention before changing admission.
+   Preserve full byte charges, physical joins, exact identities, delivery and
+   settlement checks, original deadlines and unconfirmed mutation evidence.
+2. **P0: Complete the unchanged capped smoke.** Repeat all SQL/KV/Queue modes
+   with three 1-vCPU/2-GiB nodes, three RF3 groups, shared RustFS and C1/4/16.
+   SQL/KV currently pass all four modes; Queue Quorum C16 blocks the combined
+   gate and the other Queue modes remain pending. Native C2/C4 pass on internal
+   storage with the original 3,000-ms RPC, 5,000-ms callback and 30-second drain
+   windows. Keep the failed USB profile separate and require joined shutdown.
 3. **P1: Complete the requested constrained comparison.** After smoke passes,
    run all SQL/KV/Queue modes at C1/4/16 for 30 seconds and two reversed repeats,
    with three 1-vCPU/2-GiB RF3 nodes, three groups, capped client/store and shared
