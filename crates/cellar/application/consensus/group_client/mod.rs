@@ -141,6 +141,7 @@ mod scoped_dispatch;
 mod segment_reclamation;
 mod services;
 mod sql_ingress;
+mod sql_ingress_hints;
 mod sql_ingress_lanes;
 mod startup;
 mod stop;

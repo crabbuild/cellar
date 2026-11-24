@@ -1095,8 +1095,8 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
 #[path = "cell_group_queue_qualification.rs"]
 mod qualification;
 pub use qualification::{
-    qualify_batch_proof, qualify_cold_metadata, qualify_extent_load, qualify_faults, qualify_load,
-    qualify_load_mode, qualify_long, qualify_metadata_reads, qualify_metadata_s3,
-    qualify_operator_read_boundaries, qualify_operator_reads, qualify_owned_callback_scans,
-    qualify_perf, qualify_sdk_metadata, qualify_transfer_identity,
+    qualify_batch_proof, qualify_cold_metadata, qualify_extent_load, qualify_faults,
+    qualify_idle_successor, qualify_load, qualify_load_mode, qualify_long, qualify_metadata_reads,
+    qualify_metadata_s3, qualify_operator_read_boundaries, qualify_operator_reads,
+    qualify_owned_callback_scans, qualify_perf, qualify_sdk_metadata, qualify_transfer_identity,
 };

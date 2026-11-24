@@ -9,42 +9,58 @@ Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
 The current delivery is [PR #184](https://github.com/crabbuild/cellar/pull/184),
-integrating main `49828ff6b` after #183/#182. Runtime `a763e2f92` preserves the
+now integrating main `2a37acf6a` (#185). Qualification of this merge is pending.
+Before this merge, `91d24b70a` passes the outbox claim/intent proof control for
+Quorum and S3 sources against real RustFS, including scoped archive refusal,
+autonomous recovery and unchanged destination records after receipt replay.
+The original EventStream deadline and S3 Container/Sandbox gates remain open;
+these earlier source pins do not qualify the new ingress-successor integration.
+
+Earlier runtime `a763e2f92`, based on main `49828ff6b` after #183/#182, preserves the
 configured background archive interval after quiet completion; new S3 requests
 still wake immediately. Its real controller regression fails before the fix and
 passes both image forms afterward. Six native archive functions and two full
 six-thread library runs pass (1,420 tests and two existing ignores per run).
-The [current qualification](progress.md#cg-17-quiet-archive-cadence-and-merged-source-qualification)
+The [earlier qualification](progress.md#cg-17-quiet-archive-cadence-and-merged-source-qualification)
 still fails both EventStream replays and the combined RustFS campaign:
 3/8 complete functions, with 16/22 Docker/Sandbox configuration markers.
-Earlier failed library runs retain their source pins; the current library gate
-passes. Default cutover and full primitive acceptance remain open.
+Earlier failed library runs retain their source pins; that library gate
+passes on `a763e2f92`. Default cutover and full primitive acceptance remain open.
 
 The `f668d0193`/`8b9fece2d` archive results and the #183 optimization results
 below precede this integration. They do not qualify the combined runtime.
 
 ## Current optimization follow-up
 
-Merged PR [#183](https://github.com/crabbuild/cellar/pull/183) includes earlier main
-`ff5cdec33` (#182) and bounded committed-pair preparation at compiler inputs
-`bb1b2cac`. All 48 selected correctness controls pass, including fresh SDK reply
-fences and archive-retirement isolation. The repeated native service campaign
-passes **5/13** complete selections: SQL **2/2**, KV **1/2**, Queue callbacks
-**1/2**, combined C2 **0/2**, separate extent load **1/1**, and C4 **0/4**.
-These passes do not qualify full service or a low-latency/throughput gain. See
-[exact scope and retained earlier failures](optimization-progress.md#committed-preparation-with-main-182).
+Merged [#183](https://github.com/crabbuild/cellar/pull/183) is the base for the
+verified ingress-successor follow-up at compiler inputs `99a34233`. Four fixed
+node-local metadata slots retain single-use advice between independent requests;
+Fetch and RPC replenish only after the original success selection. Both public
+RF3 image-mode regressions fail their new oracle before the change and pass twice
+each afterward, preserving their individual commits and all-voter catch-up.
+
+The expanded owning campaign passes **93/94** selections. An Axum Fetch deadline
+failure remains retained despite passing separate pre-change and candidate
+controls. The unchanged SQL/KV/Queue service campaign passes **3/13** selections:
+SQL, KV and Queue callbacks each pass **1/2**; combined C2 **0/2**, separate extent
+load **0/1**, and C4 **0/4**. Full service and low-latency/throughput qualification
+remain open. See [the exact scope and retained failures](optimization-progress.md#verified-ingress-successors-across-requests).
+
+The preceding committed-pair checkpoint at `bb1b2cac` passed 48 selected controls
+and **5/13** service selections. The separate captures are not a matched
+performance comparison. Their failures remain in the [earlier evidence](optimization-progress.md#committed-preparation-with-main-182).
 
 The next optimization priorities are:
 
-1. **P0: Close repeatable ordinary service.** Reproduce the remaining KV,
-   callback and Queue C2/C4 request deadlines with their original identities,
+1. **P0: Close repeatable ordinary service.** Reproduce the SQL/KV,
+   callback and Queue C2/C4 deadline/timeout failures with their original identities,
    typed ambiguity, admission banks and 3,000-ms RPC / 5,000-ms callback /
    30-second drain windows. Preserve exact delivery/uniqueness and the independent
    producer-quiescence proof at retained restart/close. Keep all failed controls.
 2. **P0: Account for the remaining persistence path.** Separate packed-manifest
    file sync, directory sync, selector publication and the point at which an
    eligible committed successor becomes available. Current aggregate manifest
-   means are about 100–167 ms; refusal counters do not establish a quota repair.
+   means are about 152–329 ms; refusal counters do not establish a quota repair.
    Require an owning red-to-green regression and the complete unchanged service
    campaign for each next reduction or overlap of measured work.
 3. **P1: Close complete optimization and recovery acceptance.** Finish the

@@ -10,6 +10,74 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+## Verified ingress successors across requests
+
+Starting from merged main `49828ff6` (#183), compiler inputs `99a34233` retain
+four single-use successor hints per node after the last active caller leaves.
+Fixed hashes and scalars bind each hint to cell history, schema and the
+successful call's original deadline. The table owns no cell, task, payload,
+storage pin or admission permit. Active FIFO entries still disappear with their
+last caller. Shutdown clears the table and prevents late repopulation.
+
+Fetch and RPC publish hints while retaining their FIFO turn through the original
+cancellation/deadline success selection, exact receipt/minimum validation and
+response decoding. Selection consumes the active, invocation and node candidates;
+only a successful receipt replenishes them. Every command retains fresh dispatch
+authority, its immutable input fingerprint and required durability proof. A stale
+candidate still requires the ordinary fresh-quorum consumed-other proof before a
+different command sequence can be selected.
+
+The new public RF3 Queue regression completes separate pause/resume HTTP requests,
+checks their two individual commits and all-voter catch-up, and joins cleanup
+before evaluating reuse. Both image modes fail only the reuse oracle on the
+test-only baseline `b9080ee7`: zero hints instead of one. The byte-identical
+fixture passes in both image modes twice on `99a34233`. This proves healthy-path
+sequence-query avoidance; it does not establish a throughput or latency gain.
+
+The expanded owning campaign passes **93/94** selections, including all 48
+preceding controls, eight new cancellation/scope/expiry/capacity/shutdown controls,
+and four executions of the public regression. The Axum stateless Fetch selection
+fails its two materialized configurations on deadlines; both rooted configurations
+pass. A separate pre-change control and standalone candidate repeat each pass all
+four configurations. The initial failure remains retained and repeatability is
+open. Locked all-feature builds, Clippy, formatting, layout and native dependency
+checks pass.
+
+**Native service qualification remains FAILED: 3/13 complete selections pass.**
+The unchanged campaign uses the original identities, admission banks and request,
+callback and drain windows, with reverse-order repeats.
+
+| Complete native selection | `99a34233` |
+| --- | ---: |
+| SQL bindings | 1/2 |
+| KV bindings | 1/2 |
+| Queue callbacks | 1/2 |
+| Queue C2, both image modes | 0/2 |
+| Separate extent-backed load | 0/1 |
+| Materialized Queue C4 | 0/2 |
+| Extent-backed Queue C4 | 0/2 |
+
+Deadline and timeout errors remain in the failed selections. Seven structured
+Queue cleanup reports each show three node shutdown attempts, three host close
+attempts, joined
+domains, zero cleanup errors and successful cleanup. Unexecuted phases earn no
+cleanup or load credit. No complete Queue load selection supplies qualified
+throughput/tail measurements.
+
+Eighteen available, unsaturated failure snapshots show aggregate manifest
+preparation means of about **152–329 ms**, with zero SQL and optional-prefetch
+admission-refusal counters. These include setup and failed work; they are not
+request percentiles, additive latency components or a controlled comparison.
+Separate packed-file sync, directory sync, selector publication and pending apply
+work before choosing the next persistence change. Increasing quotas is not an
+established repair.
+
+All failed media, immutable executables and verified retained copies remain
+outside this documentation tree. The requested three-node, 1-vCPU/2-GiB
+Colima/shared-RustFS comparison has no new admitted run or passing reserve/resource
+witness. Full service, low-latency, OPT/CG/SDK/recovery and release qualification
+remain open. See the [current priorities](remaining-work.md#current-optimization-follow-up).
+
 ## Committed preparation with main #182
 
 Compiler inputs `bb1b2cac`, including main `ff5cdec33` (#182), prepare at most

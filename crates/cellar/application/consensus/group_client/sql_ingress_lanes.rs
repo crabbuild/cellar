@@ -2,11 +2,14 @@
 
 //! Active stateless callers share a local FIFO, never a persistent cell owner.
 
-use super::CellHistory;
+use super::{
+    sql_ingress_hints::{Hint, Hints, Target},
+    CellHistory,
+};
 use crate::raft::budget::Permit;
 use cellar_logic::{
     cell_group::CellId,
-    consensus::{ClusterId, CommandFailure, CommandId, IncarnationId, NamespaceId},
+    consensus::{ClusterId, CommandFailure, CommandId, NamespaceId},
 };
 use std::{
     collections::BTreeMap,
@@ -17,21 +20,18 @@ type Key = (ClusterId, NamespaceId, CellId);
 
 #[derive(Default)]
 struct State {
-    next: Option<Successor>,
-}
-
-struct Successor {
-    incarnation: IncarnationId,
-    sequence: u64,
+    next: Option<Hint>,
 }
 
 #[derive(Default)]
 pub(super) struct Lanes {
+    hints: Hints,
     active: Mutex<BTreeMap<Key, Weak<tokio::sync::Mutex<State>>>>,
 }
 
 pub(super) struct Lane {
     owner: Arc<Lanes>,
+    target: Target,
     key: Key,
     // Present until Drop takes it while holding the registry lock.
     gate: Option<Arc<tokio::sync::Mutex<State>>>,
@@ -41,9 +41,12 @@ pub(super) struct Lane {
 }
 
 pub(super) struct Turn<'a> {
+    owner: &'a Lanes,
+    target: Target,
     key: &'a Key,
     state: tokio::sync::MutexGuard<'a, State>,
-    previous: Option<Successor>,
+    previous: Option<Hint>,
+    previous_node: Option<Hint>,
 }
 
 impl Lanes {
@@ -68,10 +71,15 @@ impl Lanes {
         drop(active);
         Ok(Lane {
             owner: self.clone(),
+            target: Target::new(cell),
             key,
             gate: Some(gate),
             _memory: memory,
         })
+    }
+
+    pub(super) fn close_hints(&self) {
+        self.hints.close();
     }
 }
 
@@ -86,7 +94,11 @@ impl Lane {
         // A cancellation or error cannot leave the inherited hint available
         // for another caller. Only a later positive receipt replenishes it.
         let previous = state.next.take();
+        let previous_node = self.owner.hints.take(self.target);
         Turn {
+            owner: &self.owner,
+            target: self.target,
+            previous_node,
             key: &self.key,
             state,
             previous,
@@ -102,23 +114,44 @@ impl Turn<'_> {
     /// Selection hint only. Every command still validates its destination,
     /// authority and immutable fingerprint; a stale hint needs the ordinary
     /// fresh-quorum consumed-other proof before choosing a different sequence.
-    pub(super) fn take_successor(&mut self, cell: &CellHistory) -> Option<u64> {
-        let previous = self.previous.take()?;
-        (self.matches(cell) && previous.incarnation == cell.incarnation)
-            .then_some(previous.sequence)
+    pub(super) fn take_successor(
+        &mut self,
+        cell: &CellHistory,
+        schema: [u8; 32],
+        now_ms: u64,
+    ) -> Option<u64> {
+        self.previous.take()?.sequence(cell, schema, now_ms)
     }
 
-    /// Call only after validating the exact successful command receipt. This
-    /// fixed-size hint shares the already admitted active FIFO and disappears
-    /// when its last caller leaves; it creates no idle cell owner or authority.
-    pub(super) fn acknowledged(&mut self, cell: &CellHistory, command: CommandId) {
+    pub(super) fn take_node_successor(
+        &mut self,
+        cell: &CellHistory,
+        schema: [u8; 32],
+        now_ms: u64,
+    ) -> Option<u64> {
+        self.previous_node.take()?.sequence(cell, schema, now_ms)
+    }
+
+    /// Publish only after the original cancellation/deadline selection delivers
+    /// the validated exact receipt. Keep the FIFO turn through this publication
+    /// so a later caller cannot be overtaken by a delayed predecessor's hint.
+    pub(super) fn acknowledged(
+        &mut self,
+        cell: &CellHistory,
+        command: CommandId,
+        schema: [u8; 32],
+        until_ms: u64,
+        now_ms: u64,
+    ) {
         self.previous = None;
+        self.previous_node = None;
         self.state.next = None;
         if self.matches(cell) && command.client == super::super::sql_ingress_identity::client() {
-            self.state.next = command.sequence().checked_add(1).map(|sequence| Successor {
-                incarnation: cell.incarnation,
-                sequence,
-            });
+            let hint = Hint::new(cell, schema, command.sequence(), until_ms, now_ms);
+            self.state.next = hint;
+            if let Some(hint) = hint {
+                self.owner.hints.remember(self.target, hint, now_ms);
+            }
         }
     }
 }
@@ -147,3 +180,7 @@ impl Drop for Lane {
 #[cfg(test)]
 #[path = "sql_ingress_lanes_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sql_ingress_idle_tests.rs"]
+mod idle_tests;
