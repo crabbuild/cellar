@@ -12,7 +12,7 @@ use crate::raft::query_wire::{
     self as wire,
     cell::{CellQueryCall, CellQueryValue},
 };
-use crate::raft::version::{CellVersionObservation, CellVersionToken, VersionKeys};
+use crate::raft::version::{CellVersionObservation, CellVersionToken, VersionError, VersionKeys};
 use cellar_logic::{
     cell_group::CellHistory,
     consensus::{MemberId, NodeIdentity},
@@ -60,7 +60,11 @@ impl CellRemoteQueryResponse {
     }
 
     pub fn observation(&self) -> &CellVersionObservation {
-        &self.value.observation
+        self.value.version.observation()
+    }
+
+    pub(in crate::raft) fn check_version_time(&self, now_ms: u64) -> Result<(), VersionError> {
+        self.value.version.check_time(now_ms)
     }
 
     pub fn token(&self) -> &CellVersionToken {

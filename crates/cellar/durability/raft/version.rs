@@ -69,6 +69,27 @@ pub struct CellVersionObservation {
     pub witness: CommitWitness,
 }
 
+/// A version already authenticated against the request's history and schema.
+/// Its signed time bounds remain enforceable after handing off the result.
+pub(in crate::raft) struct AuthenticatedCellVersion {
+    observation: CellVersionObservation,
+    validity: std::ops::Range<u64>,
+}
+
+impl AuthenticatedCellVersion {
+    pub(in crate::raft) fn observation(&self) -> &CellVersionObservation {
+        &self.observation
+    }
+
+    pub(in crate::raft) fn check_time(&self, now_ms: u64) -> Result<(), VersionError> {
+        if self.validity.contains(&now_ms) {
+            Ok(())
+        } else {
+            Err(VersionError::Expired)
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VersionError {
     Invalid,
@@ -296,6 +317,17 @@ impl VersionKeys {
         schema: [u8; 32],
         now_ms: u64,
     ) -> Result<CellVersionObservation, VersionError> {
+        self.authenticate_cell(token, history, schema, now_ms)
+            .map(|proof| proof.observation)
+    }
+
+    pub(in crate::raft) fn authenticate_cell(
+        &self,
+        token: &CellVersionToken,
+        history: &CellHistory,
+        schema: [u8; 32],
+        now_ms: u64,
+    ) -> Result<AuthenticatedCellVersion, VersionError> {
         let bytes = URL_SAFE_NO_PAD
             .decode(token.as_str())
             .map_err(|_| VersionError::Invalid)?;
@@ -317,13 +349,10 @@ impl VersionKeys {
                 &Signature::from_slice(signature).map_err(|_| VersionError::Invalid)?,
             )
             .map_err(|_| VersionError::Invalid)?;
-        let issued = input.u64()?;
-        let expires = input.u64()?;
-        if issued > now_ms
-            || now_ms >= expires
-            || expires > key.verify_until_ms
-            || expires <= issued
-            || expires - issued > MAX_LIFETIME_MS
+        let validity = input.u64()?..input.u64()?;
+        if !validity.contains(&now_ms)
+            || validity.end > key.verify_until_ms
+            || validity.end - validity.start > MAX_LIFETIME_MS
         {
             return Err(VersionError::Expired);
         }
@@ -394,13 +423,16 @@ impl VersionKeys {
         if !input.0.is_empty() {
             return Err(VersionError::Invalid);
         }
-        Ok(CellVersionObservation {
-            version: CellVersion {
-                history: decoded,
-                sequence,
-                image,
+        Ok(AuthenticatedCellVersion {
+            observation: CellVersionObservation {
+                version: CellVersion {
+                    history: decoded,
+                    sequence,
+                    image,
+                },
+                witness,
             },
-            witness,
+            validity,
         })
     }
 
