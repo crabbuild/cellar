@@ -426,6 +426,13 @@ impl DockerBackend {
         let claim = successor.clone();
         let key = journal::key(&claim);
         let _admission = self.admission.resource(&key).await?;
+        // Shutdown closes before waiting for exclusive admission. A revocation
+        // queued earlier must recheck after entering, before any journal/Engine
+        // mutation can reactivate its scaffold.
+        ensure!(
+            !self.closed.load(Ordering::Acquire),
+            ExecutionControllerFailure::Unavailable
+        );
         self.update(move |state| {
             ensure!(
                 !state.revoked.contains(&journal::history(&claim)?),

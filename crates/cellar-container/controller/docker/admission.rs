@@ -1,31 +1,59 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Exclude physical reservation from revocation and absent-operation sealing.
+//! Isolate binding fences; shutdown and history revocation exclude every scope.
+use super::ExecutionControllerFailure;
 use anyhow::Result;
-use tokio::sync::{Mutex, MutexGuard};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex, Weak},
+};
+use tokio::sync::{
+    Mutex as AsyncMutex, OwnedMutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+};
 
 #[derive(Default)]
 pub(super) struct Admission {
-    global: Mutex<()>,
+    global: RwLock<()>,
+    resources: Mutex<BTreeMap<String, Weak<AsyncMutex<()>>>>,
     #[cfg(test)]
     attempts: std::sync::atomic::AtomicUsize,
 }
 
 pub(super) struct Resource<'a> {
-    _global: MutexGuard<'a, ()>,
+    _resource: OwnedMutexGuard<()>,
+    _global: RwLockReadGuard<'a, ()>,
 }
 
 impl Admission {
-    pub(super) async fn exclusive(&self) -> MutexGuard<'_, ()> {
-        self.global.lock().await
+    pub(super) async fn exclusive(&self) -> RwLockWriteGuard<'_, ()> {
+        self.global.write().await
     }
 
-    pub(super) async fn resource(&self, _key: &str) -> Result<Resource<'_>> {
+    pub(super) async fn resource(&self, key: &str) -> Result<Resource<'_>> {
         #[cfg(test)]
         self.attempts
             .fetch_add(1, std::sync::atomic::Ordering::Release);
+        let global = self.global.read().await;
+        let resource = {
+            let mut resources = self
+                .resources
+                .lock()
+                .map_err(|_| ExecutionControllerFailure::Unavailable)?;
+            // Only entered/waiting scopes keep a strong reference. Idle cells
+            // do not retain a mutex, and later acquisition removes dead keys.
+            resources.retain(|_, lock| lock.strong_count() != 0);
+            match resources.get(key).and_then(Weak::upgrade) {
+                Some(lock) => lock,
+                None => {
+                    let lock = Arc::new(AsyncMutex::new(()));
+                    resources.insert(key.to_owned(), Arc::downgrade(&lock));
+                    lock
+                }
+            }
+        };
         Ok(Resource {
-            _global: self.global.lock().await,
+            _resource: resource.lock_owned().await,
+            _global: global,
         })
     }
 
