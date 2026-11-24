@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   deadlines:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04-arm
     timeout-minutes: 150
     env:
       RUSTUP_TOOLCHAIN: 1.98.1
@@ -32,6 +32,7 @@ jobs:
           git rev-parse HEAD > "$PROOF_ROOT/source.txt"
           git archive --format=tar.gz HEAD > "$PROOF_ROOT/source.tar.gz"
           uname -a > "$PROOF_ROOT/platform.txt"
+          docker version > "$PROOF_ROOT/docker-version.txt"
           lscpu > "$PROOF_ROOT/cpu.txt"
           free -b > "$PROOF_ROOT/memory.txt"
           df -B1 > "$PROOF_ROOT/disks.txt"
@@ -46,6 +47,8 @@ jobs:
             --test native_cell_groups_archive_controller \
             --test native_cell_groups_docker --no-run \
             2>&1 | tee "$PROOF_ROOT/build.log"
+          cargo test --locked -p cellar -p cellar-container --lib --no-run \
+            2>&1 | tee -a "$PROOF_ROOT/build.log"
       - name: Run original native selections then real RustFS selections
         run: |
           python3 - <<'PY'
@@ -59,11 +62,12 @@ jobs:
               m=re.search(r'Executable .* \(([^()]+)\)$',line)
               if not m: continue
               path=pathlib.Path(m.group(1)); name=path.name.rsplit('-',1)[0]
-              if not name.startswith('native_'):continue
+              if 'Executable unittests lib.rs ' in line:name += '_library'
+              if not (name.startswith('native_') or name in ('cellar_library','cellar_container_library')):continue
               dest=root/name;shutil.copy2(path,dest)
               executables[name]={'path':str(dest),'sha256':hashlib.sha256(dest.read_bytes()).hexdigest()}
-          assert len(executables)==4,executables
-          report={'source':source,'scope':'Unmodified original tests on an isolated Linux host; RF3 remains in-process, not independent Linux voters. Original request/maintenance/recovery deadlines, IDs, proofs and assertions unchanged. RustFS limited to 1 CPU/2 GiB. No build during timed tests.','executables':executables,'status':'RUNNING','cases':[]}
+          assert len(executables)==6,executables
+          report={'source':source,'scope':'Unmodified original tests on an isolated ARM Linux host; RF3 remains in-process, not independent Linux voters. Original request/maintenance/recovery deadlines, IDs, proofs and assertions unchanged. RustFS limited to 1 CPU/2 GiB. No build during timed tests.','executables':executables,'status':'RUNNING','cases':[]}
           def save(): (root/'results.json').write_text(json.dumps(report,indent=2)+'\n')
           clean={k:v for k,v in os.environ.items() if not k.startswith(('AWS_','CELLAR_CELL_GROUPS_RUSTFS_','CELLAR_DOCKER_BACKEND_'))}
           clean.pop('CELLAR_PROFILE_EVENT_CONSUME',None)
@@ -82,7 +86,7 @@ jobs:
               if case:passed=passed and summaries[0].startswith('test result: ok. 1 passed; 0 failed;')
               row.update(exit_code=result.returncode,seconds=time.monotonic()-start,status='PASS' if passed else 'FAILED',summary=summaries)
               save();print('END',i,name,row['status'],row['seconds'],flush=True)
-          native=[('native_execution_controller',None),('native_cell_groups_primitives','quorum_callbacks_coalesce_background_archives_until_completion'),('native_cell_groups_primitives','s3_invocations_coalesce_intermediate_background_archives'),('native_cell_groups_primitives','ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum'),('native_cell_groups_primitives','ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum'),('native_cell_groups_primitives','axum_event_streams_activate_deliver_and_recover_through_shared_quorum')]
+          native=[('cellar_library',None),('cellar_library',None),('cellar_container_library',None),('native_execution_controller',None),('native_cell_groups_primitives','quorum_callbacks_coalesce_background_archives_until_completion'),('native_cell_groups_primitives','s3_invocations_coalesce_intermediate_background_archives'),('native_cell_groups_primitives','ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum'),('native_cell_groups_primitives','ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum'),('native_cell_groups_primitives','axum_event_streams_activate_deliver_and_recover_through_shared_quorum')]
           save()
           for target,case in native:run(target,case,clean)
           image='ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858'
