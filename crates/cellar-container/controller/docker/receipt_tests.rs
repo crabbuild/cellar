@@ -442,3 +442,89 @@ async fn queued_revocation_cannot_reactivate_after_shutdown_closes_admission() -
     domain.shutdown().await;
     result
 }
+
+#[tokio::test]
+async fn durable_reservation_rechecks_the_current_claim() -> Result<()> {
+    let f = fixture().await?;
+    let domain = f.backend.domain.clone();
+    let result = async {
+        let mut encoded = serde_json::to_value(&f.current)?;
+        encoded["sequence"] = json!(2);
+        encoded["checkpoint"]["revision"] = json!(2);
+        let successor = serde_json::from_value(encoded)?;
+        let key = journal::key(&f.current);
+        f.backend
+            .update(move |state| {
+                state
+                    .slots
+                    .get_mut(&key)
+                    .context("original slot missing")?
+                    .high = successor;
+                Ok(())
+            })
+            .await?;
+        let pending = PhysicalOperation {
+            claim: f.current.clone(),
+            operation: ExecutionOperation::new(
+                [6; 16],
+                ExecutionOperationKind::Delete,
+                b"stale-reservation",
+                1,
+            )?,
+            outcome: None,
+        };
+        let error = f
+            .backend
+            .update(move |state| state.reserve(pending))
+            .await
+            .expect_err("obsolete snapshot admitted a stale reservation");
+        ensure!(
+            error.downcast_ref::<ExecutionControllerFailure>()
+                == Some(&ExecutionControllerFailure::StaleClaim)
+        );
+        ensure!(
+            f.backend
+                .journal
+                .view(|state| Ok(state.slots[&journal::key(&f.current)].operations.len()))?
+                == 2
+        );
+        Ok(())
+    }
+    .await;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn duplicate_reservation_cannot_erase_original_outcome() -> Result<()> {
+    let f = fixture().await?;
+    let domain = f.backend.domain.clone();
+    let result = async {
+        let repeated = PhysicalOperation {
+            claim: f.known.claim.clone(),
+            operation: f.known.operation.clone(),
+            outcome: None,
+        };
+        let error = f
+            .backend
+            .update(move |state| state.reserve(repeated))
+            .await
+            .expect_err("duplicate reservation erased an immutable outcome");
+        ensure!(
+            error.downcast_ref::<ExecutionControllerFailure>()
+                == Some(&ExecutionControllerFailure::UnknownOperation)
+        );
+        ensure!(
+            f.backend.journal.view(|state| Ok(state
+                .original_operation(&f.current, &f.known)?
+                .context("original receipt missing")?
+                .outcome
+                .clone()))?
+                == Some(ExecutionOutcome::Completed(b"original".to_vec()))
+        );
+        Ok(())
+    }
+    .await;
+    domain.shutdown().await;
+    result
+}

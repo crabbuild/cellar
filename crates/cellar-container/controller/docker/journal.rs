@@ -52,6 +52,24 @@ pub(super) struct State {
 }
 
 impl State {
+    /// Recheck custody inside the serialized durable transition. A cancelled
+    /// async waiter may release admission while its earlier write still joins.
+    pub fn reserve(&mut self, operation: PhysicalOperation) -> Result<()> {
+        self.check(&operation.claim)?;
+        let key = key(&operation.claim);
+        let id = super::hex(&operation.operation.id);
+        let slot = self.slots.get_mut(&key).context("Docker fence missing")?;
+        if let Some(existing) = slot.operations.get(&id) {
+            ensure!(
+                existing.claim == operation.claim && existing.operation == operation.operation,
+                ExecutionControllerFailure::ConflictingRequest
+            );
+            anyhow::bail!(ExecutionControllerFailure::UnknownOperation);
+        }
+        slot.operations.insert(id, operation);
+        Ok(())
+    }
+
     pub fn check(&self, claim: &ExecutionClaim) -> Result<()> {
         ensure!(
             !self.revoked.contains(&history(claim)?),

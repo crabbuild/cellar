@@ -600,18 +600,7 @@ impl DockerBackend {
             operation: operation.clone(),
             outcome: None,
         };
-        let reserve_key = key.clone();
-        let reserve_id = id.clone();
-        self.update(move |state| {
-            state
-                .slots
-                .get_mut(&reserve_key)
-                .context("Docker fence missing")?
-                .operations
-                .insert(reserve_id, stored);
-            Ok(())
-        })
-        .await?;
+        self.update(move |state| state.reserve(stored)).await?;
         let replaced = self
             .jobs
             .lock()
