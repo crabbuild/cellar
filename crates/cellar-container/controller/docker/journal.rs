@@ -112,9 +112,14 @@ impl State {
 pub(super) struct Journal {
     options: DockerOptions,
     fs: Arc<dyn FileSystem>,
+    // Physical replacement has one writer. Published state remains available
+    // to synchronous admission/receipt reads while that writer syncs files.
+    writer: Mutex<()>,
     state: Mutex<State>,
     _lock: HostFileLock,
     poisoned: AtomicBool,
+    #[cfg(test)]
+    attempts: std::sync::atomic::AtomicUsize,
 }
 
 pub(super) fn key(claim: &ExecutionClaim) -> String {
@@ -176,9 +181,12 @@ impl Journal {
         let journal = Arc::new(Self {
             options,
             fs,
+            writer: Mutex::new(()),
             state: Mutex::new(state.clone()),
             _lock: lock,
             poisoned: AtomicBool::new(false),
+            #[cfg(test)]
+            attempts: std::sync::atomic::AtomicUsize::new(0),
         });
         journal.write(&state)?;
         Ok(journal)
@@ -226,9 +234,12 @@ impl Journal {
         let journal = Arc::new(Self {
             options,
             fs,
+            writer: Mutex::new(()),
             state: Mutex::new(state),
             _lock: lock,
             poisoned: AtomicBool::new(false),
+            #[cfg(test)]
+            attempts: std::sync::atomic::AtomicUsize::new(0),
         });
         // Opening is never admission. The controller must reassert every exact
         // fence, joining old execution before this backend accepts an effect.
@@ -247,13 +258,17 @@ impl Journal {
 
     pub fn view<T>(&self, read: impl FnOnce(&State) -> Result<T>) -> Result<T> {
         ensure!(
-            !self.poisoned.load(Ordering::Acquire),
+            !self.poisoned.load(Ordering::Acquire) && !self.writer.is_poisoned(),
             ExecutionControllerFailure::Unavailable
         );
         let state = self
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))?;
+        ensure!(
+            !self.poisoned.load(Ordering::Acquire) && !self.writer.is_poisoned(),
+            ExecutionControllerFailure::Unavailable
+        );
         read(&state)
     }
 
@@ -266,11 +281,23 @@ impl Journal {
             !self.poisoned.load(Ordering::Acquire),
             "Docker backend storage is unavailable"
         );
-        let mut guard = self
+        #[cfg(test)]
+        self.attempts.fetch_add(1, Ordering::Release);
+        let _writer = self
+            .writer
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Docker backend writer poisoned"))?;
+        // A queued writer may have passed the first check before its
+        // predecessor's uncertain persistence failure. It cannot touch disk.
+        ensure!(
+            !self.poisoned.load(Ordering::Acquire),
+            "Docker backend storage is unavailable"
+        );
+        let mut next = self
             .state
             .lock()
-            .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))?;
-        let mut next = guard.clone();
+            .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))?
+            .clone();
         let result = update(&mut next)?;
         ensure!(
             next.slots.len() <= self.options.max_resources
@@ -287,7 +314,10 @@ impl Journal {
             self.poisoned.store(true, Ordering::Release);
             return Err(error);
         }
-        *guard = next;
+        *self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))? = next;
         Ok(result)
     }
 
@@ -331,6 +361,10 @@ impl Journal {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "journal_tests.rs"]
+mod tests;
 
 fn read(fs: &dyn FileSystem, path: &Path) -> Result<State> {
     ensure!(
