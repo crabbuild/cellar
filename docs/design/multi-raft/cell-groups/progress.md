@@ -32,6 +32,66 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 EventStream and bounded file-read follow-up
+
+[PR #184](https://github.com/crabbuild/cellar/pull/184) merged as
+`86cfe5d1c`. Continue in draft [PR #186](https://github.com/crabbuild/cellar/pull/186),
+branch `codex/cg17-event-file-read-deadlines`. Runtime `ded5ef6ec` has
+not passed the combined deadline gate.
+
+The implementation separates logical EventStream activation-pending reads from
+transient immutable-reader refusals; the latter must retry with fresh authority.
+Bounded Container read/stat/list now activate and reconcile under one proven I/O
+turn. The controller persists the original reservation and possible-submission
+debt together before backend entry, retaining a separate durable outcome. A crash
+before physical entry still leaves an uncertain operation; it cannot authorize
+replay. Quorum callbacks receive an optional background-coalescing hint, capped
+by the original cohort deadline; Quorum completion cannot renew that window.
+
+The owning controls reproduce two pre-entry persistence barriers and an
+intermediate background publication before the respective fixes. The corrected
+controller suite passes all 21 tests. New Quorum and existing S3 deferral
+controls pass both image forms, preserving expiry and autonomous catch-up.
+
+| Gate on `ded5ef6ec` | Result |
+| --- | --- |
+| Original native EventStream, two complete runs | Both pass materialized and extent modes |
+| Original Axum EventStream | Fails extent Consume at the original 3s deadline |
+| Full real RustFS campaign | **FAILED: 7/13 complete functions** |
+| Real Container / Sandbox normal recovery | Each passes 1/4 complete profiles |
+| Real Container and Sandbox source-proof refusal | Both pass all four profiles |
+| Physical fencing, failed-journal shutdown and expired-unsubmitted Delete | All pass |
+| Requested S3 floor / Delete-input restoration / Start-output control | Failed or incomplete; not accepted |
+| Locked public build; strict all-feature/all-target Clippy; formatting, layout, native dependencies and docs | Pass |
+| Current-source full parallel library qualification | Pending; earlier library passes do not qualify this source |
+
+Several S3 Create/Write/Start requests expire before file-read assertions, so
+these results do not qualify S3 file reads. The Delete-input extent profile
+also fails autonomous recovery after archive restoration. Intentional lost-response
+cuts remain separate from unexpected deadline failures. No original request
+identity, 3s/5s request budget, 3s maintenance budget, 60s recovery window,
+minimum durability, ambiguity rule or fencing requirement changed.
+
+The failed Axum extent trace completes both ACKs at about 2.746s, leaving
+254ms for the final source commit. Effect-summary inspection is a small fraction
+of measured work; persistence and proof settlement dominate. A separate sampled
+Axum diagnostic passes but has no deadline-acceptance credit. An opt-in
+`CELLAR_PROFILE_EVENT_CONSUME=1` test probe records cumulative counter deltas
+before and after the same Consume call, outside its timed request; concurrent
+host work can contribute and these sums are not serial critical-path time.
+
+Frozen source, exact binaries, raw failures and closed voter/controller roots
+are retained with verified second copies. Native bundle
+`CG-17-event-file-native-ded5ef6ec-3211` has inventory SHA-256
+`90edc4b3023d65faf60bd6ddd47bd190357c51f0a26c1ccf88e25ef7dea56a14`.
+The real bundle
+`CG-17-submission-seal-event-file-coalesced-ded5ef6ec-3212` retains 96
+closed roots; inventory SHA-256 is
+`d24b597ab906966da502d28dd482f9a031e48b814a49f9f20f2541e139877411`.
+The owned lab is stopped and joined. This is host-native RF3 on a shared host
+with real RustFS, not independent Linux-voter qualification. CG-17's full
+acceptance counts, default cutover and legacy removal remain gated.
+
 ### CG-17 Outbox proof and main 185 qualification
 
 Runtime `10fb1775d` in [PR #184](https://github.com/crabbuild/cellar/pull/184)

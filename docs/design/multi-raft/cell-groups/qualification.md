@@ -438,8 +438,11 @@ The ordinary RPC adapter uses these identities and transitions:
   checkpoint's pending receipt from recovered archive bytes before continuation.
   Background archival for Quorum requests retains its documented RPO.
 
-Native asynchronous S3 invocations coalesce background archive attempts for their
-group while producing dependent checkpoints. The first original absolute deadline
+Native asynchronous callbacks can coalesce background archive attempts for their
+group while producing dependent checkpoints. Quorum callbacks use an optional
+scheduling hint; archive registration is not required for Quorum serving. The
+hint grants no authority or durability, and Quorum completion cannot renew it.
+The first original absolute deadline
 bounds a cohort; later arrivals may shorten it. Expiry opens the normal background
 lane until that cohort drains. A fresh final S3 receipt can finish an idle cohort
 after all output gates pass; older receipt replays cannot renew it. Foreground S3

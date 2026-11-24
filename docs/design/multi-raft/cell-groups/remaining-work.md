@@ -8,7 +8,25 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The current delivery is [PR #184](https://github.com/crabbuild/cellar/pull/184),
+The active delivery is draft [PR #186](https://github.com/crabbuild/cellar/pull/186)
+on `codex/cg17-event-file-read-deadlines`, following merged #184 and main
+`86cfe5d1c`. Its runtime `ded5ef6ec` passes both original native
+EventStream replays and all 21 controller tests. The combined qualification
+remains **failed**: Axum extent Consume exceeds 3s, and the real RustFS
+campaign passes 7/13 functions. Normal Container and Sandbox each pass only
+1/4 profiles. Several S3 requests expire before file reads, and a Delete-input
+profile fails autonomous recovery after archive restoration.
+
+Priorities are to measure the exact Consume persistence/proof costs, fix the
+remaining public deadline paths, and rerun the original positive, source-proof,
+minimum-custody and restoration controls together. Current-source full parallel
+library qualification is pending. Preserve all original 3s/5s request, 3s
+maintenance and 60s recovery budgets. Independent Linux/load/disk-loss gates,
+full primitive acceptance, default cutover and legacy removal remain open.
+See [the source-scoped results](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
+Earlier source qualifications below retain their original scope.
+
+The preceding delivery is [PR #184](https://github.com/crabbuild/cellar/pull/184),
 synced with main `2a37acf6a` (#185), with its documentation conflict resolved.
 Merged runtime `10fb1775d` batches the Outbox claim, retry reservation and
 binding intent into their mandatory source proof before dispatch. Its new

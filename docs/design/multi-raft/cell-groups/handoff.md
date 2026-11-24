@@ -4,9 +4,48 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current Outbox and merged-source qualification checkpoint
+## Current EventStream and bounded file-read checkpoint
 
-Continue [PR #184](https://github.com/crabbuild/cellar/pull/184) on
+Continue draft [PR #186](https://github.com/crabbuild/cellar/pull/186) on
+`codex/cg17-event-file-read-deadlines`; #184 is merged and must not receive
+new code. Main is `86cfe5d1c`. The last complete public qualification is
+runtime `ded5ef6ec`, **FAILED**, with all original budgets and assertions.
+
+The controller suite passes 21 tests; the new Quorum and existing S3
+background-deferral controls pass both image forms. Both original native
+EventStream replays pass both image forms. Axum extent Consume still expires
+at 3s after completing both ACKs near 2.746s. Effect-summary scanning is
+negligible against persistence/proof work. The optional
+`CELLAR_PROFILE_EVENT_CONSUME=1` test probe observes only before/after the
+unchanged Consume call, including error responses; it provides diagnostics,
+not acceptance or authority.
+
+The real RustFS campaign passes 7/13 functions. Source-proof refusal and
+physical fencing controls pass; normal Container and Sandbox each pass only
+1/4 profiles. Several S3 Create/Write/Start requests expire before reads.
+Requested-floor and Start-output controls remain unqualified, and the
+extent Delete-input profile fails autonomous recovery after restoration.
+Do not credit the intentional lost-response cuts as unexpected deadlines,
+or a refusal before the intended fault boundary as proof-gate coverage.
+
+Next, use the exact failed phase boundaries to select a production change,
+then rerun native/Axum EventStream and the combined real RustFS original
+positive/fault controls. Keep all 3s/5s requests, 3s maintenance and 60s
+restoration limits. Current-source query-policy regressions and two full
+six-thread library runs still need execution; the older 1,428-test passes
+below do not qualify this source.
+
+Evidence bundles are `CG-17-event-file-native-ded5ef6ec-3211` and
+`CG-17-submission-seal-event-file-coalesced-ded5ef6ec-3212`, with verified
+second copies, frozen sources/binaries and 96 closed real-campaign roots.
+The owned lab is stopped and joined. These are shared-host native RF3
+tests with real RustFS, not independent Linux-voter/load/disk-loss acceptance.
+Default cutover, legacy removal and full CG-17 cases remain gated.
+See [current results](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
+
+## Earlier Outbox and merged-source qualification checkpoint
+
+Merged [PR #184](https://github.com/crabbuild/cellar/pull/184) used
 `codex/cg17-request-deadlines`. Runtime `10fb1775d` includes main `2a37acf6a`
 (#185); the documentation conflict is resolved. The Outbox implementation now
 proves its work claim, retry reservation and exact binding intent together
