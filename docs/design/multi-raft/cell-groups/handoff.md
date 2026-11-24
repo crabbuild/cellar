@@ -6,8 +6,10 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current archive publication checkpoint
 
-Continue draft [PR #184](https://github.com/crabbuild/cellar/pull/184) on
-`codex/cg17-request-deadlines`, based on main `ff5cdec33` after merged #182.
+Continue [PR #184](https://github.com/crabbuild/cellar/pull/184) on
+`codex/cg17-request-deadlines`, now integrating main `49828ff6b` after #183/#182.
+The archive results below precede integration with #183's committed manifest
+preparation. Preserve both workstreams; combined runtime qualification is open.
 Runtime `f668d0193` adds one bounded foreground publication while an unrelated
 background CAS remains entered. It releases only joined replay operations,
 retains immutable custody and original byte charges, and reacquires proof

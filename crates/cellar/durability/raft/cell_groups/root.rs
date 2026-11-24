@@ -764,6 +764,12 @@ impl PreparedGroupManifest {
     }
 }
 
+pub(super) struct PreparedCellUpdate {
+    pub(super) leaf: CellManifestLeaf,
+    pub(super) expected: Option<CellVersion>,
+    pub(super) image: CellImagePin,
+}
+
 impl ManifestTree {
     /// Advance one committed no-op or duplicate enrollment without changing any
     /// cell version. The owner must supply the actual next committed position;
@@ -985,6 +991,18 @@ impl ManifestTree {
         expected: Option<&CellVersion>,
         image: CellImagePin,
     ) -> Result<PreparedGroupManifest, ManifestError> {
+        self.check_update(store, previous, &leaf, &image)?;
+        let root = self.update(store, previous.marker.root, leaf.clone(), expected)?;
+        self.finish_update(store, previous, leaf, image, root)
+    }
+
+    fn check_update(
+        &self,
+        store: &ManifestPageStore,
+        previous: &PreparedGroupManifest,
+        leaf: &CellManifestLeaf,
+        image: &CellImagePin,
+    ) -> Result<(), ManifestError> {
         if previous.marker.route != self.route || !Arc::ptr_eq(&previous.page_owner, &store.owner) {
             return Err(ManifestError::Invalid("root/page owner"));
         }
@@ -999,10 +1017,18 @@ impl ManifestTree {
         {
             return Err(ManifestError::Invalid("noncontiguous mutation"));
         }
-        image.check(&leaf, self.route.schema_digest)?;
-        let root = self.update(store, previous.marker.root, leaf.clone(), expected)?;
-        // update synchronizes every newly referenced page before returning. All
-        // reused subtrees belong to a complete preparation on this store owner.
+        image.check(leaf, self.route.schema_digest)?;
+        Ok(())
+    }
+
+    fn finish_update(
+        &self,
+        store: &ManifestPageStore,
+        previous: &PreparedGroupManifest,
+        leaf: CellManifestLeaf,
+        image: CellImagePin,
+        root: ManifestRoot,
+    ) -> Result<PreparedGroupManifest, ManifestError> {
         let pins = previous.images.updated(self, store, root, &leaf, &image)?;
         let marker = GroupManifest {
             route: self.route.clone(),
@@ -1024,6 +1050,41 @@ impl ManifestTree {
             page_owner: store.owner.clone(),
             retention: store.retention.clone(),
         })
+    }
+
+    pub(super) fn prepare_pair(
+        &self,
+        store: &mut ManifestPageStore,
+        previous: &PreparedGroupManifest,
+        [first, second]: [PreparedCellUpdate; 2],
+    ) -> Result<[PreparedGroupManifest; 2], ManifestError> {
+        self.check_update(store, previous, &first.leaf, &first.image)?;
+        if previous.marker.root.depth() > 14
+            || first.leaf.version.history.cell == second.leaf.version.history.cell
+            || first.leaf.last_mutation.index.get().checked_add(1)
+                != Some(second.leaf.last_mutation.index.get())
+            || second.leaf.last_mutation.term < first.leaf.last_mutation.term
+        {
+            return Err(ManifestError::Invalid("prepared pair prefix/bound"));
+        }
+        second.image.check(&second.leaf, self.route.schema_digest)?;
+        let roots = store.with_directory_batch(|store| {
+            let a = self.update_in_batch(
+                store,
+                previous.marker.root,
+                first.leaf.clone(),
+                first.expected.as_ref(),
+            )?;
+            let b =
+                self.update_in_batch(store, a, second.leaf.clone(), second.expected.as_ref())?;
+            Ok([a, b])
+        })?;
+        // No closure, page pin or selector can escape the common file and
+        // directory barriers. Each result still has its exact individual base.
+        let a = self.finish_update(store, previous, first.leaf, first.image, roots[0])?;
+        self.check_update(store, &a, &second.leaf, &second.image)?;
+        let b = self.finish_update(store, &a, second.leaf, second.image, roots[1])?;
+        Ok([a, b])
     }
 }
 

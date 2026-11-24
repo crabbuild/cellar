@@ -313,10 +313,34 @@ pub(crate) async fn apply_images(rooted: bool) -> Result<()> {
     assert_eq!(pool.usage()?.apply_retained_operations, 0);
     assert_eq!(foreign.usage()?.apply_retained_operations, 0);
 
+    let phase_before = fixture.cluster.voters[0].log.performance_snapshot();
     let prepared = pool.prepare_apply(&applier, work.clone()).await?;
     assert_eq!(prepared.manifest().position(), accepted.position);
     let duplicate = pool.prepare_apply(&applier, work.clone()).await?;
     assert_eq!(prepared.manifest(), duplicate.manifest());
+    let phase_after = fixture.cluster.voters[0].log.performance_snapshot();
+    assert!(phase_before.available && phase_after.available);
+    assert!(!phase_before.saturated && !phase_after.saturated);
+    for name in [
+        "sql_image_prepare",
+        "sql_image_inspect",
+        "sql_manifest_prepare",
+    ] {
+        let before = phase_before
+            .operations
+            .iter()
+            .find(|sample| sample.name == name)
+            .context("apply phase before")?;
+        let after = phase_after
+            .operations
+            .iter()
+            .find(|sample| sample.name == name)
+            .context("apply phase after")?;
+        assert_eq!(after.started - before.started, 2, "phase {name}");
+        assert_eq!(after.succeeded - before.succeeded, 2, "phase {name}");
+        assert_eq!(after.failed, before.failed, "phase {name}");
+        assert_eq!(after.abandoned, before.abandoned, "phase {name}");
+    }
     assert_eq!(pool.usage()?.apply_retained_operations, 2);
     drop(duplicate);
     let retained = prepared.clone();

@@ -10,6 +10,171 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+## Committed preparation with main #182
+
+Compiler inputs `bb1b2cac`, including main `ff5cdec33` (#182), prepare at most
+two contiguous, already committed edits to independent cells in one bounded
+manifest batch. Each entry retains its own exact-base root publication and
+acknowledgement. Optional successor inputs and image pins use the existing
+apply bank through physical join. Cached pages and images are rechecked before
+reuse; locally durable but uncommitted successors refuse prefetch. Live hints
+are sampled after the current image is prepared, and canonical entry hashing
+streams without an extra whole-entry allocation. No limit, deadline, command
+identity or durability requirement changes.
+
+**All 48 selected correctness controls pass.** They include the unchanged-body
+backlog and late-commit regressions in both image modes, actual paired sync
+failure, corruption refusal, admission pressure, cancellation/close joins,
+uncommitted-suffix refusal, digest compatibility and park/wake behavior. The
+merged SDK reply-fencing and independent archive-publication controls also pass.
+Both regression bodies fail their new barrier-sharing oracle on the retained
+earlier runtime after completing their original correctness and cleanup checks.
+Locked all-feature builds, strict Clippy, formatting, layout and native dependency
+checks pass.
+
+**Merged service qualification remains FAILED: 5/13 complete selections pass.**
+The table preserves the earlier pair (`08472ab3`), late-hint (`492ba983`) and
+merged (`bb1b2cac`) campaigns. These are separate native RF3 conformance captures,
+not a matched throughput or latency comparison. C2 and C4 retain two and four
+in-flight Queue requests respectively.
+
+| Complete native selection | Early pair | Late hint | Merged #182 |
+| --- | ---: | ---: | ---: |
+| SQL bindings | 2/2 | 1/2 | 2/2 |
+| KV bindings | 2/2 | 2/2 | 1/2 |
+| Queue callbacks | 2/2 | 1/2 | 1/2 |
+| Queue C2, both image modes | 1/2 | 1/2 | 0/2 |
+| Separate extent-backed load | 0/1 | 1/1 | 1/1 |
+| Materialized Queue C4 | 0/2 | 0/2 | 0/2 |
+| Extent-backed Queue C4 | 0/2 | 0/2 | 0/2 |
+
+Combined C2 counts require both image modes to finish. A passing materialized
+phase cannot qualify a case whose later extent phase fails or never runs. All
+eight executed load-phase cleanup reports show three node/host close attempts,
+joined domains and zero cleanup errors; an unexecuted mode earns no cleanup
+credit. The merged failures report request deadlines. Before #182, one callback
+restart/close returned `Unobserved`, withholding producer-quiescence proof;
+that observation does not establish that producers remained active and remains
+retained separately.
+
+Eighteen available, unsaturated failure snapshots record paired preparations
+and verified cache reuse, with zero SQL and optional-prefetch admission-refusal
+counters. Manifest preparation averages about **100–167 ms** across those
+aggregate snapshots. They include setup and failed load, and are neither request
+percentiles nor additive latency components. The manifest store already packs
+changed pages into immutable files. Measure packed-file sync, directory sync,
+root publication and successor availability separately before choosing the next
+change. This checkpoint qualifies no end-to-end speedup.
+
+The original requested three-node, 1-vCPU/2-GiB Colima/RustFS comparison has no new
+admitted case or passing reserve/resource witness. All failed captures, immutable
+executables and exact retained copies remain outside this documentation tree.
+Full service, OPT/CG/SDK/recovery/release and constrained performance acceptance
+remain open. See the [current priorities](remaining-work.md#current-optimization-follow-up).
+
+## Live apply phase observations
+
+Compiler inputs `be721db4` add three bounded live-apply observations to separate
+image replay/rechecking, immutable SQLite inspection and manifest preparation.
+The same domain clock, outcome accounting and fixed histograms serve these
+phases; recovery replay does not contribute. No admission, deadline, command
+identity, image verification, publication or acknowledgement ordering changes.
+
+Seven unchanged apply control selections pass with additional phase assertions:
+materialized/rooted preparation, actual image/manifest directory-sync failure,
+cancelled cleanup and materialized preview reuse. The failure checks distinguish
+the failed physical phase from later work that must never start. Locked
+all-feature native builds, strict Clippy for the library and both native targets,
+formatting, module layout, native dependency and documentation checks pass.
+
+Both fixed, original rooted Queue C4 repetitions still fail, with three and four
+producer failures. Both report joined cleanup and zero cleanup errors. The
+strict delivery/load gate remains failed. Six available, unsaturated node
+snapshots show:
+
+| Live apply phase | Range of aggregate mean durations |
+| --- | ---: |
+| Image replay or exact local image recheck | About 19–118 ms |
+| Immutable SQLite inspection and bounded effect summaries | About 0.9–1.2 ms |
+| Changed manifest path and page persistence | About 91–109 ms |
+
+These observations include setup and failed load; they are not request
+percentiles, additive latency components or constrained performance results.
+All SQL refusal counters are zero in these snapshots. Manifest preparation is
+therefore the stronger measured target for the next bounded batching work;
+SQLite inspection is not the dominant phase in this capture. Actual barrier
+accounting, repeatable service and throughput/latency acceptance remain open.
+The failed controls and exact retained media copies remain outside this tree.
+
+## Merged main service reverification
+
+Main `0f3b18e7` includes merged PR #167. Compiler inputs `31dfbc55` pass one
+unchanged full SQL binding selection and one unchanged Queue callback selection.
+The unchanged KV selection fails rooted `PublicLarge`: its 25 MiB put returns
+HTTP 503 with `Runtime(Overloaded)` and `ambiguous=false`; its first target
+attempt starts with 1,430 ms remaining. This is not a verified repair or an RPC
+deadline failure.
+
+Separate diagnostic inputs `70fa62b3` leave the production library unchanged
+and add only test-side resource snapshots around `PublicLarge`. One full case
+passes materialized conformance but fails rooted startup/cleanup with lease
+fencing. Two fixed repetitions also fail: one after rooted service with lease
+fencing, the other with a materialized public-write deadline and a separate
+rooted failure. Around the materialized deadline, payload operation and byte
+usage are zero before and after the request; SQL work remains retained. These
+samples do not identify the bank that refused the earlier overload or establish
+usage at the instant of that refusal.
+
+The existing cold-preparation control passes. A separate serial diagnostic
+runs the existing KV revision control first to enable its existing tracing,
+then passes full KV conformance in both image modes. That traced pass does not
+close the unchanged KV failure or establish service repeatability. No deadline,
+resource limit, command identity or source-proof assertion changes.
+
+Two fixed, untraced rooted C4 controls on clean inputs `31dfbc55` both reach the
+original four-request envelope. They fail three and four producers respectively
+with deadline errors, while reporting three node shutdown attempts, three host
+close attempts, joined domains and zero cleanup errors. Original producer
+identities, offered batches, errors and terminal synthetic media remain retained.
+
+The first C4 failure includes these aggregate operation observations:
+
+| Observation | Mean duration |
+| --- | ---: |
+| Engine file synchronization, across the three node snapshots | About 38 ms |
+| SQL image preparation, node 0 | About 129 ms |
+| SQL image preparation, nodes 1 and 2 | About 244 and 247 ms |
+| SQL settlement (`sql_publish`), node 0 | About 163 ms |
+
+The samples include setup/load work and different operation lifetimes; they are
+not request percentiles, additive latency components or a controlled throughput
+comparison. All six SQL admission-refusal counters are zero on every node.
+These observations prioritize preparation/publication accounting over quota
+changes, without proving which individual filesystem operation caused a failed
+request.
+
+A bounded SQL continuation-pass experiment, compiler inputs `28b5d89c`, removes
+early returns after completed retirements/preparations so ready RPCs can receive
+a turn before queued SQL. Its only runtime input change is that scheduling
+function. The correct-profile build, formatting, layout, native dependency and
+documentation checks pass. Both fixed, untraced original rooted C4 repetitions
+still fail four producers; both report joined cleanup with zero errors. The
+strict 528-delivery/528-unique-ID qualification gate remains failed. The candidate
+is rejected and its runtime source restored to main; no performance improvement
+is claimed.
+
+All captures above have observed terminal process exits, immutable artifact
+bindings and independently checked retained copies. A compiler/formatter overlap
+is rejected before native execution. An initial reused-artifact audit also
+rejects Cargo's mutable executable path after a later diagnostic rebuild;
+the successor audit verifies the original immutable parent executable and
+identifies that replacement explicitly. Both rejections remain retained.
+
+The original RustFS reserve gate still has no passing witness, and no constrained
+Colima/RustFS case is admitted here. Current Quorum service, complete OPT/CG/SDK/
+recovery/release and throughput/latency acceptance remain open. See
+[current priorities](remaining-work.md#current-main-service-deadlines-remain-open).
+
 ## Integration with main #180
 
 Main `a85ab6f6c` adds shared Sandbox execution and autonomous cleanup. The
@@ -2627,7 +2792,7 @@ own source.
 
 The user explicitly requested local RustFS storage and Colima containers for
 nodes. The verified dedicated profile is `cellar-multi-raft-6aff` under the
-existing workspace-volume home `/Volumes/Workspace/crabbuild-target/c6aff`
+existing workspace-volume target directory
 (8 CPUs, 18 GiB, 100-GiB backing ceiling). Actual VZ paths and the backing file
 were checked on that volume. Two initial owned profiles used the default home
 because the requested custom directory did not exist; they and their initial
@@ -2682,8 +2847,7 @@ container exited 137 in each mode; the four other original/replacement container
 exited zero. Both fixture controllers exited zero. These results retain the
 original request, resource and workload limits.
 
-The private artifact root is
-`/Volumes/Workspace/crabbuild-target/cellar-ios-6afff9f4-tikv/qualification`.
+Private artifacts remain in the checkout-specific workspace target directory.
 `linux-daemon-build.json` records the successful build and verification;
 `managed-daemon-a2bbabae57f1/` retains the summary, mode reports and event ledgers.
 RustFS objects, logs and voter disks remain available. Credentials stay outside

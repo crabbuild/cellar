@@ -843,3 +843,9 @@ pub(crate) use query_routing::{
     automatic_queries_keep_first_progress, automatic_queries_leave_blocked_local,
     controller_routed_queries,
 };
+
+pub(crate) use submission::{prepared_prefetch, PrefetchCheck};
+
+pub(crate) use submission::late_committed_prefetch;
+
+pub(crate) use submission::uncommitted_prefetch;

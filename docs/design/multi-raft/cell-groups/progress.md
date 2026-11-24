@@ -32,6 +32,15 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### PR #184 integration with main #183
+
+PR [#184](https://github.com/crabbuild/cellar/pull/184) integrates main
+`49828ff6b` (merged #183), preserving its committed manifest preparation and the
+foreground archive publication changes below. Both test-support export sets
+merge together. The priorities document retains both optimization and primitive
+workstreams. Runtime evidence at `f668d0193`/`8b9fece2d` and the #183 evidence
+precede this integration; combined runtime/recovery qualification remains open.
+
 ### CG-17 foreground publication with retained replay custody
 
 Draft [PR #184](https://github.com/crabbuild/cellar/pull/184) starts from main

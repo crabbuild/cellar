@@ -425,6 +425,11 @@ impl Admission {
         }))
     }
 
+    pub(super) fn may_prefetch(&self, group: GroupHistory) -> Result<bool, ExecutionError> {
+        let state = self.state.lock().map_err(|_| unavailable())?;
+        Ok(!state.closed && !state.retired.contains(&group))
+    }
+
     /// Seal this history's admission under the same lock as reservation. A
     /// retained response/producer stays charged after its caller disconnects.
     pub fn retire(&self, group: GroupHistory) -> Result<bool, ExecutionError> {

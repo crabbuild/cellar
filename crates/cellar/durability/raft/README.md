@@ -1170,6 +1170,47 @@ waiter expiry does not complete a node-owned phase; timers follow their actual
 future lifetime and distinguish returned errors from abandonment. These static
 metric names grant no authority and change no deadline, admission or proof order.
 
+Shared committed apply separates `sql_image_prepare` (image replay or exact local
+image recheck, including its persistence), `sql_image_inspect` (opening immutable
+SQLite and reading bounded effect summaries), and `sql_manifest_prepare` (the
+changed manifest path and its page persistence). These are subphases of
+`sql_prepare`, not additive request latency. Errors count in the phase that
+failed; unwinding remains abandoned work. Recovery replay does not contribute
+to these live-apply phases. No runtime identities or paths enter metric labels.
+
+An already committed, independent successor may share physical manifest
+preparation with the current cell. The opportunistic pair never waits for more
+work and stays inside the existing 96-page batch bound. Both complete closures
+finish the common file/directory barriers before either leaves preparation;
+Raft still publishes each exact next-index marker separately. Recovery,
+configuration changes and same-cell edits keep their ordinary path.
+
+The prepared successor retains an additional item/byte reservation in the
+existing apply bank, conservatively including another image workspace and both
+metadata closures. If that reservation cannot fit, preparation stays single.
+Discardable cached successors are evicted before refusing ordinary apply
+admission, fenced on retirement and cleared after worker joins on close.
+The live owner may fill one fixed-size hint after emitting the first apply,
+including a committed entry whose Apply event has not yet been collected.
+It names an exact already committed successor and retains no future body or
+image pin. A worker copies that entry and upgrades its optional image pin only
+after obtaining the extra reservation; it rechecks the live commit proof and
+entry digest. The worker samples this hint after the first image and its effect
+summary finish, so commits arriving during image I/O remain eligible. A fixed
+anchor outside the physical task retains any late reservation through its
+actual join, including cancellation and errors. It never waits for a successor. Stale hints fall back to ordinary
+preparation. Consumption rechecks the exact entry/base and actual image/page
+bytes; cached metadata grants no execution or serving authority. `sql_manifest_recheck`
+measures that page recheck. The `cell_apply_prepared_pairs`,
+`cell_apply_prefetch_hits` and `cell_apply_prefetch_evictions` counters distinguish
+preparation batching, reuse and discarded work when interpreting the phase
+histograms. `cell_apply_prefetch_no_successor`,
+`cell_apply_prefetch_admission_refusals` and `cell_apply_prefetch_skipped`
+distinguish missing committed hints, optional bank refusal and ineligible or
+stale successors. Locally durable uncommitted entries never qualify. Entry
+digests keep their canonical protobuf bytes while hashing through bounded
+serializer scratch instead of copying the entire entry.
+
 Local execution also exposes `cell_command_prepare`, `cell_command_submit` and
 `cell_command_settle`. Preparation includes writer/authority waits and SQL work,
 including any intermediate callback checkpoints. Submission includes retries of
