@@ -176,6 +176,7 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
     let mut runtimes = Vec::new();
     let mut transports = Vec::new();
     let mut pumps = Vec::new();
+    let (stop_pumps, pump_stop) = tokio::sync::watch::channel(false);
     // Preserve the original certificate lifetimes through owner shutdown.
     let mut selected_certificate = None;
     let mut retry_certificate = None;
@@ -325,8 +326,15 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
                 domain.spawn({
                     let runtime = runtime.clone();
                     let transport = transport.clone();
+                    let mut stopped = pump_stop.clone();
                     async move {
-                        while let Some(event) = events.recv().await {
+                        loop {
+                            let event = tokio::select! {
+                                biased;
+                                _ = stopped.changed() => break,
+                                event = events.recv() => event,
+                            };
+                            let Some(event) = event else { break };
                             match event.effect().map_err(Clone::clone).with_context(|| {
                                 format!("park fixture event effect voter={index}")
                             })? {
@@ -593,16 +601,21 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
     // Join begun owners after the scenario returns, including failure. Preserve it instead of
     // replacing it with a later cleanup error; all fixture disks remain private.
     let mut cleanup = Vec::new();
-    for (index, runtime) in runtimes.iter().enumerate() {
-        if let Err(error) = runtime.close().await {
-            cleanup.push(format!("runtime {index}: {error}"));
-        }
-    }
+    // Finish any begun pump turn while its runtime/transport are still live.
+    // Runtime shutdown invalidates outbound admission: doing that first races
+    // a dequeued Message against submit_cell_group_event. Stop new turns, join
+    // begun I/O, then close the runtimes; every pump error remains reportable.
+    stop_pumps.send_replace(true);
     for (index, pump) in pumps.into_iter().enumerate() {
         match pump.await {
             Ok(Ok(())) => (),
             Ok(Err(error)) => cleanup.push(format!("pump {index}: {error:#}")),
             Err(error) => cleanup.push(format!("pump join {index}: {error}")),
+        }
+    }
+    for (index, runtime) in runtimes.iter().enumerate() {
+        if let Err(error) = runtime.close().await {
+            cleanup.push(format!("runtime {index}: {error}"));
         }
     }
     for transport in &transports {
