@@ -558,6 +558,14 @@ Idle caches are cleared before parking and retained VMs are detached from the
 cache so their statements cannot enter a different connection's cache. The worker
 closes retained images after their last VM is consumed/cancelled, or at invocation
 completion/abort. No image is retained in the idle native activation cache.
+
+Committed WAL inspection may stream in bounded 64-KiB windows and reuse its
+frame/page buffers. It must still verify every frame, salt, checksum and selected
+committed boundary, plus the full prefix when required. Each observation rereads
+actual WAL bytes; a prior verified cut is not a cache of proof. Short reads and
+corruption across windows must refuse the image, including 64-KiB SQLite pages.
+See the [source-scoped regression and public qualification](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
+
 Dropped tokens outside a turn only signal cancellation; the owning worker prunes
 them before its next poll/checkpoint. They cannot append unbounded cleanup work
 to an idle activation or finalize another invocation's VM.

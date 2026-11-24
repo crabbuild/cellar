@@ -7,54 +7,48 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 ## Current EventStream and bounded file-read checkpoint
 
 Continue draft [PR #186](https://github.com/crabbuild/cellar/pull/186) on
-`codex/cg17-event-file-read-deadlines`; #184 is merged and must not receive
-new code. Main is `86cfe5d1c`. The last complete public qualification is
-runtime `ded5ef6ec`, **FAILED**, with all original budgets and assertions.
+`codex/cg17-event-file-read-deadlines`; #184 is merged. Runtime `d393aa447`
+passes the requested original EventStream and S3 Container/Sandbox file-read
+checks. Its full real campaign is still **FAILED, 12/13 functions**: materialized
+S3 Sandbox Create9 and extent S3 DestroyJob8 expire at five seconds. All four
+Container profiles and both Quorum Sandbox lifecycles pass. Keep those exact
+failed S3 operations as the next priority; do not restart from the now-passing
+file-read or EventStream diagnosis.
 
-The scheduling module at `0c6974661` keeps a Quorum child cohort across idle gaps
-until its first original deadline. The exact production scheduling module passes
-11 isolated checks; red source `dbab55f5c` passes the eight old checks and
-fails the two new idle-gap checks. No timer, archive pin or authority is added.
-The final call site restricts idle-gap coalescing to authenticated Event child
-admission. Public/System callback cadence is unchanged. The broader `65330c2f4`
-static checks were superseded and interrupted before its queued public build
-executed; do not count them as passes. Freeze the final narrowed source for
-the strict integrated build, full library and original public/RustFS rerun.
-These gates remain pending. The opt-in public probe build at `f229f9b11` was aborted
-before tests under severe host contention; do not count it as a pass or a
-semantic regression. Use the existing real source-scoped failures below.
+Two full six-thread Cellar library runs pass 1,434 tests each with zero failures
+and two existing ignores. Container library passes 38/38; execution controller
+passes 21/21; query, scheduling and park selections pass 16 checks. All original
+source-proof refusal, S3 floor, Delete-input restoration, Start-output and actual
+process-fencing controls pass. Current-source isolated Linux qualification is
+still building at this checkpoint; older Linux passes do not qualify this source.
 
-The controller suite passes 21 tests; the new Quorum and existing S3
-background-deferral controls pass both image forms. Both original native
-EventStream replays pass both image forms. Axum extent Consume still expires
-at 3s after completing both ACKs near 2.746s. Effect-summary scanning is
-negligible against persistence/proof work. The optional
-`CELLAR_PROFILE_EVENT_CONSUME=1` test probe observes only before/after the
-unchanged Consume call, including error responses; it provides diagnostics,
-not acceptance or authority.
+The implementation uses fresh-authority retries for transient EventStream
+readers, one proven activation/inspection turn for bounded file operations,
+combined controller reservation/submission debt, authenticated Event-only idle
+Quorum coalescing and bounded streamed WAL verification. The WAL budget regression
+is red before the optimization; all 17 integrity/extent/disposable checks pass
+afterward. Every frame and prefix check remains. The park fixture joins pumps
+before runtime shutdown and still reports every cleanup error. The recovery daemon
+fixture declares Axum and passes strict all-feature checking.
 
-The real RustFS campaign passes 7/13 functions. Source-proof refusal and
-physical fencing controls pass; normal Container and Sandbox each pass only
-1/4 profiles. Several S3 Create/Write/Start requests expire before reads.
-Requested-floor and Start-output controls remain unqualified, and the
-extent Delete-input profile fails autonomous recovery after restoration.
-Do not credit the intentional lost-response cuts as unexpected deadlines,
-or a refusal before the intended fault boundary as proof-gate coverage.
+Checksummed backend journals retain completed physical outcomes for Create9
+and DestroyJob8. They do
+not timestamp the entire public response path or prove its exclusive latency
+cause. Never replay either mutation or clear its ambiguity from provider absence.
+Use `profile_rustfs_native_sandbox_recovery` to measure target input proof,
+physical work and parent S3 completion with the same oracles; retain failures
+and rerun the original function after a production change.
 
-Next, use the exact failed phase boundaries to select a production change,
-then rerun native/Axum EventStream and the combined real RustFS original
-positive/fault controls. Keep all 3s/5s requests, 3s maintenance and 60s
-restoration limits. Current-source query-policy regressions and two full
-six-thread library runs still need execution; the older 1,428-test passes
-below do not qualify this source.
+The native and real bundles, inventory hashes and verified second copies are
+listed in [progress](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
+The actual Docker/RustFS run retained all original 3s/5s requests, 3s maintenance
+and 60s restoration limits on the 4-CPU/8-GiB owned VM; another VM was co-resident.
+The first startup-only connection-close failure is retained, followed by a
+same-30s-budget readiness retry. The owned VM is stopped and joined, with objects
+and disks preserved. Evidence JSON stays outside the PR.
 
-Evidence bundles are `CG-17-event-file-native-ded5ef6ec-3211` and
-`CG-17-submission-seal-event-file-coalesced-ded5ef6ec-3212`, with verified
-second copies, frozen sources/binaries and 96 closed real-campaign roots.
-The owned lab is stopped and joined. These are shared-host native RF3
-tests with real RustFS, not independent Linux-voter/load/disk-loss acceptance.
-Default cutover, legacy removal and full CG-17 cases remain gated.
-See [current results](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
+Full CG-17 acceptance and independent Linux-voter/load/disk-loss qualification
+remain open. Default cutover and legacy removal remain gated.
 
 ## Earlier Outbox and merged-source qualification checkpoint
 

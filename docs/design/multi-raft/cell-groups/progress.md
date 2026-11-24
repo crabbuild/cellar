@@ -34,82 +34,97 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ### CG-17 EventStream and bounded file-read follow-up
 
-[PR #184](https://github.com/crabbuild/cellar/pull/184) merged as
-`86cfe5d1c`. Continue in draft [PR #186](https://github.com/crabbuild/cellar/pull/186),
-branch `codex/cg17-event-file-read-deadlines`. Runtime `ded5ef6ec` has
-not passed the combined deadline gate.
+[PR #184](https://github.com/crabbuild/cellar/pull/184) merged as `86cfe5d1c`.
+Draft [PR #186](https://github.com/crabbuild/cellar/pull/186), branch
+`codex/cg17-event-file-read-deadlines`, carries runtime `d393aa447`.
+The requested EventStream and S3 file-read checks now pass their original
+3s/5s limits. The combined real qualification still **fails, 12/13 functions**:
+Sandbox's materialized S3 Create9 and extent S3 DestroyJob8 exceed five seconds
+later in the same original lifecycle flow. Both Quorum Sandbox profiles finish.
 
-Candidate `0c6974661` additionally coalesces idle gaps between dependent
-Quorum child calls, bounded by the same cohort's first original deadline.
-The production scheduling-module regression is red at `dbab55f5c` (eight
-existing checks pass, both new idle-gap checks fail) and green at `0c6974661`
-(11 checks pass, including obsolete-registration isolation). This is an
-isolated exact-module check with actual Cellar error/domain types, not the
-full library or public qualification. Later children cannot renew the window;
-expiry opens background work and a fresh S3 proof ends an idle cohort. This
-changes optional archival scheduling, not input/output proof requirements.
-The final admission path narrows this idle hint to authenticated Event children;
-ordinary Public/System callbacks keep their existing post-return archive cadence.
-Its current-source integrated build and original deadline rerun are pending.
-The broader `65330c2f4` static checks were interrupted when this admission review
-superseded that candidate; its queued public build never executed. No static or
-public pass is claimed for that interrupted work.
-The first opt-in public probe build at `f229f9b11` was interrupted before any
-test execution after severe shared-host contention was observed. It supplies
-no build or test pass. Preserve the actual timed failures below.
+The implementation retries transient EventStream reader refusals with fresh
+authority, distinguishing them from logical activation pending. Bounded Container
+read/stat/list activate and inspect under one proven I/O turn. Reservation and
+possible-submission debt persist together before controller entry; the durable
+outcome remains separate. Only authenticated Event children retain a Quorum
+cohort across idle gaps, bounded by its first original deadline. Public/System
+callback cadence and mandatory input/output proofs remain unchanged.
 
-The implementation separates logical EventStream activation-pending reads from
-transient immutable-reader refusals; the latter must retry with fresh authority.
-Bounded Container read/stat/list now activate and reconcile under one proven I/O
-turn. The controller persists the original reservation and possible-submission
-debt together before backend entry, retaining a separate durable outcome. A crash
-before physical entry still leaves an uncertain operation; it cannot authorize
-replay. Quorum callbacks receive an optional background-coalescing hint, capped
-by the original cohort deadline; Quorum completion cannot renew that window.
+Committed WAL verification now streams in at most 64-KiB windows and reuses
+frame/page buffers. Every checksum, salt, committed-frame, page and optional
+prefix check remains; each observation rereads the actual WAL prefix. The
+owning regression fails at `7f8c424a4` with 2,604 reads against a 537-read budget
+and passes after the change. All 17 image/extent/disposable checks pass, including
+short reads and real corruption across windows at 512-byte, 4-KiB and 64-KiB
+page sizes.
+No durability barrier was removed. The recovery daemon fixture's missing Axum
+dependency is declared and its strict all-feature check passes.
 
-The owning controls reproduce two pre-entry persistence barriers and an
-intermediate background publication before the respective fixes. The corrected
-controller suite passes all 21 tests. New Quorum and existing S3 deferral
-controls pass both image forms, preserving expiry and autonomous catch-up.
-
-| Gate on `ded5ef6ec` | Result |
+| Gate on runtime `d393aa447` | Result |
 | --- | --- |
-| Original native EventStream, two complete runs | Both pass materialized and extent modes |
-| Original Axum EventStream | Fails extent Consume at the original 3s deadline |
-| Full real RustFS campaign | **FAILED: 7/13 complete functions** |
-| Real Container / Sandbox normal recovery | Each passes 1/4 complete profiles |
-| Real Container and Sandbox source-proof refusal | Both pass all four profiles |
-| Physical fencing, failed-journal shutdown and expired-unsubmitted Delete | All pass |
-| Requested S3 floor / Delete-input restoration / Start-output control | Failed or incomplete; not accepted |
-| Locked public build; strict all-feature/all-target Clippy; formatting, layout, native dependencies and docs | Pass |
-| Current-source full parallel library qualification | Pending; earlier library passes do not qualify this source |
+| Original native EventStream, two runs | Both pass materialized and extent modes |
+| Original Axum and real RustFS EventStream | Both pass both image modes |
+| Full real RustFS campaign | **FAILED: 12/13 complete functions** |
+| Real Container normal execution/recovery | 4/4 profiles pass |
+| Real Sandbox normal execution/recovery | 2/4 pass; S3 fails later Create9/DestroyJob8 |
+| Container and Sandbox source-proof refusal | All eight profiles pass |
+| Requested S3 floor, Delete-input restoration, Start-output proof | All six profiles pass |
+| Physical fencing, failed-journal shutdown, expired-unsubmitted Delete | All three functions pass |
+| Full Cellar library, six threads, twice | 1,434 passed, zero failed, two existing ignores each |
+| Container library / execution controller | 38/38 and 21/21 pass |
+| Query, scheduling and park checks | 16/16 pass |
+| Locked build, strict affected Clippy, format, layout, dependencies and docs | Pass |
 
-Several S3 Create/Write/Start requests expire before file-read assertions, so
-these results do not qualify S3 file reads. The Delete-input extent profile
-also fails autonomous recovery after archive restoration. Intentional lost-response
-cuts remain separate from unexpected deadline failures. No original request
-identity, 3s/5s request budget, 3s maintenance budget, 60s recovery window,
-minimum durability, ambiguity rule or fencing requirement changed.
+Original S3 read assertions succeed, including their exact recovered bytes:
 
-The failed Axum extent trace completes both ACKs at about 2.746s, leaving
-254ms for the final source commit. Effect-summary inspection is a small fraction
-of measured work; persistence and proof settlement dominate. A separate sampled
-Axum diagnostic passes but has no deadline-acceptance credit. An opt-in
-`CELLAR_PROFILE_EVENT_CONSUME=1` test probe records cumulative counter deltas
-before and after the same Consume call, outside its timed request; concurrent
-host work can contribute and these sums are not serial critical-path time.
+| Read with original 5s budget | Materialized | Extent |
+| --- | ---: | ---: |
+| Container Read5 | 0.90s | 2.13s |
+| Sandbox recovered Read5 | 2.96s | 3.74s |
+| Sandbox FileRead2 | 3.48s | 3.93s |
 
-Frozen source, exact binaries, raw failures and closed voter/controller roots
-are retained with verified second copies. Native bundle
-`CG-17-event-file-native-ded5ef6ec-3211` has inventory SHA-256
-`90edc4b3023d65faf60bd6ddd47bd190357c51f0a26c1ccf88e25ef7dea56a14`.
-The real bundle
-`CG-17-submission-seal-event-file-coalesced-ded5ef6ec-3212` retains 96
-closed roots; inventory SHA-256 is
-`d24b597ab906966da502d28dd482f9a031e48b814a49f9f20f2541e139877411`.
-The owned lab is stopped and joined. This is host-native RF3 on a shared host
-with real RustFS, not independent Linux-voter qualification. CG-17's full
-acceptance counts, default cutover and legacy removal remain gated.
+The six native/Axum Consume measurements span 1.45–2.50s against three seconds.
+These shared-host observations are not a matched speedup experiment. The real
+run used the original 4-CPU/8-GiB VM, 1-CPU/2-GiB RustFS and actual Docker engine,
+with another qualification VM co-resident. RF3 remains in one host process.
+The owned VM is stopped and joined; its objects and closed disks are retained.
+An initial launch stopped before any public test on a closed readiness socket.
+Its retained retry handles only that startup error within the same 30s readiness
+budget; it changes no business request or recovery limit.
+
+Both late Sandbox failures retain completed physical backend outcomes in
+checksummed journals. Their exact latency cause is not assigned. Preserve the
+ambiguous invocations and original identities; neither can be treated as an
+unsubmitted mutation or replayed. Next, attribute target input proof, provider
+work and parent S3 completion for those exact Create9/DestroyJob8 requests.
+The existing `profile_rustfs_native_sandbox_recovery` diagnostic keeps the same
+business oracles and deadlines while adding phase timing. Its results cannot
+waive the failed original run.
+
+Native evidence `CG-17-event-file-native-d393aa447-3263` has inventory SHA-256
+`008ea5466a07baa61582d04453ab0fbac587feaeff9a10be3b6a3d89d7e03481`.
+Real evidence `CG-17-submission-seal-wal-window-ready-d393aa447-3270` has
+inventory SHA-256
+`96d04e2861ad1299d43258135b274fba3bafc4010af45bf25a28a801fd795b57`.
+Both have verified second copies, source archives, exact binaries, raw results
+and closed retained roots. The current-source
+[isolated ARM Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45439140164)
+is still building at this checkpoint; no pass is claimed for it.
+
+Earlier runs retain their own scope. `ded5ef6ec` passes both native replays but
+fails Axum extent Consume and passes 7/13 real functions. `383671c85` passes
+4/6 Workspace native selections and 8/13 real functions; isolated ARM Linux
+passes all six original native and 13 real functions, but fails overall 21/22
+because its second parallel library run races pump submission against runtime
+shutdown. The fixture now joins begun pumps before closing runtimes, preserving
+all scenario assertions and cleanup errors; both focused cases and both full
+current-source library runs pass. The idle-gap module's earlier red
+`dbab55f5c` retains eight old passes and two intended failures; `0c6974661`
+passes its 11 checks. Superseded builds and diagnostic replays, including the
+wrong-temporary-directory probe, receive no acceptance credit.
+
+CG-17's full case acceptance, independent Linux-voter/load/disk-loss gates,
+default cutover and legacy removal remain open.
 
 ### CG-17 Outbox proof and main 185 qualification
 

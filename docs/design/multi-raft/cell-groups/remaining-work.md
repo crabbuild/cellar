@@ -10,26 +10,30 @@ preserve their source, scope and unresolved failures.
 
 The active delivery is draft [PR #186](https://github.com/crabbuild/cellar/pull/186)
 on `codex/cg17-event-file-read-deadlines`, following merged #184 and main
-`86cfe5d1c`. Its runtime `ded5ef6ec` passes both original native
-EventStream replays and all 21 controller tests. The combined qualification
-remains **failed**: Axum extent Consume exceeds 3s, and the real RustFS
-campaign passes 7/13 functions. Normal Container and Sandbox each pass only
-1/4 profiles. Several S3 requests expire before file reads, and a Delete-input
-profile fails autonomous recovery after archive restoration.
+`86cfe5d1c`. Runtime `d393aa447` passes both original native EventStream replays,
+Axum and real RustFS EventStream in both image modes. All original Container
+and Sandbox S3 file-read assertions pass within five seconds. Container's whole
+normal case passes 4/4 profiles, including the former later fencing failure.
 
-Candidate `0c6974661` implements bounded coalescing across idle Quorum child-call
-gaps and passes 11 isolated production scheduling-module checks after the
-intended two-check semantic failure. The final idle-gap admission is restricted
-to authenticated Event children, preserving Public/System callback cadence.
-Its integrated qualification is pending;
-this does not close a public deadline case.
+The combined real campaign remains **FAILED, 12/13 complete functions**.
+Both Quorum Sandbox lifecycles finish; materialized S3 Create9 and extent S3
+DestroyJob8 exceed their original five-second limits after reaching the physical
+backend. Checksummed retained journals contain completed outcomes, so preserve
+uncertainty and do not replay either mutation. Source-proof refusal, minimum
+custody, Delete restoration, Start-output proof and physical fencing controls pass.
+Two full six-thread Cellar library runs pass 1,434 tests each with zero failures
+and two existing ignores. The old park-fixture shutdown race is corrected.
 
-Priorities are to qualify this change against the exact Consume path, fix the
-remaining public deadline paths, and rerun the original positive, source-proof,
-minimum-custody and restoration controls together. Current-source full parallel
-library qualification is pending. Preserve all original 3s/5s request, 3s
-maintenance and 60s recovery budgets. Independent Linux/load/disk-loss gates,
-full primitive acceptance, default cutover and legacy removal remain open.
+The next priority is exact phase attribution and delivery of those two S3
+lifecycle calls, followed by a combined original rerun. The diagnostic
+`profile_rustfs_native_sandbox_recovery` retains the business flow and adds phase
+timing; a diagnostic pass cannot waive the failed original case. The current-source
+[isolated Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45439140164)
+is still building at this checkpoint.
+
+Preserve original 3s/5s requests, 3s maintenance, 60s restoration, identities,
+S3 proofs, fencing and uncertain outcomes. Full primitive acceptance, independent
+Linux-voter/load/disk-loss gates, default cutover and legacy removal remain open.
 See [the source-scoped results](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
 Earlier source qualifications below retain their original scope.
 
