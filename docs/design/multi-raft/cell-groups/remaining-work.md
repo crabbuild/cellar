@@ -8,18 +8,32 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The next combined candidate includes main `7810ead24` (#187/#188), the
-per-engine failure quarantine, isolated loader fixtures, SQL-only KV expiry,
-and per-binding Docker admission. **The candidate is not yet qualified.**
-The active source-pinned qualification remains `f2423248b`, before this merge.
-Its native campaign passes 27/28 selections, including both full six-thread
-libraries (1,434 passes and two existing ignores each). Materialized KV expiry
-misses its original physical cleanup bound; the logical expiry remains enforced.
-The expanded real-RustFS campaign is still running. No default or legacy cutover
-is authorized by these partial results.
+The active [PR #186](https://github.com/crabbuild/cellar/pull/186) includes main
+`7810ead24` (#187/#188), failure quarantine, loader isolation, SQL-only KV expiry,
+and Docker admission/journal repairs. **The merged candidate is not qualified.**
+Its owning and unchanged public gates are the immediate priority.
 
-The active delivery is [PR #186](https://github.com/crabbuild/cellar/pull/186)
-on `codex/cg17-event-file-read-deadlines`, following merged #184 and main
+Pre-merge `f2423248b` passes 27/28 native selections, including two full
+six-thread libraries (1,434 passes and two existing ignores each). Materialized
+KV misses its original stored-row expiry bound. The expanded real RustFS/Docker
+campaign is **FAILED, 38/43**: the three S3 Container/Sandbox lifecycle functions
+and extent Queue's two- and four-request load cases fail. Ordinary API, callback,
+movement/wake, source-proof refusal and physical process-fencing controls pass
+within their recorded scope. All closed roots are retained and the owned lab
+stop joined. See [the current source-specific results](progress.md#cg-17-primitive-expansion-and-durable-journal-fences).
+
+The new candidate isolates binding fences, moves physical journal sync outside
+snapshot-read locks, and revalidates reservations at the durable writer boundary.
+It also keeps pure KV expiry in one final proven SQL turn. New regressions must
+pass before attributing any deadline or cleanup improvement to these changes.
+Full primitive coverage, independent Linux-voter/load/disk-loss qualification,
+default cutover and legacy removal remain open.
+
+The following checkpoints precede this integration and retain their original
+source boundaries.
+
+Earlier [PR #186](https://github.com/crabbuild/cellar/pull/186) on
+`codex/cg17-event-file-read-deadlines` followed merged #184 at main
 `86cfe5d1c`. Runtime `d393aa447` passes both original native EventStream replays,
 Axum and real RustFS EventStream in both image modes. All original Container
 and Sandbox S3 file-read assertions pass within five seconds. Container's whole
@@ -211,33 +225,26 @@ read refusals before repeating the sustained matrix.
 
 The immediate delivery order is:
 
-1. Close ordinary request deadlines on `10fb1775d`. EventStream Consume fails
-   both native three-second replays, Axum and RustFS. Correlate target ACK
-   acceptance, response delivery and source continuation before changing the
-   path; a later terminal receipt is not evidence of timely acceptance.
-   For S3 Container/Sandbox, measure the exact file-read proof and reconciliation
-   path: materialized Container `Read5`, materialized Sandbox `FileRead2` and
-   extent Sandbox `Read5` remain failed. Remove redundant work only with an
-   owning regression that preserves current ownership, prior mutation proof
-   and uncertain-operation reconciliation. Both Quorum Sandbox lifecycles pass.
-   Preserve 5s/3s/60s budgets, identities, source/target minima and ambiguous
-   outcomes. Re-run all original refusal, requested-minimum and output-fault
-   gates on the corrected source; these five real functions do not qualify that
-   full matrix. Keep the now-passing full parallel library gate. Workflow's
-   earlier passes still need current source and combined recovery qualification.
-2. Complete the primitive API inventory and public/recovery contracts. Current
-   native filesystem, alarms and Queue gates pass, but their full lifecycle
-   matrix remains required. Close Container/provider scope, WebSocket/session
-   ownership and remaining callback/binding coverage before full CG-17 acceptance.
-3. Qualify every primitive through managed replacement, movement, split/merge,
-   wake, archive outage, reclamation and fenced zero-quorum recovery. Managed
-   Workflow S3 replacement, public wake and retained restart pass both image
-   forms; `bf5056b33` also retains eight closed voter directories. The complete
-   cross-primitive and fresh-incarnation matrix remains open.
-4. Run the unified public daemon, independent Linux voter, load, crash and
-   disk-loss matrix on one final source. Earlier Linux SQL/KV qualification
-   remains pinned to `41e68a7bf`; it does not qualify subsequent runtime edits.
-   Default backend cutover and removal of legacy Raft paths follow these gates.
+1. Qualify the combined source and close ordinary request/load failures. Run
+   the five KV expiry controls and complete Container/controller owning gates,
+   both full parallel libraries and the unchanged public cases. Reproduce the
+   original stored-row expiry bound, S3 lifecycle deadlines and extent Queue
+   C2/C4 producer failures after the main merge. Preserve three-/five-second
+   requests where declared, three-second maintenance, sixty-second restoration,
+   original multi-phase parent budgets, identities, proofs and ambiguity. Do
+   not replay an uncertain mutation or increase admission to conceal a failure.
+2. Complete the primitive API inventory and public/recovery contracts.
+   WebSocket session ownership, full Container/provider APIs and provider-volume
+   recovery remain feature gaps. Passing ordinary Queue/Workflow, alarms,
+   filesystem or bindings cases does not close their complete CG-17 matrix.
+3. Qualify every primitive through replacement, split/merge, movement, wake,
+   archive outage, reclamation and fresh-incarnation recovery. Require the real
+   infrastructure fence and restored payload bytes; the filesystem contract-test
+   authority cannot substitute for permanent host fencing.
+4. Run one final source through independent constrained Linux voters, public
+   daemon ingress, load, crash and all-voter-disk-loss gates. Retain actual CPU,
+   memory, disk, archive and producer-quiescence evidence. Default backend
+   cutover and legacy removal follow acceptance of that combined artifact.
 
 The [full delivery milestones](#primitive-delivery-priority) and task acceptance
 definitions retain their original requirements; no acceptance case is waived.

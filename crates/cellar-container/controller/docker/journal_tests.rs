@@ -56,39 +56,51 @@ impl FileSystem for Files {
     fn lock_file(&self, path: &Path) -> io::Result<HostFileLock> {
         DirectFileSystem.lock_file(path)
     }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         DirectFileSystem.read(path)
     }
+
     fn read_dir(&self, path: &Path) -> io::Result<Vec<HostDirEntry>> {
         DirectFileSystem.read_dir(path)
     }
+
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata> {
         DirectFileSystem.metadata(path)
     }
+
     fn symlink_metadata(&self, path: &Path) -> io::Result<HostMetadata> {
         DirectFileSystem.symlink_metadata(path)
     }
+
     fn create(&self, path: &Path) -> io::Result<HostFile> {
         DirectFileSystem.create(path)
     }
+
     fn open(&self, path: &Path) -> io::Result<HostFile> {
         DirectFileSystem.open(path)
     }
+
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
         DirectFileSystem.write(path, bytes)
     }
+
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         DirectFileSystem.rename(from, to)
     }
+
     fn remove_file(&self, path: &Path) -> io::Result<()> {
         DirectFileSystem.remove_file(path)
     }
+
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
         DirectFileSystem.remove_dir_all(path)
     }
+
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {
         DirectFileSystem.create_dir_all(path)
     }
+
     fn sync_all(&self, path: &Path) -> io::Result<()> {
         self.barriers.fetch_add(1, Ordering::AcqRel);
         let mut gate = self.gate.lock().unwrap();

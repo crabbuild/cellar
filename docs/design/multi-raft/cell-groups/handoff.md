@@ -4,10 +4,41 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current EventStream and bounded file-read checkpoint
+## Current primitive and journal qualification checkpoint
 
-Continue draft [PR #186](https://github.com/crabbuild/cellar/pull/186) on
-`codex/cg17-event-file-read-deadlines`; #184 is merged. Runtime `d393aa447`
+Continue [PR #186](https://github.com/crabbuild/cellar/pull/186), branch
+`codex/cg17-event-file-read-deadlines`, including main `7810ead24` (#187/#188).
+The combined candidate is unqualified. Preserve the exact source boundaries in
+[the new checkpoint](progress.md#cg-17-primitive-expansion-and-durable-journal-fences).
+
+Completed pre-merge source `f2423248b` passes 27/28 native selections and
+38/43 real RustFS/Docker selections. Both full six-thread libraries pass 1,434
+checks with two existing ignores each. Failures are materialized KV stored-row
+expiry, three S3 Container/Sandbox lifecycle functions and extent Queue C2/C4.
+Materialized load delivers 528 unique messages in each profile; failed extent
+producer outcomes remain ambiguous. All original proof/physical-fence controls
+pass, and all 193 closed roots plus nine executables have verified copies.
+Owned RustFS/Colima stop joined; no active workload is retained in that lab.
+
+The candidate adds atomic SQL-only built-in KV expiry, per-binding Docker
+admission with exclusive shutdown/history fences, published journal snapshots
+outside physical write locks, and reservation custody/identity/expiry rechecks.
+Pure expiry errors before a claim proof roll back the whole turn; they cannot
+use the proven callback failure/backoff path. Known provider receipts remain
+immutable, and absence alone never clears an entered unknown mutation.
+
+Next, run the original-behavior red controls and complete 47-test Container
+library, five KV controls, both parallel libraries and the unchanged public
+campaign on the exact merged source. Hold the real journal directory barrier
+in the concurrency oracles; do not claim process fencing from metadata tests.
+Current Linux run 45467991907 targets only `f2423248b` and cannot qualify later
+source. Then require independent Linux voters and actual Docker-fenced disk-loss
+recovery. The passing filesystem disaster selection is a contract test.
+Default cutover, full primitive acceptance and legacy removal remain open.
+
+## Earlier EventStream and bounded file-read checkpoint
+
+Earlier runtime `d393aa447`, following merged #184,
 passes the requested original EventStream and S3 Container/Sandbox file-read
 checks. Its full real campaign is still **FAILED, 12/13 functions**: materialized
 S3 Sandbox Create9 and extent S3 DestroyJob8 expire at five seconds. All four
