@@ -3,12 +3,11 @@
 //! Observe the sealed source checkpoint, then cut its real archive publication.
 use super::*;
 use cellar_ltx::{
-    DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileLock,
-    HostMetadata,
+    DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo,
+    HostFileLock, HostMetadata,
 };
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
     io,
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
@@ -21,23 +20,51 @@ struct Checkpoint {
     minimum: u8,
 }
 
+#[derive(Clone)]
 struct Files {
-    first: Mutex<Option<std::result::Result<Checkpoint, String>>>,
-    candidates: Mutex<BTreeMap<PathBuf, PathBuf>>,
+    first: Arc<Mutex<Option<std::result::Result<Checkpoint, String>>>>,
     store: Arc<catalog_fault::Store>,
-    cut: AtomicBool,
+    cut: Arc<AtomicBool>,
 }
 
 impl Files {
-    fn candidate(&self, path: &Path) {
+    fn file(&self, path: &Path, file: HostFile) -> HostFile {
         if path.extension().is_some_and(|e| e == "sqlite")
             && path.to_string_lossy().contains("/raft-cells/images/")
             && !path.to_string_lossy().contains("/archive-verifier/")
         {
-            self.candidates
-                .lock()
-                .unwrap()
-                .insert(path.parent().unwrap().to_owned(), path.to_owned());
+            HostFile::from_io(SyncedImage {
+                file,
+                path: path.to_owned(),
+                observer: self.clone(),
+            })
+        } else {
+            file
+        }
+    }
+
+    fn observe(&self, path: &Path) {
+        // Generation preparation finishes writing before this handle's file
+        // barrier. Another operation's directory sync cannot establish that
+        // this image is complete. This supplies no publication authority.
+        let mut first = self.first.lock().unwrap();
+        if first.is_some() {
+            return;
+        }
+        match self
+            .inspect(path)
+            .with_context(|| format!("observe completed image {}", path.display()))
+        {
+            Ok(None) => {}
+            Ok(Some(checkpoint)) => {
+                *first = Some(Ok(checkpoint));
+                if self.cut.load(Ordering::Acquire) {
+                    self.store
+                        .deny_sandbox_parent_writes
+                        .store(true, Ordering::Release);
+                }
+            }
+            Err(error) => *first = Some(Err(format!("{error:#}"))),
         }
     }
 
@@ -108,11 +135,60 @@ impl Files {
     }
 }
 
+struct SyncedImage {
+    file: HostFile,
+    path: PathBuf,
+    observer: Files,
+}
+
+impl HostFileIo for SyncedImage {
+    fn advise_streaming(&mut self) -> io::Result<()> {
+        self.file.advise_streaming()
+    }
+
+    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all(bytes)
+    }
+
+    fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+        self.file.read_exact_at(offset, len)
+    }
+
+    fn read_exact_into_at(&mut self, offset: u64, output: &mut [u8]) -> io::Result<()> {
+        self.file.read_exact_into_at(offset, output)
+    }
+
+    fn write_all_window(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all_window(bytes)
+    }
+
+    fn write_all_at_window(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all_at_window(offset, bytes)
+    }
+
+    fn sync_all(&mut self) -> io::Result<()> {
+        self.file.sync_all()?;
+        self.observer.observe(&self.path);
+        Ok(())
+    }
+
+    fn file_len(&mut self) -> io::Result<u64> {
+        self.file.file_len()
+    }
+
+    fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all_at(offset, bytes)
+    }
+
+    fn set_len(&mut self, length: u64) -> io::Result<()> {
+        self.file.set_len(length)
+    }
+}
+
 impl FileSystem for Files {
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
         let file = DirectFileSystem.create_read_write(path)?;
-        self.candidate(path);
-        Ok(file)
+        Ok(self.file(path, file))
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
@@ -121,10 +197,7 @@ impl FileSystem for Files {
 
     fn clone_read_write(&self, from: &Path, to: &Path) -> io::Result<Option<HostFile>> {
         let file = DirectFileSystem.clone_read_write(from, to)?;
-        if file.is_some() {
-            self.candidate(to);
-        }
-        Ok(file)
+        Ok(file.map(|file| self.file(to, file)))
     }
 
     fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
@@ -168,27 +241,7 @@ impl FileSystem for Files {
     }
 
     fn sync_all(&self, path: &Path) -> io::Result<()> {
-        DirectFileSystem.sync_all(path)?;
-        let candidate = self.candidates.lock().unwrap().remove(path);
-        if let Some(candidate) = candidate {
-            // Passive observation only: no I/O is held and no serving authority
-            // is inferred from this uncommitted local generation.
-            let mut first = self.first.lock().unwrap();
-            if first.is_none() {
-                match self.inspect(&candidate) {
-                    Ok(None) => {}
-                    value => {
-                        *first = Some(value.map(|v| v.unwrap()).map_err(|e| format!("{e:#}")));
-                        if self.cut.load(Ordering::Acquire) {
-                            self.store
-                                .deny_sandbox_parent_writes
-                                .store(true, Ordering::Release);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
+        DirectFileSystem.sync_all(path)
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
@@ -222,19 +275,20 @@ pub fn qualify_observer() -> Result<()> {
     DirectFileSystem.create_dir_all(&directory)?;
     let fixture = root.path().join("fixture.db");
     let db = rusqlite::Connection::open(&fixture)?;
-    db.execute_batch("CREATE TABLE __sys_outbox_lanes(dispatch_generation,attempts,retry_at_ms);
+    db.execute_batch(
+        "CREATE TABLE __sys_outbox_lanes(dispatch_generation,attempts,retry_at_ms);
         INSERT INTO __sys_outbox_lanes VALUES(0,0,0);
         CREATE TABLE __sys_raft_native_work(reason,claimed);
         INSERT INTO __sys_raft_native_work VALUES('outbox',1);
         CREATE TABLE __sys_raft_receipts(operation,rpc_step,minimum_durability);
-        INSERT INTO __sys_raft_receipts VALUES('__sys_raft_native_work',x'0000000000000001',0);")?;
+        INSERT INTO __sys_raft_receipts VALUES('__sys_raft_native_work',x'0000000000000001',0);",
+    )?;
     drop(db);
     let bytes = DirectFileSystem.read(&fixture)?;
     let files = Files {
-        first: Mutex::new(None),
-        candidates: Mutex::new(BTreeMap::new()),
+        first: Arc::new(Mutex::new(None)),
         store: Arc::new(catalog_fault::Store::default()),
-        cut: AtomicBool::new(false),
+        cut: Arc::new(AtomicBool::new(false)),
     };
     let path = directory.join("candidate.sqlite");
     let mut image = files.create_read_write(&path)?;
@@ -242,14 +296,22 @@ pub fn qualify_observer() -> Result<()> {
     // Another store operation can sync this shared inventory while this
     // generation is still being written. That must not trigger inspection.
     files.sync_all(&directory)?;
-    ensure!(files.first.lock().unwrap().is_none(), "unrelated directory sync inspected an unfinished image");
+    ensure!(
+        files.first.lock().unwrap().is_none(),
+        "unrelated directory sync inspected an unfinished image"
+    );
     image.write_all_at_window(0, &bytes)?;
     image.sync_all()?;
     let first = files.first.lock().unwrap();
-    let checkpoint = first.as_ref().context("completed image was not observed")?
-        .as_ref().map_err(|error| anyhow::anyhow!(error.clone()))?;
-    ensure!(checkpoint.intents == 0 && !checkpoint.reserved && checkpoint.minimum == 0,
-        "observer did not inspect its completed image: {checkpoint:?}");
+    let checkpoint = first
+        .as_ref()
+        .context("completed image was not observed")?
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!(error.clone()))?;
+    ensure!(
+        checkpoint.intents == 0 && !checkpoint.reserved && checkpoint.minimum == 0,
+        "observer did not inspect its completed image: {checkpoint:?}"
+    );
     Ok(())
 }
 
@@ -268,10 +330,9 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
             catalog_fault::Store::default()
         });
         let files = Arc::new(Files {
-            first: Mutex::new(None),
-            candidates: Mutex::new(BTreeMap::new()),
+            first: Arc::new(Mutex::new(None)),
             store: store.clone(),
-            cut: AtomicBool::new(false),
+            cut: Arc::new(AtomicBool::new(false)),
         });
         let (application, declared) = application()?;
         let definitions = [
