@@ -3123,6 +3123,16 @@ async fn queue_operator_reads_do_not_append_mutations() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn completed_queue_requests_reuse_a_verified_successor() -> Result<()> {
+    Box::pin(queues::qualify_idle_successor(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_completed_queue_requests_reuse_a_verified_successor() -> Result<()> {
+    Box::pin(queues::qualify_idle_successor(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn owned_queue_callbacks_do_not_repeat_discovery_sql() -> Result<()> {
     Box::pin(queues::qualify_owned_callback_scans()).await
 }

@@ -10,26 +10,35 @@ preserve their source, scope and unresolved failures.
 
 ## Current optimization follow-up
 
-PR [#183](https://github.com/crabbuild/cellar/pull/183) includes merged main
-`ff5cdec33` (#182) and bounded committed-pair preparation at compiler inputs
-`bb1b2cac`. All 48 selected correctness controls pass, including fresh SDK reply
-fences and archive-retirement isolation. The repeated native service campaign
-passes **5/13** complete selections: SQL **2/2**, KV **1/2**, Queue callbacks
-**1/2**, combined C2 **0/2**, separate extent load **1/1**, and C4 **0/4**.
-These passes do not qualify full service or a low-latency/throughput gain. See
-[exact scope and retained earlier failures](optimization-progress.md#committed-preparation-with-main-182).
+Merged [#183](https://github.com/crabbuild/cellar/pull/183) is the base for the
+verified ingress-successor follow-up at compiler inputs `99a34233`. Four fixed
+node-local metadata slots retain single-use advice between independent requests;
+Fetch and RPC replenish only after the original success selection. Both public
+RF3 image-mode regressions fail their new oracle before the change and pass twice
+each afterward, preserving their individual commits and all-voter catch-up.
+
+The expanded owning campaign passes **93/94** selections. An Axum Fetch deadline
+failure remains retained despite passing separate pre-change and candidate
+controls. The unchanged SQL/KV/Queue service campaign passes **3/13** selections:
+SQL, KV and Queue callbacks each pass **1/2**; combined C2 **0/2**, separate extent
+load **0/1**, and C4 **0/4**. Full service and low-latency/throughput qualification
+remain open. See [the exact scope and retained failures](optimization-progress.md#verified-ingress-successors-across-requests).
+
+The preceding committed-pair checkpoint at `bb1b2cac` passed 48 selected controls
+and **5/13** service selections. The separate captures are not a matched
+performance comparison. Their failures remain in the [earlier evidence](optimization-progress.md#committed-preparation-with-main-182).
 
 The next optimization priorities are:
 
-1. **P0: Close repeatable ordinary service.** Reproduce the remaining KV,
-   callback and Queue C2/C4 request deadlines with their original identities,
+1. **P0: Close repeatable ordinary service.** Reproduce the SQL/KV,
+   callback and Queue C2/C4 deadline/timeout failures with their original identities,
    typed ambiguity, admission banks and 3,000-ms RPC / 5,000-ms callback /
    30-second drain windows. Preserve exact delivery/uniqueness and the independent
    producer-quiescence proof at retained restart/close. Keep all failed controls.
 2. **P0: Account for the remaining persistence path.** Separate packed-manifest
    file sync, directory sync, selector publication and the point at which an
    eligible committed successor becomes available. Current aggregate manifest
-   means are about 100–167 ms; refusal counters do not establish a quota repair.
+   means are about 152–329 ms; refusal counters do not establish a quota repair.
    Require an owning red-to-green regression and the complete unchanged service
    campaign for each next reduction or overlap of measured work.
 3. **P1: Close complete optimization and recovery acceptance.** Finish the

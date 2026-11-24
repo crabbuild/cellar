@@ -118,6 +118,7 @@ pub(super) fn start(
                 crate::asyncrt::select! { _ = requested => (), _ = core.controller.wait() => () }
             }
             close.request();
+            core.sql_ingress_lanes.close_hints();
             core.services.close().await;
             core.gateways
                 .lock()
