@@ -187,7 +187,8 @@ pub async fn admit_capacity(
 }
 
 pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize> {
-    tokio::time::timeout(TIMEOUT, async {
+    let mut latest = vec![None; hosts.len()];
+    let observed = tokio::time::timeout(TIMEOUT, async {
         loop {
             for (i, host) in hosts.iter().enumerate() {
                 let group = match host.group(history) {
@@ -201,6 +202,7 @@ pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize>
                     Err(RuntimeError::NotFound) => continue,
                     Err(error) => return Err(error.into()),
                 };
+                latest[i] = Some(status.clone());
                 if status.ready && status.leader == Some(i as u64 + 1) {
                     return Ok::<_, anyhow::Error>(i);
                 }
@@ -208,7 +210,10 @@ pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize>
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await?
+    .await;
+    observed.with_context(|| {
+        format!("managed group leader deadline history={history:?} latest={latest:?}")
+    })?
 }
 
 pub async fn close_group_nodes(nodes: Vec<Node>, hosts: &[RaftCells]) -> Result<()> {
