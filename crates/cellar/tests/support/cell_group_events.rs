@@ -6,6 +6,9 @@ use super::*;
 use cellar::sdk::event_stream::{self as events, Event};
 use serde::{Deserialize, Serialize};
 
+#[path = "cell_group_events_work_proof.rs"]
+pub mod work_proof;
+
 const SCRIPT: &str = "shared-events";
 
 #[derive(Serialize, Deserialize)]

@@ -8,6 +8,40 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+The current delivery is [PR #184](https://github.com/crabbuild/cellar/pull/184),
+synced with main `2a37acf6a` (#185), with its documentation conflict resolved.
+Merged runtime `10fb1775d` batches the Outbox claim, retry reservation and
+binding intent into their mandatory source proof before dispatch. Its new
+control passes Quorum and S3 sources against real RustFS, including scoped
+archive refusal, autonomous recovery and unchanged destination records after
+receipt replay. Both full six-thread library runs pass 1,428 tests with zero
+failures and two existing ignores. Build, strict Clippy and repository checks
+pass. The current library gate is green; prior failed runs retain their pins.
+
+The [merged qualification](progress.md#cg-17-outbox-proof-and-main-185-qualification)
+still fails original EventStream Consume in native, Axum and RustFS paths.
+The real campaign passes 2/5 complete functions. Container recovery passes
+3/4 profiles and Sandbox recovery 2/4, including both complete Quorum Sandbox
+lifecycles. Remaining S3 failures are file reads: Container materialized
+`docker-a Read5`, Sandbox materialized `FileRead2`, and Sandbox extent `Read5`
+after original lost-Exec receipt recovery. No deadline, identity, durability
+minimum, ambiguity rule or fencing requirement has changed. Default cutover,
+full primitive acceptance and independent Linux/load/disk-loss gates remain open.
+
+Earlier runtime `a763e2f92`, based on main `49828ff6b` after #183/#182, preserves the
+configured background archive interval after quiet completion; new S3 requests
+still wake immediately. Its real controller regression fails before the fix and
+passes both image forms afterward. Six native archive functions and two full
+six-thread library runs pass (1,420 tests and two existing ignores per run).
+The [earlier qualification](progress.md#cg-17-quiet-archive-cadence-and-merged-source-qualification)
+still fails both EventStream replays and the combined RustFS campaign:
+3/8 complete functions, with 16/22 Docker/Sandbox configuration markers.
+Earlier failed library runs retain their source pins; that library gate
+passes on `a763e2f92`. Default cutover and full primitive acceptance remain open.
+
+The `f668d0193`/`8b9fece2d` archive results and the #183 optimization results
+below precede this integration. They do not qualify the combined runtime.
+
 ## Current optimization follow-up
 
 Merged [#183](https://github.com/crabbuild/cellar/pull/183) is the base for the
@@ -53,21 +87,24 @@ The next optimization priorities are:
    RustFS witness reports zero available bytes against the unchanged 6-GiB
    reserve. No new original-store probe or constrained case is admitted here.
 
-Merged main `ff5cdec33` includes [PR #182](https://github.com/crabbuild/cellar/pull/182),
-based on main `0f3b18e79` after merged #181 and #167. Runtime `37d53e781`
-adds original-invocation checks after SDK polling and at queued reply delivery.
-The public RF3 regression passes both image forms; 1,417 library tests pass.
-The [current qualification](progress.md#cg-17-sdk-replies-retain-original-invocation-authority)
-still has request deadline failures. Default cutover and full primitive
-acceptance remain open.
+## Primitive delivery order
 
 The immediate delivery order is:
 
-1. Close ordinary request deadlines: EventStream Consume and extent Workflow
-   `create/delete-held` retain their original three-second failures. Real RustFS
-   Sandbox still fails materialized S3 `Create9`, extent S3 `DestroyJob8`, and
-   materialized interrupted `Delete2` within the original five-second contract.
-   Preserve exact identities, source/target minima and uncertain outcomes.
+1. Close ordinary request deadlines on `10fb1775d`. EventStream Consume fails
+   both native three-second replays, Axum and RustFS. Correlate target ACK
+   acceptance, response delivery and source continuation before changing the
+   path; a later terminal receipt is not evidence of timely acceptance.
+   For S3 Container/Sandbox, measure the exact file-read proof and reconciliation
+   path: materialized Container `Read5`, materialized Sandbox `FileRead2` and
+   extent Sandbox `Read5` remain failed. Remove redundant work only with an
+   owning regression that preserves current ownership, prior mutation proof
+   and uncertain-operation reconciliation. Both Quorum Sandbox lifecycles pass.
+   Preserve 5s/3s/60s budgets, identities, source/target minima and ambiguous
+   outcomes. Re-run all original refusal, requested-minimum and output-fault
+   gates on the corrected source; these five real functions do not qualify that
+   full matrix. Keep the now-passing full parallel library gate. Workflow's
+   earlier passes still need current source and combined recovery qualification.
 2. Complete the primitive API inventory and public/recovery contracts. Current
    native filesystem, alarms and Queue gates pass, but their full lifecycle
    matrix remains required. Close Container/provider scope, WebSocket/session

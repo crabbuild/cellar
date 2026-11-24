@@ -24,6 +24,17 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn quiet_archive_coalesces_new_applies_but_serves_foreground_s3() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::quiet_archive_preserves_background_cadence(
+            rooted,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_reservation_contention_does_not_wait_for_outage_retry() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(
@@ -1245,6 +1256,72 @@ async fn s3_unrelated_publication_precedes_held_retirement() -> Result<()> {
             runtime_fixture::s3_unrelated_publication_precedes_held_retirement(
                 rooted,
                 Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_foreground_progresses_during_background_publication() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_progresses_during_background_publication(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                false,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "diagnostic only: unchanged foreground publication gate with phase tracing"]
+async fn trace_foreground_during_background_publication() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::group_archive=debug")
+        .with_test_writer()
+        .try_init();
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_progresses_during_background_publication(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                false,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shutdown_joins_entered_foreground_publication() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_progresses_during_background_publication(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                true,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_foreground_progresses_during_background_publication() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_foreground_progresses_during_background_publication(
+                rooted,
+                rustfs::store("foreground-during-background", rooted)?,
+                false,
             ),
         )
         .await?;

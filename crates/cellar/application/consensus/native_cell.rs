@@ -777,10 +777,15 @@ impl NativeCellFactory {
                 // Queue proves the claim with its lease before consumer entry
                 // or its DLQ intent before dispatch. Trusted catalog preparation
                 // likewise proves claim + binding intent before any child I/O.
+                // Outbox proves claim + retry reservation + binding intent at
+                // that same dispatch gate; a claim-only checkpoint is redundant.
                 // Provider maintenance proves its task claim before backend I/O.
                 // Other callbacks still need their entry proof here. Final
                 // completion retains its minimum.
-                if !matches!(work.reason.as_str(), "queue" | "resource-reconciliation") {
+                if !matches!(
+                    work.reason.as_str(),
+                    "queue" | "outbox" | "resource-reconciliation"
+                ) {
                     storage.sync().await?;
                 }
                 if work.reason == "filesystem" {

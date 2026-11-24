@@ -32,6 +32,220 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 Outbox proof and main 185 qualification
+
+Runtime `10fb1775d` in [PR #184](https://github.com/crabbuild/cellar/pull/184)
+includes main `2a37acf6a` (#185), with the documentation conflict resolved.
+Outbox work now batches its claim, retry reservation and binding intent into
+the existing source proof before dispatch. It avoids a claim-only Raft
+checkpoint; it does not remove the input proof, change receipt identity or
+weaken final output durability. Ordinary alarm and provider entry gates remain
+unchanged.
+
+The owning RF3 control fails before the production change at `1a4f0b108`:
+the first work checkpoint has no intent or retry reservation. It passes after
+`06d79264a` and on the merged source below. Quorum and S3 source profiles inspect
+the actual first work image, check the original receipt minimum and exercise
+public delivery. The S3 profile cuts source archive writes, requires no target
+delivery through the original five-second callback, restores the archive and
+requires autonomous exactly-once recovery. Replaying the original Emit receipt
+must leave destination records unchanged. These new controls cover materialized
+images; they do not close the complete EventStream acceptance case.
+
+The test image observer has its own red-to-green control. An unrelated directory
+sync could inspect an unfinished image; `abfbf4746` reproduces that race.
+`91d24b70a` observes only successful sync of the exact image file handle, while
+forwarding its original I/O behavior. The malformed-image observation from the
+earlier real run remains a failed test-instrumentation result, not evidence of
+production corruption. Both the observer regression and public RustFS control
+pass with the corrected observer.
+
+| Gate on `10fb1775d` | Result |
+| --- | --- |
+| Full library, six threads, two complete runs | Each passes 1,428 tests / zero failures / two existing ignores |
+| Native Outbox Q/S3 proof control and observer regression | Both functions pass |
+| Main #185 public Queue successor controls | Both image-mode functions pass |
+| Quiet archive cadence and foreground progress during held publication | Both functions pass, each in both image forms |
+| Original EventStream Consume: native, unchanged repeat and Axum | All three fail the original three-second deadline |
+| Five real RustFS functions | **FAILED: 2/5 complete functions** |
+| Locked optimized build; strict all-feature/all-target Cellar/container Clippy; formatting, layout, dependencies and docs | Pass |
+
+The two passing RustFS functions are the new Outbox source-proof control
+(Quorum and S3 sources) and foreground progress during held background
+publication (both image forms). Ordinary EventStream again fails Consume at
+three seconds. Container recovery passes three of four profiles; materialized
+S3 `Counter:docker-a Read5` exceeds its original five seconds. Sandbox recovery
+passes both complete Quorum profiles, including retained lost-Exec/Delete
+recovery and autonomous cleanup. Its S3 profiles fail materialized `FileRead`
+(client 229, sequence 2) and extent `Read5` after the original lost-Exec receipt
+becomes visible. Both operations read files; `Read5` is not an execution or
+status operation. Intentional lost-response cuts are not counted as unexpected
+deadline failures. The two adapter functions remain failed despite five passing
+profiles out of their combined eight.
+
+The native campaign is 7/10 selected gates, separate from the second library
+run. The RustFS campaign does not rerun all earlier refusal, requested-minimum
+or output-fault functions. No earlier profile is substituted for those missing
+current-source gates. The prior EventStream ACK trace shows a source checkpoint
+apply before submission of target ACK, but no target ACK acceptance before
+expiry; later receipts do not prove a timely response or authorize early success.
+
+Current evidence is `CG-17-outbox-merged-native-10fb1775d-3165` and
+`CG-17-submission-seal-merged-outbox-10fb1775d-3159`, including frozen binaries,
+source archive, raw failures and closed voter/controller data. The first real
+Outbox success marker shares a Rust harness line; a separate raw-log audit
+records both source minima without changing the original summary or result.
+The missing frozen artifact directory was restored byte-for-byte against the
+original hashes before the second library run. Two intervening attempts never
+started tests and are retained as such. Current and pre-merge Outbox bundles
+have verified second copies; earlier source pins remain separate.
+
+All owned lab work has stopped and joined. The VM has four CPUs/eight GiB, with
+RustFS limited to one CPU/two GiB. RF3 voters run in one macOS process; this is
+not independent Linux-voter, load or disk-loss qualification. CG-17's 32 full
+acceptance cases, default cutover and legacy removal remain open. Next close
+the original EventStream Consume and S3 file-read paths, then complete the
+primitive and combined recovery matrix without changing their budgets or
+proof requirements.
+
+### CG-17 quiet archive cadence and merged-source qualification
+
+Runtime `a763e2f92` in [PR #184](https://github.com/crabbuild/cellar/pull/184)
+includes main `49828ff6b` (#183). It fixes a background scheduling defect:
+after a quiet archive completion, a new applied write could bypass the configured
+minimum interval and immediately restart verification. The controller now keeps
+that interval after quiet completion. A new S3 request still wakes publication
+immediately; admission limits, durability floors and fencing are unchanged.
+
+The real controller regression fails on production-equivalent `df396e194` in
+2.019 seconds at the intended cadence assertion. It passes both image forms on
+`a763e2f92`: a Quorum write stays coalesced under a 60-second background interval,
+then a new S3 write obtains an actual proof within its original five seconds.
+The temporary Start timing probe was removed before this runtime was frozen.
+
+| Gate on `a763e2f92` | Result |
+| --- | --- |
+| New cadence regression and five existing archive controls | 6/6 functions pass, each in both image forms |
+| Full library, six threads, two runs | Each passes 1,420 tests / zero failures / two existing ignores |
+| Original public EventStream Consume, two runs | Both fail the original three-second deadline |
+| Eight real RustFS functions: archive control plus seven Docker/Sandbox functions | **FAILED: 3/8 complete functions; 16/22 Docker/Sandbox configuration markers** |
+| Locked optimized builds; strict all-feature/all-target Cellar/container Clippy; formatting, layout, dependencies and docs | Pass |
+
+Both Quorum Sandbox profiles complete execution, file operations, retained
+lost-Exec/Delete recovery and autonomous cleanup. All four Sandbox source-proof
+refusal profiles and both Delete-input-proof profiles pass. Remaining failures
+are materialized S3 Container `docker-b Destroy4`, materialized Quorum Container
+`Destroy2` after archive restoration, materialized S3 Sandbox `FileWrite`, and
+extent S3 Sandbox's retained original-receipt lookup. Extent S3 requested-minimum
+qualification expires at `Create1`; the extent Start-output control does not
+reach its required parent archive cut. These failed functions remain failed.
+
+The EventStream failures retain completed ACK receipts and subscription
+checkpoint 2 in all three voters' serving-image files. Offline image inspection
+does not bind those files to the persisted Raft selector or establish response
+timing. It narrows the next trace without authorizing an early response.
+The scheduling fix is not claimed to resolve the request deadlines or establish
+a performance improvement.
+
+The merged-source baseline `acccfaab4` also passed the six-thread library once,
+but failed both EventStream replays and both ordinary RustFS recovery functions
+(one of eight configuration profiles completed). A later diagnostic-only Start
+replay at `f8dcd430e`, with identical production inputs, passes in 3.87 seconds;
+that isolated result does not clear the failed functions above.
+
+Evidence includes `CG-17-merged-native-and-cadence-red-3114`, the separate
+`acccfaab4` RustFS baseline and trace bundles, and
+`CG-17-quiet-archive-current-native-a763e2f92-3120` plus
+`CG-17-submission-seal-quiet-archive-fixed-a763e2f92-3116`. Frozen executables,
+source archives, raw failures and closed voter/controller data have verified
+second copies. The RustFS campaign retains 90 roots. Its runtime witness records
+the owned 4-CPU/8-GiB VM and 1-CPU/2-GiB RustFS service. Voters remain host-native
+RF3 in one process; this does not qualify independent Linux voters, load or
+disk-loss recovery. The owned VM stopped and joined, with objects retained.
+
+The earlier parallel library failures are retained under their original source
+pins. Current full runs pass; no assertion, original request identity,
+durability minimum or 5s/3s/60s budget was weakened. CG-17's 32 full acceptance
+cases, default cutover and legacy removal remain open.
+
+### PR #184 integration with main #183
+
+PR [#184](https://github.com/crabbuild/cellar/pull/184) integrates main
+`49828ff6b` (merged #183), preserving its committed manifest preparation and the
+foreground archive publication changes below. Both test-support export sets
+merge together. The priorities document retains both optimization and primitive
+workstreams. Runtime evidence at `f668d0193`/`8b9fece2d` and the #183 evidence
+precede this integration; combined runtime/recovery qualification remains open.
+
+### CG-17 foreground publication with retained replay custody
+
+Draft [PR #184](https://github.com/crabbuild/cellar/pull/184) starts from main
+`ff5cdec33`, which merged #182. Runtime `f668d0193` fixes an independent archive
+blocking defect: an entered background publication retained the node's only
+checkpoint and replay operations after verification had already finished.
+Another group's S3 requests could not publish. The original regression fails
+on `275482860`; a publication-lane-only candidate also fails on `ca4f47283`.
+The `05b0f66a0` trace records 503 foreground attempts ending in checkpoint Busy
+while the background CAS remains held.
+
+The controller now admits one bounded foreground publication beside an entered
+background publication. Completed replay releases its operation slots while
+retaining physical pins, the source witness and charges in the original byte
+banks. Publication reacquires the original proof admission before returning
+coverage. Same-group journal writes remain serialized; original deadlines,
+identities, durability floors, conditional publication and joined shutdown
+remain required. No I/O or memory limit increases.
+
+Test-only `8b9fece2d` strengthens the existing priority oracle: hold the receipt's
+own required publication, preserve the no-early-ack assertion, and leave the
+older queued background publication held. This permits legitimate concurrent
+publication without making the assertion depend on filesystem speed.
+Production inputs remain identical to `f668d0193`.
+
+| Source-pinned gate | Result |
+| --- | --- |
+| Six native archive controls, including retained receipt admission, late proof reuse and expired-caller shutdown | All pass in both image forms |
+| Real RustFS held-background publication and strengthened queued-priority controls | Both functions pass in both image forms |
+| Ordinary Workflow, including large streams and `create/delete-held` | Both image forms pass; no causal latency or repeatability claim |
+| Original public EventStream Consume | Two canonical replays fail the original three-second deadline |
+| Seven original Docker/Sandbox functions against real RustFS | **FAILED: 5/7 functions, 18/22 configuration markers** |
+| Full library, six threads | First run: 1,416 pass / three fail / two existing ignores; repeat: 1,418 pass / one fail / two existing ignores |
+| Isolated replays of the four library failures | All pass, with unchanged assertions and budgets |
+| Locked optimized builds, strict all-feature/all-target Cellar/container Clippy and canonical formatting | Pass |
+
+The library failures are LocalStore checkpoint/lease progress, two TLS park/wake
+cases, and peer-tunnel idle-expiry reuse. Their isolated passes do not clear the
+failed full runs. The separate EventStream trace fails initial activation before
+Consume; it does not explain or qualify the canonical Consume failures.
+
+In the Docker/Sandbox campaign, all eight source-proof refusal profiles,
+requested-S3 cleanup custody, interrupted Delete recovery and Start/output/Ready
+proof recovery pass both forms. Normal Container recovery passes three of four
+profiles; materialized S3 `Create1` expires. Normal Sandbox passes materialized
+Quorum. Materialized S3 does not reach the intended second physical Exec in the
+lost-reply control; extent Quorum and S3 `Create1` expire after provider entry.
+All original 5s/3s/60s request, maintenance and recovery budgets remain intact.
+Adding the new archive function gives **6/8 complete functions**; it does not
+clear the failed primitive functions.
+
+Closed evidence includes `CG-17-publication-bypass-red-275482860-3047`,
+`CG-17-publication-slot-failure-05b0f66a0-3065` (171 files, two retained roots),
+and `CG-17-submission-seal-publication-custody-f668d0193-3071` (4,925 files,
+90 retained roots). The latter two have verified second copies. Final native
+controls retain separate test and runtime pins in
+`CG-17-publication-custody-native-8b9fece2d-3089` (1,715 files, 79 roots).
+The final real-RustFS priority run is
+`CG-17-submission-seal-publication-final-8b9fece2d-3086` (206 files, two roots).
+Both have verified second copies. All owned test processes and qualification VMs stop and
+join; the unrelated default Colima profile is untouched.
+
+Next close EventStream's ordinary checkpoint/acknowledgement path and the exact
+normal Container/Sandbox completion deadlines. Complete primitive API and
+callback/session/provider coverage, then qualify managed recovery and the
+combined independent Linux/load/crash/disk-loss matrix on one source.
+CG-17 acceptance, default cutover and legacy removal remain open; task counts
+and acceptance requirements are unchanged.
+
 ### CG-17 SDK replies retain original invocation authority
 
 Runtime `37d53e781`, on main `0f3b18e79`, closes two reply-authority defects.

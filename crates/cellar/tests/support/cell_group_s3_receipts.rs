@@ -1019,6 +1019,14 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
     let second = &h.background_archives[1];
     let active = first.1.hold_publication();
     let queued = second.1.hold_publication();
+    let current = h.controllers[0]
+        .archive_status(h.route.history)?
+        .context("foreground archive status")?
+        .published
+        .context("foreground initial publication")?
+        .position()
+        .index;
+    let foreground = h.remote.hold_publication_after(current.get());
 
     struct Release(Vec<Arc<archive_controller::archive_store::Gate>>);
 
@@ -1029,7 +1037,7 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
             }
         }
     }
-    let release = Release(vec![active.clone(), queued.clone()]);
+    let release = Release(vec![active.clone(), queued.clone(), foreground.clone()]);
     let work = async {
         archive_controller::add(&h.fixture, first.0.birth.route(), false, 1).await?;
         tokio::time::timeout(Duration::from_secs(5), active.entered.notified()).await?;
@@ -1042,11 +1050,21 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
         let selection = lookup.select(&h.fixture.runtimes[0], &h.fixture.appliers[&(0, h.route.history)].0,
             h.fixture.cell_options(&h.cell).await?).await?;
         let mut response = Box::pin(selection.response());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            cellar::asyncrt::select! {
+                _ = foreground.entered.notified() => Ok::<_, anyhow::Error>(()),
+                result = response.as_mut() => {
+                    result.context("foreground proof completed before its required publication")?;
+                    anyhow::bail!("an unpublished required cut supplied a receipt")
+                }
+            }
+        }).await.context("required foreground publication never entered")??;
         anyhow::ensure!(tokio::time::timeout(Duration::from_millis(30), response.as_mut()).await.is_err(),
-            "held older publication cannot cover the new receipt");
+            "held required publication cannot cover the new receipt");
         // Same controller channel: complete a Quorum command after admission of
         // the S3 request, before releasing the active background publication.
         drop(h.command(2, b"barrier", Durability::Quorum, Duration::from_secs(5)).await?.response().await?);
+        foreground.release.notify_one();
         active.release.notify_one();
         let response = response.await.with_context(|| format!(
             "foreground receipt waited behind queued background publication: extents={rooted}, required={required:?}, queued_background_entered={}",
@@ -1061,6 +1079,162 @@ pub(crate) async fn s3_foreground_receipt_precedes_queued_background_archive(
     drop(release);
     let closed = h.close().await;
     work.and(closed)
+}
+
+/// A foreground proof for another group progresses while an older background
+/// publication remains physically entered, without adding any pool credit.
+pub(crate) async fn s3_foreground_progresses_during_background_publication(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+    join_foreground: bool,
+) -> Result<()> {
+    let mut h = Harness::configured_resources(
+        rooted,
+        store,
+        2,
+        Durability::Quorum,
+        None,
+        None,
+        Some(Resources::QueuedBackgroundArchives),
+    )
+    .await?;
+    h.retain_disks("foreground-held-background");
+    let (background, remote) = &h.background_archives[0];
+    let group = background.birth.route().history;
+    let previous = h.controllers[0]
+        .archive_status(group)?
+        .context("background archive status")?
+        .published
+        .context("background initial cut")?
+        .position()
+        .index;
+    let held = remote.hold_publication_after(previous.get());
+
+    struct Release(Vec<Arc<archive_controller::archive_store::Gate>>);
+
+    impl Drop for Release {
+        fn drop(&mut self) {
+            for gate in &self.0 {
+                gate.release.notify_one();
+            }
+        }
+    }
+    let release = Release(vec![held.clone()]);
+    let work = async {
+        let cut = archive_controller::add(&h.fixture, background.birth.route(), false, 1).await?;
+        tokio::time::timeout(Duration::from_secs(5), held.entered.notified())
+            .await
+            .context("background publication did not enter its actual CAS")?;
+        anyhow::ensure!(held.publication_waiting.load(Ordering::Acquire));
+        anyhow::ensure!(held.publication_index.load(Ordering::Acquire) >= cut.get());
+        anyhow::ensure!(h.archive.checkpoints.usage().sources == 0);
+        anyhow::ensure!(h.archive.checkpoints.usage().retained_bytes > 0);
+        anyhow::ensure!(h.archive.tails.usage().operations == 0);
+        anyhow::ensure!(h.archive.tails.usage().retained_bytes > 0);
+        let mut last = 0;
+        for (sequence, input) in [(1, b"independent".as_slice()), (2, b"continued".as_slice())] {
+            let response = h
+                .command(sequence, input, Durability::S3, Duration::from_secs(5))
+                .await?
+                .response()
+                .await
+                .context(
+                    "foreground S3 response waited behind another group's background publication",
+                )?;
+            anyhow::ensure!(response.durability() == Durability::S3);
+            let receipt = response.local_receipt().context("independent receipt")?;
+            anyhow::ensure!(receipt.receipt.result() == input);
+            anyhow::ensure!(response.observation().version.history == h.cell);
+            last = receipt.position.index.get();
+            anyhow::ensure!(
+                held.publication_waiting.load(Ordering::Acquire),
+                "the older background publication escaped its gate"
+            );
+            anyhow::ensure!(
+                h.calls.load(Ordering::Acquire) == sequence as usize,
+                "business callback repeated"
+            );
+        }
+        if join_foreground {
+            // Hold a newly admitted foreground cut through joined shutdown.
+            // This new cut cannot be mistaken for cleanup of the previous cut.
+            let gate = h.remote.hold_publication_after(last);
+
+            struct Resume(Arc<archive_controller::archive_store::Gate>);
+
+            impl Drop for Resume {
+                fn drop(&mut self) {
+                    self.0.release.notify_one();
+                }
+            }
+            let resume = Resume(gate.clone());
+            let call = h
+                .command(3, b"close-pending", Durability::S3, Duration::from_secs(5))
+                .await?;
+            tokio::time::timeout(Duration::from_secs(5), gate.entered.notified())
+                .await
+                .context("foreground publication did not enter its actual CAS")?;
+            anyhow::ensure!(gate.publication_waiting.load(Ordering::Acquire));
+            held.release.notify_one();
+            archive_controller::published(&h.controllers[0], group, cut).await?;
+            let error = call
+                .response()
+                .await
+                .err()
+                .context("expired foreground call reported success")?;
+            anyhow::ensure!(
+                error.ambiguous,
+                "expiry lost an entered mutation's ambiguity"
+            );
+            anyhow::ensure!(gate.publication_waiting.load(Ordering::Acquire));
+            anyhow::ensure!(
+                h.calls.load(Ordering::Acquire) == 3,
+                "expired foreground mutation replayed"
+            );
+            let mut closed = Box::pin(h.controllers[0].close());
+            anyhow::ensure!(
+                tokio::time::timeout(Duration::from_secs(1), closed.as_mut())
+                    .await
+                    .is_err(),
+                "shutdown abandoned an entered foreground publication"
+            );
+            anyhow::ensure!(gate.publication_waiting.load(Ordering::Acquire));
+            drop(resume);
+            closed.await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if work.is_err() {
+        eprintln!(
+            "foreground publication pools: io={:?} owners={:?} tails={:?} checkpoints={:?}",
+            h.archive.io.usage(),
+            h.archive.owners.usage(),
+            h.archive.tails.usage(),
+            h.archive.checkpoints.usage(),
+        );
+        for selected in [group, h.route.history] {
+            if let Some(status) = h.controllers[0].archive_status(selected)? {
+                eprintln!(
+                    "foreground publication status: group={:?} attempts={} error={:?}",
+                    selected.group, status.attempts, status.error,
+                );
+            }
+        }
+    }
+    drop(release);
+    let resumed = if work.is_ok() && !join_foreground {
+        archive_controller::published(
+            &h.controllers[0],
+            group,
+            LogIndex::new(held.publication_index.load(Ordering::Acquire)),
+        )
+        .await
+    } else {
+        Ok(())
+    };
+    let closed = h.close().await;
+    work.and(resumed).and(closed)
 }
 
 pub(crate) async fn s3_unrelated_publication_precedes_held_retirement(

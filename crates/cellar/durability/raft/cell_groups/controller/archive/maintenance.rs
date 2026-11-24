@@ -21,6 +21,7 @@ impl Manager {
             return;
         }
         let active = self.active_group;
+        let foreground = self.foreground_group;
         let proof = self.proof_group;
         let entries = &mut self.entries;
         let Some(group) = self.queue.next_maintenance(|group| {
@@ -37,6 +38,7 @@ impl Manager {
                 .zip(entry.published_index)
                 .is_some_and(|(applied, published)| applied <= published);
             if active == Some(group)
+                || foreground == Some(group)
                 || proof == Some(group)
                 || entry.retry_at > now
                 || !entry.maintenance_pending

@@ -3,6 +3,69 @@
 //! Returned physical credit wakes the original request without another arrival.
 use super::*;
 
+pub(crate) async fn quiet_archive_preserves_background_cadence(rooted: bool) -> Result<()> {
+    let mut h = Harness::configured_resources(
+        rooted,
+        Arc::new(object_store::memory::InMemory::new()),
+        2,
+        Durability::Quorum,
+        None,
+        None,
+        Some(Resources::DeferredBackground),
+    )
+    .await?;
+    let work = async {
+        // The harness waits for its initial publication. There is no pending
+        // successor or predecessor retirement to keep the archive dirty.
+        let before = h.controllers[0]
+            .archive_status(h.route.history)?
+            .context("initial quiet archive")?;
+        let published = before.published.context("initial verified prefix")?;
+        let receipt = h
+            .command(1, b"quorum", Durability::Quorum, Duration::from_secs(5))
+            .await?
+            .response()
+            .await?;
+        anyhow::ensure!(receipt.result() == b"quorum");
+        anyhow::ensure!(
+            receipt
+                .local_receipt()
+                .context("local Quorum receipt")?
+                .position
+                .index
+                > published.position().index
+        );
+        drop(receipt);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let after = h.controllers[0]
+            .archive_status(h.route.history)?
+            .context("quiet archive after a new apply")?;
+        anyhow::ensure!(
+            after.attempts == before.attempts && after.published.as_ref() == Some(&published),
+            "a new apply bypassed the configured background interval after quiet completion"
+        );
+        // This is a new foreground arrival, not a fabricated capacity wake.
+        // The 60-second background interval cannot extend its five-second S3
+        // deadline or substitute for an actual publication and physical proof.
+        let receipt = h
+            .command(2, b"foreground", Durability::S3, Duration::from_secs(5))
+            .await?
+            .response()
+            .await?;
+        anyhow::ensure!(receipt.result() == b"foreground");
+        anyhow::ensure!(receipt.durability() == Durability::S3);
+        anyhow::ensure!(h.calls.load(Ordering::Acquire) == 2);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if work.is_err() {
+        h.retain_disks("quiet archive cadence");
+    }
+    let closed = h.close().await;
+    work?;
+    closed
+}
+
 pub(crate) async fn s3_background_capacity_cadence(
     rooted: bool,
     expired_foreground: bool,

@@ -695,7 +695,8 @@ pub(super) async fn drive(
             &uploaded,
             receiver(registration)?,
         )
-        .await?;
+        .await?
+        .retain_joined_replay()?;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "verified");
     record.pending = Pending::Publish {
         ticket,

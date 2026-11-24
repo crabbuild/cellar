@@ -29,6 +29,7 @@ use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
     s3_evicted_receipt_ignores_unarchived_sibling,
+    s3_foreground_progresses_during_background_publication,
     s3_foreground_receipt_precedes_queued_background_archive,
     s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
     s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
@@ -48,7 +49,9 @@ pub(crate) use connection_idle::peer_connection_idle;
 
 #[path = "cell_group_s3_capacity.rs"]
 mod capacity;
-pub(crate) use capacity::{s3_background_capacity_cadence, s3_capacity_release};
+pub(crate) use capacity::{
+    quiet_archive_preserves_background_cadence, s3_background_capacity_cadence, s3_capacity_release,
+};
 
 #[path = "cell_group_s3_payload_capacity.rs"]
 mod payload_capacity;
