@@ -548,6 +548,11 @@ async fn rustfs_outbox_claim_and_intent_share_the_first_source_proof() -> Result
     Box::pin(events::work_proof::qualify(true)).await
 }
 
+#[test]
+fn outbox_image_observer_ignores_unrelated_directory_sync() -> Result<()> {
+    events::work_proof::qualify_observer()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "diagnostic: complete EventStream case with target publication phases"]
 async fn trace_event_stream_target_publication() -> Result<()> {

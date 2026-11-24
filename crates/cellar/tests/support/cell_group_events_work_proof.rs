@@ -216,6 +216,43 @@ impl FileSystem for Files {
     }
 }
 
+pub fn qualify_observer() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let directory = root.path().join("raft-cells/images");
+    DirectFileSystem.create_dir_all(&directory)?;
+    let fixture = root.path().join("fixture.db");
+    let db = rusqlite::Connection::open(&fixture)?;
+    db.execute_batch("CREATE TABLE __sys_outbox_lanes(dispatch_generation,attempts,retry_at_ms);
+        INSERT INTO __sys_outbox_lanes VALUES(0,0,0);
+        CREATE TABLE __sys_raft_native_work(reason,claimed);
+        INSERT INTO __sys_raft_native_work VALUES('outbox',1);
+        CREATE TABLE __sys_raft_receipts(operation,rpc_step,minimum_durability);
+        INSERT INTO __sys_raft_receipts VALUES('__sys_raft_native_work',x'0000000000000001',0);")?;
+    drop(db);
+    let bytes = DirectFileSystem.read(&fixture)?;
+    let files = Files {
+        first: Mutex::new(None),
+        candidates: Mutex::new(BTreeMap::new()),
+        store: Arc::new(catalog_fault::Store::default()),
+        cut: AtomicBool::new(false),
+    };
+    let path = directory.join("candidate.sqlite");
+    let mut image = files.create_read_write(&path)?;
+    image.write_all(&bytes[..100])?;
+    // Another store operation can sync this shared inventory while this
+    // generation is still being written. That must not trigger inspection.
+    files.sync_all(&directory)?;
+    ensure!(files.first.lock().unwrap().is_none(), "unrelated directory sync inspected an unfinished image");
+    image.write_all_at_window(0, &bytes)?;
+    image.sync_all()?;
+    let first = files.first.lock().unwrap();
+    let checkpoint = first.as_ref().context("completed image was not observed")?
+        .as_ref().map_err(|error| anyhow::anyhow!(error.clone()))?;
+    ensure!(checkpoint.intents == 0 && !checkpoint.reserved && checkpoint.minimum == 0,
+        "observer did not inspect its completed image: {checkpoint:?}");
+    Ok(())
+}
+
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
     for minimum in [Durability::Quorum, Durability::S3] {
         let store = Arc::new(if real_rustfs {
