@@ -8,7 +8,33 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The current delivery is [PR #184](https://github.com/crabbuild/cellar/pull/184),
+The [fresh verification](optimization-progress.md#fresh-main-and-constrained-runtime-verification)
+starts from main `86cfe5d1c` (#184/#185). Draft
+[#187](https://github.com/crabbuild/cellar/pull/187) retains eight idle hints within
+the existing memory bound and reuses a joined committed successor's active item
+under full apply admission. Compiler inputs `61ed9d55` also keep deferred commit
+metadata out of local checkpoint writes. Both new owning cases fail before that
+repair and pass afterward. All **38 checkpoint/commit controls**, **16 prefetch
+controls**, **1,431 library tests** with two existing ignores, **13 public RF3
+selections** and **13 native service selections** pass. Strict Clippy and
+repository checks pass.
+
+The USB-backed native service capture passes **6/13 complete selections**.
+Matched rooted C4 controls pass both baseline and candidate internal-filesystem
+runs; the candidate passes one of two USB runs. Full service requalification on
+the normal internal persistent temporary filesystem passes **13/13** with the
+original time windows, identities and admission limits. The earlier `fe495002`
+constrained smoke passes **16/24 source cases**. The paired `a53855fb` smoke
+passes every Fleet/Bucket case and fails every Raft case on both sources. The
+first captured runtime error is a mixed local checkpoint write; the repair
+passes SQL/KV smoke in all four modes and publishes actual checkpoints. Queue
+Quorum still fails C16 with healthy runtimes: the original sequence retains
+ambiguous deadlines, and a fresh C16-only diagnostic retains immediate ambiguous
+overload responses. Failed captures remain retained. Full comparison is pending.
+Earlier private bundles were cleaned up; the current campaign uses a new evidence
+baseline. The older source-pinned checkpoints below retain their historical scope.
+
+The preceding delivery was [PR #184](https://github.com/crabbuild/cellar/pull/184),
 synced with main `2a37acf6a` (#185), with its documentation conflict resolved.
 Merged runtime `10fb1775d` batches the Outbox claim, retry reservation and
 binding intent into their mandatory source proof before dispatch. Its new
@@ -16,7 +42,7 @@ control passes Quorum and S3 sources against real RustFS, including scoped
 archive refusal, autonomous recovery and unchanged destination records after
 receipt replay. Both full six-thread library runs pass 1,428 tests with zero
 failures and two existing ignores. Build, strict Clippy and repository checks
-pass. The current library gate is green; prior failed runs retain their pins.
+pass. That library gate is green; prior failed runs retain their pins.
 
 The [merged qualification](progress.md#cg-17-outbox-proof-and-main-185-qualification)
 still fails original EventStream Consume in native, Axum and RustFS paths.
@@ -44,6 +70,42 @@ below precede this integration. They do not qualify the combined runtime.
 
 ## Current optimization follow-up
 
+C2 and C4 cap in-flight producer requests at two and four. Rooted cases use
+extent-backed SQL images; materialized cases use complete images.
+
+The baseline is `86cfe5d1c`, and the current candidate's compiler inputs are
+`61ed9d55`. Its owning, library and selected public controls pass. Native storage
+controls distinguish the earlier USB profile from the normal temporary
+filesystem, where all 13 service selections pass. The new constrained comparison
+remains required. The current priorities are:
+
+1. **P0: Resolve Queue admission and latency failures at C16.** The checkpoint
+   crash has an owning red/green regression and SQL/KV cross the repaired
+   boundary in capped containers. Queue retains healthy runtimes but fails on
+   ambiguous deadlines or immediate overload. Diagnose the refusing bank and
+   physical preparation/source-proof contention before changing admission.
+   Preserve full byte charges, physical joins, exact identities, delivery and
+   settlement checks, original deadlines and unconfirmed mutation evidence.
+2. **P0: Complete the unchanged capped smoke.** Repeat all SQL/KV/Queue modes
+   with three 1-vCPU/2-GiB nodes, three RF3 groups, shared RustFS and C1/4/16.
+   SQL/KV currently pass all four modes; Queue Quorum C16 blocks the combined
+   gate and the other Queue modes remain pending. Native C2/C4 pass on internal
+   storage with the original 3,000-ms RPC, 5,000-ms callback and 30-second drain
+   windows. Keep the failed USB profile separate and require joined shutdown.
+3. **P1: Complete the requested constrained comparison.** After smoke passes,
+   run all SQL/KV/Queue modes at C1/4/16 for 30 seconds and two reversed repeats,
+   with three 1-vCPU/2-GiB RF3 nodes, three groups, capped client/store and shared
+   RustFS. Keep the 6-GiB reserve and compare only reconciled completed cases.
+   Report each durability/read contract and complete latency distributions.
+   Measurements are explicitly scoped to the shared host; record host load and
+   preserve the requested container limits.
+4. **P1: Close architecture and recovery acceptance.** Complete non-replica
+   ingress, routing/read negatives, scheduling fairness, physical reclamation,
+   reserve-aware lifecycle and the combined public/fault/recovery matrix. The
+   three-all-voter-group topology does not qualify non-replica ingress.
+
+### Earlier successor checkpoint
+
 Merged [#183](https://github.com/crabbuild/cellar/pull/183) is the base for the
 verified ingress-successor follow-up at compiler inputs `99a34233`. Four fixed
 node-local metadata slots retain single-use advice between independent requests;
@@ -62,7 +124,7 @@ The preceding committed-pair checkpoint at `bb1b2cac` passed 48 selected control
 and **5/13** service selections. The separate captures are not a matched
 performance comparison. Their failures remain in the [earlier evidence](optimization-progress.md#committed-preparation-with-main-182).
 
-The next optimization priorities are:
+The priorities recorded at that earlier checkpoint were:
 
 1. **P0: Close repeatable ordinary service.** Reproduce the SQL/KV,
    callback and Queue C2/C4 deadline/timeout failures with their original identities,
