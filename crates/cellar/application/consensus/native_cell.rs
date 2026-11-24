@@ -830,6 +830,7 @@ impl NativeCellFactory {
         let storage = context.storage()?;
         let state = context.state.clone();
         let workflow = crate::deploy::is_workflow_class(&self.class);
+        let kv_expiry = matches!(&self.factory, Factory::Kv);
         let at_ms = transaction.inputs().now_unix_millis;
         let retire = workflow.then(|| (instance.resources(), state.clone()));
         let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
@@ -841,7 +842,7 @@ impl NativeCellFactory {
                 // It acquires the actual namespace protocol without waiting,
                 // performs only SQL expiry, and cannot enter provider I/O.
                 // Claim, deletion, rearm and completion share the final proof.
-                if work.reason == "alarm" {
+                if work.reason == "alarm" && kv_expiry {
                     let expired = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         instance.0.try_kv_expiry(at_ms)
                     }))
