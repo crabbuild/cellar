@@ -137,7 +137,7 @@ pub(super) struct Journal {
     _lock: HostFileLock,
     poisoned: AtomicBool,
     #[cfg(test)]
-    attempts: std::sync::atomic::AtomicUsize,
+    pub(super) attempts: std::sync::atomic::AtomicUsize,
 }
 
 pub(super) fn key(claim: &ExecutionClaim) -> String {

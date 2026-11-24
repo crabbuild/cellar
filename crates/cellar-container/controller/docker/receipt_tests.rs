@@ -200,6 +200,7 @@ async fn absent_expiry_receipts_require_physical_admission() -> Result<()> {
             )?,
         };
         let admission = f.backend.admission.exclusive().await;
+        let attempts = f.backend.journal.attempts.load(Ordering::Acquire);
         let blocked = domain
             .run(async {
                 cellar::asyncrt::timeout(
@@ -214,6 +215,10 @@ async fn absent_expiry_receipts_require_physical_admission() -> Result<()> {
         ensure!(
             blocked.is_err(),
             "absence was sealed without excluding queued physical submission"
+        );
+        ensure!(
+            f.backend.journal.attempts.load(Ordering::Acquire) == attempts,
+            "absence entered journal persistence before physical admission"
         );
         ensure!(f
             .backend
@@ -355,6 +360,7 @@ async fn absent_expiry_waits_for_its_own_binding_fence() -> Result<()> {
             .admission
             .resource(&journal::key(&f.current))
             .await?;
+        let attempts = f.backend.journal.attempts.load(Ordering::Acquire);
         let blocked = domain
             .run(async {
                 cellar::asyncrt::timeout(
@@ -369,6 +375,10 @@ async fn absent_expiry_waits_for_its_own_binding_fence() -> Result<()> {
         ensure!(
             blocked.is_err(),
             "same-binding absence bypassed its physical fence"
+        );
+        ensure!(
+            f.backend.journal.attempts.load(Ordering::Acquire) == attempts,
+            "same-binding absence entered persistence behind its fence"
         );
         ensure!(f
             .backend
