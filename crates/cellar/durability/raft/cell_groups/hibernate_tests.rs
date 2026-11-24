@@ -674,7 +674,16 @@ async fn exercise_park(enter_park: bool) -> anyhow::Result<()> {
         let prepare = work.clone();
         let applier = applier.clone();
         let next = domain
-            .blocking(move || applier.prepare(&prepare))?
+            .blocking(move || {
+                let performance = crate::raft::performance::Registry::new(
+                    crate::asyncrt::services().domain_token().ok_or(
+                        crate::raft::execution::ExecutionError::Invalid("park apply domain"),
+                    )?,
+                );
+                applier
+                    .prepare(&prepare, &performance, None, |_| Ok(None))
+                    .map(|result| result.first)
+            })?
             .await??;
         runtime.complete_apply(history, work, next).await?;
         let event = domain

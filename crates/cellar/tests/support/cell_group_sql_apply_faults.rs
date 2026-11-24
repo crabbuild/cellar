@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 #[allow(dead_code)]
 pub(super) mod physical;
 
-async fn pending(
+pub(super) async fn pending(
     rooted: bool,
     manifest: bool,
 ) -> Result<(
@@ -157,7 +157,51 @@ pub(crate) async fn failure(rooted: bool) -> Result<()> {
         faults
             .mode
             .store(physical::FAIL_DIRECTORY_SYNC, Ordering::Release);
+        let phase_before = fixture.cluster.voters[0].log.performance_snapshot();
         assert!(pool.prepare_apply(applier, work).await.is_err());
+        let phase_after = fixture.cluster.voters[0].log.performance_snapshot();
+        assert!(phase_before.available && phase_after.available);
+        assert!(!phase_before.saturated && !phase_after.saturated);
+        // The real injected directory barrier decides which phase fails.
+        // Later phases must not start after image preparation has failed.
+        for name in [
+            "sql_image_prepare",
+            "sql_image_inspect",
+            "sql_manifest_prepare",
+        ] {
+            let before = phase_before
+                .operations
+                .iter()
+                .find(|sample| sample.name == name)
+                .context("apply phase before")?;
+            let after = phase_after
+                .operations
+                .iter()
+                .find(|sample| sample.name == name)
+                .context("apply phase after")?;
+            let entered = manifest || name == "sql_image_prepare";
+            let failed = if manifest {
+                name == "sql_manifest_prepare"
+            } else {
+                name == "sql_image_prepare"
+            };
+            assert_eq!(
+                after.started - before.started,
+                u64::from(entered),
+                "phase {name}"
+            );
+            assert_eq!(
+                after.failed - before.failed,
+                u64::from(failed),
+                "phase {name}"
+            );
+            assert_eq!(
+                after.succeeded - before.succeeded,
+                u64::from(entered && !failed),
+                "phase {name}"
+            );
+            assert_eq!(after.abandoned, before.abandoned, "phase {name}");
+        }
         assert_eq!(
             faults.mode.load(Ordering::Acquire),
             0,

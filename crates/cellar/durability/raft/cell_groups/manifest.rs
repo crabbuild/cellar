@@ -318,6 +318,18 @@ impl ManifestTree {
         leaf: CellManifestLeaf,
         expected: Option<&CellVersion>,
     ) -> Result<ManifestRoot, ManifestError> {
+        store.with_directory_batch(|store| self.update_in_batch(store, root, leaf, expected))
+    }
+
+    // Only a logical root escapes this helper. Its caller must finish the
+    // complete directory batch before creating any prepared physical closure.
+    pub(super) fn update_in_batch(
+        &self,
+        store: &mut ManifestPageStore,
+        root: ManifestRoot,
+        leaf: CellManifestLeaf,
+        expected: Option<&CellVersion>,
+    ) -> Result<ManifestRoot, ManifestError> {
         let key = leaf.validate(&self.route)?;
         let current = self.get(store, root, &leaf.version.history.cell)?;
         match (&current, expected) {
@@ -340,10 +352,8 @@ impl ManifestTree {
             }
             _ => return Err(ManifestError::Conflict),
         }
-        store.with_directory_batch(|store| {
-            self.insert(store, root.0, leaf, &key, 0)
-                .map(|p| ManifestRoot(Some(p)))
-        })
+        self.insert(store, root.0, leaf, &key, 0)
+            .map(|p| ManifestRoot(Some(p)))
     }
 
     /// Walk the entire authenticated closure before recovery admission. The

@@ -109,6 +109,7 @@ fn cached_result_without_live_preparation_still_replays_exact_input() -> anyhow:
                     decoded_bytes: decoded.decoded_bytes(),
                 }],
                 max_effect_rows: 100,
+                observations: ApplyObservations::default(),
             },
             false,
             None,

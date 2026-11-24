@@ -8,7 +8,43 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The current delivery is [PR #182](https://github.com/crabbuild/cellar/pull/182),
+## Current optimization follow-up
+
+PR [#183](https://github.com/crabbuild/cellar/pull/183) includes merged main
+`ff5cdec33` (#182) and bounded committed-pair preparation at compiler inputs
+`bb1b2cac`. All 48 selected correctness controls pass, including fresh SDK reply
+fences and archive-retirement isolation. The repeated native service campaign
+passes **5/13** complete selections: SQL **2/2**, KV **1/2**, Queue callbacks
+**1/2**, combined C2 **0/2**, separate extent load **1/1**, and C4 **0/4**.
+These passes do not qualify full service or a low-latency/throughput gain. See
+[exact scope and retained earlier failures](optimization-progress.md#committed-preparation-with-main-182).
+
+The next optimization priorities are:
+
+1. **P0: Close repeatable ordinary service.** Reproduce the remaining KV,
+   callback and Queue C2/C4 request deadlines with their original identities,
+   typed ambiguity, admission banks and 3,000-ms RPC / 5,000-ms callback /
+   30-second drain windows. Preserve exact delivery/uniqueness and the independent
+   producer-quiescence proof at retained restart/close. Keep all failed controls.
+2. **P0: Account for the remaining persistence path.** Separate packed-manifest
+   file sync, directory sync, selector publication and the point at which an
+   eligible committed successor becomes available. Current aggregate manifest
+   means are about 100–167 ms; refusal counters do not establish a quota repair.
+   Require an owning red-to-green regression and the complete unchanged service
+   campaign for each next reduction or overlap of measured work.
+3. **P1: Close complete optimization and recovery acceptance.** Finish the
+   remaining OPT routing/read negative paths, bounded scheduling fairness,
+   physical reclamation and reserve-aware lifecycle work, then the combined
+   SDK/public/fault and fenced recovery matrix. The broader primitive delivery
+   milestones below remain required.
+4. **P1: Run the requested constrained comparison after admission passes.**
+   Require fresh evidence for three 1-vCPU/2-GiB RF3 nodes/three groups and the
+   original shared RustFS reserve before the SQL/KV/Queue Quorum, Quorum+S3,
+   Fleet and Bucket matrix at C1/4/16 with reversed repeats. The last original
+   RustFS witness reports zero available bytes against the unchanged 6-GiB
+   reserve. No new original-store probe or constrained case is admitted here.
+
+Merged main `ff5cdec33` includes [PR #182](https://github.com/crabbuild/cellar/pull/182),
 based on main `0f3b18e79` after merged #181 and #167. Runtime `37d53e781`
 adds original-invocation checks after SDK polling and at queued reply delivery.
 The public RF3 regression passes both image forms; 1,417 library tests pass.
@@ -40,7 +76,62 @@ The immediate delivery order is:
 The [full delivery milestones](#primitive-delivery-priority) and task acceptance
 definitions retain their original requirements; no acceptance case is waived.
 
-## Earlier optimization checkpoints
+## Optimization status before #182
+
+### Current main: service deadlines remain open
+
+PR #167 is merged. Reverification of main `0f3b18e7`, compiler inputs
+`31dfbc55`, passes the original SQL binding and Queue callback cases. The
+original KV case fails rooted `PublicLarge` with a definite runtime overload.
+Two fixed, unchanged rooted Queue C4 controls reach load and fail three and four
+producers respectively with deadline errors. Both report joined cleanup without
+errors. These are native RF3 fixtures, not the constrained Colima comparison.
+
+A one-function SQL continuation scheduling experiment at inputs `28b5d89c`
+also fails both fixed C4 repetitions, with four producer failures in each.
+Its cleanup reports pass, but it closes neither the service deadline nor a
+throughput/latency gate. The runtime change is rejected and restored to main.
+All failed media, immutable executables and independently checked copies remain
+retained outside this documentation tree. See the
+[current-main evidence](optimization-progress.md#merged-main-service-reverification).
+
+Live apply observations at compiler inputs `be721db4` now separate image
+preparation, immutable SQLite inspection and changed-manifest persistence.
+Seven owning controls pass, including real image/manifest sync failures and
+cancelled cleanup in both image modes. Two original C4 repetitions still fail
+three and four producers with joined cleanup. Manifest preparation averages
+about 91–109 ms in the aggregate snapshots; immutable inspection about
+0.9–1.2 ms. These are diagnostic operation means, not request percentiles or a
+speedup. See the [phase measurements](optimization-progress.md#live-apply-phase-observations).
+
+The priorities at this checkpoint were:
+
+1. **Account for manifest/image persistence and receipt settlement barriers.**
+   The live-apply phase split is implemented and tested. Count actual file and
+   directory barriers within the measured expensive preparation paths before
+   choosing the next change. The current C4 snapshots show no SQL admission
+   refusals; changing admission limits is not an established repair.
+2. **Reduce demonstrated work within existing bounds.** Assess opportunistic
+   preparation/publication of a contiguous committed prefix, preserving exact
+   receipts, Ready/sync ordering, complete root publication, original deadlines,
+   FIFO and physical task custody. Existing engine persistence batching and
+   per-image directory batching already exist; their presence does not qualify
+   end-to-end apply batching or justify removing a persistence barrier.
+3. **Close repeatable Quorum service before performance acceptance.** Require
+   unchanged SQL/KV/Queue conformance, C2/C4 load and drain in both image modes,
+   source-proof refusal, original-ID reconciliation and joined recovery/cleanup.
+   Retain every failed control when evaluating a candidate.
+4. **Run the requested constrained comparison after its admission gates pass.**
+   The original RustFS setup still lacks a passing capacity witness against its
+   unchanged 6 GiB reserve. No new RustFS probe or constrained case was admitted
+   during this reverification. Three-node resource evidence and the complete
+   SQL/KV/Queue comparison remain open.
+
+No fully working primitive release or low-latency/throughput improvement is
+qualified by this checkpoint. The broader OPT/CG/SDK/recovery gates below remain
+open.
+
+## Prior integration checkpoints
 
 An earlier optimization checkpoint integrates main `a85ab6f6c` (#180). Compiler inputs
 `4bcd59fd` pass **1,410 library tests / two existing ignores**, **29/30 selected

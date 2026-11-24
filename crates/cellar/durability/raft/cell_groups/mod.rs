@@ -59,6 +59,7 @@ mod dispatch;
 pub use disaster::CellGroupPermanentFenceAuthority;
 mod host;
 pub(crate) use apply::images::image_id as materialized_image_id;
+pub(crate) use apply::{ApplyPreparation, PrefetchedApply};
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
 pub use dispatch::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
