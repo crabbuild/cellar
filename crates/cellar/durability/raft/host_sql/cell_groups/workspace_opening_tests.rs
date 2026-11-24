@@ -4,6 +4,8 @@
 #![allow(clippy::disallowed_methods)]
 
 use super::*;
+#[path = "workspace_capacity_tests.rs"]
+mod capacity;
 use cellar_logic::consensus::{ClusterId, IncarnationId, NamespaceId};
 use cellar_ltx::{
     internal::{CacheLimits, NodeExtentLimits, NodeExtentStore, EXTENT_BYTES},
@@ -149,6 +151,13 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> anyhow::Result<Self> {
+        Self::with_capacity(2, |charge| 2 * charge)
+    }
+
+    fn with_capacity(
+        max_workspaces: usize,
+        max_bytes: impl FnOnce(u64) -> u64,
+    ) -> anyhow::Result<Self> {
         let mut root = tempfile::tempdir()?;
         root.disable_cleanup(true);
         eprintln!("retained workspace opening disk: {}", root.path().display());
@@ -159,8 +168,8 @@ impl Fixture {
             root.path().join("store"),
             files.clone(),
             NodeExtentLimits {
-                max_bytes: 2 * charge,
-                max_workspaces: 2,
+                max_bytes: max_bytes(charge),
+                max_workspaces,
                 ..Default::default()
             },
         )?;

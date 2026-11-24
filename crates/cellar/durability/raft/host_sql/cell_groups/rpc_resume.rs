@@ -103,8 +103,13 @@ impl Suspended {
                 return Poll::Ready(Err(unavailable()));
             }
             self.activation = Some(activation);
+            let task = SqlOpening::new(&self.options, &self.cell, domain, lane);
+            let task = match self.mode {
+                CellSqlStageMode::InvokeBefore(deadline) => task.wait_for_capacity_before(deadline),
+                _ => task,
+            };
             self.opening = Some(ResumeOpening {
-                task: SqlOpening::new(&self.options, &self.cell, domain, lane),
+                task,
                 authority: Some(authority),
             });
         }

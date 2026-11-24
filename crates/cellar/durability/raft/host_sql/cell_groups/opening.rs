@@ -224,8 +224,18 @@ impl Cells {
         match start {
             Ok(Start::Opening(starting)) => {
                 let (options, starting) = *starting;
+                let task = SqlOpening::new(&options, &cell, domain, self.workspace_lane.clone());
+                let task = match &starting {
+                    Starting::Command(command) => match command.stage.mode {
+                        CellSqlStageMode::InvokeBefore(deadline) => {
+                            task.wait_for_capacity_before(deadline)
+                        }
+                        _ => task,
+                    },
+                    Starting::Enrollment(_) => task,
+                };
                 self.opening.push_back(Opening {
-                    task: SqlOpening::new(&options, &cell, domain, self.workspace_lane.clone()),
+                    task,
                     cell,
                     starting,
                     reply,
