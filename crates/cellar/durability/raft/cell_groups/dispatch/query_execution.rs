@@ -281,34 +281,19 @@ impl CellQueryExecution {
                 )
                 .await;
             match selected {
-                Err(ExecutionError::Storage(cause))
-                    if may_wait
-                        && matches!(
-                            cause.downcast_ref::<RuntimeError>(),
-                            Some(RuntimeError::NotReady)
-                        ) =>
-                {
-                    // Only the private event reader can defer its selected
-                    // output. SQL has joined without a result or archive hold.
-                    // Park this same invocation until this exact cell advances,
-                    // then obtain fresh quorum authority before inspecting it.
-                    // Neither unrelated group progress nor an old token wakes
-                    // it; the attempt, fence and absolute deadline are retained.
-                    consistency = CellReadConsistency::LinearizableAfter(observed);
-                }
-                result => {
-                    break result.map_err(|error| {
-                        // The SQL waiter's deadline has the same routing meaning
-                        // as the outer timer; ordinary storage failures stay fatal.
-                        if matches!(&error, ExecutionError::Storage(cause)
-                            if matches!(cause.downcast_ref::<RuntimeError>(), Some(RuntimeError::DeadlineExceeded)))
-                        {
-                            CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
-                        } else {
-                            CellDispatchError::Execution(error)
-                        }
-                    })?;
-                }
+                Err(error) => match classify_query_error(error, may_wait) {
+                    QueryError::WaitForChange => {
+                        // Only the private event reader can defer its selected
+                        // output. SQL has joined without a result or archive hold.
+                        // Park this same invocation until this exact cell advances,
+                        // then obtain fresh quorum authority before inspecting it.
+                        // Neither unrelated group progress nor an old token wakes
+                        // it; the attempt, fence and absolute deadline are retained.
+                        consistency = CellReadConsistency::LinearizableAfter(observed);
+                    }
+                    QueryError::Return(error) => return Err(error),
+                },
+                Ok(selected) => break selected,
             }
         };
         if let Some(term) = queue_term {
@@ -374,3 +359,27 @@ impl CellQueryExecution {
             .map_err(|_| closed())
     }
 }
+
+enum QueryError {
+    WaitForChange,
+    Return(CellDispatchError),
+}
+
+fn classify_query_error(error: ExecutionError, may_wait: bool) -> QueryError {
+    if let ExecutionError::Storage(cause) = &error {
+        match cause.downcast_ref::<RuntimeError>() {
+            Some(RuntimeError::NotReady) if may_wait => return QueryError::WaitForChange,
+            Some(RuntimeError::DeadlineExceeded) => {
+                return QueryError::Return(CellDispatchError::Runtime(
+                    RuntimeError::DeadlineExceeded,
+                ));
+            }
+            _ => (),
+        }
+    }
+    QueryError::Return(CellDispatchError::Execution(error))
+}
+
+#[cfg(test)]
+#[path = "query_execution_tests.rs"]
+mod tests;
