@@ -216,9 +216,20 @@ impl FileSystem for Files {
     }
 }
 
-pub async fn qualify() -> Result<()> {
+pub async fn qualify(real_rustfs: bool) -> Result<()> {
     for minimum in [Durability::Quorum, Durability::S3] {
-        let store = Arc::new(catalog_fault::Store::default());
+        let store = Arc::new(if real_rustfs {
+            catalog_fault::Store::around(rustfs::store(
+                if minimum == Durability::S3 {
+                    "outbox-proof-s3"
+                } else {
+                    "outbox-proof-quorum"
+                },
+                false,
+            )?)
+        } else {
+            catalog_fault::Store::default()
+        });
         let files = Arc::new(Files {
             first: Mutex::new(None),
             candidates: Mutex::new(BTreeMap::new()),
@@ -378,13 +389,14 @@ pub async fn qualify() -> Result<()> {
                         .deny_sandbox_parent_writes
                         .store(false, Ordering::Release);
                 }
-                cellar::asyncrt::timeout(Duration::from_secs(60), async {
+                let delivered = cellar::asyncrt::timeout(Duration::from_secs(60), async {
                     loop {
                         let records = read(&cluster, leader).await?;
-                        let envelopes: Vec<events::Envelope> = serde_json::from_value(records)?;
+                        let envelopes: Vec<events::Envelope> =
+                            serde_json::from_value(records.clone())?;
                         if envelopes.len() == 1 {
                             ensure!(envelopes[0].key == "order-1", "unexpected event key");
-                            return Ok::<_, anyhow::Error>(());
+                            return Ok::<_, anyhow::Error>(records);
                         }
                         ensure!(envelopes.is_empty(), "duplicate destination events");
                         cellar::asyncrt::sleep(Duration::from_millis(100)).await;
@@ -409,6 +421,10 @@ pub async fn qualify() -> Result<()> {
                         == json!([1, null]),
                     "source callback repeated"
                 );
+                ensure!(
+                    read(&cluster, leader).await? == delivered,
+                    "receipt replay duplicated destination events"
+                );
                 Ok::<_, anyhow::Error>(())
             })
             .await
@@ -431,7 +447,7 @@ pub async fn qualify() -> Result<()> {
         domain.shutdown().await;
         work?;
         close?;
-        eprintln!("outbox_work_proof_configuration minimum={minimum:?} materialized=true passed");
+        eprintln!("outbox_work_proof_configuration minimum={minimum:?} materialized=true real_rustfs={real_rustfs} passed");
     }
     Ok(())
 }

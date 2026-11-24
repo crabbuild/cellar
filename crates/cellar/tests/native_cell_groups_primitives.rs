@@ -539,7 +539,13 @@ async fn ordinary_event_streams_activate_deliver_and_recover_through_shared_quor
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn outbox_claim_and_intent_share_the_first_source_proof() -> Result<()> {
-    Box::pin(events::work_proof::qualify()).await
+    Box::pin(events::work_proof::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_outbox_claim_and_intent_share_the_first_source_proof() -> Result<()> {
+    Box::pin(events::work_proof::qualify(true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
