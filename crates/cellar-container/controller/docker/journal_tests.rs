@@ -148,6 +148,90 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn cancelled_submission_finishes_its_unentered_reservation() -> Result<()> {
+    use cellar::sdk::containers::ExecutionControllerBackend;
+
+    let files = Arc::new(Files::default());
+    let domain = Arc::new(ExecutionDomain::with_filesystem(
+        tokio::runtime::Handle::current(),
+        files.clone(),
+        None,
+    ));
+    let f = super::super::receipt_tests::fixture_in_domain(domain.clone()).await?;
+    let result = domain
+        .run(async {
+            // This is the real backend's reservation and original deadline. The
+            // unopened Engine socket makes any unintended execution fail the oracle.
+            let mut claim = serde_json::to_value(&f.current)?;
+            claim["checkpoint"]["record"]["intent"] = serde_json::json!("deleted");
+            claim["checkpoint"]["record"]["resource_id"] = serde_json::json!("c".repeat(64));
+            let claim: ExecutionClaim = serde_json::from_value(claim)?;
+            let key = key(&claim);
+            let install = claim.clone();
+            f.backend
+                .update(move |state| {
+                    let slot = state.slots.get_mut(&key).context("test fence")?;
+                    slot.high = install;
+                    slot.operations.clear();
+                    Ok(())
+                })
+                .await?;
+            let request =
+                super::super::Request::new(crate::Operation::Destroy, serde_json::json!({}));
+            let payload = serde_json::to_vec(&request)?;
+            let operation = ExecutionOperation::new(
+                [9; 16],
+                cellar::sdk::containers::ExecutionOperationKind::Delete,
+                &payload,
+                u64::try_from(cellar::asyncrt::wall_ms())? + 1500,
+            )?;
+            let expires = operation.expires_unix_ms;
+            let backend = f.backend.clone();
+            let pending_claim = claim.clone();
+            let pending_operation = operation.clone();
+            files.arm(false);
+            let caller = tokio::spawn(async move {
+                backend
+                    .execute(pending_claim, pending_operation, payload)
+                    .await
+            });
+            files.wait_entered().await?;
+            caller.abort();
+            ensure!(caller.await.is_err_and(|error| error.is_cancelled()));
+            while u64::try_from(cellar::asyncrt::wall_ms())? <= expires {
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+            files.release();
+            let original = ExecutionPendingOperation {
+                claim: claim.clone(),
+                operation,
+            };
+            cellar::asyncrt::timeout(Duration::from_secs(3), async {
+                loop {
+                    let outcome = f.backend.journal.view(|state| {
+                        Ok(state
+                            .original_operation(&claim, &original)?
+                            .and_then(|operation| operation.outcome.clone()))
+                    })?;
+                    if let Some(outcome) = outcome {
+                        ensure!(outcome == ExecutionOutcome::ExpiredBeforeSubmission,
+                        "cancelled pre-entry submission acquired an Engine outcome: {outcome:?}");
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .context("cancelled reservation lost its owner before Engine entry")??;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    files.release();
+    domain.shutdown().await;
+    result?
+}
+
+#[tokio::test]
 async fn durable_snapshot_reads_do_not_wait_for_directory_sync() -> Result<()> {
     let f = Fixture::new().await?;
     let result = f

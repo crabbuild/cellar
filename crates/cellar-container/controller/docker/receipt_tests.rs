@@ -15,14 +15,21 @@ impl DockerHistoryFence for RefuseHistory {
     }
 }
 
-struct Fixture {
-    backend: Arc<DockerBackend>,
-    current: ExecutionClaim,
+pub(super) struct Fixture {
+    pub(super) backend: Arc<DockerBackend>,
+    pub(super) current: ExecutionClaim,
     known: ExecutionPendingOperation,
     unknown: ExecutionPendingOperation,
 }
 
 async fn fixture() -> Result<Fixture> {
+    fixture_in_domain(Arc::new(ExecutionDomain::new(
+        tokio::runtime::Handle::current(),
+    )))
+    .await
+}
+
+pub(super) async fn fixture_in_domain(domain: Arc<ExecutionDomain>) -> Result<Fixture> {
     let root = tempfile::tempdir()?.keep();
     eprintln!("retained Docker receipt concurrency: {}", root.display());
     let options = DockerOptions {
@@ -62,7 +69,6 @@ async fn fixture() -> Result<Fixture> {
         "binding":identity.binding,"key":key,"sequence":1,"owner":"d".repeat(64),
         "checkpoint":{"revision":1,"activation_epoch":1,"record":{"provider":identity.provider,"configuration_digest":identity.configuration_digest,"parameters_digest":"e".repeat(64),"generation":1,"request_id":"f".repeat(32),"resource_id":null,"intent":"running","observation":"pending"}}
     }))?;
-    let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let fs = domain.run(async { cellar::asyncrt::fs() }).await?;
     let policy = options.clone();
     let journal = domain
