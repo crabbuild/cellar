@@ -115,7 +115,7 @@ pub(super) struct Journal {
     // Physical replacement has one writer. Published state remains available
     // to synchronous admission/receipt reads while that writer syncs files.
     writer: Mutex<()>,
-    state: Mutex<State>,
+    state: Mutex<Arc<State>>,
     _lock: HostFileLock,
     poisoned: AtomicBool,
     #[cfg(test)]
@@ -182,7 +182,7 @@ impl Journal {
             options,
             fs,
             writer: Mutex::new(()),
-            state: Mutex::new(state.clone()),
+            state: Mutex::new(Arc::new(state.clone())),
             _lock: lock,
             poisoned: AtomicBool::new(false),
             #[cfg(test)]
@@ -235,7 +235,7 @@ impl Journal {
             options,
             fs,
             writer: Mutex::new(()),
-            state: Mutex::new(state),
+            state: Mutex::new(Arc::new(state)),
             _lock: lock,
             poisoned: AtomicBool::new(false),
             #[cfg(test)]
@@ -264,7 +264,8 @@ impl Journal {
         let state = self
             .state
             .lock()
-            .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))?;
+            .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))?
+            .clone();
         ensure!(
             !self.poisoned.load(Ordering::Acquire) && !self.writer.is_poisoned(),
             ExecutionControllerFailure::Unavailable
@@ -293,11 +294,12 @@ impl Journal {
             !self.poisoned.load(Ordering::Acquire),
             "Docker backend storage is unavailable"
         );
-        let mut next = self
+        let current = self
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))?
             .clone();
+        let mut next = (*current).clone();
         let result = update(&mut next)?;
         ensure!(
             next.slots.len() <= self.options.max_resources
@@ -317,7 +319,7 @@ impl Journal {
         *self
             .state
             .lock()
-            .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))? = next;
+            .map_err(|_| anyhow::anyhow!("Docker backend state poisoned"))? = Arc::new(next);
         Ok(result)
     }
 

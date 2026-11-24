@@ -35,6 +35,9 @@ and joins the original I/O before releasing the job. A lost reply can be
 reconciled from its exact retained outcome. Unknown create, command or write
 outcomes are never inferred from a missing response or replayed. Missing,
 corrupt, incompatible or ambiguous mutation state refuses reopening.
+Reads observe the last synced snapshot while a separate writer serializes
+replacement. Unproven updates stay private. A failed persistence barrier or
+panicked writer refuses subsequent reads and queued writes on that live owner.
 
 An expired controller submission may have been cancelled before reaching this
 backend. Reconciliation serializes with physical admission and checks the exact
