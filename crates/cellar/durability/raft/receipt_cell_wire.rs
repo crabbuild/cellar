@@ -180,8 +180,8 @@ pub(in crate::raft) fn decode_result(
             }
             let token = crate::raft::version::CellVersionToken::from_encoded(&body.string(4096)?)
                 .map_err(|_| TransportError::Authentication)?;
-            let observation = keys
-                .verify_cell(&token, expected.1, schema, now)
+            let version = keys
+                .authenticate_cell(&token, expected.1, schema, now)
                 .map_err(|_| TransportError::Authentication)?;
             let retained = status == 0;
             let (minimum_durability, retry_until_ms, result) = if retained {
@@ -204,7 +204,7 @@ pub(in crate::raft) fn decode_result(
                     retry_until_ms,
                     value: cell::CellQueryValue {
                         result,
-                        observation,
+                        version,
                         token,
                         served_by,
                     },

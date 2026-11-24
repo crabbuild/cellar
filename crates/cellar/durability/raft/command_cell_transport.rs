@@ -84,7 +84,7 @@ impl CellRemoteCommandResponse {
     }
 
     pub fn observation(&self) -> &CellVersionObservation {
-        &self.value.value.observation
+        self.value.value.version.observation()
     }
 
     pub fn token(&self) -> &CellVersionToken {
@@ -158,7 +158,7 @@ impl CellRemoteReceiptResponse {
     }
 
     pub fn observation(&self) -> &CellVersionObservation {
-        &self.value.value.value.observation
+        self.value.value.value.version.observation()
     }
 
     pub fn token(&self) -> &CellVersionToken {

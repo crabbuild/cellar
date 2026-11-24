@@ -305,6 +305,10 @@ fixtures must be converted before they can qualify the shared runtime.
 - At most 64 verification keys are retained.
 - A token cannot outlive its signing key's verification deadline.
 - Future-issued or expired tokens are refused; clock skew/rollback can affect availability and supplies no strong-read proof.
+- Shared-cell query transport authenticates the reply against the invocation's
+  immutable keys, cell history and schema. The caller rechecks the signed time
+  bounds with a fresh wall-clock sample before enforcing the requested version
+  floor. Route and quorum checks establish authority separately.
 - The development counter uses a fixed test key; production callers must inject their own stable managed material.
 
 - Rotate with a verifier-first rolling deployment: distribute the new public key while the old signer remains active, then switch signers while retaining all unexpired verification keys.

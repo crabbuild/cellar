@@ -134,21 +134,12 @@ impl CellQueryExecution {
         if self.dispatcher.domain.mono_ms().map_err(|_| closed())? >= attempt.deadline_ms() {
             return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
         }
-        // Authenticate again at the caller boundary, then enforce the requested
-        // minimum independently from the destination's execution path.
-        let observation = self
-            .dispatcher
-            .keys
-            .verify_cell(
-                response.token(),
-                &attempt.request().cell,
-                attempt.route().schema_digest,
-                self.now().await?,
-            )
+        // The transport used this invocation's immutable key configuration,
+        // history and schema. Recheck the signed time bounds at the caller and
+        // enforce the requested version floor independently of the destination.
+        response
+            .check_version_time(self.now().await?)
             .map_err(CellDispatchError::Version)?;
-        if observation != *response.observation() {
-            return Err(CellDispatchError::Invalid("query observation"));
-        }
         if let CellQueryConsistency::AtLeast(token)
         | CellQueryConsistency::LinearizableAfter(token) = &self.request.consistency
         {
@@ -162,14 +153,14 @@ impl CellQueryExecution {
                     self.now().await?,
                 )
                 .map_err(CellDispatchError::Version)?;
-            if !observation
-                .version
+            let observed = &response.observation().version;
+            if !observed
                 .covers(&minimum.version)
                 .map_err(|_| CellDispatchError::Version(VersionError::WrongHistory))?
                 || matches!(
                     self.request.consistency,
                     CellQueryConsistency::LinearizableAfter(_)
-                ) && observation.version.sequence <= minimum.version.sequence
+                ) && observed.sequence <= minimum.version.sequence
             {
                 return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
             }

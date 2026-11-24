@@ -331,8 +331,8 @@ pub(in crate::raft) fn decode_reply(
             let retry_until_ms = u64::from_be_bytes(body.array()?);
             let token = crate::raft::version::CellVersionToken::from_encoded(&body.string(4096)?)
                 .map_err(|_| TransportError::Authentication)?;
-            let observation = keys
-                .verify_cell(&token, expected.1, schema, now)
+            let version = keys
+                .authenticate_cell(&token, expected.1, schema, now)
                 .map_err(|_| TransportError::Authentication)?;
             let length = u32::from_be_bytes(body.array()?) as usize;
             Ok(CellCommandValue {
@@ -341,7 +341,7 @@ pub(in crate::raft) fn decode_reply(
                 retry_until_ms,
                 value: cell::CellQueryValue {
                     result: body.take(length)?.to_vec(),
-                    observation,
+                    version,
                     token,
                     served_by,
                 },

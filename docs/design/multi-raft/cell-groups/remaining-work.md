@@ -87,6 +87,23 @@ The next optimization priorities are:
    RustFS witness reports zero available bytes against the unchanged 6-GiB
    reserve. No new original-store probe or constrained case is admitted here.
 
+## Remote read and local quorum evidence
+
+[Remote read reply authentication](optimization-progress.md#authenticate-remote-read-replies-once)
+now validates the signature once and retains the caller's time and version
+checks. The latest four-client RF3 captures verified SQL and KV, and both
+failed Queue. Trace the first controller closure during Queue enqueue and
+settlement while retaining the original mutation outcomes. An isolated
+baseline replay recorded a recent RustFS lease renewal on the failing voter.
+
+The [local quorum smoke on main `86cfe5d1`](optimization-progress.md#local-quorum-smoke-at-main-86cfe5d1)
+passed the managed daemon fault gate in both image modes. The post-build
+three-group primitive run passed at concurrency one and four. Its
+concurrency-16 follow-up passed SQL and KV writes, retained two KV read proof
+refusals and failed Queue warmup. Continue with request-level persistence
+timing, Queue dispatch and settlement, and clock diagnostics for the KV
+read refusals before repeating the sustained matrix.
+
 ## Primitive delivery order
 
 The immediate delivery order is:

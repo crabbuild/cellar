@@ -16,10 +16,7 @@ import re
 import secrets
 import socket
 import subprocess
-import time
-import urllib.error
-import urllib.request
-from store_probe import probe
+from store_probe import probe, wait_store_ready
 
 GIB = 1024 ** 3
 RUSTFS_IMAGE = "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858"
@@ -119,16 +116,7 @@ def prepare(args):
     record["endpoint"] = "http://127.0.0.1:" + ports[0]["HostPort"]
     record["image_id"] = command(docker + ["image", "inspect", "--format", "{{.Id}}", args.rustfs_image])
     save(root, record)
-    deadline = time.monotonic() + 60
-    while True:
-        try:
-            with urllib.request.urlopen(record["endpoint"] + "/health", timeout=2) as response:
-                if response.status == 200:
-                    break
-        except (OSError, urllib.error.HTTPError):
-            if time.monotonic() >= deadline:
-                raise RuntimeError("RustFS health deadline expired; retain this run for inspection") from None
-        time.sleep(0.25)
+    wait_store_ready(record["endpoint"])
     actual = json.loads(command(docker + ["inspect", "--format", "{{json .HostConfig}}", record["container"]]))
     if (actual["NanoCpus"], actual["Memory"], actual["MemorySwap"]) != (10**9, 2 * GIB, 2 * GIB):
         raise RuntimeError("RustFS resource limits were not captured")

@@ -29,8 +29,9 @@ randomly named private network, object volume, credentials and loopback-only
 S3 port belong to that run. The helper chooses a free host port explicitly:
 Docker's guest-selected ephemeral port can collide with another Colima profile's
 host forward and reach the wrong service. The pinned image uses the same
-20-character access-key profile as SDK CI. RustFS has one CPU and 2 GiB memory. The readiness
-probe checks its actual captured cgroup settings. The S3 probe checks seven real
+20-character access-key profile as SDK CI. RustFS has one CPU and 2 GiB memory.
+Preparation waits for storage and IAM readiness at `/health/ready` and checks
+the configured Docker limits. The S3 probe checks seven real
 HTTP operations: bucket creation, conditional creation, matching read, refused
 overwrite, ETag compare-and-swap, refused stale ETag and read after replacement.
 These are backend protocol checks; they do not prove Cellar archive recovery.

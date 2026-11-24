@@ -7319,3 +7319,183 @@ Complete OPT-01–08 and remaining CG/SDK/release/performance gates remain open.
 See source-bound qualification
 for exact source/executable/profile/log hashes, intermittent controls, retained
 media, reuse and environment limits.
+
+## Authenticate remote read replies once
+
+The shared-cell query transport authenticates the signed version with the
+invocation's immutable key configuration, history and schema. It carries the
+observation and signed validity interval together in the decoded reply. The
+caller samples its wall clock again and enforces that interval before checking
+the requested version floor. Existing route, quorum, and authorization checks
+remain part of read admission. Command and receipt wire tests cover their own
+identity and durability checks through the shared token representation.
+
+In eight alternating paired samples of 6,000 iterations on the native host,
+the median mean cost of reply token validation moved from 101.8 to 50.5 μs.
+The harness compiles both versions of the token validation source with the same
+dependency artifacts and verifies matching outcomes at the signed time bounds.
+This measures token validation in isolation. The source and samples are retained
+under `cellar-0d50-quorum/read-freshness-bench` on the workspace target volume.
+
+The 42 query-wire tests passed, along with the full Cellar library suite
+(1,429 passed and two ignored), strict Clippy, module layout, formatting,
+documentation, and native dependency checks.
+
+The sequential baseline and candidate smoke used three RF3 groups on three
+voters, each capped at 1 vCPU and 2 GiB, and a fresh local RustFS per case.
+Both builds used the same compiler and harness configuration. Each SQL and KV
+read and write window verified at four concurrent clients over two 15-second
+repetitions.
+
+| Verified operation | Baseline p99 ms | Candidate p99 ms | Baseline requests/s | Candidate requests/s |
+| --- | ---: | ---: | ---: | ---: |
+| SQL read | 7.31–9.76 | 6.64–7.04 | 1,135–1,244 | 1,316–1,320 |
+| KV read | 11.49–23.08 | 6.57–17.82 | 710–1,067 | 943–1,425 |
+| SQL write | 1,130–1,648 | 247–386 | 19.5–21.9 | 26.2–33.8 |
+| KV write | 325–1,539 | 389–869 | 17.6–28.9 | 26.3–26.7 |
+
+Write timings also shifted substantially. Attribution of an end-to-end gain
+requires more controlled repetitions. Both runs failed overall on Queue. The
+baseline failed after 14 acknowledgements and four unconfirmed mutations in
+the second enqueue window. The candidate acknowledged 263 batches in the first
+window, then hit `Runtime(Closed)` before delivery and settlement could verify.
+The pre-shutdown admin probes reported `NotFound` on two voters in each run.
+A baseline Queue replay with lease tracing reproduced the closure. Its failing
+voter renewed its RustFS lease with roughly five seconds of authority remaining
+about 200 ms before exit. The first controller closure remains unresolved.
+Ledgers are retained under `cellar-0d50-quorum/read-rf3-baseline`,
+`read-rf3-candidate`, and `read-rf3-queue-baseline-trace`.
+
+## Local quorum smoke at main 86cfe5d1
+
+The constrained lab ran three Linux voters and three RF3 groups, with leaders
+balanced across voters. The optimized `lab` binaries were cross-built with
+Rust 1.99.1. Each voter, the client and the pinned RustFS each had a 1-vCPU,
+2-GiB cgroup and zero swap. SQL and KV used 24 extent-backed cells each.
+Queue used 24 queues and 24 dead-letter cells. The smoke ran one repetition
+at concurrency one and four with eight-second timed windows. Other host work
+overlapped the run. All three fresh stores had more than 37 GiB free on `/data`.
+
+| Verified operation | Clients | Requests/s | p50 ms | p95 ms | p99 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SQL write | 1 | 1.23 | 683 | 2,119 | 2,119 |
+| SQL write | 4 | 2.46 | 1,331 | 3,495 | 4,650 |
+| SQL read | 1 | 6.00 | 81 | 880 | 1,411 |
+| SQL read | 4 | 92.74 | 15 | 180 | 463 |
+| KV write | 1 | 0.89 | 840 | 1,964 | 1,964 |
+| KV read | 1 | 6.47 | 78 | 567 | 927 |
+| Queue enqueue, eight messages per request | 1 | 2.11 | 237 | 4,402 | 4,402 |
+| Queue enqueue, eight messages per request | 4 | 5.73 | 634 | 1,330 | 1,377 |
+
+SQL and Queue passed. Queue delivered all 520 acknowledged messages across the
+two timed windows, with zero duplicates and zero settled backlog or dead letters.
+KV failed its four-client write window with two ambiguous deadlines after 10
+acknowledged writes. Its four-client read window did not run. All nine voters
+exited zero and the cgroup samples recorded zero OOM events. The overall result
+remains failed. The ledgers retain the original attempts and verified windows
+under `cellar-0d50-quorum/primitive-early` on the workspace target volume.
+
+An independent smoke after the build finished passed all 16 windows using the
+same compiler inputs, executable hashes and client. SQL read p99 was 6.6/15.5 ms
+at concurrency one/four and write p99 was 122/492 ms. KV read p99 was 30.1/19.1 ms
+and write p99 was 323/2,483 ms. Queue enqueue p99 was 504/1,323 ms and all 1,104
+messages in the timed windows were delivered exactly once in the observed run.
+The repeat is retained under `cellar-0d50-quorum/primitive-smoke`. Compilation
+overlapped the first capture. The runs show sensitivity to the environment
+and leave an isolated estimate of that effect open.
+
+The 30-second concurrency-16 Quorum capture passed SQL writes and reads at
+17.0 and 833.2 requests/s, respectively, with p99 of 2,022 and 58.8 ms. KV
+verified 543 writes at 17.8 requests/s and p99 of 1,959 ms. Its read window
+failed two of 23,315 requests with `Version(Expired)` and
+`Transport(Authentication)`. Colima adjusted the guest clock during the
+load process lifetime. The ledger leaves correlation to the individual refusals
+open. Queue warmup recorded 69 acknowledged batches and 11 ambiguous failures
+before the timed phase. The consumer saw every acknowledged message plus
+messages outside that acknowledgement set and eight duplicate deliveries.
+The failed window retains all attempt identities for reconciliation. Evidence
+is retained under `primitive-c16`.
+
+The managed daemon fault suite passed on both materialized and extent images
+with three Linux voters at the same limits. Two cells shared one physical RF3
+group in each case. The ledger verifies native/Axum replies, parking and wake,
+an actual leader SIGKILL, successor election before restart and retained receipt
+reconciliation. A scoped archive-write fault allowed Quorum operations and
+refused explicit S3 acknowledgements until publication recovered. Maintenance
+kept the returning voter paused until resume. Losing two voters blocked new
+writes and protected reads. Evidence is retained under `managed-daemon-retry`.
+The initial daemon package used the benchmark entrypoint and owner-only file
+permissions. That attempt stopped before boot and is retained separately.
+
+The managed SQL/KV suite passed all four combinations of materialized/extents
+and Quorum/S3 minima. Both image modes exercised two physical RF3 groups with
+two cells per group on every voter. The independent verifier checked SQL
+rollback, exact readback, archive faults, leader SIGKILL, retained generations,
+and minority refusals through the native and Axum adapters on the daemon
+listener. The process, limit and operation records are under
+`cellar-0d50-quorum/managed-primitives`.
+
+The SQL counters across the full observed interval averaged 80 ms per Raft
+engine file sync, 168 ms per image preparation and 171 ms per manifest
+preparation in the first smoke. The repeat averaged 7.6, 18.4 and 17.0 ms,
+respectively. These populations differ and their intervals may overlap. Split
+manifest file sync, directory sync and selector publication on the same request
+timeline before choosing another persistence change. The separate native and
+Axum EventStream replays, including one using RustFS, reproduced ambiguous
+`Consume` deadlines. One Axum capture spent 1.60 seconds between capture and
+apply of the source checkpoint before ACK. In the RustFS replay the target ACK
+returned before the parent expired. These outcomes retain both source and target
+timing as priorities. The local smoke leaves the low-latency and sustained-load
+gates open.
+
+The standalone post-build replay failed all three EventStream `Consume`
+selections at the original deadline and passed the RustFS Outbox source-proof
+control. The earlier Outbox startup timeout remains in the first run. Separate
+logs are retained under `native-events` and `native-events-after-build`.
+
+The lab also reproduced a RustFS startup race. Liveness was HTTP 200 while
+the first signed bucket request received HTTP 503. The local preparation and
+primitive comparison now share the storage/IAM readiness check. A fresh backend
+passed all seven signed operations on its first probe after the fix.
+
+## Parse current Raft persistence and apply measurements
+
+The analysis tool now accepts the current native inventory of 64 operation
+histograms and 88 counters, including committed image and manifest preparation,
+checkpoint phases, and apply prefetch. It retains the previously supported
+inventories and the exact inventory before #183. A delta still requires the
+same owner, complete vocabulary and bounds at both samples.
+
+The corrected analyzer accepted the retained start/end snapshots of all three
+voters in each SQL and KV baseline and candidate case. Mean Raft file sync
+spanned 5.2–8.7 ms across those cases, compared with 12.9–22.0 ms for image
+preparation and 10.9–17.3 ms for manifest preparation. The samples cover whole
+cases and include overlapping operations. Correlate individual requests with
+the persistence and apply phases before attributing the write tail. Derived
+phase totals are retained in `read-rf3-validated-performance-phases.json`
+alongside the original run ledgers.
+
+## Reproduce KV version refusals under a clock step
+
+The [primitive comparison runner](../../../../tools/perf/primitive_compare.md)
+can record signed version time refusals at authentication and at the caller's
+final check. The load ledger records the failed request's ingress voter,
+wall-clock completion and elapsed time within the window.
+
+The four-client control verified its warmup, 66 timed writes and 3,252 timed
+reads on three RF3 groups backed by local RustFS. Each voter had 1 vCPU and
+2 GiB. The same image and workload verified 104 writes before the fault run
+introduced 24 backward clock steps of roughly 104 ms during the read window.
+The fault run restored the original guest clock progression after the pulses.
+
+The four failed reads matched their ingress voters' logs. The signed replies
+appeared 81–102 ms future-issued. Three requests returned
+`Transport(Authentication)` and one returned `Version(Expired)` after reply
+authentication. The verifier recorded 1,375 correct read results and refused
+qualification of the window. The controlled fault reproduces both historical
+C16 symptoms. The earlier run lacks exact timestamps for its failed requests.
+
+Two new C16 attempts stopped in warmup with 12 and 13 unconfirmed writes,
+respectively, before the read phase. They retain the existing ambiguity rules
+and provide no C16 read measurements. The ledgers and the clock-step samples
+are retained under `cellar-0d50-quorum/kv-version-clock-*`.
