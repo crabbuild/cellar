@@ -108,7 +108,9 @@ fn failed_sql_expiry_rolls_back_its_unproven_claim() -> Result<()> {
             .query_row("SELECT count(*) FROM __sys_kv", [], |r| r.get::<_, u64>(0))?,
         1
     );
-    database.framework().execute_batch("DROP TRIGGER reject_expiry")?;
+    database
+        .framework()
+        .execute_batch("DROP TRIGGER reject_expiry")?;
     database.transaction(inputs(), |tx| {
         assert!(run(tx, &work, AT)?);
         Ok(())

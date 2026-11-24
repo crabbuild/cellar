@@ -32,11 +32,102 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 primitive expansion and durable journal fences
+
+[PR #186](https://github.com/crabbuild/cellar/pull/186) now includes main
+`7810ead24` (#187/#188). The combined candidate adds SQL-only KV expiry and
+Docker admission/journal repairs. **It is not yet qualified.** The completed
+qualification below is pinned to `f2423248b`, before those changes and the main
+merge; it does not qualify the combined candidate.
+
+The frozen native campaign passes **27/28 selections**. Both full six-thread
+Cellar libraries pass **1,434 tests**, zero failures and two existing ignores
+each. Container tests pass 38/38, execution-controller tests 21/21 and public
+storage-batch tests 3/3. Original native EventStream replays and Axum pass their
+three-second requests. Materialized KV logically expires its row but misses the
+original 2,100-ms check for removal from the stored SQL rows; extent KV passes.
+
+The expanded real RustFS/Docker campaign finishes **FAILED, 38/43 complete
+selections**. It uses both image forms, RF3 voters sharing one macOS process,
+one SQL worker per voter and real RustFS capped at one CPU/two GiB. It preserves
+the original per-fixture budgets: EventStream requests remain three seconds,
+Container/Sandbox requests five seconds, maintenance three seconds and
+restoration sixty seconds. Existing multi-phase KV parent budgets remain their
+separately declared twenty seconds; none are increased by this campaign.
+
+Passing selections include native/Axum EventStream publication, subscriptions
+and Outbox recovery; named-cell, SQL and KV bindings; ordinary native/Axum Queue
+callbacks; Workflow execution, schedules, status reads through checkpoints,
+S3 replacement, park/wake and deletion/recreation; alarms/cron; filesystem
+transactions, descriptors, movement and wake; and payload outage/restart/GC.
+All original source-proof, Delete-input, Start-output and actual Docker
+process-fencing controls pass. Both complete Quorum Container/Sandbox lifecycle
+profiles pass.
+
+Five complete functions remain failed:
+
+| Case | Exact failure on `f2423248b` |
+| --- | --- |
+| Normal Container | Materialized S3 `docker-a Write2` returns its error after 12,347 ms; extent S3 `docker-b Status2` exceeds five seconds. |
+| Normal Sandbox | Materialized S3 `DestroyJob8` and extent S3 `FileWrite1` exceed five seconds. |
+| Requested-S3 Sandbox retirement | Materialized passes; extent S3 `Create1` expires before the retirement cut is reached. |
+| Queue load, two in flight | Materialized delivers 528 unique messages; all four extent producers fail with ambiguous deadlines. |
+| Queue load, four in flight | Materialized delivers 528 unique messages; three extent producers fail with ambiguous deadlines. |
+
+Both load image profiles report zero cleanup errors and joined domains. Native
+and Axum cross-deployment Queue faults, transfer identity and long callbacks
+pass separately. These passes do not waive either load failure, and an
+ambiguous producer failure does not establish whether its mutation committed.
+Intentional lost Exec replies remain separate from unexpected deadline errors.
+
+The filesystem all-voter-disk-loss selection also passes, but uses the existing
+fencing-authority **contract test**. It is not evidence of independent Linux
+voters or permanent infrastructure fencing. The Docker-fenced, constrained
+all-voter-disk-loss matrix remains required.
+
+Evidence is retained under `CG-17-event-file-f2423248b-3291` and `-3291b`,
+`CG-17-native-quarantine-f2423248b-3308`, and
+`CG-17-submission-seal-quarantine-f2423248b-3294` in this checkout's Workspace
+qualification directory. Retention verification `3314` matches all nine frozen
+executables and **193 closed roots / 18,634 files / 682,365,834 bytes** against
+their second copies. The owned RustFS and Colima stop commands joined with exit
+zero. Failed records, original binaries/source and operation identities remain
+retained; the product result remains FAILED.
+
+The [isolated Linux run](https://github.com/crabbuild/cellar/actions/runs/45467991907)
+checks `f2423248b`; its image packaging completed and its tests are still running
+at this checkpoint. Its RF3 tests share one process. A later source needs its
+own qualification and independent voter evidence.
+
+The combined implementation now:
+
+- Uses a private built-in KV factory hook on the actual namespace protocol lock.
+  Claim, bounded SQL expiry, rearm and completion share the final durability
+  proof. Busy namespaces/provider sweep obligations retain the ordinary proven
+  callback path. A failure before claim proof rolls back that whole turn; it
+  cannot fabricate proven callback backoff.
+- Serializes Docker fences and reservations per cell/binding, while shutdown
+  and history revocation exclude all bindings. Queued revocations recheck
+  closed admission before journal or Engine mutation.
+- Keeps last-durable journal snapshots readable while a separate physical
+  writer syncs replacement. Unproven updates stay private; failed or panicked
+  writers refuse live admission and subsequent writes.
+- Rechecks current custody, original operation identity and original expiry
+  inside serialized reservation. Cancelled waiters cannot overwrite receipts,
+  install stale custody or extend a deadline across writer waiting.
+
+Five KV regressions and the expanded 47-test Container library still need to
+run on this candidate, followed by the unchanged public qualification. The
+journal controls hold the actual replacement directory barrier; metadata
+admission tests use an unopened Engine and do not qualify process fencing.
+Original request identity, ambiguity, quorum/S3 proof and payload/provider
+boundaries remain unchanged. CG-17 and default/legacy cutover remain open.
+
 ### CG-17 EventStream and bounded file-read follow-up
 
 [PR #184](https://github.com/crabbuild/cellar/pull/184) merged as `86cfe5d1c`.
-Draft [PR #186](https://github.com/crabbuild/cellar/pull/186), branch
-`codex/cg17-event-file-read-deadlines`, carries runtime `d393aa447`.
+The earlier [PR #186](https://github.com/crabbuild/cellar/pull/186) checkpoint,
+branch `codex/cg17-event-file-read-deadlines`, carries runtime `d393aa447`.
 The requested EventStream and S3 file-read checks now pass their original
 3s/5s limits. The combined real qualification still **fails, 12/13 functions**:
 Sandbox's materialized S3 Create9 and extent S3 DestroyJob8 exceed five seconds
