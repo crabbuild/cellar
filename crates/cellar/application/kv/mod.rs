@@ -7,6 +7,7 @@
 mod inspection;
 mod options;
 pub(crate) mod raft_blob;
+pub(crate) mod raft_expiry;
 mod raft_value;
 pub(crate) mod raft_wire;
 pub(crate) mod read;
@@ -562,14 +563,18 @@ struct NamespaceCell {
 }
 
 pub(crate) fn create_cell(context: &Context) -> Result<Arc<dyn Cell>> {
-    Ok(Arc::new(NamespaceCell {
-        storage: context.storage()?,
+    Ok(namespace_cell(context.storage()?))
+}
+
+fn namespace_cell(storage: Storage) -> Arc<NamespaceCell> {
+    Arc::new(NamespaceCell {
+        storage,
         ready: AtomicBool::new(false),
         protocol: tokio::sync::Mutex::new(()),
         test_sweep_marked: AtomicBool::new(false),
         test_sweep_finished: AtomicBool::new(false),
         test_put_attempted: tokio::sync::Notify::new(),
-    }))
+    })
 }
 
 fn text(row: &SqlRow, key: &str) -> Result<String> {
@@ -666,14 +671,22 @@ impl NamespaceCell {
     }
 
     fn arm_before(&self, deadline: i64) -> Result<()> {
+        self.arm_before_at(deadline, now())
+    }
+
+    fn arm_before_at(&self, deadline: i64, at_ms: i64) -> Result<()> {
         let at = self.storage.get_alarm()?;
-        if at.is_none_or(|at| at <= now() || at > deadline) {
+        if at.is_none_or(|at| at <= at_ms || at > deadline) {
             self.storage.set_alarm(deadline)?;
         }
         Ok(())
     }
 
     fn rearm(&self) -> Result<()> {
+        self.rearm_at(now())
+    }
+
+    fn rearm_at(&self, current: i64) -> Result<()> {
         if crate::kv_blob::limits()["sweepDisabled"] == true {
             return Ok(());
         }
@@ -688,7 +701,6 @@ impl NamespaceCell {
         if next.is_none() && !due {
             return self.storage.delete_alarm();
         }
-        let current = now();
         let mut deadline = next
             .map(|at| at.max(current.saturating_add(1)))
             .unwrap_or(i64::MAX);
@@ -701,7 +713,7 @@ impl NamespaceCell {
                 ),
             );
         }
-        self.arm_before(deadline)
+        self.arm_before_at(deadline, current)
     }
 
     async fn get(

@@ -53,9 +53,7 @@ pub(in crate::application) fn kv_service() -> Result<RaftClass, RegistrationErro
             )
         },
     )?;
-    class = class.with_cell_factory(Arc::new(|context, _| {
-        crate::application::kv::create_cell(&context)
-    }))?;
+    class = class.with_kv_factory()?;
     let options = NativeCellConfiguration {
         do_classes: vec![crate::deploy::KV_CLASS.into()],
         ..Default::default()

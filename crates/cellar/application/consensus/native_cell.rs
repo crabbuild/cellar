@@ -7,12 +7,54 @@ use super::{
     CommandTransaction, RouteEpoch,
 };
 use crate::application::{
-    Cell, CellIdentity, Context, EventState, Factory, HandlerFuture, Invocation, Output,
+    Cell, CellIdentity, Context, EventState, Factory as ApplicationFactory, HandlerFuture,
+    Invocation, Output,
 };
 use crate::engine_api::RpcData;
 use crate::worker_config::{EgressPolicy, WorkerConfig};
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
+
+#[derive(Clone)]
+enum Factory {
+    Application(ApplicationFactory),
+    Kv,
+}
+
+struct Instance {
+    cell: Arc<dyn Cell>,
+    expiry: Option<Arc<dyn crate::application::kv::raft_expiry::ReplicatedExpiry>>,
+}
+
+impl Instance {
+    fn deferred(owner: Arc<NativeCellFactory>) -> Self {
+        Self {
+            cell: Arc::new(DeferredCell {
+                owner,
+                instance: Mutex::new(None),
+            }),
+            expiry: None,
+        }
+    }
+}
+
+impl Factory {
+    fn create(&self, context: Context, identity: &CellIdentity) -> Result<Instance> {
+        Ok(match self {
+            Self::Application(factory) => Instance {
+                cell: factory(context, identity)?,
+                expiry: None,
+            },
+            Self::Kv => {
+                let (cell, expiry) = crate::application::kv::raft_expiry::create(&context)?;
+                Instance {
+                    cell,
+                    expiry: Some(expiry),
+                }
+            }
+        })
+    }
+}
 
 pub(crate) struct NativeCellFactory {
     factory: Factory,
@@ -154,6 +196,8 @@ trait LiveCell: Send + Sync {
 
     fn invoke(&self, context: Context, invocation: Invocation) -> Result<HandlerFuture<Output>>;
 
+    fn try_kv_expiry(&self, at_ms: u64) -> Result<bool>;
+
     fn retire(&self) -> Result<()>;
 }
 
@@ -162,7 +206,7 @@ pub(crate) struct CellRpcActivation(Arc<dyn LiveCell>);
 
 struct NativeActivation {
     owner: Arc<()>,
-    instance: Mutex<Option<Arc<dyn Cell>>>,
+    instance: Mutex<Option<Instance>>,
     resources: Arc<crate::application::storage::Resources>,
 }
 
@@ -195,7 +239,7 @@ impl Cell for DeferredCell {
                 .owner
                 .context(identity.clone(), authority.activation())?;
             crate::application::containers::backend::prepare_constructor(&context, &constructor)?;
-            let created = (self.owner.factory)(constructor, &identity)?;
+            let created = self.owner.factory.create(constructor, &identity)?.cell;
             *instance = Some(created.clone());
             Ok(created)
         })();
@@ -274,9 +318,26 @@ impl LiveCell for NativeActivation {
             .instance
             .lock()
             .map_err(|_| CommandFailure::Unavailable)?
-            .clone()
-            .ok_or(CommandFailure::Unavailable)?;
+            .as_ref()
+            .ok_or(CommandFailure::Unavailable)?
+            .cell
+            .clone();
         Ok(instance.invoke(context, invocation))
+    }
+
+    fn try_kv_expiry(&self, at_ms: u64) -> Result<bool> {
+        let expiry = self
+            .instance
+            .lock()
+            .map_err(|_| CommandFailure::Unavailable)?
+            .as_ref()
+            .ok_or(CommandFailure::Unavailable)?
+            .expiry
+            .clone();
+        match expiry {
+            Some(expiry) => expiry.try_expire(i64::try_from(at_ms)?),
+            None => Ok(false),
+        }
     }
 
     fn retire(&self) -> Result<()> {
@@ -309,8 +370,16 @@ impl Drop for NativeActivation {
 }
 
 impl NativeCellFactory {
-    pub(super) fn bind(class: &str, factory: Factory, callbacks: bool) -> Arc<CellRpcFactory> {
-        Self::bind_configuration(class, factory, None, callbacks)
+    pub(super) fn bind(
+        class: &str,
+        factory: ApplicationFactory,
+        callbacks: bool,
+    ) -> Arc<CellRpcFactory> {
+        Self::bind_configuration(class, Factory::Application(factory), None, callbacks)
+    }
+
+    pub(super) fn kv(callbacks: bool) -> Arc<CellRpcFactory> {
+        Self::bind_configuration(crate::deploy::KV_CLASS, Factory::Kv, None, callbacks)
     }
 
     fn bind_configuration(
@@ -633,10 +702,7 @@ impl NativeCellFactory {
             if activation.is_none() {
                 *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
                     owner: self.identity.clone(),
-                    instance: Mutex::new(Some(Arc::new(DeferredCell {
-                        owner: self.clone(),
-                        instance: Mutex::new(None),
-                    }))),
+                    instance: Mutex::new(Some(Instance::deferred(self.clone()))),
                     resources: authority.resources.clone(),
                 })));
             }
@@ -681,10 +747,7 @@ impl NativeCellFactory {
             if activation.is_none() {
                 *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
                     owner: self.identity.clone(),
-                    instance: Mutex::new(Some(Arc::new(DeferredCell {
-                        owner: self.clone(),
-                        instance: Mutex::new(None),
-                    }))),
+                    instance: Mutex::new(Some(Instance::deferred(self.clone()))),
                     resources: authority.resources.clone(),
                 })));
             }
@@ -729,16 +792,15 @@ impl NativeCellFactory {
             });
         }
         if activation.is_none() {
-            let instance: Arc<dyn Cell> = if authority.resources.container_adapter.get().is_some() {
+            let instance = if authority.resources.container_adapter.get().is_some()
+                && !matches!(&self.factory, Factory::Kv)
+            {
                 // The owned future prepares current provider authority before
                 // constructing a cell that can inspect its container snapshot.
-                Arc::new(DeferredCell {
-                    owner: self.clone(),
-                    instance: Mutex::new(None),
-                })
+                Instance::deferred(self.clone())
             } else {
                 let context = self.context(identity.clone(), authority.activation())?;
-                (self.factory)(context, &identity)?
+                self.factory.create(context, &identity)?
             };
             *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
                 owner: self.identity.clone(),
@@ -768,12 +830,23 @@ impl NativeCellFactory {
         let storage = context.storage()?;
         let state = context.state.clone();
         let workflow = crate::deploy::is_workflow_class(&self.class);
+        let at_ms = transaction.inputs().now_unix_millis;
         let retire = workflow.then(|| (instance.resources(), state.clone()));
         let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
             if context.container_supervision.is_some() {
                 crate::application::container_supervision::recover(&context)?;
             }
             if let Some((work, leased_until)) = work {
+                // The sealed KV constructor supplies this synchronous hook.
+                // It acquires the actual namespace protocol without waiting,
+                // performs only SQL expiry, and cannot enter provider I/O.
+                // Claim, deletion, rearm and completion share the final proof.
+                if work.reason == "alarm" && instance.0.try_kv_expiry(at_ms)? {
+                    crate::storage::raft_native_work(|db| {
+                        super::native_work::complete(db, &work, leased_until)
+                    })?;
+                    return Ok(vec![1]);
+                }
                 // Queue proves the claim with its lease before consumer entry
                 // or its DLQ intent before dispatch. Trusted catalog preparation
                 // likewise proves claim + binding intent before any child I/O.
