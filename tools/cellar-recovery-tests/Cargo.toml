@@ -16,6 +16,7 @@ async-trait.workspace = true
 axum.workspace = true
 cellar.workspace = true
 cellar-admin.workspace = true
+cellar-axum.workspace = true
 cellar-logic.workspace = true
 cellar-ltx.workspace = true
 futures-util.workspace = true
