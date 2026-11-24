@@ -8,33 +8,39 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 Continue [PR #186](https://github.com/crabbuild/cellar/pull/186), branch
 `codex/cg17-event-file-read-deadlines`, including main `7810ead24` (#187/#188).
-The combined candidate is unqualified. Preserve the exact source boundaries in
-[the new checkpoint](progress.md#cg-17-primitive-expansion-and-durable-journal-fences).
+Frozen `ba4c8ab98` is **FAILED, 33/35 native**. Both full six-thread libraries
+pass 1,443 tests each; fixed Container passes 47/47, controller 21/21,
+storage batch 3/3 and atomic KV expiry 5/5. Strict/repository checks pass.
+Public KV now passes the original stored-row expiry check in both image forms.
+The selected SQL, Queue, Workflow, alarms/cron, filesystem/payload and checkpoint
+cases pass. Keep the EventStream stream-group startup timeout and extent/Quorum
+named-binding leader timeout, both before API entry. Filesystem also logs
+forced pre-drain warnings, so this is not complete clean-shutdown qualification.
 
-Completed pre-merge source `f2423248b` passes 27/28 native selections and
-38/43 real RustFS/Docker selections. Both full six-thread libraries pass 1,434
-checks with two existing ignores each. Failures are materialized KV stored-row
-expiry, three S3 Container/Sandbox lifecycle functions and extent Queue C2/C4.
-Materialized load delivers 528 unique messages in each profile; failed extent
-producer outcomes remain ambiguous. All original proof/physical-fence controls
-pass, and all 193 closed roots plus nine executables have verified copies.
-Owned RustFS/Colima stop joined; no active workload is retained in that lab.
+Hold this checkout/source frozen until diagnostic `3328` joins all 17 critical
+RustFS selections, stops the owned lab and copies closed evidence. It includes
+all original proof/fencing/lifecycle controls plus KV, Workflow and Queue C2/C4.
+It is an independent diagnostic after the native failure, never a waiver of that
+failed aggregate. The ordinary broader launcher already refused the native gate.
+Preserve 3s/5s requests, 3s maintenance, 60s restoration and existing KV parents.
 
-The candidate adds atomic SQL-only built-in KV expiry, per-binding Docker
-admission with exclusive shutdown/history fences, published journal snapshots
-outside physical write locks, and reservation custody/identity/expiry rechecks.
-Pure expiry errors before a claim proof roll back the whole turn; they cannot
-use the proven callback failure/backoff path. Known provider receipts remain
-immutable, and absence alone never clears an entered unknown mutation.
+The isolated candidate adds a **not-yet-run** cancellation regression at the
+backend's actual reservation directory barrier. Controller deadline cancellation
+can drop a backend future while its blocking reservation write continues. Prove
+the owning failure first; then retain a bounded submission continuation through
+reservation and job installation with its original captured expiry. Never turn
+entered uncertainty into absence or replay an effect. Test-only leader diagnostics
+also retain the last bounded per-voter status under the unchanged five-second
+wait. Rebuild and qualify changed source after the frozen run joins.
 
-Next, run the original-behavior red controls and complete 47-test Container
-library, five KV controls, both parallel libraries and the unchanged public
-campaign on the exact merged source. Hold the real journal directory barrier
-in the concurrency oracles; do not claim process fencing from metadata tests.
-Current Linux run 45467991907 targets only `f2423248b` and cannot qualify later
-source. Then require independent Linux voters and actual Docker-fenced disk-loss
-recovery. The passing filesystem disaster selection is a contract test.
+Earlier `f2423248b` is FAILED 27/28 native and 38/43 real; its 193 closed roots
+and nine binaries have verified copies. Its Linux log has 53/53 executions
+passing but artifact upload failed, leaving no binaries/voter roots. Build-only
+Linux job 45499727062 packages `ba4c8ab98`; it still needs runtime validation.
+Then require independent Linux voters and actual Docker-fenced disk loss.
+The earlier passing filesystem disaster selection is a contract test.
 Default cutover, full primitive acceptance and legacy removal remain open.
+See [the source-specific checkpoint](progress.md#cg-17-merged-primitive-qualification).
 
 ## Earlier EventStream and bounded file-read checkpoint
 

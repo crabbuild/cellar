@@ -9,25 +9,41 @@ Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
 The active [PR #186](https://github.com/crabbuild/cellar/pull/186) includes main
-`7810ead24` (#187/#188), failure quarantine, loader isolation, SQL-only KV expiry,
-and Docker admission/journal repairs. **The merged candidate is not qualified.**
-Its owning and unchanged public gates are the immediate priority.
+`7810ead24` (#187/#188). Frozen runtime `ba4c8ab98` passes the six original-behavior
+red controls, fixed Container library 47/47, five KV expiry controls, two full
+six-thread Cellar libraries (1,443 passes each) and strict/repository checks.
+Its unchanged native campaign is **FAILED, 33/35**. KV now passes its original
+stored-row expiry oracle in both image modes. The selected SQL, Queue, Workflow,
+alarm/cron, filesystem/payload and checkpoint cases pass. One EventStream setup
+and the extent/Quorum named-binding leader wait fail before application entry.
+Keep both failures and the filesystem forced pre-drain warnings.
+See [the current results](progress.md#cg-17-merged-primitive-qualification).
 
-Pre-merge `f2423248b` passes 27/28 native selections, including two full
-six-thread libraries (1,434 passes and two existing ignores each). Materialized
-KV misses its original stored-row expiry bound. The expanded real RustFS/Docker
-campaign is **FAILED, 38/43**: the three S3 Container/Sandbox lifecycle functions
-and extent Queue's two- and four-request load cases fail. Ordinary API, callback,
-movement/wake, source-proof refusal and physical process-fencing controls pass
-within their recorded scope. All closed roots are retained and the owned lab
-stop joined. See [the current source-specific results](progress.md#cg-17-primitive-expansion-and-durable-journal-fences).
+The immediate priorities are:
 
-The new candidate isolates binding fences, moves physical journal sync outside
-snapshot-read locks, and revalidates reservations at the durable writer boundary.
-It also keeps pure KV expiry in one final proven SQL turn. New regressions must
-pass before attributing any deadline or cleanup improvement to these changes.
-Full primitive coverage, independent Linux-voter/load/disk-loss qualification,
-default cutover and legacy removal remain open.
+1. Finish the same-source, 17-selection RustFS diagnostic with all original
+   proof/fencing controls, Container/Sandbox lifecycle, KV/Workflow and Queue
+   C2/C4. Preserve every failed aggregate and original deadline.
+2. Reproduce and repair the cancelled backend reservation boundary with its
+   prepared real-directory-barrier regression. An owned physical write must not
+   lose its continuation before job installation; unknown effects must never
+   be replayed or cleared from provider absence. The test is not yet executed.
+3. Diagnose managed startup/readiness using the last actual voter statuses,
+   then rerun the unchanged failed public cases. A later replay pass cannot
+   close an intermittent startup failure.
+4. Qualify the exact Linux artifacts on separate constrained voter processes,
+   then complete load, physical reclamation and Docker-fenced disk-loss cases.
+   Compiled artifacts alone establish no runtime result.
+5. Complete the full public feature/provider and primitive/scenario matrix.
+   WebSocket/session ownership, full interactive/provider execution and provider
+   volume disaster recovery remain distinct gaps. Default cutover and legacy
+   removal stay gated.
+
+Pre-merge `f2423248b` remains **FAILED, 27/28 native and 38/43 real**. Its three
+S3 Container/Sandbox functions and two extent Queue loads failed; all 193 closed
+roots and nine executables have verified copies. Its Linux log reports 53/53
+executions passing, but artifact upload failed and retained no binaries/voter
+data. Neither that log nor a later scoped pass qualifies the complete release.
 
 The following checkpoints precede this integration and retain their original
 source boundaries.

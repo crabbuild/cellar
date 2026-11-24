@@ -32,6 +32,68 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 merged primitive qualification
+
+Frozen runtime `ba4c8ab98` includes main `7810ead24` (#187/#188), atomic
+built-in KV expiry and the Docker admission/journal repairs in
+[PR #186](https://github.com/crabbuild/cellar/pull/186).
+**Qualification remains FAILED; default cutover remains gated.**
+
+| Gate on `ba4c8ab98` | Result |
+| --- | --- |
+| Original-behavior journal/admission regressions | All six reproduce their intended failures; fixed Container library passes 47/47. |
+| Atomic KV expiry controls | 5/5 pass, including rollback before claim proof. |
+| Full Cellar library, six threads, twice | 1,443 passed, zero failed, two existing ignores each. |
+| Execution controller / public storage batch | 21/21 and 3/3 pass. |
+| Locked public build, strict affected Clippy and repository checks | Pass. |
+| Unchanged native campaign | **FAILED, 33/35 selections.** |
+| Focused original RustFS/Docker controls and load | Running on the same frozen source; no result yet. |
+
+The public KV case now passes both image forms, including the original
+2,100-ms stored-row expiry assertion that failed on `f2423248b`. SQL bindings,
+ordinary Queue and Workflow, alarms, cron, filesystem, payload outage/restart,
+scheduled Workflow, replacement/park-wake, deletion/recreation and all six new
+checkpoint/prefetch controls pass their selected native cases. Alarms and cron
+retain both Quorum and S3 minima. These are scoped API/recovery results, not
+full primitive-by-scenario acceptance.
+
+The first original EventStream replay fails while provisioning its stream
+service group: `group startup unconfirmed: Transport(Timeout)`, before Consume.
+The second unchanged replay and Axum pass. Named bindings fail in the
+extent/Quorum profile while waiting for a ready leader before enrollment.
+The original five-second setup/readiness bounds remain unchanged, and later
+passes do not waive either failure. Filesystem logs also retain forced pre-drain
+warnings; its API pass cannot establish a clean-shutdown acceptance claim.
+
+Native ledger `3322` closes all 35 selections at the pinned executable/source
+hashes in `CG-17-event-file-ba4c8ab98-3321`. The ordinary broader-runtime launcher
+refuses the failed native aggregate. A separately recorded diagnostic decision
+`3328` runs 17 unchanged critical RustFS selections after the owning/library
+gates pass: original proof/fencing/lifecycle controls, KV, Workflow and Queue
+C2/C4. This additional diagnostic cannot turn the native aggregate into a pass.
+The original 3s/5s requests, 3s maintenance and 60s restoration remain intact.
+
+A new owning test is prepared for caller cancellation during the backend's
+actual reservation-directory barrier. It requires autonomous expiry of a
+never-entered operation, using the original identity and unopened Engine.
+It has **not yet executed**, and no cancellation repair is claimed. Failure-only
+leader diagnostics also retain each voter's last status without changing the
+original timeout or polling. Both changes remain outside this frozen run.
+
+The earlier Linux run
+[45467991907](https://github.com/crabbuild/cellar/actions/runs/45467991907)
+reports 53/53 successful executions on `f2423248b`, but its artifact upload rejects
+colon-bearing log filenames. No binaries or voter roots survive from that
+runner; its retained log alone is **not release qualification**. Compile/package
+job [45499727062](https://github.com/crabbuild/cellar/actions/runs/45499727062)
+targets `ba4c8ab98` and uses a portable outer archive. It has not finished at
+this checkpoint and runs no runtime tests. Independent Linux voters, load and
+actual fenced all-voter disk loss still require source-matched execution.
+
+CG-17's 32 full acceptance cases, complete public feature/provider coverage,
+CG-15 release qualification and CG-16 default/legacy cutover remain open.
+The preceding source-specific checkpoints follow.
+
 ### CG-17 primitive expansion and durable journal fences
 
 [PR #186](https://github.com/crabbuild/cellar/pull/186) now includes main
