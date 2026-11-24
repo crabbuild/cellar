@@ -47,6 +47,12 @@ cannot turn it into a refusal or authorize replay.
 Existing receipt reads remain concurrent with physical admission and fencing;
 only sealing absence takes that admission lock and syncs a new record.
 
+Submission reservations, absence seals and process-fence transitions serialize
+for each cell/binding. Another binding can progress while an old process tree
+is stopped and joined. Shutdown and history revocation exclude all bindings.
+A queued revocation rechecks closed admission before changing its durable fence
+or entering the Engine.
+
 Backend shutdown closes admission and attempts process termination, job joining
 and a final process scan even if journal deactivation or an earlier cleanup
 step fails. A storage failure is still returned after these attempts; successful
