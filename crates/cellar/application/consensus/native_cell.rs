@@ -841,11 +841,33 @@ impl NativeCellFactory {
                 // It acquires the actual namespace protocol without waiting,
                 // performs only SQL expiry, and cannot enter provider I/O.
                 // Claim, deletion, rearm and completion share the final proof.
-                if work.reason == "alarm" && instance.0.try_kv_expiry(at_ms)? {
-                    crate::storage::raft_native_work(|db| {
-                        super::native_work::complete(db, &work, leased_until)
-                    })?;
-                    return Ok(vec![1]);
+                if work.reason == "alarm" {
+                    let expired = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        instance.0.try_kv_expiry(at_ms)
+                    }))
+                    .map_err(crate::native_worker::panic_error)
+                    .and_then(std::convert::identity);
+                    match expired {
+                        Ok(true) => {
+                            crate::storage::raft_native_work(|db| {
+                                super::native_work::complete(db, &work, leased_until)
+                            })?;
+                            return Ok(vec![1]);
+                        }
+                        Ok(false) => (),
+                        Err(cause) => {
+                            // Preserve the ordinary alarm failure policy. The
+                            // SQL-only attempt still rolls back before retry
+                            // metadata becomes durable; it is never completed.
+                            return Err(super::native_work::Failure {
+                                work,
+                                leased_until,
+                                at_ms: crate::asyncrt::wall_ms(),
+                                cause,
+                            }
+                            .into());
+                        }
+                    }
                 }
                 // Queue proves the claim with its lease before consumer entry
                 // or its DLQ intent before dispatch. Trusted catalog preparation
