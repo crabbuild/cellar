@@ -5,10 +5,12 @@
 use super::super::ingress_cursor::Key as Scope;
 use super::CellHistory;
 use sha2::{Digest, Sha256};
-use std::sync::Mutex;
+use std::{num::NonZeroU64, sync::Mutex};
 
+/// Lookup tag only. The full scope below must match before selecting a sequence;
+/// a tag collision can discard advice but cannot cross a history or schema.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) struct Target([u8; 32]);
+pub(super) struct Target([u8; 8]);
 
 impl Target {
     pub(super) fn new(cell: &CellHistory) -> Self {
@@ -18,14 +20,18 @@ impl Target {
         hash.update(cell.namespace.bytes());
         hash.update((cell.cell.as_str().len() as u64).to_be_bytes());
         hash.update(cell.cell.as_str().as_bytes());
-        Self(hash.finalize().into())
+        let mut tag = [0; 8];
+        tag.copy_from_slice(&hash.finalize()[..8]);
+        Self(tag)
     }
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct Hint {
     scope: Scope,
-    next: u64,
+    // A successor is never zero. Its niche keeps Option<Entry> compact without
+    // shortening the full history/schema hash or allocating idle state.
+    next: NonZeroU64,
     until_ms: u64,
 }
 
@@ -39,6 +45,7 @@ impl Hint {
     ) -> Option<Self> {
         sequence
             .checked_add(1)
+            .and_then(NonZeroU64::new)
             .filter(|_| now_ms < until_ms)
             .map(|next| Self {
                 scope: Scope::new(cell, schema),
@@ -48,7 +55,8 @@ impl Hint {
     }
 
     pub(super) fn sequence(self, cell: &CellHistory, schema: [u8; 32], now_ms: u64) -> Option<u64> {
-        (self.scope == Scope::new(cell, schema) && now_ms < self.until_ms).then_some(self.next)
+        (self.scope == Scope::new(cell, schema) && now_ms < self.until_ms)
+            .then_some(self.next.get())
     }
 }
 
@@ -60,12 +68,12 @@ struct Entry {
 
 #[derive(Default)]
 struct State {
-    entries: [Option<Entry>; 4],
+    entries: [Option<Entry>; 8],
     next: usize,
     closed: bool,
 }
 
-/// Four inline scalar/hash slots per node. This owns no target strings,
+/// Eight inline scalar/hash slots within 512 bytes per node. This owns no target strings,
 /// admitted work, per-cell owner, payload, storage pin, task or authority.
 /// Replacement, expiry or poisoning can only force the ordinary quorum query.
 #[derive(Default)]
@@ -114,3 +122,7 @@ impl Hints {
         state.entries.fill(None);
     }
 }
+
+#[cfg(test)]
+#[path = "sql_ingress_hints_tests.rs"]
+mod tests;
