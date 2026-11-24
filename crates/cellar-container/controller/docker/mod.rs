@@ -4,6 +4,7 @@
 //! inside an isolated container; its root is a host-owned idle scaffold, never
 //! an application entrypoint. Every higher claim stops the entire old process
 //! tree before admission, including detached children. No mutation is replayed.
+mod admission;
 mod engine;
 mod journal;
 #[cfg(test)]
@@ -12,6 +13,7 @@ mod receipt_tests;
 mod work;
 use super::{Reply, Request};
 use crate::Limits;
+use admission::Admission;
 use anyhow::{ensure, Context as _, Result};
 use cellar::{
     asyncrt::ExecutionDomain,
@@ -29,7 +31,7 @@ use std::{
         Arc, Mutex,
     },
 };
-use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore};
+use tokio::sync::{Notify, Semaphore};
 
 pub(super) const PROVIDER: &str = "docker-exec";
 pub(super) const OPERATIONS: &[crate::Operation] = &[
@@ -172,7 +174,7 @@ pub struct DockerBackend {
     domain: Arc<ExecutionDomain>,
     engine: Engine,
     journal: Arc<Journal>,
-    admission: AsyncMutex<()>,
+    admission: Admission,
     capacity: Arc<Semaphore>,
     observations: Arc<Semaphore>,
     jobs: Mutex<BTreeMap<String, BTreeMap<[u8; 16], u64>>>,
@@ -279,7 +281,7 @@ impl DockerBackend {
             domain,
             engine,
             journal,
-            admission: AsyncMutex::new(()),
+            admission: Admission::default(),
             jobs: Mutex::new(BTreeMap::new()),
             changed: Notify::new(),
             closed: AtomicBool::new(false),
@@ -397,7 +399,7 @@ impl DockerBackend {
 
     async fn shutdown_owned(&self) -> Result<()> {
         self.closed.store(true, Ordering::Release);
-        let _admission = self.admission.lock().await;
+        let _admission = self.admission.exclusive().await;
         let inactive = self
             .update(|state| {
                 for slot in state.slots.values_mut() {
@@ -421,9 +423,9 @@ impl DockerBackend {
             !self.closed.load(Ordering::Acquire),
             ExecutionControllerFailure::Unavailable
         );
-        let _admission = self.admission.lock().await;
         let claim = successor.clone();
         let key = journal::key(&claim);
+        let _admission = self.admission.resource(&key).await?;
         self.update(move |state| {
             ensure!(
                 !state.revoked.contains(&journal::history(&claim)?),
@@ -557,14 +559,14 @@ impl DockerBackend {
             .clone()
             .try_acquire_owned()
             .map_err(|_| ExecutionControllerFailure::Busy)?;
-        let admission = self.admission.lock().await;
+        let key = journal::key(&claim);
+        let admission = self.admission.resource(&key).await?;
         ensure!(
             !self.closed.load(Ordering::Acquire),
             ExecutionControllerFailure::Unavailable
         );
         self.journal.check(&claim)?;
         let id = hex(&operation.id);
-        let key = journal::key(&claim);
         let existing = self.journal.view(|state| {
             Ok(state
                 .slots
@@ -652,7 +654,8 @@ impl DockerBackend {
         }
         // Only sealing absence must exclude physical reservation and job
         // installation. Engine inventory is never authoritative here.
-        let _admission = self.admission.lock().await;
+        let key = journal::key(&original.claim);
+        let _admission = self.admission.resource(&key).await?;
         self.update(move |state| {
             // Validate again in the durable transition. A cancelled waiter can
             // release admission while its owned journal write is still joining.
@@ -746,7 +749,7 @@ impl ExecutionControllerBackend for DockerBackend {
                             && old.incarnation != successor.incarnation,
                         "invalid Docker history transition"
                     );
-                    let _admission = self.admission.lock().await;
+                    let _admission = self.admission.exclusive().await;
                     let revoked = journal::history_id(&old)?;
                     let logical = journal::logical(&old, &self.options.binding)?;
                     let new = journal::history_id(&successor)?;

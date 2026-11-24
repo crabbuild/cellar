@@ -73,7 +73,7 @@ async fn fixture() -> Result<Fixture> {
         identity,
         domain,
         journal,
-        admission: AsyncMutex::new(()),
+        admission: Admission::default(),
         capacity: Arc::new(Semaphore::new(8)),
         observations: Arc::new(Semaphore::new(7)),
         options,
@@ -151,7 +151,7 @@ async fn retained_receipts_do_not_wait_for_physical_admission() -> Result<()> {
     let f = fixture().await?;
     let domain = f.backend.domain.clone();
     let result = async {
-        let _admission = f.backend.admission.lock().await;
+        let _admission = f.backend.admission.exclusive().await;
         let known = domain
             .run(async {
                 cellar::asyncrt::timeout(
@@ -199,7 +199,7 @@ async fn absent_expiry_receipts_require_physical_admission() -> Result<()> {
                 1,
             )?,
         };
-        let admission = f.backend.admission.lock().await;
+        let admission = f.backend.admission.exclusive().await;
         let blocked = domain
             .run(async {
                 cellar::asyncrt::timeout(
@@ -234,6 +234,154 @@ async fn absent_expiry_receipts_require_physical_admission() -> Result<()> {
                 .outcome
                 .clone()))?
                 == Some(ExecutionOutcome::ExpiredBeforeSubmission)
+        );
+        Ok(())
+    }
+    .await;
+    domain.shutdown().await;
+    result
+}
+
+async fn other_binding(f: &Fixture) -> Result<ExecutionClaim> {
+    let mut history = f.current.history().clone();
+    history.cell = CellId::new("Counter:independent-receipt")?;
+    let identity = f.backend.identity();
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-provider-execution-resource-1");
+    hash.update(
+        cellar::application::consensus::verification::cell_groups::cell_image_history_digest(
+            &history,
+        ),
+    );
+    hash.update((identity.binding.len() as u16).to_be_bytes());
+    hash.update(identity.binding.as_bytes());
+    let key: [u8; 32] = hash.finalize().into();
+    let mut encoded = serde_json::to_value(&f.current)?;
+    encoded["cell"] = json!(history.cell.as_str());
+    encoded["key"] = json!(key);
+    let claim: ExecutionClaim = serde_json::from_value(encoded)?;
+    let installed = claim.clone();
+    f.backend
+        .update(move |state| {
+            state.incarnations.insert(
+                journal::logical(installed.history(), installed.binding())?,
+                journal::history(&installed)?,
+            );
+            state.slots.insert(
+                journal::key(&installed),
+                Slot {
+                    high: installed,
+                    active: true,
+                    transition: 1,
+                    operations: BTreeMap::new(),
+                },
+            );
+            Ok(())
+        })
+        .await?;
+    Ok(claim)
+}
+
+#[tokio::test]
+async fn independent_binding_durable_expiry_does_not_wait_for_another_fence() -> Result<()> {
+    let f = fixture().await?;
+    let domain = f.backend.domain.clone();
+    let result = async {
+        let other = other_binding(&f).await?;
+        let original = ExecutionPendingOperation {
+            claim: other.clone(),
+            operation: ExecutionOperation::new(
+                [4; 16],
+                ExecutionOperationKind::Delete,
+                b"independent-absent-delete",
+                1,
+            )?,
+        };
+        // Hold exactly the admission used while this binding physically stops
+        // and joins its old process tree. The other binding is independent.
+        let _physical = f
+            .backend
+            .admission
+            .resource(&journal::key(&f.current))
+            .await?;
+        let outcome = domain
+            .run(async {
+                cellar::asyncrt::timeout(
+                    Duration::from_secs(5),
+                    f.backend.clone().reconcile(other.clone(), original.clone()),
+                )
+                .await
+            })
+            .await?
+            .context("independent binding waited behind another resource fence")??;
+        ensure!(outcome == Some(ExecutionOutcome::ExpiredBeforeSubmission));
+        ensure!(
+            f.backend.journal.view(|state| Ok(state
+                .original_operation(&other, &original)?
+                .context("independent durable receipt missing")?
+                .outcome
+                .clone()))?
+                == Some(ExecutionOutcome::ExpiredBeforeSubmission)
+        );
+        // An entered unknown operation in the fenced binding is untouched.
+        ensure!(f.backend.journal.view(|state| Ok(state
+            .original_operation(&f.current, &f.unknown)?
+            .context("original unknown operation missing")?
+            .outcome
+            .is_none()))?);
+        Ok(())
+    }
+    .await;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn queued_revocation_cannot_reactivate_after_shutdown_closes_admission() -> Result<()> {
+    let f = fixture().await?;
+    let domain = f.backend.domain.clone();
+    let result = async {
+        let mut encoded = serde_json::to_value(&f.current)?;
+        encoded["sequence"] = json!(2);
+        encoded["checkpoint"]["revision"] = json!(2);
+        let successor = serde_json::from_value(encoded)?;
+        let exclusive = f.backend.admission.exclusive().await;
+        let before = f.backend.admission.attempts();
+        let backend = f.backend.clone();
+        let queued = domain.spawn(async move { backend.revoke_to(successor).await })?;
+        domain
+            .run(async {
+                cellar::asyncrt::timeout(Duration::from_secs(5), async {
+                    while f.backend.admission.attempts() == before {
+                        cellar::asyncrt::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+                .await
+            })
+            .await?
+            .context("revocation never reached physical admission")?;
+        // Shutdown closes this flag before acquiring its exclusive gate.
+        // The revocation already passed its initial check, but has not entered.
+        f.backend.closed.store(true, Ordering::Release);
+        drop(exclusive);
+        let error = queued
+            .await?
+            .expect_err("closed backend admitted queued revocation");
+        ensure!(
+            matches!(
+                error.downcast_ref::<ExecutionControllerFailure>(),
+                Some(ExecutionControllerFailure::Unavailable)
+            ),
+            "queued revocation reached Engine I/O after shutdown: {error:#}"
+        );
+        ensure!(
+            f.backend.journal.view(|state| Ok(state
+                .slots
+                .get(&journal::key(&f.current))
+                .context("original binding missing")?
+                .high
+                == f.current))?,
+            "late revocation changed the durable high-water mark"
         );
         Ok(())
     }
