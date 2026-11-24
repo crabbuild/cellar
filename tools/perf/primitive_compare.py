@@ -354,8 +354,13 @@ def case(args, engine, report, family, mode, config, token):
         common = ['-e', 'AWS_ACCESS_KEY_ID', '-e', 'AWS_SECRET_ACCESS_KEY', '-e', 'CELLAR_PERF_TOKEN',
                   '-e', f'CELLAR_PERF_PRIMITIVE={family}', '-e', f'CELLAR_PERF_DURABILITY={mode}', '-e', f'CELLAR_PERF_BUCKET={bucket}',
                   '-e', f'RAFT_NETWORK_PREFIX={network_prefix}', '-v', config_volume + ':/config:ro']
+        trace = ['warn']
         if args.lease_trace:
-            common += ['-e', 'RUST_LOG=warn,cellar::actor::effects=info,store=debug']
+            trace.extend(['cellar::actor::effects=info', 'store=debug'])
+        if args.version_clock_trace:
+            trace.append('cellar::raft::version_clock=debug')
+        if len(trace) > 1:
+            common += ['-e', 'RUST_LOG=' + ','.join(trace)]
         for i in range(1, 4):
             engine.call('volume', 'create', '--label', owner, prefix + f'-node{i}')
         if mode.startswith('raft-'):
@@ -499,8 +504,8 @@ def run(args):
     require(not args.output.exists(), 'provide a new output directory')
     require(1 <= args.seconds <= 120 and 1 <= args.warmup <= 30 and 1 <= args.repetitions <= 5, 'invalid timing')
     require(args.concurrency and len(set(args.concurrency)) == len(args.concurrency) and all(1 <= c <= 32 for c in args.concurrency), 'invalid concurrency')
-    require(not args.lease_trace or all(mode.startswith('raft-') for mode in args.modes),
-            'lease tracing requires only Raft modes')
+    require(not (args.lease_trace or args.version_clock_trace) or all(mode.startswith('raft-') for mode in args.modes),
+            'Raft tracing requires only Raft modes')
     args.output = args.output.resolve()
     args.output.mkdir(mode=0o700)
     token, access, secret = secrets.token_hex(32), secrets.token_hex(10), secrets.token_hex(32)
@@ -532,7 +537,7 @@ def run(args):
                           'store_memory_bytes':2*GIB,'load_cpu':1,'load_memory_bytes':2*GIB,'extra_swap_bytes':0,
                           'cpu_sets':{'nodes':[0,1,2],'store':3,'load':4}},'entities':24,'raft_groups':3,
                          'payload_bytes':256,'queue_batch_messages':8,'actor_operation_ms':5000,'actor_lease_ms':5000,
-                         'lease_trace':args.lease_trace,
+                         'lease_trace':args.lease_trace,'version_clock_trace':args.version_clock_trace,
                          'seconds':args.seconds,'warmup_seconds':args.warmup,'repetitions':args.repetitions,'concurrency':args.concurrency},
               'compiler':engine.call('run','--rm','--network','none','--entrypoint','cat',args.image,'/usr/local/bin/raft-rustc.txt'),
               'binary_digests':engine.call('run','--rm','--network','none','--entrypoint','cat',args.image,'/usr/local/bin/executables.sha256'),
@@ -573,6 +578,7 @@ if __name__ == '__main__':
     parser.add_argument('--repetitions',type=int,default=2)
     parser.add_argument('--concurrency',nargs='+',type=int,default=[1,4,16])
     parser.add_argument('--lease-trace',action='store_true',help='record existing Raft node-lease attempt and store-request traces')
+    parser.add_argument('--version-clock-trace', action='store_true', help='record signed time bounds on Raft cell version refusals')
     try:
         run(parser.parse_args())
     except Exception as error:

@@ -7474,3 +7474,28 @@ cases and include overlapping operations. Correlate individual requests with
 the persistence and apply phases before attributing the write tail. Derived
 phase totals are retained in `read-rf3-validated-performance-phases.json`
 alongside the original run ledgers.
+
+## Reproduce KV version refusals under a clock step
+
+The [primitive comparison runner](../../../../tools/perf/primitive_compare.md)
+can record signed version time refusals at authentication and at the caller's
+final check. The load ledger records the failed request's ingress voter,
+wall-clock completion and elapsed time within the window.
+
+The four-client control verified its warmup, 66 timed writes and 3,252 timed
+reads on three RF3 groups backed by local RustFS. Each voter had 1 vCPU and
+2 GiB. The same image and workload verified 104 writes before the fault run
+introduced 24 backward clock steps of roughly 104 ms during the read window.
+The fault run restored the original guest clock progression after the pulses.
+
+The four failed reads matched their ingress voters' logs. The signed replies
+appeared 81–102 ms future-issued. Three requests returned
+`Transport(Authentication)` and one returned `Version(Expired)` after reply
+authentication. The verifier recorded 1,375 correct read results and refused
+qualification of the window. The controlled fault reproduces both historical
+C16 symptoms. The earlier run lacks exact timestamps for its failed requests.
+
+Two new C16 attempts stopped in warmup with 12 and 13 unconfirmed writes,
+respectively, before the read phase. They retain the existing ambiguity rules
+and provide no C16 read measurements. The ledgers and the clock-step samples
+are retained under `cellar-0d50-quorum/kv-version-clock-*`.

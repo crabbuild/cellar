@@ -82,12 +82,27 @@ impl AuthenticatedCellVersion {
     }
 
     pub(in crate::raft) fn check_time(&self, now_ms: u64) -> Result<(), VersionError> {
-        if self.validity.contains(&now_ms) {
-            Ok(())
-        } else {
-            Err(VersionError::Expired)
-        }
+        check_cell_version_time(&self.validity, now_ms, "caller")
     }
+}
+
+fn check_cell_version_time(
+    validity: &std::ops::Range<u64>,
+    now_ms: u64,
+    boundary: &'static str,
+) -> Result<(), VersionError> {
+    if validity.contains(&now_ms) {
+        return Ok(());
+    }
+    tracing::debug!(
+        target: "cellar::raft::version_clock",
+        boundary,
+        now_ms,
+        issued_ms = validity.start,
+        expires_ms = validity.end,
+        "signed cell version outside its validity interval"
+    );
+    Err(VersionError::Expired)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -350,10 +365,15 @@ impl VersionKeys {
             )
             .map_err(|_| VersionError::Invalid)?;
         let validity = input.u64()?..input.u64()?;
-        if !validity.contains(&now_ms)
-            || validity.end > key.verify_until_ms
-            || validity.end - validity.start > MAX_LIFETIME_MS
-        {
+        check_cell_version_time(&validity, now_ms, "authentication")?;
+        if validity.end > key.verify_until_ms || validity.end - validity.start > MAX_LIFETIME_MS {
+            tracing::debug!(
+                target: "cellar::raft::version_clock",
+                expires_ms = validity.end,
+                issued_ms = validity.start,
+                verify_until_ms = key.verify_until_ms,
+                "signed cell version exceeds key retention or maximum lifetime"
+            );
             return Err(VersionError::Expired);
         }
         let cluster = ClusterId::new(input.array()?).map_err(|_| VersionError::Invalid)?;
