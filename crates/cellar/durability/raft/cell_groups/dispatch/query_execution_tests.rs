@@ -45,3 +45,20 @@ fn read_error_policy_preserves_deadlines_fences_and_storage_failures() {
         }
     }
 }
+
+#[test]
+fn logical_activation_pending_keeps_only_its_authorized_version_wait() {
+    for may_wait in [true, false] {
+        let pending = ExecutionError::Storage(
+            anyhow::Error::new(
+                crate::application::consensus::native_event_query::ActivationPending,
+            )
+            .context("authorized catalog readiness snapshot"),
+        );
+        match classify_query_error(pending, may_wait) {
+            QueryError::WaitForChange => assert!(may_wait),
+            QueryError::Return(CellDispatchError::Execution(_)) => assert!(!may_wait),
+            _ => panic!("logical activation pending must not become generic reader retry"),
+        }
+    }
+}

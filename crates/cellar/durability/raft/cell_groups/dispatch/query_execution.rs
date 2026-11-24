@@ -367,8 +367,19 @@ enum QueryError {
 
 fn classify_query_error(error: ExecutionError, may_wait: bool) -> QueryError {
     if let ExecutionError::Storage(cause) = &error {
+        if may_wait
+            && cause.is::<crate::application::consensus::native_event_query::ActivationPending>()
+        {
+            return QueryError::WaitForChange;
+        }
         match cause.downcast_ref::<RuntimeError>() {
-            Some(RuntimeError::NotReady) if may_wait => return QueryError::WaitForChange,
+            Some(RuntimeError::NotReady) => {
+                // A term/source epoch can change without a cell mutation.
+                // Return to the existing immutable-reader retry/routing path;
+                // a new read still needs fresh quorum authority and the same
+                // original deadline. Fenced and storage failures remain fatal.
+                return QueryError::Return(CellDispatchError::Runtime(RuntimeError::NotReady));
+            }
             Some(RuntimeError::DeadlineExceeded) => {
                 return QueryError::Return(CellDispatchError::Runtime(
                     RuntimeError::DeadlineExceeded,
