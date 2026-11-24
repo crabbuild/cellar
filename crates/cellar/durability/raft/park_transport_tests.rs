@@ -329,8 +329,8 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
                     let mut stopped = pump_stop.clone();
                     async move {
                         loop {
-                            let event = tokio::select! {
-                                biased;
+                            let event = crate::asyncrt::select_biased! {
+                                "stop pump intake before runtime shutdown";
                                 _ = stopped.changed() => break,
                                 event = events.recv() => event,
                             };
