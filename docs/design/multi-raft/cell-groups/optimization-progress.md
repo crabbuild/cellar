@@ -10,6 +10,123 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+Earlier local qualification bundles have been cleaned up. Their source-pinned
+prose records observations made at those checkpoints; it does not assert that
+the old raw media or privacy caches are still available. The current campaign
+starts a fresh private evidence baseline and keeps generated outputs outside
+this tree.
+
+## Fresh main and constrained-runtime verification
+
+Main `86cfe5d1c` includes #184 and #185. The bounded-cache follow-up
+`6a0690913`, compiler inputs `fe495002`, fits eight idle successor hints within
+the existing 512-byte node bound. A compact lookup tag remains discardable:
+the full 256-bit history/schema scope must still match, and every command keeps
+its original authority, fingerprint, deadline and durability checks. The owning
+eight-target rotation fails before the change and passes afterward; forced
+lookup collisions cannot select another scope's sequence.
+
+The full library passes **1,430 tests / zero failures / two existing ignores**.
+All **13 selected public RF3 controls** pass, including both image forms of
+successor reuse and all eight SQL interrupted-parent recovery configurations.
+Strict all-feature/all-target Clippy and repository checks pass.
+
+The unchanged native service campaign passes **8/13 complete functions**:
+SQL, KV and Queue callbacks each **2/2**, combined Queue C2 **1/2**, combined
+C4 **0/1**, separate materialized C4 **1/2**, and extent-backed C4 **0/2**.
+Main's separate clean C4 control passes materialized **1/1** and fails both
+extent-backed repeats. The earlier three controls alongside compilation fail
+all three and remain diagnostic observations. These are not a matched full
+service performance comparison. Original request, callback and drain windows,
+identities, unknown outcomes and admission limits remain unchanged.
+
+A fresh Colima VM provides five CPUs and 11.65 GiB usable memory. Each case
+uses three independent 1-vCPU/2-GiB nodes, three RF3 groups, shared RustFS and
+separate capped store/client containers, with no container swap. The original
+6-GiB filesystem reserve passes before every case. Adjacent baseline/candidate
+pairs alternate source order across SQL, KV and Queue and all four durability
+modes. Both images use identical Rust, Python and runtime package versions.
+
+The **five-second, one-repeat smoke** at C1/4/16 passes **16/24 source cases**.
+All Fleet/Bucket cases pass; **8/12 Raft cases fail**, including every Queue
+Raft case. Failed windows retain incomplete settlement probes and unconfirmed
+mutations. Runtime/connection closure and subsequent `NotFound` observations
+require diagnosis; they are not proof that an unconfirmed mutation did not
+commit. A targeted failed Queue quorum trace retains healthy node-lease
+renewals. Separate SQL trace, C16-only and untraced controls pass, so those
+passes do not erase the original failures or establish a repair.
+
+The full 30-second, two-repeat comparison remains unqualified. This checkpoint
+closes the bounded working-set regression, not full service, low-latency or
+OPT/CG/recovery/release acceptance. Follow [the remaining priorities](remaining-work.md#current-optimization-follow-up).
+
+## Preserve committed prefetch under item pressure
+
+Compiler inputs `a53855fb` address a second bounded admission problem. When
+original apply work cannot acquire another item, a uniquely owned cached
+successor can carry its existing active item into that apply. Its entire cached
+byte charge remains held, and the full ordinary workspace is charged in
+addition, against the same unchanged bank. Shared ownership, byte pressure,
+another bank, an inactive item or overflow retain the original refusal or
+optional-prefetch eviction path. Physical join custody prevents promotion while
+the earlier preparation is still running.
+
+The full entry, base, group, engine and page-owner checks and actual page-read
+recheck remain required before publication. Reusing preparation does not admit
+another operation or establish a durable receipt. The original command and
+required durability proof remain individual.
+
+Four owning regressions fail on the test-only baseline `0d579b07`: both image
+forms lose their expected cache hit, and both injected read failures miss the
+physical cached-page recheck. All four pass on `a53855fb`, including unchanged
+selected roots after failure and reservation release after physical join.
+Twelve existing controls also pass, covering byte-pressure eviction, real read
+and sync faults, close, late cancellation and uncommitted successors in both
+image forms. The full library passes **1,431 tests / zero failures / two existing
+ignores**. Strict all-feature/all-target Clippy, formatting, layout and native
+dependency checks pass. Public and
+service requalification keeps the original identities and time windows. All
+**13 public RF3 selections** pass, including all eight interrupted-SQL recovery
+configurations.
+
+The unchanged native service campaign passes **6/13 complete selections**:
+SQL, KV and Queue callbacks each **2/2**, combined Queue C2 **0/2**, combined C4
+**0/1**, materialized C4 **0/2**, and extent-backed C4 **0/2**. Failed producer
+responses retain their ambiguous deadline outcomes. All captured processes join;
+nine structured Queue cleanup records report joined domains and zero errors.
+Original and retained fixture copies match. These captures and the earlier
+`fe495002` campaign are separate observations, not a matched performance result.
+
+The first failed rooted C2 snapshot has no optional-prefetch eviction or
+admission refusal.
+Its available, unsaturated aggregate observations report log file sync means of
+about **45–48 ms**, manifest preparation **138–157 ms**, and follower image
+preparation **162–170 ms**. They include setup and failed work, are not request
+percentiles, and must not be added as latency components. Native fixtures occupy
+an external USB APFS SSD.
+
+Six unchanged rooted C4 controls bracket internal-filesystem baseline/candidate
+ABBA runs with candidate USB runs. Both sources pass both internal runs, each
+delivering all **528 messages uniquely**. The candidate passes **1/2** USB runs.
+Its internal enqueue-batch p50 is **693–730 ms** and p99 **1,095–1,239 ms**;
+the baseline ranges overlap. These controls establish neither a native code
+speedup nor a repair of all USB failures. The harness originally placed runtime
+fixtures on USB alongside build artifacts. Full service requalification on the
+normal internal persistent temporary filesystem passes **13/13 complete
+selections**, including every original C2/C4 selection and reverse-order repeat.
+Cargo artifacts remain on Workspace. The original failed storage profile, time
+windows and media remain retained; no identity, durability minimum or admission
+assertion changes. Both complete captures have unchanged source and verified
+closed fixture copies. These native results do not qualify the pending capped
+Colima performance comparison.
+
+Separate temporary error-only probes at `e263e8e2` retain Queue and SQL deadline
+failures with all 15 observed node outcomes recorded as `Stopped` and no captured
+runtime/controller/quarantine failure. Those probes have been removed. This is
+a distinct failure pattern; it neither reproduces nor repairs the original
+runtime closures. Both the service and constrained comparison gates remain
+required. All measurements are scoped to the shared host, as requested.
+
 ## Verified ingress successors across requests
 
 Starting from merged main `49828ff6` (#183), compiler inputs `99a34233` retain

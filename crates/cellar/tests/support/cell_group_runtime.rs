@@ -116,6 +116,7 @@ impl RuntimeCluster {
             let (runtime, receiver) = CellGroupRuntime::start(
                 cluster.voters[n].log.clone(),
                 RaftRuntimeOptions {
+                    max_groups: cluster.options.max_groups,
                     tick_interval_ms: None,
                     election_seed: Some([71; 32]),
                     max_events,

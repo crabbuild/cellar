@@ -181,22 +181,37 @@ impl CellGroupSqlPool {
         let bytes = applier.reservation_bytes(&work)?;
         let mut cached = self.inner.apply_cache.take(applier.history())?;
         let reservation = match self.inner.apply_admission.acquire(bytes) {
-            Some(permit) => permit,
+            Some(permit) => Arc::new(permit),
             None => {
-                // Discard joined immutable prefetches before refusing original
-                // apply work. This is admission only, never a mutation retry.
-                let count = usize::from(cached.take().is_some()) + self.inner.apply_cache.clear();
-                self.inner.performance.increment(
-                    crate::raft::performance::Counter::CellApplyPrefetchEvictions,
-                    count as u64,
-                );
-                self.inner
-                    .apply_admission
-                    .acquire(bytes)
-                    .ok_or_else(overloaded)?
+                // Join custody retains another Arc until physical preparation
+                // actually joins. A unique cached permit can carry this apply's
+                // item while keeping all cached bytes and charging the full
+                // ordinary workspace in the same unchanged bank.
+                let reused = cached.as_mut().and_then(|value| {
+                    let charged = Arc::get_mut(&mut value.reservation)?
+                        .charge_more_in(&self.inner.apply_admission, bytes);
+                    charged.then(|| value.reservation.clone())
+                });
+                if let Some(reservation) = reused {
+                    reservation
+                } else {
+                    // Discard joined immutable prefetches before refusing original
+                    // apply work. This is admission only, never a mutation retry.
+                    let count =
+                        usize::from(cached.take().is_some()) + self.inner.apply_cache.clear();
+                    self.inner.performance.increment(
+                        crate::raft::performance::Counter::CellApplyPrefetchEvictions,
+                        count as u64,
+                    );
+                    Arc::new(
+                        self.inner
+                            .apply_admission
+                            .acquire(bytes)
+                            .ok_or_else(overloaded)?,
+                    )
+                }
             }
         };
-        let reservation = Arc::new(reservation);
         // This fixed-size anchor is retained by ApplyTasks outside the
         // physical closure. Any late permit survives through the actual join.
         let prefetch_retention = Arc::new(std::sync::OnceLock::new());
