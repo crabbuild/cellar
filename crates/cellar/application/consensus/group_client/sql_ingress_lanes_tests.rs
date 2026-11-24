@@ -130,25 +130,34 @@ async fn acknowledged_successor_passes_once_between_live_callers() {
         })
         .collect();
     let mut first = callers[0].lock().await;
-    assert_eq!(first.take_successor(&history), None);
+    assert_eq!(first.take_successor(&history, [4; 32], 20), None);
     first.acknowledged(
         &history,
         CommandId::new(super::super::super::sql_ingress_identity::client(), 5).unwrap(),
+        [4; 32],
+        100,
+        10,
     );
     drop(first);
     let mut second = callers[1].lock().await;
-    assert_eq!(second.take_successor(&history), Some(6));
-    assert_eq!(second.take_successor(&history), None);
+    assert_eq!(second.take_successor(&history, [4; 32], 20), Some(6));
+    assert_eq!(second.take_successor(&history, [4; 32], 20), None);
     second.acknowledged(
         &history,
         CommandId::new(super::super::super::sql_ingress_identity::client(), 6).unwrap(),
+        [4; 32],
+        100,
+        10,
     );
     drop(second);
     let mut third = callers[2].lock().await;
-    assert_eq!(third.take_successor(&history), Some(7));
+    assert_eq!(third.take_successor(&history, [4; 32], 20), Some(7));
     third.acknowledged(
         &history,
         CommandId::new(super::super::super::sql_ingress_identity::client(), 7).unwrap(),
+        [4; 32],
+        100,
+        10,
     );
     drop(third);
     drop(callers);
@@ -157,7 +166,10 @@ async fn acknowledged_successor_passes_once_between_live_callers() {
     let later = lanes
         .enter(&history, budget.acquire(8192).unwrap())
         .unwrap();
-    assert_eq!(later.lock().await.take_successor(&history), None);
+    assert_eq!(
+        later.lock().await.take_successor(&history, [4; 32], 20),
+        None
+    );
     drop(later);
     assert!(lanes.active.lock().unwrap().is_empty());
     assert_eq!(budget.usage(), (0, 0));
@@ -188,17 +200,26 @@ async fn successor_refuses_other_histories_and_client_streams() {
         turn.acknowledged(
             &history,
             CommandId::new(super::super::super::sql_ingress_identity::client(), 5).unwrap(),
+            [4; 32],
+            100,
+            10,
         );
         drop(turn);
         let mut turn = second.lock().await;
-        assert_eq!(turn.take_successor(&other), None);
-        assert_eq!(turn.take_successor(&history), None);
+        assert_eq!(turn.take_successor(&other, [4; 32], 20), None);
+        assert_eq!(turn.take_successor(&history, [4; 32], 20), None);
         turn.acknowledged(
             &history,
             CommandId::new(cellar_logic::consensus::ClientId::new([9; 16]).unwrap(), 5).unwrap(),
+            [4; 32],
+            100,
+            10,
         );
         drop(turn);
-        assert_eq!(first.lock().await.take_successor(&history), None);
+        assert_eq!(
+            first.lock().await.take_successor(&history, [4; 32], 20),
+            None
+        );
         drop((first, second));
         assert!(lanes.active.lock().unwrap().is_empty());
         assert_eq!(budget.usage(), (0, 0));
@@ -220,12 +241,15 @@ async fn cancelled_owner_discards_inherited_sequence_and_terminal_sequence_has_n
     turn.acknowledged(
         &history,
         CommandId::new(super::super::super::sql_ingress_identity::client(), 5).unwrap(),
+        [4; 32],
+        100,
+        10,
     );
     drop(turn);
     // Acquiring and then cancelling the owner consumes even an unused hint.
     drop(second.lock().await);
     let mut turn = first.lock().await;
-    assert_eq!(turn.take_successor(&history), None);
+    assert_eq!(turn.take_successor(&history, [4; 32], 20), None);
     turn.acknowledged(
         &history,
         CommandId::new(
@@ -233,9 +257,15 @@ async fn cancelled_owner_discards_inherited_sequence_and_terminal_sequence_has_n
             u64::MAX,
         )
         .unwrap(),
+        [4; 32],
+        100,
+        10,
     );
     drop(turn);
-    assert_eq!(second.lock().await.take_successor(&history), None);
+    assert_eq!(
+        second.lock().await.take_successor(&history, [4; 32], 20),
+        None
+    );
     drop((first, second));
     assert!(lanes.active.lock().unwrap().is_empty());
     assert_eq!(budget.usage(), (0, 0));

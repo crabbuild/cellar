@@ -592,7 +592,7 @@ impl RaftCells {
                             );
                         }
                         remaining()?;
-                        return Ok((Reply::Rpc(response), None));
+                        return Ok((Reply::Rpc(response), None, turn));
                     }
                     // Only the private callback's eligibility sentinel may
                     // enter the original command. Errors retain their cause;
@@ -646,7 +646,7 @@ impl RaftCells {
                             );
                         }
                         remaining()?;
-                        return Ok((Reply::Rpc(response), None));
+                        return Ok((Reply::Rpc(response), None, turn));
                     }
                 }
                 // Updates and other primitives need the same bounded SQL/image
@@ -674,27 +674,26 @@ impl RaftCells {
                         crate::raft::performance::Counter::CellKvResolvedPayloadPreparations,
                         1,
                     );
-                    return Ok((Reply::Rpc(response), None));
+                    return Ok((Reply::Rpc(response), None, turn));
                 }
                 let cell = owner.cell(history.clone())?;
-                let cursor = call_scope.ingress_cursor.as_ref().map(|cursor| {
-                    (
-                        cursor,
-                        super::super::ingress_cursor::Key::new(&history, schema),
-                    )
-                });
                 // The runtime-owned initializer creates an empty stream. This
                 // is a hint at the enrollment cut, never an exclusive sequence
                 // reservation: another caller can still consume it first.
                 let now = owner.handle.domain.mono_ms()?;
-                let inherited = turn.take_successor(&history);
+                let inherited = turn.take_successor(&history, schema, now);
+                let node_hint = turn.take_node_successor(&history, schema, now);
+                // Consume every candidate even if a higher-priority hint wins.
+                // An unknown command cannot leave an older invocation hint behind.
+                let invocation_hint = call_scope.ingress_cursor.as_ref().and_then(|cursor| {
+                    cursor.take(
+                        super::super::ingress_cursor::Key::new(&history, schema),
+                        now,
+                    )
+                });
                 let next = if newly_enrolled {
                     1
-                } else if let Some(next) = inherited.or_else(|| {
-                    cursor
-                        .as_ref()
-                        .and_then(|(cursor, key)| cursor.take(*key, now))
-                }) {
+                } else if let Some(next) = inherited.or(invocation_hint).or(node_hint) {
                     // A previous verified receipt only supplies a candidate.
                     // Command admission and the fresh conflict proof below are
                     // unchanged; no read/serving authority is cached here.
@@ -783,10 +782,7 @@ impl RaftCells {
                 if fetch {
                     let response = super::super::native_fetch::decode_response(&receipt.result)?;
                     remaining()?;
-                    return Ok((
-                        Reply::Fetch(response),
-                        cursor.map(|(_, key)| (key, id.sequence())),
-                    ));
+                    return Ok((Reply::Fetch(response), Some((history, id)), turn));
                 }
                 let response = native_rpc::decode_response(&receipt.result)?;
                 if let Some(limit) = reservation.reply_limit() {
@@ -798,11 +794,7 @@ impl RaftCells {
                     );
                 }
                 remaining()?;
-                turn.acknowledged(&history, receipt.id);
-                Ok((
-                    Reply::Rpc(response),
-                    cursor.map(|(_, key)| (key, id.sequence())),
-                ))
+                Ok((Reply::Rpc(response), Some((history, id)), turn))
             };
             let timed = async {
                 let timer = owner.handle.domain.sleep_until(deadline)?;
@@ -817,14 +809,22 @@ impl RaftCells {
                 timed,
             )
             .await
-            .and_then(|(reply, completed)| {
-                // Replenish only after the original cancellation/deadline
-                // selection delivers success. An undelivered receipt cannot
-                // advance the invocation's candidate after an unknown result.
-                if let (Some(cursor), Some((key, sequence))) =
-                    (call_scope.ingress_cursor.as_ref(), completed)
-                {
-                    cursor.remember(key, sequence, deadline, owner.handle.domain.mono_ms()?);
+            .and_then(|(reply, completed, mut turn)| {
+                // Preserve FIFO ownership through the original success selection.
+                // Cancellation, deadline or an undelivered receipt replenishes
+                // neither the live lane, invocation cursor nor node advice.
+                if let Some((history, id)) = completed {
+                    let now = owner.handle.domain.mono_ms()?;
+                    anyhow::ensure!(now < deadline, RuntimeError::DeadlineExceeded);
+                    turn.acknowledged(&history, id, schema, deadline, now);
+                    if let Some(cursor) = call_scope.ingress_cursor.as_ref() {
+                        cursor.remember(
+                            super::super::ingress_cursor::Key::new(&history, schema),
+                            id.sequence(),
+                            deadline,
+                            now,
+                        );
+                    }
                 }
                 Ok(reply)
             })

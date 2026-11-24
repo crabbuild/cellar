@@ -12,6 +12,10 @@ mod drain;
 mod operator_read;
 pub use operator_read::qualify as qualify_operator_read_boundaries;
 
+#[path = "cell_group_queue_idle_hint.rs"]
+mod idle_hint;
+pub use idle_hint::qualify as qualify_idle_successor;
+
 const FAST: &str = "quorum-fast";
 
 #[path = "cell_group_queue_transfers.rs"]
