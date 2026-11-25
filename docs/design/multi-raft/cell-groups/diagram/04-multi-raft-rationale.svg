@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1440" role="img" aria-labelledby="title desc">
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+<title id="title">Multi-Raft on Cell Groups — replication rationale</title>
+<desc id="desc">A leader prepares a private SQLite transaction and captures cell-addressed LTX page changes. One group log replicates updates for many cells to three voters. Committed entries update the selected cell image on each replica. Image and manifest synchronization precedes atomic root and applied-index publication. Groups share node infrastructure while retaining independent elections. Cells retain separate databases but share group leadership, placement and apply order. This is the shared-group target architecture; production cutover is pending.</desc>
+<defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+<marker id="cyan" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#22d3ee"/></marker>
+<marker id="green" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#34d399"/></marker>
+<marker id="purple" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#a78bfa"/></marker>
+<marker id="gold" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#fbbf24"/></marker>
+<marker id="slate" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#94a3b8"/></marker>
+</defs><style>text{font-family:Menlo,Consolas,monospace}.label{paint-order:stroke;stroke:#0f172a;stroke-width:8px;stroke-linejoin:round}</style>
+<rect x="0" y="0" width="1800" height="1440" rx="0" fill="#0f172a" stroke="none" stroke-width="1.5"/>
+<rect width="1800" height="1440" fill="url(#grid)"/>
+<text x="60" y="70" font-size="40" fill="#f8fafc" font-weight="700" text-anchor="start">Multi-Raft on Cell Groups</text>
+<text x="60" y="112" font-size="22" fill="#94a3b8" font-weight="400" text-anchor="start">Many SQLite databases. One consensus log per group.</text>
+<rect x="60" y="155" width="500" height="95" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="80" y="190" font-size="19" fill="#22d3ee" font-weight="700" text-anchor="start">GROUP = CONSENSUS</text>
+<text x="80" y="224" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">One leader · one membership · one ordered log</text>
+<rect x="650" y="155" width="500" height="95" rx="12" fill="#111c30" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="670" y="190" font-size="19" fill="#a78bfa" font-weight="700" text-anchor="start">CELL = DATA ISOLATION</text>
+<text x="670" y="224" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">Separate SQLite state, transactions and versions</text>
+<rect x="1240" y="155" width="500" height="95" rx="12" fill="#111c30" stroke="#34d399" stroke-width="1.5"/>
+<text x="1260" y="190" font-size="19" fill="#34d399" font-weight="700" text-anchor="start">NODE = SHARED RESOURCES</text>
+<text x="1260" y="224" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">Many groups share workers, storage and transport</text>
+<path d="M420 325H485" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<path d="M1035 325H1100" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<rect x="60" y="285" width="360" height="88" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="80" y="320" font-size="22" fill="#22d3ee" font-weight="700" text-anchor="start">1  Route Cell B command</text>
+<text x="80" y="351" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Cell B → Group 7 leader</text>
+<rect x="485" y="285" width="550" height="88" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="505" y="320" font-size="22" fill="#22d3ee" font-weight="700" text-anchor="start">2  Execute SQL privately</text>
+<text x="505" y="351" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Local SQLite commit ≠ distributed commit</text>
+<rect x="1100" y="285" width="640" height="88" rx="12" fill="#111c30" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1120" y="320" font-size="22" fill="#fbbf24" font-weight="700" text-anchor="start">3  Capture cell-addressed LTX</text>
+<text x="1120" y="351" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">B identity + base/result version + changed pages</text>
+<rect x="60" y="460" width="500" height="680" rx="16" fill="#101a2c" stroke="#53627a" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="82" y="500" font-size="24" fill="#f8fafc" font-weight="700" text-anchor="start">NODE 1</text>
+<text x="538" y="500" font-size="16" fill="#22d3ee" font-weight="400" text-anchor="end">GROUP 7 LEADER</text>
+<rect x="650" y="460" width="500" height="680" rx="16" fill="#101a2c" stroke="#53627a" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="672" y="500" font-size="24" fill="#f8fafc" font-weight="700" text-anchor="start">NODE 2</text>
+<text x="1128" y="500" font-size="16" fill="#22d3ee" font-weight="400" text-anchor="end">GROUP 7 FOLLOWER</text>
+<rect x="1240" y="460" width="500" height="680" rx="16" fill="#101a2c" stroke="#53627a" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="1262" y="500" font-size="24" fill="#f8fafc" font-weight="700" text-anchor="start">NODE 3</text>
+<text x="1718" y="500" font-size="16" fill="#22d3ee" font-weight="400" text-anchor="end">GROUP 7 FOLLOWER</text>
+<path d="M1420 373V410H310V560" fill="none" stroke="#fbbf24" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#gold)"/>
+<text x="850" y="435" font-size="17" fill="#fbbf24" font-weight="400" text-anchor="middle" class="label">Propose the result of execution, not SQL to replay</text>
+<path d="M500 560V535H1490V560" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<text x="1000" y="525" font-size="16" fill="#22d3ee" font-weight="400" text-anchor="middle" class="label">replicate Group 7 log</text>
+<path d="M540 635H670" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<text x="605" y="620" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle" class="label">replicate</text>
+<rect x="80" y="560" width="460" height="150" rx="12" fill="#102b38" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="100" y="591" font-size="23" fill="#22d3ee" font-weight="700" text-anchor="start">4  Durable group log</text>
+<rect x="100" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="145" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">101</text>
+<text x="145" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">A:v8</text>
+<rect x="202" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="247" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">102</text>
+<text x="247" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">B:v4</text>
+<rect x="304" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="349" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">103</text>
+<text x="349" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">A:v9</text>
+<rect x="406" y="610" width="90" height="65" rx="6" fill="#253027" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="451" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">104</text>
+<text x="451" y="659" font-size="17" fill="#fbbf24" font-weight="700" text-anchor="middle">B:v5</text>
+<text x="100" y="696" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="start">Logical log stored in the node’s Raft Engine</text>
+<path d="M310 710V780" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<text x="330" y="750" font-size="15" fill="#34d399" font-weight="400" text-anchor="start">committed entries only</text>
+<rect x="80" y="780" width="460" height="80" rx="12" fill="#102b2a" stroke="#34d399" stroke-width="1.5"/>
+<text x="100" y="812" font-size="19" fill="#34d399" font-weight="700" text-anchor="start">5  Apply LTX to the addressed cell</text>
+<text x="100" y="842" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">Verify base → prepare new SQLite image</text>
+<path d="M310 860V910" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<path d="M90 922V984C90 1002 230 1002 230 984V922" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/><ellipse cx="160" cy="922" rx="70" ry="11" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="160" y="953" font-size="19" fill="#a78bfa" font-weight="700" text-anchor="middle">Cell A</text>
+<text x="160" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v9</text>
+<path d="M240 922V984C240 1002 380 1002 380 984V922" fill="#2a271e" stroke="#fbbf24" stroke-width="1.5"/><ellipse cx="310" cy="922" rx="70" ry="11" fill="#2a271e" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="310" y="953" font-size="19" fill="#fbbf24" font-weight="700" text-anchor="middle">Cell B</text>
+<text x="310" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v5</text>
+<path d="M390 922V984C390 1002 530 1002 530 984V922" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/><ellipse cx="460" cy="922" rx="70" ry="11" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="460" y="953" font-size="19" fill="#a78bfa" font-weight="700" text-anchor="middle">Cell C</text>
+<text x="460" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v2</text>
+<path d="M310 1000V1040" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#purple)"/>
+<rect x="80" y="1040" width="460" height="75" rx="12" fill="#1b2036" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="100" y="1070" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">6  Publish root + applied index</text>
+<text x="100" y="1100" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">Atomic publication after image/page sync</text>
+<rect x="670" y="560" width="460" height="150" rx="12" fill="#102b38" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="690" y="591" font-size="23" fill="#22d3ee" font-weight="700" text-anchor="start">4  Durable group log</text>
+<rect x="690" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="735" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">101</text>
+<text x="735" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">A:v8</text>
+<rect x="792" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="837" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">102</text>
+<text x="837" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">B:v4</text>
+<rect x="894" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="939" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">103</text>
+<text x="939" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">A:v9</text>
+<rect x="996" y="610" width="90" height="65" rx="6" fill="#253027" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1041" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">104</text>
+<text x="1041" y="659" font-size="17" fill="#fbbf24" font-weight="700" text-anchor="middle">B:v5</text>
+<text x="690" y="696" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="start">Logical log stored in the node’s Raft Engine</text>
+<path d="M900 710V780" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<text x="920" y="750" font-size="15" fill="#34d399" font-weight="400" text-anchor="start">committed entries only</text>
+<rect x="670" y="780" width="460" height="80" rx="12" fill="#102b2a" stroke="#34d399" stroke-width="1.5"/>
+<text x="690" y="812" font-size="19" fill="#34d399" font-weight="700" text-anchor="start">5  Apply LTX to the addressed cell</text>
+<text x="690" y="842" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">Verify base → prepare new SQLite image</text>
+<path d="M900 860V910" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<path d="M680 922V984C680 1002 820 1002 820 984V922" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/><ellipse cx="750" cy="922" rx="70" ry="11" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="750" y="953" font-size="19" fill="#a78bfa" font-weight="700" text-anchor="middle">Cell A</text>
+<text x="750" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v9</text>
+<path d="M830 922V984C830 1002 970 1002 970 984V922" fill="#2a271e" stroke="#fbbf24" stroke-width="1.5"/><ellipse cx="900" cy="922" rx="70" ry="11" fill="#2a271e" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="900" y="953" font-size="19" fill="#fbbf24" font-weight="700" text-anchor="middle">Cell B</text>
+<text x="900" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v5</text>
+<path d="M980 922V984C980 1002 1120 1002 1120 984V922" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/><ellipse cx="1050" cy="922" rx="70" ry="11" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="1050" y="953" font-size="19" fill="#a78bfa" font-weight="700" text-anchor="middle">Cell C</text>
+<text x="1050" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v2</text>
+<path d="M900 1000V1040" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#purple)"/>
+<rect x="670" y="1040" width="460" height="75" rx="12" fill="#1b2036" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="690" y="1070" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">6  Publish root + applied index</text>
+<text x="690" y="1100" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">Atomic publication after image/page sync</text>
+<rect x="1260" y="560" width="460" height="150" rx="12" fill="#102b38" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="1280" y="591" font-size="23" fill="#22d3ee" font-weight="700" text-anchor="start">4  Durable group log</text>
+<rect x="1280" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="1325" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">101</text>
+<text x="1325" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">A:v8</text>
+<rect x="1382" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="1427" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">102</text>
+<text x="1427" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">B:v4</text>
+<rect x="1484" y="610" width="90" height="65" rx="6" fill="#112332" stroke="#426176" stroke-width="1.5"/>
+<text x="1529" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">103</text>
+<text x="1529" y="659" font-size="17" fill="#e2e8f0" font-weight="400" text-anchor="middle">A:v9</text>
+<rect x="1586" y="610" width="90" height="65" rx="6" fill="#253027" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1631" y="634" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="middle">104</text>
+<text x="1631" y="659" font-size="17" fill="#fbbf24" font-weight="700" text-anchor="middle">B:v5</text>
+<text x="1280" y="696" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="start">Logical log stored in the node’s Raft Engine</text>
+<path d="M1490 710V780" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<text x="1510" y="750" font-size="15" fill="#34d399" font-weight="400" text-anchor="start">committed entries only</text>
+<rect x="1260" y="780" width="460" height="80" rx="12" fill="#102b2a" stroke="#34d399" stroke-width="1.5"/>
+<text x="1280" y="812" font-size="19" fill="#34d399" font-weight="700" text-anchor="start">5  Apply LTX to the addressed cell</text>
+<text x="1280" y="842" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">Verify base → prepare new SQLite image</text>
+<path d="M1490 860V910" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<path d="M1270 922V984C1270 1002 1410 1002 1410 984V922" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/><ellipse cx="1340" cy="922" rx="70" ry="11" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="1340" y="953" font-size="19" fill="#a78bfa" font-weight="700" text-anchor="middle">Cell A</text>
+<text x="1340" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v9</text>
+<path d="M1420 922V984C1420 1002 1560 1002 1560 984V922" fill="#2a271e" stroke="#fbbf24" stroke-width="1.5"/><ellipse cx="1490" cy="922" rx="70" ry="11" fill="#2a271e" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1490" y="953" font-size="19" fill="#fbbf24" font-weight="700" text-anchor="middle">Cell B</text>
+<text x="1490" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v5</text>
+<path d="M1570 922V984C1570 1002 1710 1002 1710 984V922" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/><ellipse cx="1640" cy="922" rx="70" ry="11" fill="#1d2039" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="1640" y="953" font-size="19" fill="#a78bfa" font-weight="700" text-anchor="middle">Cell C</text>
+<text x="1640" y="978" font-size="15" fill="#e2e8f0" font-weight="400" text-anchor="middle">SQLite v2</text>
+<path d="M1490 1000V1040" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#purple)"/>
+<rect x="1260" y="1040" width="460" height="75" rx="12" fill="#1b2036" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="1280" y="1070" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">6  Publish root + applied index</text>
+<text x="1280" y="1100" font-size="16" fill="#cbd5e1" font-weight="400" text-anchor="start">Atomic publication after image/page sync</text>
+<text x="60" y="1174" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">B:v4 → B:v5 changes only Cell B. Followers apply pages; they do not rerun the SQL callback.</text>
+<rect x="60" y="1205" width="500" height="145" rx="12" fill="#111c30" stroke="#34d399" stroke-width="1.5"/>
+<text x="80" y="1240" font-size="20" fill="#34d399" font-weight="700" text-anchor="start">WHEN THE WRITE SUCCEEDS</text>
+<text x="80" y="1272" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Stable 3-voter group: 2 durable logs</text>
+<text x="80" y="1299" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">+ leader’s matching durable apply.</text>
+<text x="80" y="1326" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">A follower may finish applying later.</text>
+<rect x="650" y="1205" width="500" height="145" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="670" y="1240" font-size="20" fill="#22d3ee" font-weight="700" text-anchor="start">WHY GROUP CELLS</text>
+<text x="670" y="1272" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Amortize elections and Raft state.</text>
+<text x="670" y="1299" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Batch log I/O across groups on a node.</text>
+<text x="670" y="1326" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Reuse bounded workers and transport.</text>
+<rect x="1240" y="1205" width="500" height="145" rx="12" fill="#111c30" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1260" y="1240" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">WHAT CELLS SHARE</text>
+<text x="1260" y="1272" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Placement, leader and apply order.</text>
+<text x="1260" y="1299" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Separate DBs; no cross-cell SQL atomicity.</text>
+<text x="1260" y="1326" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">A slow apply can delay the group prefix.</text>
+<text x="60" y="1397" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite images may be materialized files or immutable extents.</text>
+<text x="1740" y="1397" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="end">Shared-group design · production cutover pending</text>
+</svg>

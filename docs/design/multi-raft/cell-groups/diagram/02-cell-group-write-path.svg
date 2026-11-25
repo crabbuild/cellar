@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1440" role="img" aria-labelledby="title desc">
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+<title id="title">Multi-Raft on Cell Groups: Write Path</title>
+<desc id="desc">Cell X commands are admitted at the group leader. Private SQLite execution produces a cell-addressed LTX proposal. Three voters persist the group log; a stable majority commits the current-term entry. Replicas apply committed LTX without rerunning SQL. The leader publishes its durable group root and exact cell effect before acknowledgement. Quorum and S3 modes are alternative reply conditions. S3 mode additionally requires verified retained checkpoint and committed-tail coverage. Production cutover remains pending.</desc>
+<defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+<marker id="cyan" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#22d3ee"/></marker>
+<marker id="green" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#34d399"/></marker>
+<marker id="purple" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#a78bfa"/></marker>
+<marker id="gold" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#fbbf24"/></marker>
+<marker id="slate" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#94a3b8"/></marker>
+<marker id="rose" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#fb7185"/></marker>
+</defs><style>text{font-family:Menlo,Consolas,monospace}.label{paint-order:stroke;stroke:#0f172a;stroke-width:8px;stroke-linejoin:round}</style><rect width="1800" height="1440" fill="#0f172a"/><rect width="1800" height="1440" fill="url(#grid)"/>
+<text x="60" y="70" font-size="38" fill="#f8fafc" font-weight="700" text-anchor="start">Multi-Raft on Cell Groups: Write Path</text>
+<text x="60" y="112" font-size="22" fill="#94a3b8" font-weight="400" text-anchor="start">Execute once on the leader. Replicate LTX. Publish the committed cell image.</text>
+<path d="M560 240H650" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<path d="M1150 240H1240" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<rect x="60" y="175" width="500" height="145" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="82" y="210" font-size="21" fill="#22d3ee" font-weight="700" text-anchor="start">1  Route + admit Cell X</text>
+<text x="82" y="242" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Authorize cell, schema and route.</text>
+<text x="82" y="269" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Check current-term leader authority.</text>
+<text x="82" y="296" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Reserve cell and byte budgets.</text>
+<rect x="650" y="175" width="500" height="145" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="672" y="210" font-size="21" fill="#22d3ee" font-weight="700" text-anchor="start">2  Execute private SQLite</text>
+<text x="672" y="242" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Receipt hit → return the stored result.</text>
+<text x="672" y="269" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Otherwise run the command on the leader.</text>
+<text x="672" y="296" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Private changes are not queryable.</text>
+<rect x="1240" y="175" width="500" height="145" rx="12" fill="#111c30" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1262" y="210" font-size="21" fill="#fbbf24" font-weight="700" text-anchor="start">3  Capture LTX + receipt</text>
+<text x="1262" y="242" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Cell X · base v17 → result v18</text>
+<text x="1262" y="269" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Changed pages + request/result identity</text>
+<text x="1262" y="296" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Recheck term, route and base at proposal.</text>
+<path d="M1490 320V355H310V450" fill="none" stroke="#fbbf24" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#gold)"/>
+<text x="900" y="382" font-size="17" fill="#94a3b8" font-weight="400" text-anchor="middle">One unresolved data proposal per cell; different cells can prepare concurrently.</text>
+<path d="M500 450V415H1490V450" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<text x="1000" y="405" font-size="16" fill="#22d3ee" font-weight="400" text-anchor="middle" class="label">replicate the same group entry</text>
+<path d="M560 555H650" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<text x="605" y="538" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle" class="label">replicate</text>
+<rect x="60" y="450" width="500" height="210" rx="12" fill="#102b38" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="82" y="487" font-size="23" fill="#f8fafc" font-weight="700" text-anchor="start">NODE 1</text>
+<text x="538" y="487" font-size="17" fill="#22d3ee" font-weight="400" text-anchor="end">LEADER</text>
+<text x="82" y="527" font-size="22" fill="#22d3ee" font-weight="700" text-anchor="start">4  Persist Group 7 Raft log</text>
+<rect x="82" y="549" width="456" height="55" rx="12" fill="#252820" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="100" y="583" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">index N  |  Cell X:v18  |  LTX</text>
+<text x="82" y="633" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Append acceptance alone is not success.</text>
+<path d="M310 660V720" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<rect x="650" y="450" width="500" height="210" rx="12" fill="#102b38" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="672" y="487" font-size="23" fill="#f8fafc" font-weight="700" text-anchor="start">NODE 2</text>
+<text x="1128" y="487" font-size="17" fill="#22d3ee" font-weight="400" text-anchor="end">FOLLOWER</text>
+<text x="672" y="527" font-size="22" fill="#22d3ee" font-weight="700" text-anchor="start">4  Persist Group 7 Raft log</text>
+<rect x="672" y="549" width="456" height="55" rx="12" fill="#252820" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="690" y="583" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">index N  |  Cell X:v18  |  LTX</text>
+<text x="672" y="633" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Append acceptance alone is not success.</text>
+<path d="M900 660V720" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<rect x="1240" y="450" width="500" height="210" rx="12" fill="#102b38" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="1262" y="487" font-size="23" fill="#f8fafc" font-weight="700" text-anchor="start">NODE 3</text>
+<text x="1718" y="487" font-size="17" fill="#22d3ee" font-weight="400" text-anchor="end">FOLLOWER</text>
+<text x="1262" y="527" font-size="22" fill="#22d3ee" font-weight="700" text-anchor="start">4  Persist Group 7 Raft log</text>
+<rect x="1262" y="549" width="456" height="55" rx="12" fill="#252820" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1280" y="583" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">index N  |  Cell X:v18  |  LTX</text>
+<text x="1262" y="633" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Append acceptance alone is not success.</text>
+<path d="M1490 660V720" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<rect x="60" y="720" width="1680" height="90" rx="12" fill="#111c30" stroke="#34d399" stroke-width="1.5"/>
+<text x="82" y="755" font-size="23" fill="#34d399" font-weight="700" text-anchor="start">5  Raft commits N after durable quorum</text>
+<text x="82" y="787" font-size="19" fill="#cbd5e1" font-weight="400" text-anchor="start">Stable three-voter group: leader + one follower suffice for a new current-term entry.</text>
+<path d="M310 810V880" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<text x="900" y="848" font-size="17" fill="#94a3b8" font-weight="400" text-anchor="middle">Leader completion path below; followers independently apply the committed LTX.</text>
+<path d="M560 947H650" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#purple)"/>
+<path d="M1150 947H1240" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<rect x="60" y="880" width="500" height="130" rx="12" fill="#111c30" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="82" y="915" font-size="21" fill="#a78bfa" font-weight="700" text-anchor="start">6  Prepare committed Cell X</text>
+<text x="82" y="947" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Verify base, sequence and LTX chain.</text>
+<text x="82" y="974" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Sync the new image and manifest pages.</text>
+<text x="82" y="1001" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Followers never rerun the SQL callback.</text>
+<rect x="650" y="880" width="500" height="130" rx="12" fill="#111c30" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="672" y="915" font-size="21" fill="#a78bfa" font-weight="700" text-anchor="start">7  Publish durable group root</text>
+<text x="672" y="947" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Atomically persist root + applied=N.</text>
+<text x="672" y="974" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Expose the exact committed cell effect.</text>
+<text x="672" y="1001" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Earlier entries must already be applied.</text>
+<rect x="1240" y="880" width="500" height="130" rx="12" fill="#111c30" stroke="#34d399" stroke-width="1.5"/>
+<text x="1262" y="915" font-size="20" fill="#34d399" font-weight="700" text-anchor="start">8  Select acknowledgement mode</text>
+<text x="1262" y="947" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Both modes require quorum + local apply.</text>
+<text x="1262" y="974" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Return the original result + CellVersion.</text>
+<text x="1262" y="1001" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Choose one reply condition below.</text>
+<path d="M1490 1010V1055H900V1105" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<path d="M1490 1010V1105" fill="none" stroke="#fbbf24" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#gold)"/>
+<rect x="60" y="1105" width="500" height="155" rx="12" fill="#111c30" stroke="#fb7185" stroke-width="1.5"/>
+<text x="82" y="1140" font-size="21" fill="#fb7185" font-weight="700" text-anchor="start">IF THE REPLY IS LOST</text>
+<text x="82" y="1172" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">The command may already be committed.</text>
+<text x="82" y="1199" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Retry its original cell-scoped identity.</text>
+<text x="82" y="1226" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Reconcile the receipt before re-execution.</text>
+<rect x="650" y="1105" width="500" height="155" rx="12" fill="#111c30" stroke="#34d399" stroke-width="1.5"/>
+<text x="672" y="1140" font-size="21" fill="#34d399" font-weight="700" text-anchor="start">QUORUM REPLY</text>
+<text x="672" y="1172" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Return after step 7.</text>
+<text x="672" y="1199" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">No S3 round trip on this acknowledgement.</text>
+<text x="672" y="1226" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">A follower may finish applying later.</text>
+<rect x="1240" y="1105" width="500" height="155" rx="12" fill="#111c30" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1262" y="1140" font-size="21" fill="#fbbf24" font-weight="700" text-anchor="start">S3 REPLY</text>
+<text x="1262" y="1172" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Also wait for a retained checkpoint</text>
+<text x="1262" y="1199" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">+ committed tail covering this effect.</text>
+<text x="1262" y="1226" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Verify the complete recovery closure.</text>
+<rect x="60" y="1300" width="1680" height="70" rx="12" fill="#111c30" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="82" y="1335" font-size="20" fill="#94a3b8" font-weight="700" text-anchor="start">Archive upload alone does not authorize local log reclamation.</text>
+<text x="82" y="1354" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Require covering checkpoint, retention proofs and all live pins.</text>
+<text x="60" y="1399" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="start">Cellar · 02 · design.md + protocols.md</text>
+<text x="1740" y="1399" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="end">Shared-group design · production cutover pending</text>
+</svg>

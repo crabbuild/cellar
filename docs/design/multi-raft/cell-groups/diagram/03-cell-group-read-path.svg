@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1440" role="img" aria-labelledby="title desc">
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+<title id="title">Multi-Raft on Cell Groups: Read Path</title>
+<desc id="desc">All read modes validate cell identity, route, schema and admission. Linearizable reads use the current group leader, a fresh current-term ReadIndex and contiguous apply through its barrier. AtLeast validates cell lineage and waits for a minimum cell sequence. Stale reads select an eligible local committed image. Each path pins a published group root and matching cell image, executes a bounded read-only query, and returns the exact queried cell version. No pending private mutation is readable.</desc>
+<defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+<marker id="cyan" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#22d3ee"/></marker>
+<marker id="green" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#34d399"/></marker>
+<marker id="purple" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#a78bfa"/></marker>
+<marker id="gold" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#fbbf24"/></marker>
+<marker id="slate" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#94a3b8"/></marker>
+<marker id="rose" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#fb7185"/></marker>
+</defs><style>text{font-family:Menlo,Consolas,monospace}.label{paint-order:stroke;stroke:#0f172a;stroke-width:8px;stroke-linejoin:round}</style><rect width="1800" height="1440" fill="#0f172a"/><rect width="1800" height="1440" fill="url(#grid)"/>
+<text x="60" y="70" font-size="38" fill="#f8fafc" font-weight="700" text-anchor="start">Multi-Raft on Cell Groups: Read Path</text>
+<text x="60" y="112" font-size="22" fill="#94a3b8" font-weight="400" text-anchor="start">Prove the requested freshness. Pin a committed SQLite image. Run the query.</text>
+<path d="M560 230H650" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<rect x="60" y="175" width="500" height="110" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="82" y="210" font-size="23" fill="#22d3ee" font-weight="700" text-anchor="start">1  Query Cell X</text>
+<text x="82" y="242" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">Consistency mode + optional version</text>
+<text x="82" y="269" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">Original request deadline</text>
+<rect x="650" y="175" width="1090" height="110" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="672" y="210" font-size="23" fill="#22d3ee" font-weight="700" text-anchor="start">2  Authorize + resolve the group route</text>
+<text x="672" y="242" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">Validate cell history, incarnation and schema; authenticate any version token.</text>
+<text x="672" y="269" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">Use trusted route hints. A version token grants freshness constraints, not access.</text>
+<path d="M1195 285V320H310V350" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<path d="M1195 285V320H900V350" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#purple)"/>
+<path d="M1195 285V320H1490V350" fill="none" stroke="#fbbf24" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#gold)"/>
+<rect x="60" y="350" width="500" height="410" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="82" y="390" font-size="25" fill="#22d3ee" font-weight="700" text-anchor="start">3A  LINEARIZABLE</text>
+<text x="82" y="423" font-size="18" fill="#94a3b8" font-weight="400" text-anchor="start">Current group leader</text>
+<rect x="650" y="350" width="500" height="410" rx="12" fill="#111c30" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="672" y="390" font-size="25" fill="#a78bfa" font-weight="700" text-anchor="start">3B  AT LEAST(version)</text>
+<text x="672" y="423" font-size="18" fill="#94a3b8" font-weight="400" text-anchor="start">Leader or eligible follower</text>
+<rect x="1240" y="350" width="500" height="410" rx="12" fill="#111c30" stroke="#fbbf24" stroke-width="1.5"/>
+<text x="1262" y="390" font-size="25" fill="#fbbf24" font-weight="700" text-anchor="start">3C  STALE</text>
+<text x="1262" y="423" font-size="18" fill="#94a3b8" font-weight="400" text-anchor="start">Leader or eligible follower</text>
+<text x="82" y="478" font-size="20" fill="#22d3ee" font-weight="700" text-anchor="start">Fresh current-term ReadIndex</text>
+<text x="82" y="507" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Confirm leadership with group quorum.</text>
+<text x="82" y="579" font-size="20" fill="#22d3ee" font-weight="700" text-anchor="start">Wait for applied ≥ barrier R</text>
+<text x="82" y="608" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Group apply must be contiguous.</text>
+<text x="82" y="680" font-size="20" fill="#22d3ee" font-weight="700" text-anchor="start">Select Cell X after the barrier</text>
+<text x="82" y="709" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">No clock-lease shortcut.</text>
+<text x="672" y="478" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">Verify the cell version lineage</text>
+<text x="672" y="507" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Same cell history, incarnation and schema.</text>
+<text x="672" y="579" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">Wait for cell sequence ≥ V</text>
+<text x="672" y="608" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Compare cell versions, not group indexes.</text>
+<text x="672" y="680" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">Select an image meeting V</text>
+<text x="672" y="709" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">No new query-time quorum barrier required.</text>
+<text x="1262" y="478" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">Select local committed state</text>
+<text x="1262" y="507" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">May be older than the latest write.</text>
+<text x="1262" y="579" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">No minimum-version wait</text>
+<text x="1262" y="608" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">No quorum round trip for freshness.</text>
+<text x="1262" y="680" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">Keep identity + admission checks</text>
+<text x="1262" y="709" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Never select private pending changes.</text>
+<path d="M310 760V800H900V840" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#cyan)"/>
+<path d="M900 760V800H900V840" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#purple)"/>
+<path d="M1490 760V800H900V840" fill="none" stroke="#fbbf24" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#gold)"/>
+<rect x="300" y="840" width="1200" height="100" rx="12" fill="#111c30" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="322" y="875" font-size="24" fill="#a78bfa" font-weight="700" text-anchor="start">4  Pin the published group root + Cell X image</text>
+<text x="322" y="907" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">Match the exact leaf, CellVersion and SQLite image. Reserve reader and byte budgets.</text>
+<text x="322" y="934" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">Materialized or extent-backed: later writes cannot change this pinned view.</text>
+<path d="M900 940V985" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#purple)"/>
+<rect x="300" y="985" width="1200" height="100" rx="12" fill="#111c30" stroke="#34d399" stroke-width="1.5"/>
+<text x="322" y="1020" font-size="24" fill="#34d399" font-weight="700" text-anchor="start">5  Execute a read-only query on the bounded SQL pool</text>
+<text x="322" y="1052" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">Validate authority and deadline; enforce result limits.</text>
+<text x="322" y="1079" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">Keep the image pin until physical work finishes, including after caller cancellation.</text>
+<path d="M900 1085V1130" fill="none" stroke="#34d399" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#green)"/>
+<rect x="300" y="1130" width="1200" height="100" rx="12" fill="#111c30" stroke="#34d399" stroke-width="1.5"/>
+<text x="322" y="1165" font-size="24" fill="#34d399" font-weight="700" text-anchor="start">6  Return result + the exact queried CellVersion</text>
+<text x="322" y="1197" font-size="18" fill="#cbd5e1" font-weight="400" text-anchor="start">A group read barrier proves freshness; it does not increment the cell’s version.</text>
+<rect x="60" y="1270" width="1000" height="100" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="82" y="1305" font-size="21" fill="#22d3ee" font-weight="700" text-anchor="start">GROUP PROGRESS ≠ CELL VERSION</text>
+<text x="82" y="1337" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">ReadIndex=105; applied=105. Cell X last changed at index 90, sequence 12.</text>
+<text x="82" y="1364" font-size="17" fill="#cbd5e1" font-weight="400" text-anchor="start">Reading X at sequence 12 can still be linearizable.</text>
+<rect x="1100" y="1270" width="640" height="100" rx="12" fill="#111c30" stroke="#fb7185" stroke-width="1.5"/>
+<text x="1122" y="1305" font-size="20" fill="#fb7185" font-weight="700" text-anchor="start">REFUSE OR RETRY WITHIN THE DEADLINE</text>
+<text x="1122" y="1337" font-size="15" fill="#cbd5e1" font-weight="400" text-anchor="start">Invalid history/schema/route, missing image, exhausted budget,</text>
+<text x="1122" y="1364" font-size="15" fill="#cbd5e1" font-weight="400" text-anchor="start">sealed-range restrictions or lost required authority.</text>
+<text x="60" y="1399" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="start">Cellar · 03 · design.md + protocols.md</text>
+<text x="1740" y="1399" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="end">Shared-group design · production cutover pending</text>
+</svg>
