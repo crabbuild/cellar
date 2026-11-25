@@ -32,6 +32,111 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 retirement, retained endpoints and seed expiry
+
+[PR #190](https://github.com/crabbuild/cellar/pull/190) follows merged #186 on
+main `b23ec563f`. Runtime `4485c26a5` repairs three lifecycle boundaries:
+
+- Local producer quiescence requires a successful physical controller join,
+  sealed admission and empty retained-work accounting. A retiring roster entry
+  may remain after that join; its capacity charge, detachment and reclamation
+  guards remain intact. Archive coverage and unresolved caller outcomes remain
+  separate obligations.
+- One original membership-inspection request can discover a retained voter's
+  new enrolled endpoint and rebind against current trust. Receiver history
+  authorization, boot/engine/process checks, quotas, cancellation and the
+  original deadline remain mandatory. Physical discovery grants no membership.
+- Seed helpers reject success or I/O-error completions observed after the
+  original deadline. This is an outcome check, not preemption of a blocking poll
+  or proof that an uncertain mutation rolled back.
+
+All three repairs have frozen failing controls. Held-archive retirement fails
+on `55bbd0da2` and passes after `55e0c9b3a`, in both image modes. The qualified
+retained-voter discovery control fails on `ebea5e1df` before discovery and passes
+after `6fa678f36`, with byte-identical tests. The original deadline control fails
+all four success/error/helper combinations on `ad764d31c` and passes on
+`4485c26a5`, also with a byte-identical test. The earlier endpoint fixture's
+leadership-setup failure remains recorded separately; it supplies no causal
+discovery result.
+
+The tunnel fixture now retains its original sending socket through the intended
+aging cut, even if unrelated parallel RPCs prune the global idle cache. The park
+fixture starts forwarding only after all three physical routes are installed.
+Original expiry, EOF, no-handler, certificate and late-replay assertions remain.
+No production unknown-group error is suppressed.
+
+Current-source native qualification passes all four focused deadline/tunnel/park
+gates and the complete six-thread Cellar library: **1,445 passed, zero failed,
+two existing ignores**. The complete serial managed target is **FAILED:
+42 passed, 2 failed, 17 explicit RustFS ignores**. Retirement, cold capacity,
+retained replacement/restart, guarded handoff, ordinary ingress and quorumless
+S3 refusal pass in that run. These passes do not establish an exclusive cause
+for the earlier variable failures.
+
+| Remaining managed failure on `4485c26a5` | Captured boundary |
+| --- | --- |
+| Seeding-source retained restart | Materialized/S3 retains the original reservation after all eight turns return `Unconfirmed`. |
+| S3 seed refusal followed by source failover | Actual payload refusal and retained preparation/debit are witnessed. All eight later turns remain `Unconfirmed`, before a recorded movement phase or terminal reply-loss cut. |
+
+The fixture's generic "lost settlement" message does not establish that the
+terminal CAS was reached. Preserve each original reservation, inspect the
+receiver/controller failure and fresh membership observations, and reconcile
+the same operation. No replacement identity, extra turn or longer deadline is
+credited as recovery.
+
+The same-source local real-RustFS campaign is **FAILED: 6/7 complete
+functions**. The standard `managed-shutdown-retirement` suite passes both
+explicit image-mode functions, including held physical PUT, sealed admission,
+joined shutdown and a fresh survivor quorum write. Quorumless S3 refusal and
+all three original public S3 output/deadline/slow-delivery functions pass.
+The replacement function reconciles its lost terminal CAS response in both
+images, then fails extent-mode post-transfer drain proof: one handoff is
+accepted and leadership released, but one group remains unavailable. This is
+before the later survivor audit, not evidence that terminal settlement failed.
+The original budgets and assertions remain unchanged. The owned backend/VM
+stop and every case process join successfully. Host-native voters share one
+process; RustFS has one CPU/2 GiB in the four-CPU/8-GiB owned VM.
+
+Bundle `CG-17-seed-final-4485c26a5-3429` retains all three frozen executables,
+source and native logs. `CG-17-current-rustfs-4485c26a5-3433` retains actual
+RustFS results. The runner's generic image-count summary is corrected to one
+image per explicit retirement function; original stdout remains intact beside
+an explicit correction record. All 47 runner tests pass, including that count
+and refusal of empty selections.
+
+Closed-state retention verifies **101 roots, 3,716 files, zero missing**, with
+all copied file hashes checked, under
+`CG-17-current-lifecycle-retention-3434`. Forty-seven roots are explicitly
+printed; remaining surviving roots are attributed only to the completed
+campaign interval. An initial log-path metadata error is recorded; resumed
+retention rechecks the existing copies before accepting its manifest. No voter
+state is modified. In-memory catalog objects, RustFS server objects and provider
+volumes are not exported by this capture.
+
+The locked native/public builds, strict all-feature/all-target Cellar/Container
+Clippy, layout and native-dependency checks pass.
+Final fixture lint cleanup removes two redundant expressions without changing
+assertions; production and compiler inputs match the frozen runtime. The
+generated implementation index matches its source. Full plan validation still
+fails because the historical CG-01 evidence file is missing; no acceptance is
+fabricated or waived.
+
+The [current-source Linux campaign](https://github.com/crabbuild/cellar/actions/runs/45558046660)
+pins `4485c26a5` for 105 selections: 42 native and 63 RustFS-stage selections,
+including all 17 opt-in managed RustFS functions. It is queued and supplies no current pass.
+Its RF3 primitive fixtures share one runner process; independently capped voter
+containers, sustained load, crash schedules and combined disk-loss recovery are
+separate gates. The preceding 79/79 Linux pass remains pinned to `8c3435a5f`;
+the 82-selection follow-up remains pinned to `240d6e230`. Neither qualifies this
+runtime or waives its recorded failures.
+
+The next priorities are the two current S3 movement failures, original-ID
+reconciliation of independent maintenance failures, then a retained same-source
+independent-voter/load/reclamation/crash/disk-loss matrix. Full provider/session
+APIs, CG-17's 32 full cases, default cutover and legacy removal remain open.
+Focused function totals do not change task acceptance counts.
+
+
 ### CG-17 cold-node discovery and retained Linux qualification
 
 Runtime `240d6e230` fixes outbound inspection of an independently enrolled,
