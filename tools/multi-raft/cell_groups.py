@@ -1514,7 +1514,7 @@ def main():
                                        if args.suite == "native-docker" else len(cases)),
                       "image_modes_per_case": (None if args.suite == "native-docker" else
                                                0 if args.suite == "immutable-payloads" else
-                                               1 if args.suite == "binding-settlement-diagnostic" else 2)}), flush=True)
+                                               1 if args.suite in ("binding-settlement-diagnostic", "managed-shutdown-retirement") else 2)}), flush=True)
 
 
 if __name__ == "__main__":

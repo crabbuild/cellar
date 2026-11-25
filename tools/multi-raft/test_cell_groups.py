@@ -138,7 +138,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(summary["image_modes_per_case"],
                                  None if suite == "native-docker" else
                                  0 if suite == "immutable-payloads" else
-                                 1 if suite == "binding-settlement-diagnostic" else 2)
+                                 1 if suite in ("binding-settlement-diagnostic", "managed-shutdown-retirement") else 2)
                 if suite == "native-docker":
                     self.assertEqual(summary["rustfs_cases"], 7)
                     self.assertEqual(record["planned_configurations"], {
@@ -302,6 +302,16 @@ class KvCampaignTests(unittest.TestCase):
         self.campaign("zero", "ordinary-kv-bindings")
 
 
+
+
+class RetirementCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_retirement_counts_one_image_per_explicit_case(self):
+        self.campaign(suite="managed-shutdown-retirement")
+
+    def test_retirement_refuses_zero_selection(self):
+        self.campaign("zero", "managed-shutdown-retirement")
 
 
 class WorkflowCampaignTests(unittest.TestCase):
