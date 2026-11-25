@@ -8,54 +8,61 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-[PR #186](https://github.com/crabbuild/cellar/pull/186) includes main `7810ead24`
-(#187/#188) and runtime `8c3435a5f`. The new Docker submission owner closes a
-reproduced cancellation gap without replay or weaker custody. Its unchanged
-owning regression is red before the repair and green afterward; Container 48/48,
-all three actual-Docker safety controls, locked builds and strict/repository
-checks pass. Current original RustFS qualification remains **FAILED, 7/11
-complete functions**. Both Quorum Sandbox lifecycles, all eight source-refusal
-profiles and both cleanup-floor/Delete-input pairs pass. All 94 closed roots
-are retained and cleanup joined. See [the exact results](progress.md#cg-17-submission-ownership-and-constrained-recovery).
+[PR #186](https://github.com/crabbuild/cellar/pull/186) includes latest main
+`7810ead24`. Runtime `240d6e230` adds bounded cold-target discovery to outbound
+node inspection. Its unchanged regression fails before the repair and passes
+afterward; the receiver control passes too. Current managed qualification is
+**FAILED: 34 passed, 6 failed, 15 explicit RustFS ignores**. All 27 explicitly
+retained failed-fixture roots have verified copies. No assertion, request budget,
+identity, durability proof or ambiguity rule changed. See [the current results](progress.md#cg-17-cold-node-discovery-and-retained-linux-qualification).
+
+The preceding `8c3435a5f` [Linux qualification](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+is now **PASS, 79/79 selections** with verified portable source, binaries, logs
+and closed fixture files. Both six-thread full libraries pass 1,444 tests; Container
+passes 48. All selected original EventStream, Container/Sandbox and Queue C2/C4
+cases pass with real RustFS. RF3 primitive fixtures remain in-process. These
+passes do not waive prior Mac deadline failures, qualify the new discovery code
+or close the independent managed/release gates.
+
+The current-source [Linux follow-up](https://github.com/crabbuild/cellar/actions/runs/45537504606)
+was dispatched for `240d6e230`: the original 79 selections plus both discovery
+controls and the full serial managed target (82 selections total). It is not
+yet qualified. The 15 opt-in managed RustFS cases remain separate, and a later
+Linux pass cannot waive the recorded Mac managed failures.
 
 The remaining feature and release priorities are:
 
-1. Close managed startup and maintenance first. The retained `3358` replay
-   fails all three reached materialized configurations: maintenance preparation
-   is unconfirmed at 20s; SQL/KV and repair startup cannot inspect the enrolled
-   peer at the requested fleet revision. Five remaining configurations are not
-   reached. Its nine stopped disks are exported before VM shutdown. A new
-   controlled test isolates outbound inspection of an enrolled target missing
-   from the sender's process-view cache; it is not yet executed. Keep the first
-   capture's extent resume failure and resolve original operation state.
-2. Close the original request paths: extent EventStream Consume at 3s;
-   materialized Container Quorum Execute3/S3 Status3; S3 Sandbox Start1/Exec2;
-   and the extent Start-output precondition at 5s. Preserve unknown outcomes
-   and rerun complete functions after a repair. The older `ba4c8ab98` native
-   aggregate is 33/35; its real aggregate is 12/17, including Queue C4 failure.
-3. Complete one retained, same-source constrained-voter/load/reclamation/crash
-   matrix. The first `ba4c8ab98` run passes 7/8 daemon configurations and both
-   actual fenced SQL disk-loss drills, but loses guest daemon disks on VM
-   restart. Its new retained replay fails as above; no later pass waives either
-   failure. The current-source
-   [79-selection Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45517688951)
-   is building. Its ordinary primitive RF3 fixtures are in-process.
-4. Close the complete primitive API/provider and lifecycle matrix. Full
-   WebSocket/session ownership, interactive/provider execution and provider
-   volume disaster recovery remain distinct gaps. Every supported family needs
-   the required public paths, minima, feature modes and failure scenarios.
+1. Close the six current managed failures: cold-router producer quiescence,
+   joint-restart leader election, seeding-source terminal reconciliation,
+   replacement survivor/handoff verification, S3 seed lost-settlement
+   reconciliation and cold-capacity startup/cleanup. Keep original IDs and
+   resolve unknown results rather than issue replacement operations. The
+   pre-fix cold-router comparison passes once; the current failure remains open.
+2. Reconcile the independent maintenance failures and rerun the same constrained
+   voter envelope on the repaired source. Older `3351` passes 7/8 daemon profiles
+   but fails extent resume at 20s and loses guest daemon disks before export.
+   Its single retained `3358` replay fails three reached configurations; five
+   are not reached. Nine mounted disks from three directories are retained.
+3. Complete one retained, same-source Linux/managed-RustFS/load/reclamation/crash
+   matrix and the original request paths. The new discovery source needs Linux
+   requalification; 15 ignored managed RustFS cases are not accepted. The older
+   real Mac run remains 7/11 with EventStream and Container/Sandbox deadlines;
+   the new Linux pass is scoped separately. Both actual SQL disk-loss image
+   drills pass on older `ba4c8ab98`, but all-primitive, interrupted-transition,
+   provider-volume and Quorum-only suffix/RPO recovery remain unqualified.
+4. Close the complete primitive API/provider and lifecycle matrix, including
+   WebSocket/session ownership and interactive/provider execution. Every
+   supported family needs its required public paths, minima, feature modes and
+   recovery scenarios; no unsupported adapter can fall back to Fleet/bucket.
 5. Pass one combined source-pinned release envelope, then default cutover and
-   legacy removal. CG-17's 32 cases remain pending; no acceptance credit is
-   inferred from focused test totals. The plan validator's missing historical
-   CG-01 evidence must also be resolved without fabricating it.
+   legacy removal. CG-17's 32 full cases remain pending; focused function totals
+   do not supply their acceptance. Resolve missing historical CG-01 evidence
+   without fabricating or waiving it. The generated plan's counts remain current.
 
-The earlier `f2423248b` remains **FAILED, 27/28 native and 38/43 real**. All 193
-closed roots and nine executables have verified copies. Its Linux log reports
-53/53 executions passing, but artifact upload failed and retained no binaries or
-voter data. The subsequent `ba4c8ab98` compile job retains verified partial
-artifacts despite its metadata-step failure. Neither result is full release
-qualification. Original deadlines, identities, uncertainty and durability proofs
-remain unchanged.
+The locked build, strict all-feature/all-target Clippy, formatting, layout,
+dependency and documentation checks pass for the scoped discovery repair. Older
+`ba4c8ab98` and `f2423248b` failures and evidence-retention limits remain recorded
+under their original source boundaries in progress. No later pass waives them.
 
 The following checkpoints precede this integration and retain their original
 source boundaries.

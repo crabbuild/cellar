@@ -32,6 +32,85 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 cold-node discovery and retained Linux qualification
+
+Runtime `240d6e230` fixes outbound inspection of an independently enrolled,
+current target whose process view has not reached the sender's cache. One
+original request now owns bounded endpoint discovery and rebinds against current
+Fleet trust before the authenticated RPC. The cached path stays direct.
+Enrollment, synced local boot, engine/process identity, epoch, cancellation,
+quota and original deadline checks remain mandatory. Endpoint advice grants no
+group membership or application authority.
+
+The unchanged regression reproduces `Err(Refused)` before discovery on
+`576ee6d8a` (production equivalent to `8c3435a5f`). It passes after the repair;
+the existing receiver-discovery control also passes. The test file is
+byte-identical across those frozen executables. The first attempted fixed build
+fails an exhaustive shared-enum match and executes no tests; the correction
+keeps node-only discovery state private. No pass is credited to that build.
+
+The locked managed build, strict all-feature/all-target Cellar/Container Clippy,
+canonical formatting, layout, native dependencies and documentation checks pass.
+These checks validate the scoped repair; the lifecycle qualification below fails.
+
+The broader original managed target on `240d6e230` is **FAILED: 34 passed,
+6 failed, 15 explicit RustFS ignores**. Both discovery cases pass within it.
+The complete target, assertions and budgets are unchanged; ignored managed
+RustFS cases remain unqualified.
+
+| Failed managed case | Captured boundary |
+| --- | --- |
+| Cold router after all birth voters retire | Joined shutdown returns `MutationOutcomes::Unobserved`; archive lag is reported separately. |
+| Joint replacement and retained restart | Extent-mode leader wait expires with no ready leader. |
+| Seeding-source retained restart | Original reconciliation turns finish in Seeding/Joint without a terminal receipt. |
+| Group replacement and joined restart | Handoff releases leadership but survivor verification reports an unavailable group. |
+| S3 seed refusal and failover retry | Original lost-settlement reconciliation does not return the required terminal result. |
+| Cold capacity and retained restart | Initial group startup returns transport timeout; cleanup failures remain visible. |
+
+One unchanged cold-router comparison on the pre-fix executable passes in
+44.10s. This neither waives the current failure nor establishes an exclusive
+cause. Investigate retirement/physical joins and the producer-quiescence
+observation without changing it to claim success for unresolved work. Preserve
+original operation identities for all ambiguous lifecycle outcomes.
+
+Bundle `CG-17-outbound-inspection-green-240d6e230-3373` retains the frozen
+executable/source, complete logs, the separately pinned comparison and verified
+copies of all 27 explicitly retained failed-fixture roots (none missing).
+The earlier red bundle is `CG-17-outbound-inspection-red-576ee6d8a-3365`.
+
+Separately, [Linux run 45517688951](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+passes **79/79 selections on preceding `8c3435a5f`**: 36 native and 43 original
+real-RustFS selections. Both six-thread Cellar libraries pass 1,444 tests with
+zero failures and two existing ignores each; Container passes 48/48. All original
+EventStream, Container/Sandbox, Queue C2/C4 and other selected primitive cases
+pass with unchanged 3s/5s requests, 3s maintenance and 60s restoration limits.
+RF3 primitive fixtures remain in-process on an ARM Linux runner; RustFS is
+limited to one CPU/2 GiB. These passes do not waive prior Mac deadline failures,
+qualify the new discovery code or replace independent voter/load/DR evidence.
+
+The portable upload and local verification both pass. Artifact `14986470835`
+contains matching source (5,321 files), all 3,612 required source-manifest inputs,
+13 verified ARM64 ELF roles, images, raw logs and retained temporary state.
+Bundle `CG-17-linux-current-8c3435a5f-3361` verifies the API ZIP digest
+`863de55b3f0f3f7524780034e4c19c8e82784fd9409563d87154c8a304c37712`
+and inner archive digest
+`3c6b704f9c8ea4f3444bdf11ea7fffe381f605fabc8cae64351cbf5e318c3dd4`.
+The source-bound evidence is retained; full release qualification remains false.
+The runner retains closed fixture files; it does not export the RustFS server
+object data or provider volumes. Independent recovery custody remains separate.
+
+The current-source [Linux follow-up](https://github.com/crabbuild/cellar/actions/runs/45537504606)
+was dispatched for `240d6e230`: the original 79 selections plus both discovery
+controls and the full serial managed target (82 selections total). It is not
+yet qualified. The 15 opt-in managed RustFS cases remain separate, and a later
+Linux pass cannot waive the recorded Mac managed failures.
+
+The next gates are the six managed failures, original-ID reconciliation of the
+independent maintenance failures, and a combined current-source Linux/managed
+RustFS/load/crash/disk-loss matrix. Complete provider/session APIs, CG-17's full
+cases, default cutover and legacy removal remain open. No task acceptance count
+changes from these focused results.
+
 ### CG-17 submission ownership and constrained recovery
 
 Runtime `8c3435a5f` fixes an actual caller-cancellation gap in the Docker
@@ -122,11 +201,11 @@ The source/request/profile are unchanged; this is another failed result, not a
 repair or waiver. The earlier maintenance failure remains unresolved. No original assertion, request budget or resource bound
 changes.
 
-The full current-source [Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45517688951)
-is building at this checkpoint: 36 native selections, including the cancellation
+The full [Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+finishes **79/79** on `8c3435a5f`: 36 native selections, including the cancellation
 control and two six-thread libraries, followed by all 43 original real selections.
-It checks source `8c3435a5f` and retains a portable outer archive of source,
-binaries, logs and closed roots. Its RF3 primitive fixtures are in-process;
+Portable source/binary/log/root retention and local verification pass; see the
+[newer discovery checkpoint](#cg-17-cold-node-discovery-and-retained-linux-qualification). Its RF3 primitive fixtures are in-process;
 it cannot replace the separate constrained-voter gate. CG-17's full cases,
 combined load/recovery qualification, default cutover and legacy removal remain
 open. The preceding frozen-source results follow.
