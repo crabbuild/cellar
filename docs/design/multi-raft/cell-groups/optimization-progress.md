@@ -16,6 +16,64 @@ the old raw media or privacy caches are still available. The current campaign
 starts a fresh private evidence baseline and keeps generated outputs outside
 this tree.
 
+## Updated-main workspace qualification
+
+Main has since advanced to `b23ec563f` with merged #186. Its integration with
+the workspace repair requires a new qualification; the results in this section
+remain pinned to the preceding combined source.
+
+[PR #189](https://github.com/crabbuild/cellar/pull/189) applies the bounded
+workspace wait to main `7810ead24`, after merged #187 and #188. Combined
+compiler inputs `24674839` pass **15 workspace**, **38 checkpoint/commit**,
+**16 prefetch** and **39 query controls**, **13 public RF3 selections** and
+**13 native service selections**. The complete six-thread library suite passes
+**1,438 tests / zero failures / two existing ignores**. Strict locked
+all-feature/all-target Clippy, formatting, layout, native dependency,
+documentation and performance-tooling checks pass. The five workspace Rust
+files match the previously qualified implementation at `3d75f9d8`.
+
+An earlier combined-source public campaign fails its last interrupted-SQL
+configuration during managed startup, before business SQL enters. The captured
+failure is a group-startup transport timeout. Six unchanged baseline/candidate
+controls pass, including both complete eight-configuration replays. The fresh
+complete native campaign also passes. These controls do not establish a startup
+repair; the original failure remains recorded.
+
+A later retention audit finds older temporary fixture originals unavailable.
+All **61 surviving exported native corpora** match their sealed inventories and
+closed stream hashes; three independently moved originals remain available.
+The seven new native corpora also retain matching originals on a persistent
+internal filesystem. Export verification does not establish that a missing
+temporary original is still available. Cargo artifacts remain on Workspace.
+
+The combined-source Linux image matches all compiler inputs, both executable
+hashes and the pinned compiler/runtime environment. The first build fails on
+guest registry DNS; a build using the exact previously captured OCI digests and
+offline Cargo succeeds without changing host or guest DNS. Compilation finishes
+and the owned VM restarts before workloads begin.
+
+In the requested shared-host topology, SQL Quorum passes all nine C1/4/16 smoke
+windows. SQL Quorum+S3 verifies every write and earlier read window, then records
+**one overloaded read among 8,498 C16 attempts**. No mutation is unconfirmed;
+runtimes remain healthy and extent stores remain unquarantined. That read window
+and the case fail. The current-source KV/Queue cases and the full 30-second,
+two-repeat matrix remain unqualified. The next gate is to identify the exact
+read-admission refusal and repair it with an owning regression, preserving the
+original deadline, authority, full capacity charges and callback rules.
+
+Two fixed error-only diagnostic replays then pass: the original short SQL
+Quorum+S3 case and the 30-second, two-repeat case. The probes record **14 SQL
+reader-bank refusals** and **zero control-metadata refusals**, while every window
+verifies. They do not reproduce the failed response or establish its cause.
+All children join and the three temporary probe files are restored to the exact
+production inputs. These diagnostic passes do not waive the failed production
+case or qualify the full performance matrix.
+
+The earlier all-12-case smoke and failed longer comparison below belong to
+pre-integration inputs `3d75f9d8`; they do not qualify this combined source.
+All measurements remain scoped to the shared host. Generated JSON and private
+media stay outside this documentation tree and the PR.
+
 ## Fresh main and constrained-runtime verification
 
 Main `86cfe5d1c` includes #184 and #185. The bounded-cache follow-up
@@ -164,6 +222,65 @@ shared host. Queue's other three modes and the full 30-second, two-repeat matrix
 remain unqualified on this candidate. No performance ratio is inferred from
 main's failed Raft cases. No deadline, quota, durability minimum or validation
 assertion has been relaxed, and generated results remain outside the PR.
+
+## Wait for bounded workspace capacity before SQL entry
+
+A fresh C16 Queue diagnostic at compiler inputs `809e95e0` reproduces one
+ambiguous overload among 181 warmup attempts. The first physical refusal is
+rooted workspace allocation: all **eight** node workspaces are charged, with
+**4,966,055,936 bytes** retained and no quarantine or runtime closure. The
+per-workspace reservation is **620,756,992 bytes**. The temporary numeric-only
+probes have been removed. This identifies the immediate-overload reproduction;
+it does not explain every earlier multi-window deadline tail.
+
+Compiler inputs `3d75f9d8` let finite invocations wait for transient workspace
+capacity before SQL entry. The original deadline, complete image/WAL/capture
+reservation and existing creation lane remain held. Each refused physical
+attempt joins before another can start. An inventory observation is only a
+scheduling hint; the unchanged store must admit the full reservation. A request
+that cannot fit after live workspaces release still refuses. Storage failures,
+quarantine, requests without a finite invocation deadline and SQL-entry failures
+retain their existing paths. No callback or mutation is replayed.
+
+The owning byte-only and item-only exhaustion controls both fail with the
+captured overload before the fix. They pass afterward, holding actual directory
+cleanup before its sync and requiring unchanged full charges, no early SQL entry
+and exactly one entry after release. All **15 workspace controls** pass, including
+deadline, shutdown, permanent-capacity and existing physical-failure controls.
+Their tests and deadline wiring are byte-identical across the one-file repair.
+All **38 checkpoint/commit controls**, **16 prefetch controls**, **13 public RF3
+selections** and **13 native service selections** pass. Strict all-feature/all-target
+Clippy and repository checks pass. The completed executable matches the early
+owning preview; that preview overlapped compilation and is not a performance run.
+
+The initial six-thread library capture passes **1,436 tests**, fails **one** and
+retains **two existing ignores**. An unchanged peer-tunnel fixture loses its
+receiving tunnel after a 500-ms sleep against an 800-ms idle limit, before its
+intended submission cut. Production and fixture code match the baseline.
+All four fixed-plan focused ABBA controls pass; the sealed baseline full suite
+passes **1,431/0/two ignores**, and both unchanged candidate full repeats pass
+**1,437/0/two ignores**. Timers, assertions and six-thread concurrency remain
+unchanged. The failed capture remains failed and retained; tunnel-fixture timing
+repeatability is a separate observation.
+
+The exact-source Linux image passes all **12 capped smoke cases**: SQL, KV and
+Queue across Quorum, Quorum+S3, Fleet and Bucket at C1/4/16. SQL/KV each complete
+nine windows per case; Queue completes six, including C16 with zero errors and
+verified delivery and settlement. The original primary validators, eight
+workspaces, deadlines, 1-vCPU/2-GiB node caps, three RF3 groups and shared RustFS
+remain unchanged. Passed data moves only after independent restore verification;
+failed media remain retained. This closes the reproduced C16 smoke refusal,
+not the longer comparison or full optimization/release acceptance.
+
+The 30-second, two-repeat comparison stops in its first SQL Quorum case. All
+write windows and earlier read windows verify; the second C16 read records one
+`Overloaded` response among **47,262 attempts**, so that window and the complete
+matrix remain unqualified. The runtimes stay open and extent stores remain
+unquarantined. This read-side refusal is separate from the repaired pre-SQL
+workspace failure. All generated results remain outside the PR, and measurements
+remain scoped to the shared host. No numerical speedup is inferred from the
+earlier failed Raft baseline. The next integration starts from advanced main,
+which includes #188's forwarded-read authentication change and merged #187.
 
 ## Verified ingress successors across requests
 
