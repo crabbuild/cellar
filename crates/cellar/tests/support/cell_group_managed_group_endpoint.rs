@@ -85,10 +85,7 @@ async fn qualify(rooted: bool) -> Result<()> {
                 Ok(report)
                     if report.groups_total == 0
                         && report.mutation_outcomes
-                            == MutationOutcomes::NoUnresolvedLocalProducers =>
-                {
-                    ()
-                }
+                            == MutationOutcomes::NoUnresolvedLocalProducers => {}
                 result => sender_failures.push(format!("sender {i}: {result:?}")),
             }
         }
@@ -177,7 +174,7 @@ async fn restart(cluster: &mut ManagedCluster, index: usize) -> Result<FleetBoot
         Ok(host) => host,
         Err(error) => {
             node.shutdown(ShutdownMode::Preserve).await?;
-            return Err(error.into());
+            return Err(error);
         }
     };
     cluster.nodes.insert(index, node);
