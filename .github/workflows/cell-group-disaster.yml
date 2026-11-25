@@ -1,64 +1,192 @@
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
-
-name: Cell-group disaster diagnostics
-
+name: CG17 cold node inspection qualification
 on:
-  pull_request:
-    paths:
-      - "crates/cellar/**"
-      - "crates/cellar-logic/**"
-      - "crates/cellar-ltx/**"
-      - "crates/cellar-native/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/cell-group-disaster.yml"
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  disaster:
-    name: Managed transition disaster target
-    runs-on: ubuntu-22.04
-    timeout-minutes: 45
+  deadlines:
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 150
     env:
-      RUSTUP_TOOLCHAIN: "1.98.1"
-      CARGO_BUILD_JOBS: "1"
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      CARGO_PROFILE_TEST_DEBUG: "0"
-      CARGO_PROFILE_TEST_OPT_LEVEL: "1"
-      CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
-      CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
-      CARGO_INCREMENTAL: "0"
+      RUSTUP_TOOLCHAIN: 1.98.1
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_PROFILE_TEST_OPT_LEVEL: '1'
+      CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: 'true'
+      CARGO_PROFILE_TEST_OVERFLOW_CHECKS: 'true'
+      RUST_BACKTRACE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PROOF_ROOT: /tmp/cg17-cold-node-inspection-proof
+      TMPDIR: /tmp/cg17-cold-node-inspection-voters
     steps:
       - uses: actions/checkout@v6
-      - name: Configure private build and fixture paths
+        with:
+          ref: 240d6e230a86796c9a2b85b5d69d254c9684e48e
+          persist-credentials: false
+      - name: Prepare pinned source and record runner
         run: |
-          mkdir -p "$RUNNER_TEMP/native-failure-fixtures"
-          printf 'CARGO_TARGET_DIR=%s\nTMPDIR=%s\n' "$RUNNER_TEMP/cellar-disaster-target" "$RUNNER_TEMP/native-failure-fixtures" >> "$GITHUB_ENV"
-      - name: Install the SDK Rust toolchain
-        run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Build the existing disaster target
+          mkdir -p "$PROOF_ROOT" "$TMPDIR"
+          git rev-parse HEAD > "$PROOF_ROOT/source.txt"
+          git archive --format=tar.gz HEAD > "$PROOF_ROOT/source.tar.gz"
+          uname -a > "$PROOF_ROOT/platform.txt"
+          docker version > "$PROOF_ROOT/docker-version.txt"
+          lscpu > "$PROOF_ROOT/cpu.txt"
+          free -b > "$PROOF_ROOT/memory.txt"
+          df -B1 > "$PROOF_ROOT/disks.txt"
+          rustup toolchain install 1.98.1 --profile minimal
+          rustc --version --verbose > "$PROOF_ROOT/rustc.txt"
+      - name: Build original public qualification targets
         run: |
-          cargo test --locked -p cellar --all-features --test native_cell_groups_disaster --no-run
-          # Finish compilation writeback before entering original-budget voters.
-          # The test retains all of its existing file/directory syncs and limits.
-          sync -f "$CARGO_TARGET_DIR"
-      - name: Run the original serial disaster sequence
-        # This focused Linux diagnostic supplements the full SDK matrix. It
-        # retains the same tests and never retries a failed case or mutation.
-        run: cargo test --locked -p cellar --all-features --test native_cell_groups_disaster -- --test-threads=1
-      - name: Preserve structured transition observations
+          set -o pipefail
+          cargo test --locked -p cellar \
+            --test native_execution_controller \
+            --test native_cell_groups_primitives \
+            --test native_cell_groups_archive_controller \
+            --test native_cell_groups_docker \
+            --test native_raft_storage_batch --test native_raft_daemon \
+            --test native_cell_groups_managed \
+            --test native_cell_groups_archive --test native_cell_groups_execution --no-run \
+            2>&1 | tee "$PROOF_ROOT/build.log"
+          cargo test --locked -p cellar -p cellar-container --lib --no-run \
+            2>&1 | tee -a "$PROOF_ROOT/build.log"
+      - name: Package the independent-voter daemon without recompilation
+        run: |
+          cp target/debug/cellar "$PROOF_ROOT/cellar-cli"
+          cp target/debug/cellar-perf-cell-group "$PROOF_ROOT/cellar-perf-cell-group"
+          daemon=$(sed -n 's/^ *Executable tests\/native_raft_daemon.rs (\(.*\))$/\1/p' "$PROOF_ROOT/build.log" | tail -n 1)
+          test -x "$daemon"
+          cp "$daemon" "$PROOF_ROOT/cellar-raft-daemon"
+          cp LICENSE NOTICE "$PROOF_ROOT/"
+          find Cargo.toml Cargo.lock crates vendor examples tools \
+            \( -name .git -o -name .cellar -o -name node_modules -o -name __pycache__ \) -prune -o \
+            \( -type f -o -type l \) ! -name '*.pyc' ! -name .DS_Store -print0 | \
+            LC_ALL=C sort -z | xargs -0 sha256sum > "$PROOF_ROOT/raft-source.sha256"
+          cat > "$PROOF_ROOT/daemon.Dockerfile" <<'EOF'
+          FROM debian:bookworm-slim
+          ARG SOURCE_REVISION
+          LABEL org.opencontainers.image.revision=${SOURCE_REVISION}
+          RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+          COPY --chmod=755 cellar-cli /usr/local/bin/cellar
+          COPY --chmod=755 cellar-raft-daemon /usr/local/bin/cellar-raft-daemon
+          COPY --chmod=755 cellar-perf-cell-group /usr/local/bin/cellar-perf-cell-group
+          COPY raft-source.sha256 /usr/local/bin/
+          COPY LICENSE NOTICE /usr/share/doc/cellar/
+          WORKDIR /data
+          ENTRYPOINT ["/usr/local/bin/cellar-raft-daemon"]
+          EOF
+          docker build --build-arg SOURCE_REVISION=240d6e230a86796c9a2b85b5d69d254c9684e48e -f "$PROOF_ROOT/daemon.Dockerfile" -t cellar-cg17-qualified-daemon "$PROOF_ROOT" > "$PROOF_ROOT/daemon-image-build.log" 2>&1
+          docker image inspect --format '{{.Id}}' cellar-cg17-qualified-daemon > "$PROOF_ROOT/daemon-image-id"
+          sed 's@ENTRYPOINT \["/usr/local/bin/cellar-raft-daemon"\]@ENTRYPOINT ["/usr/local/bin/cellar-perf-cell-group"]@' "$PROOF_ROOT/daemon.Dockerfile" > "$PROOF_ROOT/group.Dockerfile"
+          docker build --build-arg SOURCE_REVISION=240d6e230a86796c9a2b85b5d69d254c9684e48e -f "$PROOF_ROOT/group.Dockerfile" -t cellar-cg17-qualified-group "$PROOF_ROOT" > "$PROOF_ROOT/group-image-build.log" 2>&1
+          docker image inspect --format '{{.Id}}' cellar-cg17-qualified-group > "$PROOF_ROOT/group-image-id"
+          docker save cellar-cg17-qualified-daemon cellar-cg17-qualified-group -o "$PROOF_ROOT/daemon-image.tar"
+      - name: Run original native selections then real RustFS selections
+        run: |
+          python3 - <<'PY'
+          import datetime, hashlib, json, os, pathlib, re, secrets, shutil, subprocess, sys, time
+          root=pathlib.Path(os.environ['PROOF_ROOT'])
+          tmp=pathlib.Path(os.environ['TMPDIR'])
+          source=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert source=='240d6e230a86796c9a2b85b5d69d254c9684e48e'
+          executables={}
+          for line in (root/'build.log').read_text().splitlines():
+              m=re.search(r'Executable .* \(([^()]+)\)$',line)
+              if not m: continue
+              path=pathlib.Path(m.group(1)); name=path.name.rsplit('-',1)[0]
+              if 'Executable unittests lib.rs ' in line:name += '_library'
+              if not (name.startswith('native_') or name in ('cellar_library','cellar_container_library')):continue
+              dest=root/name;shutil.copy2(path,dest)
+              executables[name]={'path':str(dest)}
+          assert len(executables)==11,executables
+          def file_sha(path):
+              digest=hashlib.sha256()
+              with path.open('rb') as stream:
+                  for chunk in iter(lambda:stream.read(1024*1024),b''):digest.update(chunk)
+              return digest.hexdigest()
+          for item in executables.values():item['sha256']=file_sha(pathlib.Path(item['path']))
+          (root/'compiled.json').write_text(json.dumps({'source':source,'status':'BUILT_NOT_RUNTIME_QUALIFIED','executables':executables},indent=2)+'\n')
+          report={'source':source,'scope':'Original primitive tests plus both cold-node discovery regressions and the full serial managed-control target on an isolated ARM Linux host; RF3 remains in-process, not independent Linux voters. Original request/maintenance/recovery deadlines, IDs, proofs and assertions unchanged. RustFS limited to 1 CPU/2 GiB. No build during timed tests.','executables':executables,'status':'RUNNING','cases':[]}
+          def save(): (root/'results.json').write_text(json.dumps(report,indent=2)+'\n')
+          clean={k:v for k,v in os.environ.items() if not k.startswith(('AWS_','CELLAR_CELL_GROUPS_RUSTFS_','CELLAR_DOCKER_BACKEND_'))}
+          clean.pop('CELLAR_PROFILE_EVENT_CONSUME',None)
+          def run(target,case,env,ignored=False):
+              i=len(report['cases']);name=case or target;portable=re.sub(r'[^A-Za-z0-9_.-]','_',name)
+              args=[executables[target]['path'],'--nocapture','--test-threads='+('6' if case is None and target != 'native_cell_groups_managed' else '1')]
+              if case:args += ([case] if case.endswith('::') else ['--exact',case])
+              if ignored:args.append('--ignored')
+              row={'target':target,'case':case,'argv':args,'started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'status':'RUNNING'}
+              report['cases'].append(row);save();print('START',i,name,flush=True)
+              start=time.monotonic()
+              with (root/f'{i:02}-{portable}.log').open('wb') as log:
+                  result=subprocess.run(args,env=env,stdout=log,stderr=subprocess.STDOUT)
+              text=(root/f'{i:02}-{portable}.log').read_text(errors='replace');summaries=re.findall(r'^test result:.*$',text,re.M)
+              passed=result.returncode==0 and len(summaries)==1 and re.match(r'^test result: ok\. [1-9][0-9]* passed; 0 failed;',summaries[0]) is not None
+              if case and not case.endswith('::'):passed=passed and bool(summaries) and summaries[0].startswith('test result: ok. 1 passed; 0 failed;')
+              row.update(exit_code=result.returncode,seconds=time.monotonic()-start,status='PASS' if passed else 'FAILED',summary=summaries)
+              save();print('END',i,name,row['status'],row['seconds'],flush=True)
+          native=[('cellar_container_library', 'controller::docker::journal::tests::cancelled_submission_finishes_its_unentered_reservation'), ('cellar_library', 'application::kv::raft_expiry::tests::'), ('cellar_library', 'raft::storage::batch::tests::'), ('cellar_library', 'native_deploy::python_environment::prerequisites::tests::'), ('cellar_library', 'raft::cell_groups::dispatch::query_execution::tests::'), ('cellar_library', 'raft::cell_groups::controller::archive::foreground::tests::'), ('cellar_library', 'raft::transport::parks::tests::park_certificate_delivery_and_wake_over_three_tls_voters'), ('cellar_library', 'raft::transport::parks::tests::partial_certificate_delivery_wakes_and_rejects_late_replay'), ('cellar_library', None), ('cellar_library', None), ('cellar_container_library', None), ('native_execution_controller', None), ('native_raft_storage_batch', None), ('native_cell_groups_primitives', 'quorum_callbacks_coalesce_background_archives_until_completion'), ('native_cell_groups_primitives', 's3_invocations_coalesce_intermediate_background_archives'), ('native_cell_groups_primitives', 'ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum'), ('native_cell_groups_primitives', 'ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum'), ('native_cell_groups_primitives', 'axum_event_streams_activate_deliver_and_recover_through_shared_quorum'), ('native_cell_groups_primitives', 'ordinary_named_cell_bindings_use_shared_group_quorum'), ('native_cell_groups_primitives', 'ordinary_kv_bindings_use_managed_shared_groups'), ('native_cell_groups_primitives', 'ordinary_sql_bindings_use_managed_shared_groups'), ('native_cell_groups_primitives', 'ordinary_queue_callbacks_use_shared_quorum'), ('native_cell_groups_primitives', 'ordinary_workflows_use_shared_quorum'), ('native_cell_groups_primitives', 'ordinary_alarms_recover_through_shared_quorum'), ('native_cell_groups_primitives', 'ordinary_cron_recovers_occurrences_without_requests'), ('native_cell_groups_primitives', 'filesystem_transactions_and_descriptors_recover_through_shared_quorum'), ('native_cell_groups_primitives', 'kv_payload_reads_resume_after_outage_and_retained_restart'), ('native_cell_groups_primitives', 'scheduled_workflows_use_shared_quorum'), ('native_cell_groups_primitives', 'workflow_results_survive_s3_replacement_and_park_wake'), ('native_cell_groups_primitives', 'workflow_deletion_cancels_callbacks_and_recreates'), ('native_cell_groups_execution', 'checkpoint_preserves_deferred_commit_for_applied_root'), ('native_cell_groups_execution', 'rooted_checkpoint_preserves_deferred_commit_for_applied_root'), ('native_cell_groups_execution', 'committed_prefetch_reuses_full_item_bank'), ('native_cell_groups_execution', 'rooted_committed_prefetch_reuses_full_item_bank'), ('native_cell_groups_execution', 'committed_prefetch_recheck_under_full_item_bank'), ('native_cell_groups_execution', 'rooted_committed_prefetch_recheck_under_full_item_bank')]
+          native.extend([('native_cell_groups_managed', 'inspection_endpoint::inspection_discovers_current_peer_view_with_one_original_request'), ('native_cell_groups_managed', 'inspection_endpoint::outbound_inspection_discovers_current_target_with_one_original_request'), ('native_cell_groups_managed', None)])
+          save()
+          for target,case in native:run(target,case,clean)
+          image='ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858'
+          subprocess.run(['docker','pull',image],check=True)
+          subprocess.run(['docker','pull','busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec'],check=True)
+          scaffold=json.loads(subprocess.check_output(['docker','image','inspect','busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec'],text=True))[0]
+          (root/'scaffold.json').write_text(json.dumps(scaffold,indent=2)+'\n')
+          access=secrets.token_hex(10);secret=secrets.token_hex(24)
+          print('::add-mask::'+access,flush=True);print('::add-mask::'+secret,flush=True)
+          private=pathlib.Path('/tmp/cg17-private-backend.env')
+          private.write_text('RUSTFS_ACCESS_KEY='+access+'\nRUSTFS_SECRET_KEY='+secret+'\n');private.chmod(0o600)
+          name='cg17-cold-node-inspection-rustfs'
+          try:
+              subprocess.run(['docker','run','-d','--name',name,'--cpus','1','--memory','2g','--memory-swap','2g','-p','127.0.0.1:9000:9000','--env-file',str(private),image,'/data'],check=True)
+              sys.path.insert(0,'tools/multi-raft');from store_probe import probe
+              endpoint='http://127.0.0.1:9000'
+              for attempt in range(120):
+                  try:
+                      ready=probe(endpoint,'cg17-ready-'+secrets.token_hex(4),access,secret)
+                      (root/'signed-readiness.json').write_text(json.dumps(ready,indent=2)+'\n');break
+                  except Exception:
+                      if attempt==119:raise
+                      time.sleep(1)
+              cases=[('native_cell_groups_primitives', 'rustfs_outbox_claim_and_intent_share_the_first_source_proof'), ('native_cell_groups_archive_controller', 'rustfs_s3_foreground_progresses_during_background_publication'), ('native_cell_groups_primitives', 'rustfs_event_streams_activate_deliver_and_recover_through_shared_quorum'), ('native_cell_groups_docker', 'rustfs_native_docker_executes_and_recovers_shared_quorum'), ('native_cell_groups_docker', 'rustfs_native_sandboxes_execute_and_cleanup_through_shared_quorum'), ('native_cell_groups_docker', 'rustfs_native_docker_refuses_execution_without_source_proof'), ('native_cell_groups_docker', 'rustfs_native_sandboxes_refuse_unproved_parent_dispatch'), ('native_cell_groups_docker', 'rustfs_native_sandbox_retirement_preserves_requested_s3_minimum'), ('native_cell_groups_docker', 'rustfs_native_sandbox_deletion_preserves_input_proof'), ('native_cell_groups_docker', 'rustfs_native_sandbox_start_shares_parent_output_proof'), ('native_cell_groups_docker', 'docker_backend_joins_processes_and_retains_original_receipts'), ('native_cell_groups_docker', 'docker_backend_shutdown_fences_processes_when_journal_fails'), ('native_cell_groups_docker', 'docker_backend_seals_expired_unsubmitted_deletes_without_replay'), ('native_cell_groups_primitives', 'rustfs_ordinary_named_cell_bindings_use_shared_group_quorum'), ('native_cell_groups_primitives', 'rustfs_ordinary_kv_bindings_use_managed_shared_groups'), ('native_cell_groups_primitives', 'rustfs_ordinary_sql_bindings_use_managed_shared_groups'), ('native_cell_groups_primitives', 'rustfs_ordinary_queue_callbacks_use_shared_quorum'), ('native_cell_groups_primitives', 'rustfs_ordinary_workflows_use_shared_quorum'), ('native_cell_groups_primitives', 'rustfs_ordinary_alarms_recover_through_shared_quorum'), ('native_cell_groups_primitives', 'rustfs_cron_recovers_occurrences_without_requests'), ('native_cell_groups_primitives', 'rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum'), ('native_cell_groups_primitives', 'rustfs_kv_payload_reads_resume_after_outage_and_retained_restart'), ('native_cell_groups_primitives', 'rustfs_scheduled_workflows_use_shared_quorum'), ('native_cell_groups_primitives', 'rustfs_workflow_results_survive_s3_replacement_and_park_wake'), ('native_cell_groups_primitives', 'rustfs_workflow_deletion_cancels_callbacks_and_recreates'), ('native_cell_groups_primitives', 'rustfs_queue_transfer_receipts_bind_payload_after_purge_and_restart'), ('native_cell_groups_primitives', 'rustfs_ordinary_queue_axum_callbacks_use_shared_quorum'), ('native_cell_groups_primitives', 'rustfs_axum_workflow_deletion_cancels_callbacks_and_recreates'), ('native_cell_groups_primitives', 'rustfs_filesystem_archive_outage_movement_and_park_wake'), ('native_cell_groups_primitives', 'rustfs_event_stream_publication_subscriptions_and_outbox_recover_through_quorum'), ('native_cell_groups_primitives', 'rustfs_axum_event_stream_publication_subscriptions_and_outbox_recover_through_quorum'), ('native_cell_groups_primitives', 'rustfs_axum_workflows_use_shared_quorum'), ('native_cell_groups_primitives', 'rustfs_axum_scheduled_workflows_use_shared_quorum'), ('native_cell_groups_primitives', 'rustfs_workflow_status_reads_progress_during_checkpoints_and_restart'), ('native_cell_groups_primitives', 'rustfs_axum_workflow_results_survive_s3_replacement_and_park_wake'), ('native_cell_groups_primitives', 'rustfs_queue_load_preserves_acknowledged_messages'), ('native_cell_groups_primitives', 'rustfs_queue_four_in_flight_preserves_acknowledged_messages'), ('native_cell_groups_primitives', 'rustfs_queue_cross_deployment_faults_preserve_quorum'), ('native_cell_groups_primitives', 'rustfs_queue_axum_cross_deployment_faults_preserve_quorum'), ('native_cell_groups_primitives', 'rustfs_queue_long_callbacks_preserve_progress'), ('native_cell_groups_primitives', 'rustfs_axum_queue_transfer_receipts_bind_payload_after_purge_and_restart'), ('native_cell_groups_archive', 'rustfs_external_payload_recovery_and_gc_preserve_retained_cuts_and_readers'), ('native_cell_groups_archive', 'rustfs_filesystem_survives_fenced_all_voter_disk_loss')]
+              for target,case in cases:
+                  env=dict(clean,CELLAR_DOCKER_BACKEND_SOCKET='/var/run/docker.sock',CELLAR_DOCKER_BACKEND_IMAGE=scaffold['Id'])
+                  if case.startswith('rustfs_'):
+                      bucket='cg17-proof-'+secrets.token_hex(6);prefix='qualification/'+secrets.token_hex(16)
+                      probe(endpoint,bucket,access,secret)
+                      env.update(AWS_ACCESS_KEY_ID=access,AWS_SECRET_ACCESS_KEY=secret,AWS_EC2_METADATA_DISABLED='true',CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT=endpoint,CELLAR_CELL_GROUPS_RUSTFS_BUCKET=bucket,CELLAR_CELL_GROUPS_RUSTFS_PREFIX=prefix)
+                  run(target,case,env,True)
+          finally:
+              # Collect only nonsecret runtime counters, never the environment.
+              r=subprocess.run(['docker','inspect','--format','{{json .State}}',name],capture_output=True,text=True)
+              (root/'rustfs-final-state.json').write_text(r.stdout)
+              subprocess.run(['docker','stop',name],check=False)
+              subprocess.run(['docker','rm',name],check=False)
+              private.unlink(missing_ok=True)
+          assert len(report['cases'])==82, 'Qualification selection missing'
+          report['status']='PASS' if all(r['status']=='PASS' for r in report['cases']) else 'FAILED';save()
+          # Retain closed test-owned roots only after all timed cases have joined.
+          shutil.move(str(tmp),str(root/'retained-voters'))
+          sys.exit(0 if report['status']=='PASS' else 1)
+          PY
+      - name: Archive source, binaries, logs and closed voter roots
+        if: always()
+        run: |
+          set -o pipefail
+          tar -C "$PROOF_ROOT" --use-compress-program='gzip -1' -cf "$RUNNER_TEMP/cg17-cold-node-inspection-proof.tar.gz" .
+          cd "$RUNNER_TEMP"
+          sha256sum cg17-cold-node-inspection-proof.tar.gz > cg17-cold-node-inspection-proof.tar.gz.sha256
+      - name: Preserve portable qualification archive
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: cell-group-disaster-observations
-          # Only the fixed metadata report is public. Databases, synthetic
-          # object bytes, memory manifests and operator audit files stay private.
+          name: cg17-cold-node-inspection-240d6e230-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/native-failure-fixtures/**/transition-failure-observations.json
-            ${{ runner.temp }}/native-failure-fixtures/**/seal-authorization-observations.json
-          include-hidden-files: true
-          if-no-files-found: ignore
+            ${{ runner.temp }}/cg17-cold-node-inspection-proof.tar.gz
+            ${{ runner.temp }}/cg17-cold-node-inspection-proof.tar.gz.sha256
           retention-days: 7
+          compression-level: 0
