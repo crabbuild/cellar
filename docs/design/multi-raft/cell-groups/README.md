@@ -35,6 +35,18 @@ nodes, dynamic split/merge, placement and coordinated hibernation. Cellar keeps
 independent SQLite/LTX cell state and its Quorum/S3 durability contracts.
 It does not implement TiKV's KV API, MVCC, transactions, wire compatibility or PD.
 
+## Architecture diagrams
+
+These SVGs illustrate the shared-group design and request semantics. See
+[progress](progress.md) for implementation and qualification status.
+
+| Diagram | Scope |
+| --- | --- |
+| [Cell-group architecture](diagram/01-cell-group-architecture.svg) | Replica placement, group leadership and shared node resources |
+| [Write path](diagram/02-cell-group-write-path.svg) | Private SQLite execution, LTX replication, committed apply and Quorum/S3 acknowledgement |
+| [Read path](diagram/03-cell-group-read-path.svg) | Linearizable, AtLeast and stale reads over published cell images |
+| [Multi-Raft rationale](diagram/04-multi-raft-rationale.svg) | Many cells per group, independent elections and shared infrastructure |
+
 ## Read and execute
 
 The plan runner requires Python 3.11 or newer and Git; it has no Python package dependencies.

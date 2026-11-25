@@ -1,0 +1,335 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1330" role="img" aria-labelledby="title desc">
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+<title id="title">Multi-Raft on Cell Groups</title>
+<desc id="desc">Each colored row is a separate Raft group with one leader and two followers. Every replica contains the same individual cell SQLite databases. Leaders differ between groups. Replication arrows connect each leader directly to both followers through spacious routing lanes. Node workers, log storage and SQL pools are shared.</desc>
+<defs>
+<marker id="arrow-0" viewBox="0 0 12 10" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#22d3ee"/></marker>
+<marker id="arrow-1" viewBox="0 0 12 10" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#a78bfa"/></marker>
+<marker id="arrow-2" viewBox="0 0 12 10" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#fbbf24"/></marker>
+<marker id="arrow-3" viewBox="0 0 12 10" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#34d399"/></marker>
+<marker id="arrow-4" viewBox="0 0 12 10" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1L11 5L1 9Z" fill="#94a3b8"/></marker>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern></defs>
+<style>text{font-family:Menlo,Consolas,monospace}.label{paint-order:stroke;stroke:#0f172a;stroke-width:9px;stroke-linejoin:round}</style>
+<rect width="1920" height="1330" fill="#0f172a"/>
+<rect width="1920" height="1330" fill="url(#grid)"/>
+<text x="60" y="85" font-size="38" fill="#f8fafc" font-weight="700" text-anchor="start">Multi-Raft on Cell Groups</text>
+<text x="60" y="128" font-size="20" fill="#94a3b8" font-weight="400" text-anchor="start">Many cells share one Raft group. Independent groups share the same nodes.</text>
+<rect x="60" y="185" width="340" height="86" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="82" y="219" font-size="21" fill="#22d3ee" font-weight="700" text-anchor="start">Client / SDK</text>
+<text x="82" y="247" font-size="16" fill="#94a3b8" font-weight="400" text-anchor="start">namespace + cell ID</text>
+<rect x="560" y="185" width="700" height="86" rx="12" fill="#111c30" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="582" y="219" font-size="21" fill="#22d3ee" font-weight="700" text-anchor="start">Cell router</text>
+<text x="582" y="247" font-size="17" fill="#94a3b8" font-weight="400" text-anchor="start">cell → group → current leader</text>
+<rect x="1420" y="185" width="440" height="86" rx="12" fill="#111c30" stroke="#64748b" stroke-width="1.5"/>
+<text x="1442" y="219" font-size="21" fill="#e2e8f0" font-weight="700" text-anchor="start">Range directory</text>
+<text x="1442" y="247" font-size="16" fill="#94a3b8" font-weight="400" text-anchor="start">cell ranges + group routes</text>
+<path d="M400,228 L560,228" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow-0)"/>
+<path d="M1260,228 L1420,228" fill="none" stroke="#94a3b8" stroke-width="2.3" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#arrow-4)"/>
+<rect x="60" y="320" width="500" height="930" rx="18" fill="#101a2c" stroke="#53627a" stroke-width="1.5" stroke-dasharray="8 7"/>
+<text x="84" y="352" font-size="23" fill="#f8fafc" font-weight="700" text-anchor="start">NODE A</text>
+<text x="536" y="351" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="end">voter disk 1</text>
+<rect x="710" y="320" width="500" height="930" rx="18" fill="#101a2c" stroke="#53627a" stroke-width="1.5" stroke-dasharray="8 7"/>
+<text x="734" y="352" font-size="23" fill="#f8fafc" font-weight="700" text-anchor="start">NODE B</text>
+<text x="1186" y="351" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="end">voter disk 2</text>
+<rect x="1360" y="320" width="500" height="930" rx="18" fill="#101a2c" stroke="#53627a" stroke-width="1.5" stroke-dasharray="8 7"/>
+<text x="1384" y="352" font-size="23" fill="#f8fafc" font-weight="700" text-anchor="start">NODE C</text>
+<text x="1836" y="351" font-size="15" fill="#94a3b8" font-weight="400" text-anchor="end">voter disk 3</text>
+<path d="M540,465 L730,465" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow-0)"/>
+<text x="635" y="449" font-size="13" fill="#22d3ee" font-weight="400" text-anchor="middle" class="label">replicate</text>
+<path d="M310,548 L310,592 L1610,592 L1610,548" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow-0)"/>
+<text x="960" y="582" font-size="14" fill="#22d3ee" font-weight="400" text-anchor="middle" class="label">GROUP 1 · leader A → follower C</text>
+<rect x="80" y="380" width="460" height="168" rx="12" fill="#112332" stroke="#22d3ee" stroke-width="2.6"/>
+<text x="98" y="410" font-size="20" fill="#22d3ee" font-weight="700" text-anchor="start">GROUP 1</text>
+<text x="246" y="409" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 4</text>
+<rect x="410" y="392" width="111" height="27" rx="6" fill="#16313b" stroke="#22d3ee" stroke-width="1"/>
+<text x="465.5" y="411" font-size="14" fill="#22d3ee" font-weight="700" text-anchor="middle">LEADER</text>
+<rect x="151.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M161.0,452V471C161.0,477 181.0,477 181.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="171.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="189.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell A</text>
+<text x="189.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="261.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M271.0,452V471C271.0,477 291.0,477 291.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="281.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="299.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell B</text>
+<text x="299.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="371.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M381.0,452V471C381.0,477 401.0,477 401.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="391.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="409.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell C</text>
+<text x="409.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="98" y="526" font-size="13" fill="#22d3ee" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="190" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="206" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">A</text>
+<rect x="229" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="245" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">B</text>
+<rect x="268" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="284" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">A</text>
+<rect x="307" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="323" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">C</text>
+<text x="520" y="526" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 105</text>
+<rect x="730" y="380" width="460" height="168" rx="12" fill="#141f34" stroke="#22d3ee" stroke-width="1.4"/>
+<text x="748" y="410" font-size="20" fill="#22d3ee" font-weight="700" text-anchor="start">GROUP 1</text>
+<text x="896" y="409" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 4</text>
+<rect x="1060" y="392" width="111" height="27" rx="6" fill="#1c2639" stroke="#22d3ee" stroke-width="1"/>
+<text x="1115.5" y="411" font-size="14" fill="#22d3ee" font-weight="400" text-anchor="middle">follower</text>
+<rect x="801.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M811.0,452V471C811.0,477 831.0,477 831.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="821.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="839.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell A</text>
+<text x="839.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="911.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M921.0,452V471C921.0,477 941.0,477 941.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="931.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="949.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell B</text>
+<text x="949.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="1021.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1031.0,452V471C1031.0,477 1051.0,477 1051.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="1041.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="1059.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell C</text>
+<text x="1059.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="748" y="526" font-size="13" fill="#22d3ee" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="840" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="856" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">A</text>
+<rect x="879" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="895" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">B</text>
+<rect x="918" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="934" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">A</text>
+<rect x="957" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="973" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">C</text>
+<text x="1170" y="526" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 105</text>
+<rect x="1380" y="380" width="460" height="168" rx="12" fill="#141f34" stroke="#22d3ee" stroke-width="1.4"/>
+<text x="1398" y="410" font-size="20" fill="#22d3ee" font-weight="700" text-anchor="start">GROUP 1</text>
+<text x="1546" y="409" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 4</text>
+<rect x="1710" y="392" width="111" height="27" rx="6" fill="#1c2639" stroke="#22d3ee" stroke-width="1"/>
+<text x="1765.5" y="411" font-size="14" fill="#22d3ee" font-weight="400" text-anchor="middle">follower</text>
+<rect x="1451.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1461.0,452V471C1461.0,477 1481.0,477 1481.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="1471.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="1489.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell A</text>
+<text x="1489.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="1561.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1571.0,452V471C1571.0,477 1591.0,477 1591.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="1581.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="1599.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell B</text>
+<text x="1599.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="1671.0" y="431" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1681.0,452V471C1681.0,477 1701.0,477 1701.0,471V452" fill="#22d3ee" fill-opacity="0.13" stroke="#22d3ee" stroke-width="1.2"/>
+<ellipse cx="1691.0" cy="452" rx="10" ry="4" fill="#15273b" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="1709.0" y="457" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell C</text>
+<text x="1709.0" y="477" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="1398" y="526" font-size="13" fill="#22d3ee" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="1490" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="1506" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">A</text>
+<rect x="1529" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="1545" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">B</text>
+<rect x="1568" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="1584" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">A</text>
+<rect x="1607" y="510" width="32" height="23" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.8"/>
+<text x="1623" y="526" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="middle">C</text>
+<text x="1820" y="526" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 105</text>
+<path d="M730,715 L540,715" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow-1)"/>
+<path d="M1190,715 L1380,715" fill="none" stroke="#a78bfa" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow-1)"/>
+<text x="635" y="699" font-size="13" fill="#a78bfa" font-weight="400" text-anchor="middle" class="label">replicate</text>
+<text x="1285" y="699" font-size="13" fill="#a78bfa" font-weight="400" text-anchor="middle" class="label">replicate</text>
+<text x="960" y="842" font-size="14" fill="#a78bfa" font-weight="400" text-anchor="middle" class="label">GROUP 2 · leader B → followers A + C</text>
+<rect x="80" y="630" width="460" height="168" rx="12" fill="#141f34" stroke="#a78bfa" stroke-width="1.4"/>
+<text x="98" y="660" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">GROUP 2</text>
+<text x="246" y="659" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 9</text>
+<rect x="410" y="642" width="111" height="27" rx="6" fill="#1c2639" stroke="#a78bfa" stroke-width="1"/>
+<text x="465.5" y="661" font-size="14" fill="#a78bfa" font-weight="400" text-anchor="middle">follower</text>
+<rect x="96.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M106.0,702V721C106.0,727 126.0,727 126.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="116.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="134.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell D</text>
+<text x="134.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="206.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M216.0,702V721C216.0,727 236.0,727 236.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="226.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="244.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell E</text>
+<text x="244.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="316.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M326.0,702V721C326.0,727 346.0,727 346.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="336.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="354.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell F</text>
+<text x="354.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="426.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M436.0,702V721C436.0,727 456.0,727 456.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="446.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="464.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell G</text>
+<text x="464.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="98" y="776" font-size="13" fill="#a78bfa" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="190" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="206" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">D</text>
+<rect x="229" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="245" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">F</text>
+<rect x="268" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="284" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">G</text>
+<rect x="307" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="323" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">E</text>
+<text x="520" y="776" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 82</text>
+<rect x="730" y="630" width="460" height="168" rx="12" fill="#112332" stroke="#a78bfa" stroke-width="2.6"/>
+<text x="748" y="660" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">GROUP 2</text>
+<text x="896" y="659" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 9</text>
+<rect x="1060" y="642" width="111" height="27" rx="6" fill="#16313b" stroke="#a78bfa" stroke-width="1"/>
+<text x="1115.5" y="661" font-size="14" fill="#a78bfa" font-weight="700" text-anchor="middle">LEADER</text>
+<rect x="746.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M756.0,702V721C756.0,727 776.0,727 776.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="766.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="784.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell D</text>
+<text x="784.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="856.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M866.0,702V721C866.0,727 886.0,727 886.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="876.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="894.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell E</text>
+<text x="894.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="966.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M976.0,702V721C976.0,727 996.0,727 996.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="986.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="1004.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell F</text>
+<text x="1004.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="1076.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1086.0,702V721C1086.0,727 1106.0,727 1106.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="1096.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="1114.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell G</text>
+<text x="1114.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="748" y="776" font-size="13" fill="#a78bfa" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="840" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="856" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">D</text>
+<rect x="879" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="895" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">F</text>
+<rect x="918" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="934" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">G</text>
+<rect x="957" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="973" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">E</text>
+<text x="1170" y="776" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 82</text>
+<rect x="1380" y="630" width="460" height="168" rx="12" fill="#141f34" stroke="#a78bfa" stroke-width="1.4"/>
+<text x="1398" y="660" font-size="20" fill="#a78bfa" font-weight="700" text-anchor="start">GROUP 2</text>
+<text x="1546" y="659" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 9</text>
+<rect x="1710" y="642" width="111" height="27" rx="6" fill="#1c2639" stroke="#a78bfa" stroke-width="1"/>
+<text x="1765.5" y="661" font-size="14" fill="#a78bfa" font-weight="400" text-anchor="middle">follower</text>
+<rect x="1396.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1406.0,702V721C1406.0,727 1426.0,727 1426.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="1416.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="1434.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell D</text>
+<text x="1434.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="1506.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1516.0,702V721C1516.0,727 1536.0,727 1536.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="1526.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="1544.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell E</text>
+<text x="1544.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="1616.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1626.0,702V721C1626.0,727 1646.0,727 1646.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="1636.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="1654.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell F</text>
+<text x="1654.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="1726.0" y="681" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1736.0,702V721C1736.0,727 1756.0,727 1756.0,721V702" fill="#a78bfa" fill-opacity="0.13" stroke="#a78bfa" stroke-width="1.2"/>
+<ellipse cx="1746.0" cy="702" rx="10" ry="4" fill="#15273b" stroke="#a78bfa" stroke-width="1.2"/>
+<text x="1764.0" y="707" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell G</text>
+<text x="1764.0" y="727" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="1398" y="776" font-size="13" fill="#a78bfa" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="1490" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="1506" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">D</text>
+<rect x="1529" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="1545" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">F</text>
+<rect x="1568" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="1584" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">G</text>
+<rect x="1607" y="760" width="32" height="23" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.8"/>
+<text x="1623" y="776" font-size="12" fill="#a78bfa" font-weight="400" text-anchor="middle">E</text>
+<text x="1820" y="776" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 82</text>
+<path d="M1380,965 L1190,965" fill="none" stroke="#fbbf24" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow-2)"/>
+<text x="1285" y="949" font-size="13" fill="#fbbf24" font-weight="400" text-anchor="middle" class="label">replicate</text>
+<path d="M1610,1048 L1610,1092 L310,1092 L310,1048" fill="none" stroke="#fbbf24" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow-2)"/>
+<text x="960" y="1082" font-size="14" fill="#fbbf24" font-weight="400" text-anchor="middle" class="label">GROUP 3 · leader C → follower A</text>
+<rect x="80" y="880" width="460" height="168" rx="12" fill="#141f34" stroke="#fbbf24" stroke-width="1.4"/>
+<text x="98" y="910" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">GROUP 3</text>
+<text x="246" y="909" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 2</text>
+<rect x="410" y="892" width="111" height="27" rx="6" fill="#1c2639" stroke="#fbbf24" stroke-width="1"/>
+<text x="465.5" y="911" font-size="14" fill="#fbbf24" font-weight="400" text-anchor="middle">follower</text>
+<rect x="206.0" y="931" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M216.0,952V971C216.0,977 236.0,977 236.0,971V952" fill="#fbbf24" fill-opacity="0.13" stroke="#fbbf24" stroke-width="1.2"/>
+<ellipse cx="226.0" cy="952" rx="10" ry="4" fill="#15273b" stroke="#fbbf24" stroke-width="1.2"/>
+<text x="244.0" y="957" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell H</text>
+<text x="244.0" y="977" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="316.0" y="931" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M326.0,952V971C326.0,977 346.0,977 346.0,971V952" fill="#fbbf24" fill-opacity="0.13" stroke="#fbbf24" stroke-width="1.2"/>
+<ellipse cx="336.0" cy="952" rx="10" ry="4" fill="#15273b" stroke="#fbbf24" stroke-width="1.2"/>
+<text x="354.0" y="957" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell I</text>
+<text x="354.0" y="977" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="98" y="1026" font-size="13" fill="#fbbf24" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="190" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="206" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">H</text>
+<rect x="229" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="245" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">I</text>
+<rect x="268" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="284" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">H</text>
+<rect x="307" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="323" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">I</text>
+<text x="520" y="1026" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 216</text>
+<rect x="730" y="880" width="460" height="168" rx="12" fill="#141f34" stroke="#fbbf24" stroke-width="1.4"/>
+<text x="748" y="910" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">GROUP 3</text>
+<text x="896" y="909" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 2</text>
+<rect x="1060" y="892" width="111" height="27" rx="6" fill="#1c2639" stroke="#fbbf24" stroke-width="1"/>
+<text x="1115.5" y="911" font-size="14" fill="#fbbf24" font-weight="400" text-anchor="middle">follower</text>
+<rect x="856.0" y="931" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M866.0,952V971C866.0,977 886.0,977 886.0,971V952" fill="#fbbf24" fill-opacity="0.13" stroke="#fbbf24" stroke-width="1.2"/>
+<ellipse cx="876.0" cy="952" rx="10" ry="4" fill="#15273b" stroke="#fbbf24" stroke-width="1.2"/>
+<text x="894.0" y="957" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell H</text>
+<text x="894.0" y="977" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="966.0" y="931" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M976.0,952V971C976.0,977 996.0,977 996.0,971V952" fill="#fbbf24" fill-opacity="0.13" stroke="#fbbf24" stroke-width="1.2"/>
+<ellipse cx="986.0" cy="952" rx="10" ry="4" fill="#15273b" stroke="#fbbf24" stroke-width="1.2"/>
+<text x="1004.0" y="957" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell I</text>
+<text x="1004.0" y="977" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="748" y="1026" font-size="13" fill="#fbbf24" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="840" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="856" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">H</text>
+<rect x="879" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="895" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">I</text>
+<rect x="918" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="934" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">H</text>
+<rect x="957" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="973" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">I</text>
+<text x="1170" y="1026" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 216</text>
+<rect x="1380" y="880" width="460" height="168" rx="12" fill="#112332" stroke="#fbbf24" stroke-width="2.6"/>
+<text x="1398" y="910" font-size="20" fill="#fbbf24" font-weight="700" text-anchor="start">GROUP 3</text>
+<text x="1546" y="909" font-size="13" fill="#94a3b8" font-weight="400" text-anchor="start">term 2</text>
+<rect x="1710" y="892" width="111" height="27" rx="6" fill="#16313b" stroke="#fbbf24" stroke-width="1"/>
+<text x="1765.5" y="911" font-size="14" fill="#fbbf24" font-weight="700" text-anchor="middle">LEADER</text>
+<rect x="1506.0" y="931" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1516.0,952V971C1516.0,977 1536.0,977 1536.0,971V952" fill="#fbbf24" fill-opacity="0.13" stroke="#fbbf24" stroke-width="1.2"/>
+<ellipse cx="1526.0" cy="952" rx="10" ry="4" fill="#15273b" stroke="#fbbf24" stroke-width="1.2"/>
+<text x="1544.0" y="957" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell H</text>
+<text x="1544.0" y="977" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<rect x="1616.0" y="931" width="98" height="66" rx="8" fill="#0d1729" stroke="#41516a" stroke-width="1"/>
+<path d="M1626.0,952V971C1626.0,977 1646.0,977 1646.0,971V952" fill="#fbbf24" fill-opacity="0.13" stroke="#fbbf24" stroke-width="1.2"/>
+<ellipse cx="1636.0" cy="952" rx="10" ry="4" fill="#15273b" stroke="#fbbf24" stroke-width="1.2"/>
+<text x="1654.0" y="957" font-size="13" fill="#e2e8f0" font-weight="700" text-anchor="start">Cell I</text>
+<text x="1654.0" y="977" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">SQLite</text>
+<text x="1398" y="1026" font-size="13" fill="#fbbf24" font-weight="400" text-anchor="start">Raft log</text>
+<rect x="1490" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="1506" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">H</text>
+<rect x="1529" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="1545" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">I</text>
+<rect x="1568" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="1584" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">H</text>
+<rect x="1607" y="1010" width="32" height="23" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.8"/>
+<text x="1623" y="1026" font-size="12" fill="#fbbf24" font-weight="400" text-anchor="middle">I</text>
+<text x="1820" y="1026" font-size="12" fill="#94a3b8" font-weight="400" text-anchor="end">index 216</text>
+<path d="M880,271 L880,294 L600,294 L600,405 L540,405" fill="none" stroke="#22d3ee" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow-0)"/>
+<text x="604" y="313" font-size="12" fill="#22d3ee" font-weight="400" text-anchor="start" class="label">cell A → group 1</text>
+<rect x="80" y="1150" width="460" height="76" rx="10" fill="#182337" stroke="#64748b" stroke-width="1.5"/>
+<text x="100" y="1179" font-size="19" fill="#e2e8f0" font-weight="700" text-anchor="start">Shared node resources</text>
+<text x="100" y="1205" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="start">Raft workers · log engine · SQL pool</text>
+<rect x="730" y="1150" width="460" height="76" rx="10" fill="#182337" stroke="#64748b" stroke-width="1.5"/>
+<text x="750" y="1179" font-size="19" fill="#e2e8f0" font-weight="700" text-anchor="start">Shared node resources</text>
+<text x="750" y="1205" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="start">Raft workers · log engine · SQL pool</text>
+<rect x="1380" y="1150" width="460" height="76" rx="10" fill="#182337" stroke="#64748b" stroke-width="1.5"/>
+<text x="1400" y="1179" font-size="19" fill="#e2e8f0" font-weight="700" text-anchor="start">Shared node resources</text>
+<text x="1400" y="1205" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="start">Raft workers · log engine · SQL pool</text>
+<text x="60" y="1290" font-size="15" fill="#cbd5e1" font-weight="400" text-anchor="start">Each color = one Raft group</text>
+<text x="690" y="1290" font-size="15" fill="#cbd5e1" font-weight="400" text-anchor="start">Arrows = leader → follower replication</text>
+<text x="1860" y="1290" font-size="14" fill="#94a3b8" font-weight="400" text-anchor="end">Acknowledgements omitted</text>
+</svg>
