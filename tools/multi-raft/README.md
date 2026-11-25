@@ -517,6 +517,29 @@ The constrained Linux daemon campaign below records those separately. Named
 selectors, operator CLI, movement/wake, sustained load and all-voter disk loss
 remain separate gates. No full CG-17 acceptance is implied.
 
+## Removed-voter shutdown proof
+
+Use an owned loopback RustFS backend and a fresh evidence directory:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite managed-shutdown-retirement \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-managed-shutdown-retirement-rustfs-001 \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-my-checkout"
+```
+
+Both image modes replace an actual RF3 voter while that voter's admitted archive
+PUT is held. Shutdown must seal public admission and remain pending until the PUT
+exits. Its cached close report must then prove physical producer quiescence, with
+no held callbacks, unresolved local work or failed groups. A fresh quorum write
+on the surviving voters must succeed. Archive lag is reported independently;
+the retained disk still requires its own retirement and reclamation authority.
+
+The suite uses the original request and shutdown deadlines, host-native voters
+in one process and the recorded real RustFS backend. It does not qualify
+independent Linux voter containers, process crashes, all-voter disk loss or the
+combined release envelope.
+
 ## Shared cell-group managed ingress checks
 
 Use the same owned loopback RustFS backend and a fresh output directory.

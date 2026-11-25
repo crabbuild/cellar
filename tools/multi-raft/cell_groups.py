@@ -804,6 +804,18 @@ SUITES = {
         "Three host-native voters and the unmanaged transition boundary. Managed capacity, child "
         "install, range publication and independent voter processes remain separate gates.",
     ),
+    "managed-shutdown-retirement": (
+        "native_cell_groups_managed",
+        ("shutdown_retirement::rustfs_shutdown_removed_member_joins_held_archive",
+         "shutdown_retirement::rustfs_rooted_shutdown_removed_member_joins_held_archive"),
+        "removed-voter shutdown joins an admitted archive PUT before proving producer quiescence",
+        "Both image modes perform real RF3 replacement with the original operation identities. "
+        "The removed voter retains an entered RustFS PUT; public shutdown seals admission but "
+        "cannot finish until the PUT exits. Successful physical joins then prove no unresolved "
+        "local producers, while archive coverage and retained disk/reclamation remain separate. "
+        "Original request and shutdown deadlines apply. Voters share one native process; "
+        "independent voter cgroups, crash/disk-loss schedules and full release acceptance remain open.",
+    ),
     "managed-ingress": (
         "native_cell_groups_managed",
         ("bootstrap::requests::rustfs_managed_native_axum_read_write_and_retained_restart",
