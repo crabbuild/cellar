@@ -23,6 +23,8 @@ pub mod managed_fixture;
 
 #[path = "support/cell_group_managed_bootstrap.rs"]
 mod bootstrap;
+#[path = "support/cell_group_managed_group_endpoint.rs"]
+mod group_endpoint;
 #[path = "support/cell_group_managed_inspection_catchup.rs"]
 mod inspection_catchup;
 #[path = "support/cell_group_managed_inspection_endpoint.rs"]

@@ -16,6 +16,32 @@ async fn rooted_shutdown_removed_member_joins_held_archive() -> Result<()> {
     qualify(true).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_shutdown_removed_member_joins_held_archive() -> Result<()> {
+    qualify_store(
+        false,
+        Arc::new(fault::Store::around(rustfs::store(
+            "retirement-shutdown",
+            false,
+        )?)),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_rooted_shutdown_removed_member_joins_held_archive() -> Result<()> {
+    qualify_store(
+        true,
+        Arc::new(fault::Store::around(rustfs::store(
+            "retirement-shutdown",
+            true,
+        )?)),
+    )
+    .await
+}
+
 struct Release(Arc<fault::Store>);
 
 impl Drop for Release {
@@ -25,7 +51,17 @@ impl Drop for Release {
 }
 
 async fn qualify(rooted: bool) -> Result<()> {
-    let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7])).await?;
+    qualify_store(rooted, Arc::new(fault::Store::default())).await
+}
+
+async fn qualify_store(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+    let mut cluster = Box::pin(ManagedCluster::start_with_store(
+        rooted,
+        &[7],
+        managed_fixture::ArchiveSetup::Initialized,
+        store,
+    ))
+    .await?;
     let result = Box::pin(exercise(&mut cluster)).await;
     let joined = movement::close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
