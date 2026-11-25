@@ -4,43 +4,63 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current primitive and journal qualification checkpoint
+## Current submission ownership and qualification checkpoint
 
 Continue [PR #186](https://github.com/crabbuild/cellar/pull/186), branch
-`codex/cg17-event-file-read-deadlines`, including main `7810ead24` (#187/#188).
-Frozen `ba4c8ab98` is **FAILED, 33/35 native**. Both full six-thread libraries
-pass 1,443 tests each; fixed Container passes 47/47, controller 21/21,
-storage batch 3/3 and atomic KV expiry 5/5. Strict/repository checks pass.
-Public KV now passes the original stored-row expiry check in both image forms.
-The selected SQL, Queue, Workflow, alarms/cron, filesystem/payload and checkpoint
-cases pass. Keep the EventStream stream-group startup timeout and extent/Quorum
-named-binding leader timeout, both before API entry. Filesystem also logs
-forced pre-drain warnings, so this is not complete clean-shutdown qualification.
+`codex/cg17-event-file-read-deadlines`, including main `7810ead24`. Runtime
+`8c3435a5f` adds the bounded Docker submission owner. The real directory-barrier
+cancellation regression reproduces red on `0f40f7d07` and passes unchanged after
+the fix. Container 48/48, all three physical-Docker safety controls, locked
+public/CLI builds, strict affected Clippy and repository checks pass. Never
+replay an unknown effect or infer its outcome from provider absence.
 
-Hold this checkout/source frozen until diagnostic `3328` joins all 17 critical
-RustFS selections, stops the owned lab and copies closed evidence. It includes
-all original proof/fencing/lifecycle controls plus KV, Workflow and Queue C2/C4.
-It is an independent diagnostic after the native failure, never a waiver of that
-failed aggregate. The ordinary broader launcher already refused the native gate.
-Preserve 3s/5s requests, 3s maintenance, 60s restoration and existing KV parents.
+The current original RustFS run is **FAILED, 7/11 complete functions**. Preserve
+extent EventStream Consume (3s); materialized Container Quorum Execute3 and S3
+Status3; S3 Sandbox Start1/Exec2 (5s); and the extent Start-output missed actual
+Create/input-proof cut. Both Quorum Sandbox lifecycles pass. All eight source
+refusals, both cleanup-floor profiles and both Delete-input profiles pass.
+Bundle `CG-17-submission-seal-owned-current-8c3435a5f-3348` retains source/binaries,
+logs and 94 closed fixture roots. The owned lab stop and cleanup joined.
 
-The isolated candidate adds a **not-yet-run** cancellation regression at the
-backend's actual reservation directory barrier. Controller deadline cancellation
-can drop a backend future while its blocking reservation write continues. Prove
-the owning failure first; then retain a bounded submission continuation through
-reservation and job installation with its original captured expiry. Never turn
-entered uncertainty into absence or replay an effect. Test-only leader diagnostics
-also retain the last bounded per-voter status under the unchanged five-second
-wait. Rebuild and qualify changed source after the frozen run joins.
+Separate Linux campaign `3351` on **older `ba4c8ab98` images** finishes
+**7/8 daemon configurations and 2/2 physical SQL disk-loss drills**. All basic
+daemon and SQL/KV Quorum/S3 configurations pass on one-CPU/2-GiB voters. The
+materialized repair passes; extent fails before replacement: the retained return publishes paused
+startup and the original 20s `resume-maintenance` returns typed unknown/unavailable.
+Its final mutation state requires reconciliation, not an assumption of rejection. No voter is OOM-killed. Preserve its original IDs, request,
+peer snapshots and process logs; reconcile the stored resume state before any
+mutation. Both 3-GiB-voter DR drills permanently fence launches, erase only their
+owned source disks, restore three SQL cells/receipts into a fresh incarnation,
+reject old tokens, accept new writes and pass retained restart. All shutdowns
+join. This is one VM, not cross-host, all-primitive or provider-volume DR.
 
-Earlier `f2423248b` is FAILED 27/28 native and 38/43 real; its 193 closed roots
-and nine binaries have verified copies. Its Linux log has 53/53 executions
-passing but artifact upload failed, leaving no binaries/voter roots. Build-only
-Linux job 45499727062 packages `ba4c8ab98`; it still needs runtime validation.
-Then require independent Linux voters and actual Docker-fenced disk loss.
-The earlier passing filesystem disaster selection is a contract test.
-Default cutover, full primitive acceptance and legacy removal remain open.
-See [the source-specific checkpoint](progress.md#cg-17-merged-primitive-qualification).
+The first daemon capture has an evidence gap: restarting the VM clears guest
+`/tmp` before export. Its host logs and DR named volumes remain. The single
+unchanged replay `3358` fails three reached configurations (five not reached):
+materialized maintenance preparation is unconfirmed at 20s; SQL/KV and repair
+startup fail enrolled-peer inspection (Unavailable/Refused). Its nine mounted
+disks from three closed guest directories are exported and hashed before VM
+stop in `closed-daemon-guest-disks-3359.tar.gz`. Preserve both failed runs;
+repetition is not a repair. No budget/assertion/resource limit changes.
+
+A new owning regression holds the sender's background process-view reads,
+registers a new target and catches up Fleet trust independently, then requires
+one original outbound inspection to discover that target. It is not yet run.
+Receiver discovery already has separate coverage. Do not claim the cold-target
+gap as the exclusive daemon failure cause without the controlled result.
+
+Current-source [Linux run 45517688951](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+is building: 36 native and 43 real selections, including two six-thread full
+libraries, with portable evidence retention. Its ordinary primitive RF3 fixtures
+remain in-process. Preserve all request, maintenance and restoration limits.
+
+Older `ba4c8ab98` remains FAILED 33/35 native and 12/17 real, with 111 closed
+roots retained. Both full libraries pass 1,443 tests; real KV, Workflow and Queue
+C2 pass. Keep the two pre-entry native startup/leader failures, Queue C4 failure
+and filesystem pre-drain warnings. Older `f2423248b` remains FAILED 27/28 native
+and 38/43 real. Its Linux 53/53 log has no retained binaries/voter roots.
+Full primitive coverage, combined load/recovery qualification, default cutover
+and legacy removal remain open. See [the current source-scoped checkpoint](progress.md#cg-17-submission-ownership-and-constrained-recovery).
 
 ## Earlier EventStream and bounded file-read checkpoint
 

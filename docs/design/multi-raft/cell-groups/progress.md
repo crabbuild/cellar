@@ -32,6 +32,105 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 submission ownership and constrained recovery
+
+Runtime `8c3435a5f` fixes an actual caller-cancellation gap in the Docker
+backend. A caller could disappear during the reservation's physical directory
+barrier, leaving a durable unknown operation with no job owner. The new bounded
+submission task retains custody through reservation and job installation. It
+captures the original expiry and charges capacity before dispatch. It neither
+replays an unknown effect nor clears one from provider absence.
+
+The unchanged owning regression fails on `0f40f7d07` in 4.71s and passes after
+the fix in 1.67s. All 48 Container library tests pass with six threads. The
+locked public/CLI builds, strict all-feature/all-target Cellar/Container Clippy,
+formatting, layout, dependency and documentation checks pass.
+
+The current-source original RustFS/Docker run is **FAILED, 7/11 complete
+functions**. It uses the original 4-CPU/8-GiB lab, one SQL worker per in-process
+voter, real Docker and RustFS limited to one CPU/2 GiB. All three physical safety
+controls pass. All eight source-proof refusal profiles, both requested-S3
+cleanup-floor profiles and both Delete-input/restoration profiles pass. Both
+Quorum Sandbox lifecycles pass, including files, lost replies, retained restart,
+generation fencing and constructor-independent terminal cleanup.
+
+| Remaining original case on `8c3435a5f` | Result |
+| --- | --- |
+| EventStream | Materialized completes; extent Consume returns ambiguous `DeadlineExceeded` at its original 3s bound. |
+| Container | Both extent profiles complete; materialized Quorum Execute3 and materialized S3 docker-b Status3 miss their original 5s bounds. |
+| Sandbox | Both Quorum profiles complete; materialized S3 Start1 and extent S3 Exec2 miss 5s after actual physical entry. |
+| Start-output proof | Materialized completes; extent misses the required actual-Create/source-input cut before the deadline. The absent precondition supplies no proof-gate acceptance. |
+
+These failures remain recorded. Their positions vary between runs, so the
+submission repair is not presented as their timing cure. Boundary-only
+EventStream metrics capture SQL manifest preparation and file-sync work; their
+overlapping, cross-operation sums do not establish a request critical path or
+exclusive latency cause. No proof, identity, quota or request/maintenance/recovery
+budget changed. Bundle `CG-17-submission-seal-owned-current-8c3435a5f-3348`
+retains frozen executables/source, raw logs and copies of all 94 closed fixture
+roots. Cleanup and the owned lab stop joined successfully.
+
+Separate constrained-voter campaign `3351` runs verified `ba4c8ab98` images.
+The eight daemon configurations finish **7/8**, with both image forms passing
+ordinary CLI/native/Axum paths and all four SQL/KV binding configurations passing
+at Quorum/S3 minima. Each daemon voter has one CPU, 2 GiB memory and no additional
+swap; RustFS has one CPU/2 GiB. The six-CPU/14-GiB VM supplies the controller and
+voters on one physical host. These scoped passes demonstrate the basic read/write path; subsequent startup
+and maintenance failures keep that profile unqualified. Cross-host and complete
+primitive/load coverage also remain open.
+
+| Separate Linux gate on `ba4c8ab98` | Result |
+| --- | --- |
+| Public daemon, two image forms | 2/2 pass: CLI provisioning, native/Axum reads/writes, actual leader SIGKILL, retained restart, archive outage, park/wake, maintenance and quorum refusal. |
+| Public SQL/KV bindings, two images × two minima | 4/4 pass: four logical cells in two groups, all responders, retained restart/lease renewal, leader loss, archive outage and quorum refusal. |
+| Failed-voter repair | Materialized passes, including actual replacement and obsolete-disk retention. Extent stops earlier at maintenance resume; replacement is not reached. |
+| Fenced all-voter disk loss, two image forms | 2/2 pass with separate one-CPU/3-GiB voters and one-CPU/2-GiB RustFS. |
+
+The extent return has the original disk and new process and publishes its
+paused-startup marker. `resume-maintenance` returns typed unknown/unavailable
+at its original 20s limit. The last successful pre-resume observation is paused;
+the mutation's final state requires fresh reconciliation; none of the stopped
+voter containers is OOM-killed. The complete request, snapshots and process logs
+are retained. Basic extent maintenance passed in the separate daemon run, so a
+later replay cannot waive this failure. Follow the original operation identity
+and reconcile its durable state before retrying or changing the resume path.
+
+Both actual disk-loss drills permanently revoke old launches, delete all three
+owned source voter disks and restore three SQL cells from the verified RustFS
+cut. New-incarnation genesis/fresh quorum, all three replica images, exact
+original receipts without callback replay, old-token/old-launch refusal, fresh
+writes and retained restart pass. This qualifies the SQL cut and Docker fencing
+contract; provider volumes, every primitive, managed interrupted transitions and
+Quorum-only suffix/RPO coverage remain separate requirements. Every drill's
+shutdown verifies stopped, non-OOM containers with successful exits.
+
+After portable image import, execution configuration, ordered rootfs layer
+hashes, complete source inputs and actual binaries are verified before using the
+Engine's new immutable IDs. The first setup-only attempt starts no voter and
+erases no disk; it remains failed. Campaign `3351` retains logs and source/image custody under
+`CG-17-independent-linux-ba4-3351`. Its overall result is **FAILED** because of
+the extent maintenance-resume case. Its DR named volumes survive, but restarting
+the VM before exporting daemon data clears the guest `/tmp` disks. That daemon
+capture has an evidence-retention gap. The single unchanged replay, `3358`, fails all three reached configurations:
+materialized daemon maintenance preparation is unconfirmed at 20s; materialized
+Quorum bindings and repair stop at peer startup inspection (Unavailable/Refused).
+The remaining five configurations are not reached. Its nine stopped mounted
+disks from three guest directories are exported before VM shutdown: archive
+`closed-daemon-guest-disks-3359.tar.gz`, 264,896,015 bytes, SHA-256
+`cae3f5d5aff29c6622ff7939c0f7913ce048bf3876d4affe5986a67a19c61ec2`.
+The source/request/profile are unchanged; this is another failed result, not a
+repair or waiver. The earlier maintenance failure remains unresolved. No original assertion, request budget or resource bound
+changes.
+
+The full current-source [Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+is building at this checkpoint: 36 native selections, including the cancellation
+control and two six-thread libraries, followed by all 43 original real selections.
+It checks source `8c3435a5f` and retains a portable outer archive of source,
+binaries, logs and closed roots. Its RF3 primitive fixtures are in-process;
+it cannot replace the separate constrained-voter gate. CG-17's full cases,
+combined load/recovery qualification, default cutover and legacy removal remain
+open. The preceding frozen-source results follow.
+
 ### CG-17 merged primitive qualification
 
 Frozen runtime `ba4c8ab98` includes main `7810ead24` (#187/#188), atomic
@@ -47,7 +146,7 @@ built-in KV expiry and the Docker admission/journal repairs in
 | Execution controller / public storage batch | 21/21 and 3/3 pass. |
 | Locked public build, strict affected Clippy and repository checks | Pass. |
 | Unchanged native campaign | **FAILED, 33/35 selections.** |
-| Focused original RustFS/Docker controls and load | Running on the same frozen source; no result yet. |
+| Focused original RustFS/Docker controls and load | **FAILED, 12/17 complete functions**; 111 closed roots retained and cleanup joined. |
 
 The public KV case now passes both image forms, including the original
 2,100-ms stored-row expiry assertion that failed on `f2423248b`. SQL bindings,
@@ -73,12 +172,14 @@ gates pass: original proof/fencing/lifecycle controls, KV, Workflow and Queue
 C2/C4. This additional diagnostic cannot turn the native aggregate into a pass.
 The original 3s/5s requests, 3s maintenance and 60s restoration remain intact.
 
-A new owning test is prepared for caller cancellation during the backend's
-actual reservation-directory barrier. It requires autonomous expiry of a
-never-entered operation, using the original identity and unopened Engine.
-It has **not yet executed**, and no cancellation repair is claimed. Failure-only
-leader diagnostics also retain each voter's last status without changing the
-original timeout or polling. Both changes remain outside this frozen run.
+The `ba4c8ab98` real run passes KV and Workflow in both image modes and Queue
+C2 with all 528 unique messages. It fails EventStream Consume, one materialized
+S3 Container Status2, three Sandbox profiles, the materialized Start-output cut,
+and materialized Queue C4; the C4 function stops before extent qualification.
+All original physical, source-refusal, cleanup-floor and Delete-input controls
+pass. These results do not waive the failed native aggregate. The cancellation
+repair and failure-only leader diagnostics described above are outside this
+older frozen source.
 
 The earlier Linux run
 [45467991907](https://github.com/crabbuild/cellar/actions/runs/45467991907)
@@ -86,9 +187,13 @@ reports 53/53 successful executions on `f2423248b`, but its artifact upload reje
 colon-bearing log filenames. No binaries or voter roots survive from that
 runner; its retained log alone is **not release qualification**. Compile/package
 job [45499727062](https://github.com/crabbuild/cellar/actions/runs/45499727062)
-targets `ba4c8ab98` and uses a portable outer archive. It has not finished at
-this checkpoint and runs no runtime tests. Independent Linux voters, load and
-actual fenced all-voter disk loss still require source-matched execution.
+targets `ba4c8ab98`. Its build and image packaging pass, but metadata freezing
+fails on Python 3.10's missing `hashlib.file_digest`. The always-run portable
+archive retains three role binaries, one public test executable, both images
+and source; nine other test executables are missing. ZIP/tar digests, the full
+source archive/manifest and ARM64 executables are verified locally. This is a
+partial compile artifact, not a passing job or runtime qualification. The helper
+is corrected for subsequent runs; the failed original record remains intact.
 
 CG-17's 32 full acceptance cases, complete public feature/provider coverage,
 CG-15 release qualification and CG-16 default/legacy cutover remain open.

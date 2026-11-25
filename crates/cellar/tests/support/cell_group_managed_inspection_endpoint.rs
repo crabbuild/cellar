@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Current Fleet trust does not imply discovery of a newly booted caller's view.
+//! Enrolled callers and targets need process-view discovery at current trust.
 use super::*;
 
 async fn start(
@@ -134,6 +134,127 @@ async fn inspection_discovers_current_peer_view_with_one_original_request() -> R
         .hold_view_reads
         .store(false, Ordering::Release);
     receiver.store.view_reads_resume.notify_waiters();
+    let mut cleanup = Vec::new();
+    for (index, node) in nodes.into_iter().enumerate() {
+        let joined = async {
+            if let Some(host) = hosts.get(index) {
+                stopped(node, host).await
+            } else {
+                ensure!(matches!(
+                    node.shutdown(ShutdownMode::Preserve).await?,
+                    NodeOutcome::Stopped(_)
+                ));
+                Ok(())
+            }
+        }
+        .await;
+        if let Err(error) = joined {
+            cleanup.push(format!("node {index}: {error:#}"));
+        }
+    }
+    first.domain.shutdown().await;
+    result.with_context(|| format!("inspection endpoint cleanup: {cleanup:?}"))?;
+    ensure!(
+        cleanup.is_empty(),
+        "inspection endpoint cleanup: {cleanup:?}"
+    );
+    drop(roots);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outbound_inspection_discovers_current_target_with_one_original_request() -> Result<()> {
+    let first = Fixture::new(false).await?;
+    let mut sender = managed_fixture::peer_fixture(&first, 5).await?;
+    sender.catalog = Fixture::open_catalog(
+        &sender.domain,
+        sender.store.clone(),
+        sender.declaration.namespace.cluster,
+    )?;
+    let mut nodes = Vec::new();
+    let mut hosts = Vec::new();
+    let mut roots = Vec::new();
+    let result = async {
+        start(&first, 24, &mut nodes, &mut hosts, &mut roots).await?;
+        start(&sender, 25, &mut nodes, &mut hosts, &mut roots).await?;
+        let cut = first.catalog.read(TIMEOUT).await?;
+        managed_fixture::inspect_current(&hosts[0], sender.spec.node, cut.revision()).await?;
+        managed_fixture::inspect_current(&hosts[1], first.spec.node, cut.revision()).await?;
+
+        // This sender cannot have a cached view for a node that has not yet
+        // been registered or booted. Its background view reads remain held
+        // until the original request starts targeted endpoint discovery.
+        sender
+            .store
+            .hold_view_reads
+            .store(true, Ordering::Release);
+        tokio::time::timeout(TIMEOUT, async {
+            while sender.store.active_view_reads.load(Ordering::Acquire) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .context("hold sender background process-view reads")?;
+        let target = managed_fixture::peer_fixture(&first, 7).await?;
+        start(&target, 26, &mut nodes, &mut hosts, &mut roots).await?;
+        let cut = first.catalog.read(TIMEOUT).await?;
+
+        // Catch up Fleet trust independently. An unchanged revision floor is
+        // insufficient to repair the sender's missing target process view.
+        let local = hosts[1]
+            .inspect_peer_node(sender.spec.node, cut.revision(), TIMEOUT)
+            .await?;
+        ensure!(local
+            .view
+            .fleet_trust_revision
+            .is_some_and(|revision| revision >= cut.revision()));
+        ensure!(sender.store.active_view_reads.load(Ordering::Acquire) > 0);
+        let before = endpoint_owners(&hosts[1])?;
+        let request =
+            hosts[1].inspect_peer_physical_inventory(target.spec.node, cut.revision(), TIMEOUT);
+        tokio::pin!(request);
+        let discovery = async {
+            while endpoint_owners(&hosts[1])? == before {
+                tokio::task::yield_now().await;
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        tokio::time::timeout(TIMEOUT, async {
+            cellar::asyncrt::select_biased! { "premature inspection completion precedes discovery readiness";
+                result = &mut request => anyhow::bail!(
+                    "inspection completed before discovering the current target view: {:?}",
+                    result.map(|_| ())
+                ),
+                result = discovery => result,
+            }
+        })
+        .await
+        .context("original inspection did not request endpoint discovery")??;
+        sender
+            .store
+            .hold_view_reads
+            .store(false, Ordering::Release);
+        sender.store.view_reads_resume.notify_waiters();
+        let observed = request
+            .await
+            .context("one original inspection must discover the enrolled target view")?;
+        ensure!(observed.view.node.identity.node == target.spec.node);
+        ensure!(observed
+            .inventory
+            .context("complete physical inventory")?
+            .histories()
+            .is_empty());
+        ensure!(endpoint_owners(&hosts[1])? == before + 1);
+        let cached = hosts[1]
+            .inspect_peer_physical_inventory(target.spec.node, cut.revision(), TIMEOUT)
+            .await?;
+        ensure!(cached.view.node.identity.node == target.spec.node && cached.inventory.is_some());
+        ensure!(endpoint_owners(&hosts[1])? == before + 1);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    sender.store.hold_view_reads.store(false, Ordering::Release);
+    sender.store.view_reads_resume.notify_waiters();
     let mut cleanup = Vec::new();
     for (index, node) in nodes.into_iter().enumerate() {
         let joined = async {

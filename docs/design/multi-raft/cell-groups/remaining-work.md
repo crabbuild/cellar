@@ -8,42 +8,54 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The active [PR #186](https://github.com/crabbuild/cellar/pull/186) includes main
-`7810ead24` (#187/#188). Frozen runtime `ba4c8ab98` passes the six original-behavior
-red controls, fixed Container library 47/47, five KV expiry controls, two full
-six-thread Cellar libraries (1,443 passes each) and strict/repository checks.
-Its unchanged native campaign is **FAILED, 33/35**. KV now passes its original
-stored-row expiry oracle in both image modes. The selected SQL, Queue, Workflow,
-alarm/cron, filesystem/payload and checkpoint cases pass. One EventStream setup
-and the extent/Quorum named-binding leader wait fail before application entry.
-Keep both failures and the filesystem forced pre-drain warnings.
-See [the current results](progress.md#cg-17-merged-primitive-qualification).
+[PR #186](https://github.com/crabbuild/cellar/pull/186) includes main `7810ead24`
+(#187/#188) and runtime `8c3435a5f`. The new Docker submission owner closes a
+reproduced cancellation gap without replay or weaker custody. Its unchanged
+owning regression is red before the repair and green afterward; Container 48/48,
+all three actual-Docker safety controls, locked builds and strict/repository
+checks pass. Current original RustFS qualification remains **FAILED, 7/11
+complete functions**. Both Quorum Sandbox lifecycles, all eight source-refusal
+profiles and both cleanup-floor/Delete-input pairs pass. All 94 closed roots
+are retained and cleanup joined. See [the exact results](progress.md#cg-17-submission-ownership-and-constrained-recovery).
 
-The immediate priorities are:
+The remaining feature and release priorities are:
 
-1. Finish the same-source, 17-selection RustFS diagnostic with all original
-   proof/fencing controls, Container/Sandbox lifecycle, KV/Workflow and Queue
-   C2/C4. Preserve every failed aggregate and original deadline.
-2. Reproduce and repair the cancelled backend reservation boundary with its
-   prepared real-directory-barrier regression. An owned physical write must not
-   lose its continuation before job installation; unknown effects must never
-   be replayed or cleared from provider absence. The test is not yet executed.
-3. Diagnose managed startup/readiness using the last actual voter statuses,
-   then rerun the unchanged failed public cases. A later replay pass cannot
-   close an intermittent startup failure.
-4. Qualify the exact Linux artifacts on separate constrained voter processes,
-   then complete load, physical reclamation and Docker-fenced disk-loss cases.
-   Compiled artifacts alone establish no runtime result.
-5. Complete the full public feature/provider and primitive/scenario matrix.
-   WebSocket/session ownership, full interactive/provider execution and provider
-   volume disaster recovery remain distinct gaps. Default cutover and legacy
-   removal stay gated.
+1. Close managed startup and maintenance first. The retained `3358` replay
+   fails all three reached materialized configurations: maintenance preparation
+   is unconfirmed at 20s; SQL/KV and repair startup cannot inspect the enrolled
+   peer at the requested fleet revision. Five remaining configurations are not
+   reached. Its nine stopped disks are exported before VM shutdown. A new
+   controlled test isolates outbound inspection of an enrolled target missing
+   from the sender's process-view cache; it is not yet executed. Keep the first
+   capture's extent resume failure and resolve original operation state.
+2. Close the original request paths: extent EventStream Consume at 3s;
+   materialized Container Quorum Execute3/S3 Status3; S3 Sandbox Start1/Exec2;
+   and the extent Start-output precondition at 5s. Preserve unknown outcomes
+   and rerun complete functions after a repair. The older `ba4c8ab98` native
+   aggregate is 33/35; its real aggregate is 12/17, including Queue C4 failure.
+3. Complete one retained, same-source constrained-voter/load/reclamation/crash
+   matrix. The first `ba4c8ab98` run passes 7/8 daemon configurations and both
+   actual fenced SQL disk-loss drills, but loses guest daemon disks on VM
+   restart. Its new retained replay fails as above; no later pass waives either
+   failure. The current-source
+   [79-selection Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+   is building. Its ordinary primitive RF3 fixtures are in-process.
+4. Close the complete primitive API/provider and lifecycle matrix. Full
+   WebSocket/session ownership, interactive/provider execution and provider
+   volume disaster recovery remain distinct gaps. Every supported family needs
+   the required public paths, minima, feature modes and failure scenarios.
+5. Pass one combined source-pinned release envelope, then default cutover and
+   legacy removal. CG-17's 32 cases remain pending; no acceptance credit is
+   inferred from focused test totals. The plan validator's missing historical
+   CG-01 evidence must also be resolved without fabricating it.
 
-Pre-merge `f2423248b` remains **FAILED, 27/28 native and 38/43 real**. Its three
-S3 Container/Sandbox functions and two extent Queue loads failed; all 193 closed
-roots and nine executables have verified copies. Its Linux log reports 53/53
-executions passing, but artifact upload failed and retained no binaries/voter
-data. Neither that log nor a later scoped pass qualifies the complete release.
+The earlier `f2423248b` remains **FAILED, 27/28 native and 38/43 real**. All 193
+closed roots and nine executables have verified copies. Its Linux log reports
+53/53 executions passing, but artifact upload failed and retained no binaries or
+voter data. The subsequent `ba4c8ab98` compile job retains verified partial
+artifacts despite its metadata-step failure. Neither result is full release
+qualification. Original deadlines, identities, uncertainty and durability proofs
+remain unchanged.
 
 The following checkpoints precede this integration and retain their original
 source boundaries.
