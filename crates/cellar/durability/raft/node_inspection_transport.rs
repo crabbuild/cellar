@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned, bounded read-only fleet metadata RPC; no group or member is invented.
 use super::inspections::{classify, Delivery, META_BYTES};
 use super::snapshots::{read_bulk_head, Wire};
@@ -58,6 +60,7 @@ pub(super) struct InspectionTarget {
 pub(super) enum InspectionStart {
     Bound(Box<InspectionTarget>),
     Refresh(Box<crate::raft::fleet_catalog::FleetTrustSnapshot>),
+    Discover(Box<(RouterRefreshClient, RouterRefreshKey)>),
 }
 
 impl RaftTransport {
@@ -156,6 +159,12 @@ impl RaftTransport {
                     .lagging_node_inspection_trust(minimum_revision)?
                     .ok_or(TransportError::StalePeer)?,
             )),
+            Err(TransportError::Refused) => {
+                let discovery = state
+                    .outbound_node_inspection_refresh(node, minimum_revision)?
+                    .ok_or(TransportError::Refused)?;
+                InspectionStart::Discover(Box::new(discovery))
+            }
             Err(error) => return Err(error),
         };
         let node_memory = state
@@ -173,25 +182,17 @@ impl RaftTransport {
         state.spawn(async move {
             let stage = Arc::new(AtomicU8::new(0));
             let result = async {
-                let target = match start {
-                    InspectionStart::Bound(target) => *target,
-                    InspectionStart::Refresh(previous) => {
-                        // Refresh belongs to this eagerly admitted transport
-                        // owner, even if its response future is never polled.
-                        // Select the peer only after the complete trust cut is
-                        // installed, retaining the original deadline and quota.
-                        if *cancelled.borrow() {
-                            return Err(TransportError::Closed);
-                        }
-                        let refresh = operation.refresh_node_inspection_trust(
-                            *previous, minimum_revision, deadline,
-                        );
-                        crate::asyncrt::select_biased! { "caller cancellation precedes inspection discovery";
-                            _ = cancelled.changed() => return Err(TransportError::Closed),
-                            result = operation.seed_until(deadline, refresh) => result?,
-                        }
-                        operation.bind_node_inspection(node, minimum_revision)?
-                    }
+                if *cancelled.borrow() {
+                    return Err(TransportError::Closed);
+                }
+                // The original eager transport owner retains discovery, quota
+                // and expiry even before the response future is polled.
+                let resolve = operation.resolve_node_inspection_target(
+                    start, node, minimum_revision, deadline,
+                );
+                let target = crate::asyncrt::select_biased! { "caller cancellation precedes inspection discovery";
+                    _ = cancelled.changed() => return Err(TransportError::Closed),
+                    result = operation.seed_until(deadline, resolve) => result?,
                 };
                 let InspectionTarget { peer, route, epoch, memory } = target;
                 let io = Box::pin(operation.node_inspection_exchange(
@@ -229,6 +230,124 @@ impl RaftTransport {
 }
 
 impl State {
+    async fn resolve_node_inspection_target(
+        &self,
+        start: InspectionStart,
+        node: NodeId,
+        minimum_revision: u64,
+        deadline: u64,
+    ) -> Result<InspectionTarget, TransportError> {
+        match start {
+            InspectionStart::Bound(target) => return Ok(*target),
+            InspectionStart::Refresh(previous) => {
+                self.refresh_node_inspection_trust(*previous, minimum_revision, deadline)
+                    .await?;
+            }
+            InspectionStart::Discover(discovery) => {
+                let (client, key) = *discovery;
+                self.refresh_node_inspection_endpoint(client, key, deadline)
+                    .await?;
+                return self.bind_node_inspection(node, minimum_revision);
+            }
+        }
+        match self.bind_node_inspection(node, minimum_revision) {
+            Err(TransportError::Refused) => {
+                let (client, key) = self
+                    .outbound_node_inspection_refresh(node, minimum_revision)?
+                    .ok_or(TransportError::Refused)?;
+                self.refresh_node_inspection_endpoint(client, key, deadline)
+                    .await?;
+                self.bind_node_inspection(node, minimum_revision)
+            }
+            result => result,
+        }
+    }
+
+    // A catalog-enrolled current boot can have no cached process view yet.
+    // Discover its endpoint from the node directory, never from caller input.
+    // Discovery is advice: binding and response validation still use current
+    // installed trust, exact process/engine identity and epoch fencing.
+    fn outbound_node_inspection_refresh(
+        &self,
+        node: NodeId,
+        minimum_revision: u64,
+    ) -> Result<Option<(RouterRefreshClient, RouterRefreshKey)>, TransportError> {
+        let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+        self.admit(&registry)?;
+        let trust = registry
+            .fleet_trust
+            .as_ref()
+            .ok_or(TransportError::Refused)?;
+        if trust.revision() < minimum_revision {
+            return Err(TransportError::StalePeer);
+        }
+        crate::raft::group_host::require_local_fleet_boot(trust, self.runtime.log())
+            .map_err(|_| TransportError::Refused)?;
+        let enrolled = trust.node(node).ok_or(TransportError::Refused)?;
+        if !enrolled.permits_transport() || node == self.local_physical()?.identity.node {
+            return Ok(None);
+        }
+        let boot = enrolled
+            .boot_binding()
+            .map_err(|_| TransportError::Refused)?;
+        let identity = NodeIdentity {
+            node: NodeId::new(boot.node).map_err(|_| TransportError::Identity)?,
+            disk: cellar_logic::consensus::DiskLineage::new(boot.disk)
+                .map_err(|_| TransportError::Identity)?,
+            process: cellar_logic::consensus::ProcessGeneration::new(boot.process)
+                .map_err(|_| TransportError::Identity)?,
+        };
+        let storage = cellar_logic::consensus::EngineInstanceId::new(boot.engine)
+            .map_err(|_| TransportError::Identity)?;
+        let view = registry.node_views.get(&node);
+        if view.is_some_and(|view| {
+            view.cluster() == trust.cluster()
+                && view.storage_instance() == storage
+                && view.peer().node == identity.node
+                && view.peer().disk == identity.disk
+                && view.peer().process == identity.process
+                && view.peer().label == enrolled.label()
+                && registry.check_node_view(view.peer()).is_ok()
+        }) {
+            return Ok(None);
+        }
+        let client = registry
+            .router_refresh
+            .clone()
+            .ok_or(TransportError::Refused)?;
+        let key = RouterRefreshKey::endpoint(
+            trust.cluster(),
+            identity,
+            view.map(|view| (view.storage_instance(), view.revision())),
+        );
+        Ok(Some((client, key)))
+    }
+
+    async fn refresh_node_inspection_endpoint(
+        &self,
+        client: RouterRefreshClient,
+        key: RouterRefreshKey,
+        deadline: u64,
+    ) -> Result<(), TransportError> {
+        self.performance
+            .increment(crate::raft::performance::Counter::CellEndpointRefreshes, 1);
+        self.seed_until(deadline, async {
+            match client
+                .request(key, deadline)
+                .await
+                .map_err(|error| match error {
+                    RuntimeError::Overloaded => TransportError::Overloaded,
+                    RuntimeError::Closed => TransportError::Closed,
+                    RuntimeError::DeadlineExceeded => TransportError::Timeout,
+                    _ => TransportError::StalePeer,
+                })? {
+                RouterRefreshOutcome::Current => Ok(()),
+                RouterRefreshOutcome::StalePlacement => Err(TransportError::StalePeer),
+            }
+        })
+        .await
+    }
+
     pub(super) fn bind_node_inspection(
         &self,
         node: NodeId,
@@ -325,23 +444,8 @@ impl State {
             Err(TransportError::StalePeer | TransportError::Refused)
         ) {
             if let Some((client, key)) = self.node_inspection_peer_refresh(route)? {
-                self.performance
-                    .increment(crate::raft::performance::Counter::CellEndpointRefreshes, 1);
-                let refresh = Box::pin(async {
-                    match client
-                        .request(key, deadline)
-                        .await
-                        .map_err(|error| match error {
-                            RuntimeError::Overloaded => TransportError::Overloaded,
-                            RuntimeError::Closed => TransportError::Closed,
-                            RuntimeError::DeadlineExceeded => TransportError::Timeout,
-                            _ => TransportError::StalePeer,
-                        })? {
-                        RouterRefreshOutcome::Current => Ok(()),
-                        RouterRefreshOutcome::StalePlacement => Err(TransportError::StalePeer),
-                    }
-                });
-                self.seed_until(deadline, refresh).await?;
+                self.refresh_node_inspection_endpoint(client, key, deadline)
+                    .await?;
                 return self.authorize_node_inspection(route);
             }
         }
