@@ -6,6 +6,8 @@ use super::*;
 use cellar::sdk::event_stream::{self as events, Event};
 use serde::{Deserialize, Serialize};
 
+#[path = "cell_group_events_profile.rs"]
+mod profile;
 #[path = "cell_group_events_work_proof.rs"]
 pub mod work_proof;
 
@@ -450,7 +452,10 @@ async fn qualify_host(
                 let envelopes: Vec<events::Envelope> = serde_json::from_value(published.clone())?;
                 ensure!(envelopes.iter().map(|event| event.key.as_str()).collect::<Vec<_>>() == ["order-1", "order-2"]);
                 ensure!(envelopes[0].id != envelopes[1].id && envelopes[0].sequence == 1 && envelopes[1].sequence == 2);
-                ensure!(public_value(&cluster, (leader + 1) % 3, "consume").await? == json!(2));
+                let before = profile::before(&cluster);
+                let consumed = public_value(&cluster, (leader + 1) % 3, "consume").await;
+                profile::after(&cluster, before, rooted, external, real_rustfs);
+                ensure!(consumed? == json!(2));
                 let accepted: events::SubscriptionStatus = serde_json::from_value(public_value(&cluster, (leader + 1) % 3, "status").await?)?;
                 ensure!(accepted.checkpoint == 2 && accepted.lease.is_none() && accepted.observation.lag_records == 0);
                 named_service::restart_with_groups(&mut cluster, 3).await?;

@@ -438,8 +438,19 @@ The ordinary RPC adapter uses these identities and transitions:
   checkpoint's pending receipt from recovered archive bytes before continuation.
   Background archival for Quorum requests retains its documented RPO.
 
-Native asynchronous S3 invocations coalesce background archive attempts for their
-group while producing dependent checkpoints. The first original absolute deadline
+Native asynchronous callbacks can coalesce background archive attempts for their
+group while producing dependent checkpoints. Quorum callbacks use an optional
+scheduling hint; archive registration is not required for Quorum serving. The
+hint grants no authority or durability, and Quorum completion cannot renew it.
+For authenticated framework child callbacks with Quorum, that same finite window
+also spans idle gaps between dependent calls. Ordinary Public/System callbacks
+retain their existing post-return archival cadence. Later children cannot extend
+the cohort's first deadline; expiry
+opens the background lane even under continued traffic. A fresh final S3 proof
+still ends an idle cohort immediately. An ordinary failed S3 call receives no
+additional idle deferral. No proof, timer, task or physical archive pin is held
+by this scheduling state.
+The first original absolute deadline
 bounds a cohort; later arrivals may shorten it. Expiry opens the normal background
 lane until that cohort drains. A fresh final S3 receipt can finish an idle cohort
 after all output gates pass; older receipt replays cannot renew it. Foreground S3
@@ -547,6 +558,14 @@ Idle caches are cleared before parking and retained VMs are detached from the
 cache so their statements cannot enter a different connection's cache. The worker
 closes retained images after their last VM is consumed/cancelled, or at invocation
 completion/abort. No image is retained in the idle native activation cache.
+
+Committed WAL inspection may stream in bounded 64-KiB windows and reuse its
+frame/page buffers. It must still verify every frame, salt, checksum and selected
+committed boundary, plus the full prefix when required. Each observation rereads
+actual WAL bytes; a prior verified cut is not a cache of proof. Short reads and
+corruption across windows must refuse the image, including 64-KiB SQLite pages.
+See the [source-scoped regression and public qualification](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
+
 Dropped tokens outside a turn only signal cancellation; the owning worker prunes
 them before its next poll/checkpoint. They cannot append unbounded cleanup work
 to an idle activation or finalize another invocation's VM.

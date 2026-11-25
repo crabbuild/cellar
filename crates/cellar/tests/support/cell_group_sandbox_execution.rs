@@ -648,16 +648,18 @@ async fn call_options(
     let minimum = options.durability;
     let sequence = options.id.sequence();
     let started = cellar::asyncrt::wall_ms();
-    let result = cell
-        .command(
-            &cell.contract("Run")?,
-            serde_json::to_vec(operation)?,
-            options,
-        )
-        .await;
+    let elapsed = std::time::Instant::now();
+    let response = cell.command(
+        &cell.contract("Run")?,
+        serde_json::to_vec(operation)?,
+        options,
+    );
+    let admission_ms = elapsed.elapsed().as_millis();
+    let waiting = std::time::Instant::now();
+    let result = response.await;
     eprintln!(
         "sandbox_native_request {}",
-        json!({"cell":history.cell.as_str(),"sequence":sequence,"operation":operation,"minimum":format!("{minimum:?}"),"started_unix_ms":started,"finished_unix_ms":cellar::asyncrt::wall_ms(),"success":result.is_ok()})
+        json!({"cell":history.cell.as_str(),"sequence":sequence,"operation":operation,"minimum":format!("{minimum:?}"),"started_unix_ms":started,"finished_unix_ms":cellar::asyncrt::wall_ms(),"elapsed_ms":elapsed.elapsed().as_millis(),"admission_ms":admission_ms,"response_wait_ms":waiting.elapsed().as_millis(),"success":result.is_ok()})
     );
     let receipt = result?;
     ensure!(

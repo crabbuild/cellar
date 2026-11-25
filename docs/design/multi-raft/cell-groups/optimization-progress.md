@@ -18,6 +18,10 @@ this tree.
 
 ## Updated-main workspace qualification
 
+Main has since advanced to `b23ec563f` with merged #186. Its integration with
+the workspace repair requires a new qualification; the results in this section
+remain pinned to the preceding combined source.
+
 [PR #189](https://github.com/crabbuild/cellar/pull/189) applies the bounded
 workspace wait to main `7810ead24`, after merged #187 and #188. Combined
 compiler inputs `24674839` pass **15 workspace**, **38 checkpoint/commit**,

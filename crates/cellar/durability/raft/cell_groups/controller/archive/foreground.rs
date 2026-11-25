@@ -14,6 +14,7 @@ struct Window {
     users: usize,
     deferring: bool,
     progressed: bool,
+    coalesce_idle: bool,
 }
 
 struct Group {
@@ -78,6 +79,7 @@ impl Foregrounds {
             users: 0,
             deferring: true,
             progressed: false,
+            coalesce_idle: false,
         });
         let users = window
             .users
@@ -100,7 +102,7 @@ impl Foregrounds {
             .unwrap_or_else(|e| e.into_inner())
             .get(&group)
             .and_then(|g| g.window.as_ref())
-            .is_some_and(|w| w.deferring && w.users != 0 && now < w.deadline)
+            .is_some_and(|w| w.deferring && (w.users != 0 || w.coalesce_idle) && now < w.deadline)
     }
 
     pub(super) fn background_started(&self, group: GroupHistory) {
@@ -133,6 +135,23 @@ impl Foregrounds {
 }
 
 impl Invocation {
+    /// Quorum child calls can finish before their parent submits its next
+    /// dependent call. Keep this cohort's first deadline across those idle
+    /// gaps. This supplies no archive progress and never extends the deadline.
+    pub(crate) fn coalesce_until_deadline(self) -> Self {
+        if let Some(owner) = self.owner.upgrade() {
+            let mut groups = owner.groups.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(registered) = groups.get_mut(&self.group) {
+                if Arc::ptr_eq(&registered.identity, &self.identity) {
+                    if let Some(window) = &mut registered.window {
+                        window.coalesce_idle = true;
+                    }
+                }
+            }
+        }
+        self
+    }
+
     /// Only the normal final S3 output and authority gates call this. Replaying
     /// a receipt at/before admission grants no new group progress and cannot
     /// renew a deferral window under continuous retry traffic.
@@ -219,9 +238,59 @@ mod tests {
     }
 
     #[test]
+    fn quorum_child_gaps_keep_only_the_first_original_deadline() {
+        let owner = owner(1, &[3]);
+        let a = owner
+            .admit(group(3), 50, 10, index(1))
+            .unwrap()
+            .coalesce_until_deadline();
+        drop(a);
+        assert!(
+            owner.blocks(group(3), 20),
+            "idle child gap opened background publication"
+        );
+        let b = owner
+            .admit(group(3), 100, 25, index(2))
+            .unwrap()
+            .coalesce_until_deadline();
+        drop(b);
+        assert!(owner.blocks(group(3), 49));
+        assert!(
+            !owner.blocks(group(3), 50),
+            "later child renewed the original deadline"
+        );
+        let c = owner
+            .admit(group(3), 200, 60, index(3))
+            .unwrap()
+            .coalesce_until_deadline();
+        assert!(!owner.blocks(group(3), 61));
+        owner.background_started(group(3));
+        assert!(!owner.blocks(group(3), 62));
+        drop(c);
+        assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
+    }
+
+    #[test]
+    fn a_fresh_s3_proof_finishes_idle_quorum_coalescing() {
+        let owner = owner(1, &[3]);
+        drop(
+            owner
+                .admit(group(3), 50, 10, index(1))
+                .unwrap()
+                .coalesce_until_deadline(),
+        );
+        assert!(owner.blocks(group(3), 20));
+        let proved = owner.admit(group(3), 100, 25, index(2)).unwrap();
+        proved.completed(index(3));
+        assert!(!owner.blocks(group(3), 30));
+        assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
+    }
+
+    #[test]
     fn failed_calls_and_old_receipts_do_not_renew_a_window() {
         let owner = owner(1, &[3]);
         drop(owner.admit(group(3), 50, 10, index(5)).unwrap());
+        assert!(!owner.blocks(group(3), 11));
         let replay = owner.admit(group(3), 100, 20, index(5)).unwrap();
         replay.completed(index(5));
         let later = owner.admit(group(3), 200, 60, index(6)).unwrap();
@@ -306,6 +375,25 @@ mod tests {
         drop(groups);
         current.completed(index(3));
         assert!(owner.groups.lock().unwrap()[&group(3)].window.is_none());
+    }
+
+    #[test]
+    fn an_old_quorum_guard_cannot_coalesce_a_returned_groups_idle_window() {
+        let owner = owner(1, &[3]);
+        let old = owner.admit(group(3), 50, 10, index(1)).unwrap();
+        owner.forget(group(3));
+        owner.register(group(3)).unwrap();
+        let current = owner.admit(group(3), 100, 20, index(2)).unwrap();
+        drop(old.coalesce_until_deadline());
+        drop(current);
+        assert!(!owner.blocks(group(3), 30));
+        assert!(
+            !owner.groups.lock().unwrap()[&group(3)]
+                .window
+                .as_ref()
+                .unwrap()
+                .coalesce_idle
+        );
     }
 
     #[test]

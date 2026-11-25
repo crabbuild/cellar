@@ -693,6 +693,7 @@ dependencies = [
  "axum",
  "cellar",
  "cellar-admin",
+ "cellar-axum",
  "cellar-logic",
  "cellar-ltx",
  "futures-util",

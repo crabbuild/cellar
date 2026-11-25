@@ -8,6 +8,103 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+Main `b23ec563f` now includes merged #186 after #187/#188. The bounded
+workspace follow-up integrates that source; combined native and constrained
+runtime qualification is pending. The completed workspace results below remain
+pinned to main `7810ead24` and compiler inputs `24674839`.
+
+[PR #186](https://github.com/crabbuild/cellar/pull/186) includes latest main
+`7810ead24`. Runtime `240d6e230` adds bounded cold-target discovery to outbound
+node inspection. Its unchanged regression fails before the repair and passes
+afterward; the receiver control passes too. Current managed qualification is
+**FAILED: 34 passed, 6 failed, 15 explicit RustFS ignores**. All 27 explicitly
+retained failed-fixture roots have verified copies. No assertion, request budget,
+identity, durability proof or ambiguity rule changed. See [the current results](progress.md#cg-17-cold-node-discovery-and-retained-linux-qualification).
+
+The preceding `8c3435a5f` [Linux qualification](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+is now **PASS, 79/79 selections** with verified portable source, binaries, logs
+and closed fixture files. Both six-thread full libraries pass 1,444 tests; Container
+passes 48. All selected original EventStream, Container/Sandbox and Queue C2/C4
+cases pass with real RustFS. RF3 primitive fixtures remain in-process. These
+passes do not waive prior Mac deadline failures, qualify the new discovery code
+or close the independent managed/release gates.
+
+The current-source [Linux follow-up](https://github.com/crabbuild/cellar/actions/runs/45537504606)
+was dispatched for `240d6e230`: the original 79 selections plus both discovery
+controls and the full serial managed target (82 selections total). It is not
+yet qualified. The 15 opt-in managed RustFS cases remain separate, and a later
+Linux pass cannot waive the recorded Mac managed failures.
+
+The remaining feature and release priorities are:
+
+1. Close the six current managed failures: cold-router producer quiescence,
+   joint-restart leader election, seeding-source terminal reconciliation,
+   replacement survivor/handoff verification, S3 seed lost-settlement
+   reconciliation and cold-capacity startup/cleanup. Keep original IDs and
+   resolve unknown results rather than issue replacement operations. The
+   pre-fix cold-router comparison passes once; the current failure remains open.
+2. Reconcile the independent maintenance failures and rerun the same constrained
+   voter envelope on the repaired source. Older `3351` passes 7/8 daemon profiles
+   but fails extent resume at 20s and loses guest daemon disks before export.
+   Its single retained `3358` replay fails three reached configurations; five
+   are not reached. Nine mounted disks from three directories are retained.
+3. Complete one retained, same-source Linux/managed-RustFS/load/reclamation/crash
+   matrix and the original request paths. The new discovery source needs Linux
+   requalification; 15 ignored managed RustFS cases are not accepted. The older
+   real Mac run remains 7/11 with EventStream and Container/Sandbox deadlines;
+   the new Linux pass is scoped separately. Both actual SQL disk-loss image
+   drills pass on older `ba4c8ab98`, but all-primitive, interrupted-transition,
+   provider-volume and Quorum-only suffix/RPO recovery remain unqualified.
+4. Close the complete primitive API/provider and lifecycle matrix, including
+   WebSocket/session ownership and interactive/provider execution. Every
+   supported family needs its required public paths, minima, feature modes and
+   recovery scenarios; no unsupported adapter can fall back to Fleet/bucket.
+5. Pass one combined source-pinned release envelope, then default cutover and
+   legacy removal. CG-17's 32 full cases remain pending; focused function totals
+   do not supply their acceptance. Resolve missing historical CG-01 evidence
+   without fabricating or waiving it. The generated plan's counts remain current.
+
+The locked build, strict all-feature/all-target Clippy, formatting, layout,
+dependency and documentation checks pass for the scoped discovery repair. Older
+`ba4c8ab98` and `f2423248b` failures and evidence-retention limits remain recorded
+under their original source boundaries in progress. No later pass waives them.
+
+The following checkpoints precede this integration and retain their original
+source boundaries.
+
+Earlier [PR #186](https://github.com/crabbuild/cellar/pull/186) on
+`codex/cg17-event-file-read-deadlines` followed merged #184 at main
+`86cfe5d1c`. Runtime `d393aa447` passes both original native EventStream replays,
+Axum and real RustFS EventStream in both image modes. All original Container
+and Sandbox S3 file-read assertions pass within five seconds. Container's whole
+normal case passes 4/4 profiles, including the former later fencing failure.
+
+The combined real campaign remains **FAILED, 12/13 complete functions**.
+Both Quorum Sandbox lifecycles finish; materialized S3 Create9 and extent S3
+DestroyJob8 exceed their original five-second limits after reaching the physical
+backend. Checksummed retained journals contain completed outcomes, so preserve
+uncertainty and do not replay either mutation. Source-proof refusal, minimum
+custody, Delete restoration, Start-output proof and physical fencing controls pass.
+Two full six-thread Cellar library runs pass 1,434 tests each with zero failures
+and two existing ignores. The old park-fixture shutdown race is corrected.
+
+The next priority is exact phase attribution and delivery of those two S3
+lifecycle calls, followed by a combined original rerun. The diagnostic
+`profile_rustfs_native_sandbox_recovery` retains the business flow and adds phase
+timing; a diagnostic pass cannot waive the failed original case. The current-source
+[isolated Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45439140164)
+finished with all original real cases passing, but two full-library failures.
+The I/O failure-quarantine and process-wide loader cohort repairs are covered
+by the subsequent `f2423248b` qualification below.
+
+Preserve original 3s/5s requests, 3s maintenance, 60s restoration, identities,
+S3 proofs, fencing and uncertain outcomes. Full primitive acceptance, independent
+Linux-voter/load/disk-loss gates, default cutover and legacy removal remain open.
+See [the source-scoped results](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
+Earlier source qualifications below retain their original scope.
+
+## Workspace and performance verification
+
 The [updated-main qualification](optimization-progress.md#updated-main-workspace-qualification)
 starts from main `7810ead24`, after merged #187 and #188. Compiler inputs
 `24674839` retain the bounded rooted workspace wait before SQL entry.
@@ -77,22 +174,23 @@ below precede this integration. They do not qualify the combined runtime.
 C2 and C4 cap in-flight producer requests at two and four. Rooted cases use
 extent-backed SQL images; materialized cases use complete images.
 
-The recorded baseline is `86cfe5d1c`; the current candidate combines main
-`7810ead24` with the workspace repair at compiler inputs `24674839`. Its complete
-native campaign passes. The capped runtime retains a C16 SQL read overload,
-and the full comparison remains required. The current priorities are:
+The recorded baseline is `86cfe5d1c`. Main `7810ead24` plus the workspace
+repair passes its native campaign at compiler inputs `24674839`, but its capped
+runtime retains a C16 SQL read overload. The new main `b23ec563f` integration
+requires fresh qualification. The current priorities are:
 
-1. **P0: Close the current-source C16 read-admission failure.** Identify the
-   exact refusing bank and pre-entry call site, add an owning regression and
-   rerun the unchanged reproduction. Preserve full charges, physical joins,
+1. **P0: Reverify updated main and close any repeated read failure.** Run the
+   original C16 reproduction and complete native campaign on the integrated
+   source. If the overload recurs, identify the exact refusing bank and pre-entry
+   call site, add an owning regression and rerun the unchanged reproduction. Preserve full charges, physical joins,
    exact identities, original deadlines and typed refusal provenance. Do not
    broadly retry opaque failures or replay callbacks. Then require all 12
    current-source smoke cases and the longer matrix; the older smoke pass
    alone does not close this gate.
 2. **P0: Keep combined-source correctness repeatable.** Native C2/C4 pass on
    internal storage with the original 3,000-ms RPC, 5,000-ms callback and
-   30-second drain windows. The combined-source six-thread library suite passes
-   1,438 tests. Earlier unchanged startup and peer-tunnel fixture failures remain
+   30-second drain windows. The `24674839` six-thread library suite passes
+   1,438 tests; the new integration must repeat that gate. Earlier unchanged startup and peer-tunnel fixture failures remain
    recorded alongside their passing controls. Keep those observations and the
    failed USB profile separate; require complete delivery, settlement and joined
    shutdown in each new campaign.
@@ -174,33 +272,26 @@ read refusals before repeating the sustained matrix.
 
 The immediate delivery order is:
 
-1. Close ordinary request deadlines on `10fb1775d`. EventStream Consume fails
-   both native three-second replays, Axum and RustFS. Correlate target ACK
-   acceptance, response delivery and source continuation before changing the
-   path; a later terminal receipt is not evidence of timely acceptance.
-   For S3 Container/Sandbox, measure the exact file-read proof and reconciliation
-   path: materialized Container `Read5`, materialized Sandbox `FileRead2` and
-   extent Sandbox `Read5` remain failed. Remove redundant work only with an
-   owning regression that preserves current ownership, prior mutation proof
-   and uncertain-operation reconciliation. Both Quorum Sandbox lifecycles pass.
-   Preserve 5s/3s/60s budgets, identities, source/target minima and ambiguous
-   outcomes. Re-run all original refusal, requested-minimum and output-fault
-   gates on the corrected source; these five real functions do not qualify that
-   full matrix. Keep the now-passing full parallel library gate. Workflow's
-   earlier passes still need current source and combined recovery qualification.
-2. Complete the primitive API inventory and public/recovery contracts. Current
-   native filesystem, alarms and Queue gates pass, but their full lifecycle
-   matrix remains required. Close Container/provider scope, WebSocket/session
-   ownership and remaining callback/binding coverage before full CG-17 acceptance.
-3. Qualify every primitive through managed replacement, movement, split/merge,
-   wake, archive outage, reclamation and fenced zero-quorum recovery. Managed
-   Workflow S3 replacement, public wake and retained restart pass both image
-   forms; `bf5056b33` also retains eight closed voter directories. The complete
-   cross-primitive and fresh-incarnation matrix remains open.
-4. Run the unified public daemon, independent Linux voter, load, crash and
-   disk-loss matrix on one final source. Earlier Linux SQL/KV qualification
-   remains pinned to `41e68a7bf`; it does not qualify subsequent runtime edits.
-   Default backend cutover and removal of legacy Raft paths follow these gates.
+1. Qualify the combined source and close ordinary request/load failures. Run
+   the five KV expiry controls and complete Container/controller owning gates,
+   both full parallel libraries and the unchanged public cases. Reproduce the
+   original stored-row expiry bound, S3 lifecycle deadlines and extent Queue
+   C2/C4 producer failures after the main merge. Preserve three-/five-second
+   requests where declared, three-second maintenance, sixty-second restoration,
+   original multi-phase parent budgets, identities, proofs and ambiguity. Do
+   not replay an uncertain mutation or increase admission to conceal a failure.
+2. Complete the primitive API inventory and public/recovery contracts.
+   WebSocket session ownership, full Container/provider APIs and provider-volume
+   recovery remain feature gaps. Passing ordinary Queue/Workflow, alarms,
+   filesystem or bindings cases does not close their complete CG-17 matrix.
+3. Qualify every primitive through replacement, split/merge, movement, wake,
+   archive outage, reclamation and fresh-incarnation recovery. Require the real
+   infrastructure fence and restored payload bytes; the filesystem contract-test
+   authority cannot substitute for permanent host fencing.
+4. Run one final source through independent constrained Linux voters, public
+   daemon ingress, load, crash and all-voter-disk-loss gates. Retain actual CPU,
+   memory, disk, archive and producer-quiescence evidence. Default backend
+   cutover and legacy removal follow acceptance of that combined artifact.
 
 The [full delivery milestones](#primitive-delivery-priority) and task acceptance
 definitions retain their original requirements; no acceptance case is waived.

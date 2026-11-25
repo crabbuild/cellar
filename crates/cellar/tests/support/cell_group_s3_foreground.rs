@@ -65,6 +65,19 @@ fn expired(error: &CellDispatchError) -> bool {
 }
 
 pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
+    qualify_minimum(rooted, real, expire, Durability::S3).await
+}
+
+pub async fn qualify_quorum(rooted: bool) -> Result<()> {
+    qualify_minimum(rooted, false, false, Durability::Quorum).await
+}
+
+async fn qualify_minimum(
+    rooted: bool,
+    real: bool,
+    expire: bool,
+    minimum: Durability,
+) -> Result<()> {
     let control = Arc::new(Control::default());
     let class = RaftClass::new("Counter", 1, [240; 32])?
         .initializer([241; 32], |_, tx| {
@@ -121,7 +134,15 @@ pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
                 durability: Durability::Quorum,
             }, TIMEOUT).await?;
         }
-        let request = options(1, Durability::S3)?;
+        if minimum == Durability::Quorum {
+            // Establish a fully proven baseline without changing the original
+            // S3 qualification's commands, IDs or setup. The Quorum callback
+            // must not need another S3 request to suppress intermediate cuts.
+            let mut seed = options(1, Durability::S3)?;
+            seed.id = CommandId::new(ClientId::new([250; 16])?, 1)?;
+            neighbor.command(&neighbor.contract("Touch")?, b"{}".to_vec(), seed).await?;
+        }
+        let request = options(1, minimum)?;
         let contract = source.contract("Run")?;
         let mut changed = None;
         let (result, observed) = futures_util::future::join(
@@ -161,8 +182,8 @@ pub async fn qualify(rooted: bool, real: bool, expire: bool) -> Result<()> {
             ensure!(error.ambiguous, "committed checkpoint became known non-commit");
             ensure!(expired(error.cause.as_ref()), "original typed deadline was lost: {error}");
         } else {
-            let result = result.context("source S3 Run after checkpoint release")?;
-            ensure!(result.result == b"2" && result.durability == Durability::S3);
+            let result = result.context("source Run after checkpoint release")?;
+            ensure!(result.result == b"2" && result.durability == minimum);
             let replay = source.command(&contract, b"{}".to_vec(), request)
                 .await.context("source S3 Run exact replay")?;
             ensure!(replay.result == b"2" && control.calls.load(Ordering::Acquire) == 1);

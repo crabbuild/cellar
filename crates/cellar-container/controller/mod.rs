@@ -253,6 +253,30 @@ impl ControllerProvider {
                         && record.record.observation == BindingObservation::Confirmed,
                     "controller resource requires lifecycle reconciliation"
                 );
+                if let Some(lifecycle) = lifecycle.filter(|_| {
+                    matches!(
+                        operation,
+                        Operation::ReadFile | Operation::StatFile | Operation::ListFiles
+                    )
+                }) {
+                    let bytes = serde_json::to_vec(&Request::new(operation, input))?;
+                    let controller = self.controller.clone();
+                    let outcome = lifecycle
+                        .inspect_execution(
+                            context,
+                            self.controller.clone(),
+                            protocol::kind(operation)?,
+                            bytes,
+                            move |claim, request, payload| async move {
+                                let result =
+                                    Self::submit(controller, claim.clone(), request, payload)
+                                        .await?;
+                                Self::reply(result, &claim, operation)
+                            },
+                        )
+                        .await?;
+                    return Ok(outcome.value);
+                }
                 let grant = self.fence(context, &journal, lifecycle).await?;
                 let grant = if operation.is_read() {
                     grant.release_lifecycle(context)?

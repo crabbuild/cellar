@@ -13,6 +13,19 @@ const OPERATION: &str = "__sys_raft_event_query";
 /// a successful selection enters the ordinary target-minimum proof path.
 pub(crate) const CATALOG_READY: &str = "__catalogReady";
 
+/// Only a logical activation refusal can be repaired by a cell mutation.
+/// Generic SQL/read-authority unavailability must obtain fresh read authority.
+#[derive(Debug)]
+pub(crate) struct ActivationPending;
+
+impl std::fmt::Display for ActivationPending {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("event activation is pending")
+    }
+}
+
+impl std::error::Error for ActivationPending {}
+
 pub(crate) fn is_metadata(method: &str) -> bool {
     matches!(
         method,
@@ -128,7 +141,10 @@ pub(crate) fn invoke(context: &QueryContext<'_>, input: &[u8]) -> anyhow::Result
                     Some(crate::raft::completion::RuntimeError::NotReady)
                 ) =>
         {
-            return Err(error)
+            // Authorization and the logical catalog read have already joined.
+            // This marker, not a generic reader refusal, permits a version wait.
+            tracing::debug!(target: "cellar::raft::resource_read", phase = "activation-pending", cell = scope);
+            return Err(ActivationPending.into());
         }
         result => result,
     };

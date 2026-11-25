@@ -35,6 +35,9 @@ and joins the original I/O before releasing the job. A lost reply can be
 reconciled from its exact retained outcome. Unknown create, command or write
 outcomes are never inferred from a missing response or replayed. Missing,
 corrupt, incompatible or ambiguous mutation state refuses reopening.
+Reads observe the last synced snapshot while a separate writer serializes
+replacement. Unproven updates stay private. A failed persistence barrier or
+panicked writer refuses subsequent reads and queued writes on that live owner.
 
 An expired controller submission may have been cancelled before reaching this
 backend. Reconciliation serializes with physical admission and checks the exact
@@ -46,6 +49,12 @@ its original outcome, including unknown state; container absence or expiry
 cannot turn it into a refusal or authorize replay.
 Existing receipt reads remain concurrent with physical admission and fencing;
 only sealing absence takes that admission lock and syncs a new record.
+
+Submission reservations, absence seals and process-fence transitions serialize
+for each cell/binding. Another binding can progress while an old process tree
+is stopped and joined. Shutdown and history revocation exclude all bindings.
+A queued revocation rechecks closed admission before changing its durable fence
+or entering the Engine.
 
 Backend shutdown closes admission and attempts process termination, job joining
 and a final process scan even if journal deactivation or an earlier cleanup

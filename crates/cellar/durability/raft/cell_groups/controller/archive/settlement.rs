@@ -209,8 +209,9 @@ impl CellGroupController {
 }
 
 impl Client {
-    /// Coalesce background cuts while one admitted native S3 callback creates
-    /// its dependent checkpoints. This hint owns no proof, timer or I/O work.
+    /// Coalesce background cuts while an admitted native callback creates its
+    /// dependent checkpoints. This hint owns no proof, timer or I/O work. Only
+    /// a successful final S3 proof can mark archive progress for its cohort.
     pub(crate) fn invocation(
         &self,
         runtime: &CellGroupRuntime,

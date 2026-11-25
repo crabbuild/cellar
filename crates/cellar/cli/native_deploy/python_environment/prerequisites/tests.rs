@@ -5,6 +5,34 @@ use crate::protocol::{PythonPlatform, PythonPrerequisites, PythonSourceInventory
 use anyhow::Context as _;
 use std::{collections::BTreeMap, os::unix::fs::PermissionsExt};
 
+// These tests inspect and mutate the process-wide dynamic loader inventory.
+// A parallel fixture can unload/delete a provider after another test snapshots
+// it. Keep the original assertions in a child that owns its complete cohort;
+// no production admission check is relaxed and parent tests still run in parallel.
+fn isolated_loader_process(name: &str) -> Result<bool> {
+    let selected = format!("native_deploy::python_environment::prerequisites::tests::{name}");
+
+    const CHILD: &str = "CELLAR_TEST_LOADER_COHORT";
+    if std::env::var_os(CHILD).as_deref() == Some(std::ffi::OsStr::new(&selected)) {
+        return Ok(false);
+    }
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([&selected, "--exact", "--test-threads=1", "--nocapture"])
+        .env(CHILD, &selected)
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    ensure!(
+        output.status.success(),
+        "isolated loader test {selected} failed: {stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    ensure!(
+        stdout.contains("test result: ok. 1 passed; 0 failed;"),
+        "isolated loader test did not execute exactly one original case: {stdout}"
+    );
+    Ok(true)
+}
+
 fn identity(path: &Path) -> Result<(u64, String)> {
     let bytes = std::fs::read(path)?;
     Ok((bytes.len() as u64, format!("{:x}", Sha256::digest(&bytes))))
@@ -76,6 +104,9 @@ fn fixture(directory: &Path) -> Result<PythonInventory> {
 
 #[test]
 fn cohort_and_external_file_loss_refuse_before_admission() -> Result<()> {
+    if isolated_loader_process("cohort_and_external_file_loss_refuse_before_admission")? {
+        return Ok(());
+    }
     let directory = tempfile::tempdir()?;
     let mut inventory = fixture(directory.path())?;
     verify_prerequisites(&inventory)?;
@@ -111,6 +142,9 @@ fn cohort_and_external_file_loss_refuse_before_admission() -> Result<()> {
 
 #[test]
 fn native_files_cannot_omit_dependency_records() -> Result<()> {
+    if isolated_loader_process("native_files_cannot_omit_dependency_records")? {
+        return Ok(());
+    }
     let directory = tempfile::tempdir()?;
     let mut inventory = fixture(directory.path())?;
     super::super::files::verify_inventory_files(&inventory)?;
@@ -139,6 +173,11 @@ fn native_files_cannot_omit_dependency_records() -> Result<()> {
 
 #[test]
 fn actual_loader_provider_is_refused_until_qualified_and_removed_on_close() -> Result<()> {
+    if isolated_loader_process(
+        "actual_loader_provider_is_refused_until_qualified_and_removed_on_close",
+    )? {
+        return Ok(());
+    }
     let directory = tempfile::tempdir()?;
     let mut inventory = fixture(directory.path())?;
     let source = directory.path().join("provider.c");

@@ -1377,6 +1377,20 @@ impl RaftClass {
         Ok(self)
     }
 
+    pub(in crate::application) fn with_kv_factory(mut self) -> Result<Self, RegistrationError> {
+        if self.name != crate::deploy::KV_CLASS
+            || self.cell_factory.is_some()
+            || !self.uses_cell_factory()
+        {
+            return Err(RegistrationError::Invalid("Raft KV factory registration"));
+        }
+        self.cell_factory = Some(NativeCellFactory::kv(
+            self.system_commands
+                .contains_key(super::native_work::OPERATION),
+        ));
+        Ok(self)
+    }
+
     pub(crate) fn has_cell_factory(&self) -> bool {
         self.cell_factory.is_some()
     }

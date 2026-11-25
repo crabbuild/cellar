@@ -9,15 +9,56 @@ use raft_engine::env::{
 };
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-pub(crate) struct EngineFileSystem(pub Arc<dyn FileSystem>, pub Arc<Registry>);
+pub(crate) struct EngineFileSystem {
+    filesystem: Arc<dyn FileSystem>,
+    performance: Arc<Registry>,
+    fence: Arc<IoFence>,
+}
+
+/// An uncertain local mutation quarantines this engine, including its file
+/// writers' destructors. Upstream close truncates and syncs both log queues;
+/// those calls must not resume physical I/O after the worker reports failure.
+#[derive(Default)]
+struct IoFence(AtomicBool);
+
+impl IoFence {
+    fn check(&self) -> io::Result<()> {
+        if self.0.load(Ordering::Acquire) {
+            Err(io::Error::other("Raft engine I/O is quarantined"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mutate<T>(&self, action: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+        self.check()?;
+        let result = action();
+        if result.is_err() {
+            self.0.store(true, Ordering::Release);
+        }
+        result
+    }
+}
+
+impl EngineFileSystem {
+    pub(crate) fn new(filesystem: Arc<dyn FileSystem>, performance: Arc<Registry>) -> Self {
+        Self {
+            filesystem,
+            performance,
+            fence: Arc::new(IoFence::default()),
+        }
+    }
+}
 
 pub(super) const MAX_ENGINE_DIRECTORY_ENTRIES: usize = 4096;
 
 pub(crate) struct EngineHandle {
     performance: Arc<Registry>,
     file: Mutex<HostFile>,
+    fence: Arc<IoFence>,
 }
 
 impl EngineHandle {
@@ -30,7 +71,8 @@ impl EngineHandle {
 
 impl Handle for EngineHandle {
     fn truncate(&self, offset: usize) -> io::Result<()> {
-        self.lock()?.set_len(offset as u64)
+        let mut file = self.lock()?;
+        self.fence.mutate(|| file.set_len(offset as u64))
     }
 
     fn file_size(&self) -> io::Result<usize> {
@@ -40,10 +82,12 @@ impl Handle for EngineHandle {
 
     fn sync(&self) -> io::Result<()> {
         let mut file = self.lock()?;
-        let timer = self.performance.timer(Operation::EngineFileSync);
-        let result = file.sync_all();
-        timer.finish(result.is_ok());
-        result
+        self.fence.mutate(|| {
+            let timer = self.performance.timer(Operation::EngineFileSync);
+            let result = file.sync_all();
+            timer.finish(result.is_ok());
+            result
+        })
     }
 }
 
@@ -77,19 +121,22 @@ impl Write for EngineCursor {
             .checked_add(bytes.len() as u64)
             .ok_or_else(|| io::Error::other("Raft file offset overflow"))?;
         let mut file = self.handle.lock()?;
-        self.handle
-            .performance
-            .increment(Counter::EngineWriteRequestedBytes, bytes.len() as u64);
-        file.write_all_at(self.offset, bytes)?;
-        self.handle
-            .performance
-            .increment(Counter::EngineWriteCompletedBytes, bytes.len() as u64);
+        self.handle.fence.mutate(|| {
+            self.handle
+                .performance
+                .increment(Counter::EngineWriteRequestedBytes, bytes.len() as u64);
+            file.write_all_at(self.offset, bytes)?;
+            self.handle
+                .performance
+                .increment(Counter::EngineWriteCompletedBytes, bytes.len() as u64);
+            Ok(())
+        })?;
         self.offset = next;
         Ok(bytes.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        Ok(())
+        self.handle.fence.check()
     }
 }
 
@@ -120,6 +167,7 @@ impl WriteExt for EngineCursor {
     }
 
     fn allocate(&mut self, offset: usize, size: usize) -> io::Result<()> {
+        self.handle.fence.check()?;
         // Allocation is a hint. Keep the durable file length equal to written
         // bytes: persisted zero-filled tails would require a successful close
         // truncation before AbsoluteConsistency recovery could consume them.
@@ -137,28 +185,39 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
 
     fn create<P: AsRef<Path>>(&self, path: P) -> io::Result<Self::Handle> {
         Ok(EngineHandle {
-            performance: self.1.clone(),
-            file: Mutex::new(self.0.create_read_write(path.as_ref())?),
+            performance: self.performance.clone(),
+            file: Mutex::new(
+                self.fence
+                    .mutate(|| self.filesystem.create_read_write(path.as_ref()))?,
+            ),
+            fence: self.fence.clone(),
         })
     }
 
     fn open<P: AsRef<Path>>(&self, path: P, permission: Permission) -> io::Result<Self::Handle> {
         let file = match permission {
-            Permission::ReadOnly => self.0.open(path.as_ref())?,
-            Permission::ReadWrite => self.0.open_read_write(path.as_ref())?,
+            Permission::ReadOnly => self.filesystem.open(path.as_ref())?,
+            Permission::ReadWrite => self
+                .fence
+                .mutate(|| self.filesystem.open_read_write(path.as_ref()))?,
         };
         Ok(EngineHandle {
-            performance: self.1.clone(),
+            performance: self.performance.clone(),
             file: Mutex::new(file),
+            fence: self.fence.clone(),
         })
     }
 
     fn delete<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
-        self.0.remove_file(path.as_ref())
+        self.fence
+            .mutate(|| self.filesystem.remove_file(path.as_ref()))
     }
 
     fn rename<P: AsRef<Path>>(&self, source: P, destination: P) -> io::Result<()> {
-        self.0.rename(source.as_ref(), destination.as_ref())
+        self.fence.mutate(|| {
+            self.filesystem
+                .rename(source.as_ref(), destination.as_ref())
+        })
     }
 
     fn new_reader(&self, handle: Arc<Self::Handle>) -> io::Result<Self::Reader> {
@@ -166,11 +225,12 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
     }
 
     fn new_writer(&self, handle: Arc<Self::Handle>) -> io::Result<Self::Writer> {
+        self.fence.check()?;
         Ok(EngineCursor { handle, offset: 0 })
     }
 
     fn directory_metadata(&self, path: &Path) -> io::Result<Option<DirectoryMetadata>> {
-        match self.0.metadata(path) {
+        match self.filesystem.metadata(path) {
             Ok(metadata) => Ok(Some(DirectoryMetadata {
                 is_dir: metadata.is_dir,
                 is_file: metadata.is_file,
@@ -181,17 +241,17 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
     }
 
     fn create_directory(&self, path: &Path) -> io::Result<()> {
-        self.0.create_dir_all(path)
+        self.fence.mutate(|| self.filesystem.create_dir_all(path))
     }
 
     fn read_directory(&self, path: &Path) -> io::Result<Vec<DirectoryEntry>> {
         let entries: io::Result<Vec<_>> = self
-            .0
+            .filesystem
             .read_dir_iter(path)?
             .take(MAX_ENGINE_DIRECTORY_ENTRIES + 1)
             .map(|entry| {
                 let entry = entry?;
-                let metadata = self.0.metadata(&entry.path)?;
+                let metadata = self.filesystem.metadata(&entry.path)?;
                 Ok(DirectoryEntry {
                     path: entry.path,
                     is_file: metadata.is_file,
@@ -208,15 +268,19 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
     }
 
     fn lock_directory(&self, path: &Path) -> io::Result<DirectoryLock> {
-        self.0.lock_file(&path.join("LOCK")).map_err(|error| {
-            io::Error::new(error.kind(), format!("Raft Engine directory lock: {error}"))
-        })
+        self.fence
+            .mutate(|| self.filesystem.lock_file(&path.join("LOCK")))
+            .map_err(|error| {
+                io::Error::new(error.kind(), format!("Raft Engine directory lock: {error}"))
+            })
     }
 
     fn sync_directory(&self, path: &Path) -> io::Result<()> {
-        let timer = self.1.timer(Operation::EngineDirectorySync);
-        let result = self.0.sync_all(path);
-        timer.finish(result.is_ok());
-        result
+        self.fence.mutate(|| {
+            let timer = self.performance.timer(Operation::EngineDirectorySync);
+            let result = self.filesystem.sync_all(path);
+            timer.finish(result.is_ok());
+            result
+        })
     }
 }

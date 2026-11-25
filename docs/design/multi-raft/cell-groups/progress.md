@@ -32,6 +32,437 @@ their earlier delivery, causal controls and qualification boundaries.
 
 ## Current integration checkpoint
 
+### CG-17 cold-node discovery and retained Linux qualification
+
+Runtime `240d6e230` fixes outbound inspection of an independently enrolled,
+current target whose process view has not reached the sender's cache. One
+original request now owns bounded endpoint discovery and rebinds against current
+Fleet trust before the authenticated RPC. The cached path stays direct.
+Enrollment, synced local boot, engine/process identity, epoch, cancellation,
+quota and original deadline checks remain mandatory. Endpoint advice grants no
+group membership or application authority.
+
+The unchanged regression reproduces `Err(Refused)` before discovery on
+`576ee6d8a` (production equivalent to `8c3435a5f`). It passes after the repair;
+the existing receiver-discovery control also passes. The test file is
+byte-identical across those frozen executables. The first attempted fixed build
+fails an exhaustive shared-enum match and executes no tests; the correction
+keeps node-only discovery state private. No pass is credited to that build.
+
+The locked managed build, strict all-feature/all-target Cellar/Container Clippy,
+canonical formatting, layout, native dependencies and documentation checks pass.
+These checks validate the scoped repair; the lifecycle qualification below fails.
+
+The broader original managed target on `240d6e230` is **FAILED: 34 passed,
+6 failed, 15 explicit RustFS ignores**. Both discovery cases pass within it.
+The complete target, assertions and budgets are unchanged; ignored managed
+RustFS cases remain unqualified.
+
+| Failed managed case | Captured boundary |
+| --- | --- |
+| Cold router after all birth voters retire | Joined shutdown returns `MutationOutcomes::Unobserved`; archive lag is reported separately. |
+| Joint replacement and retained restart | Extent-mode leader wait expires with no ready leader. |
+| Seeding-source retained restart | Original reconciliation turns finish in Seeding/Joint without a terminal receipt. |
+| Group replacement and joined restart | Handoff releases leadership but survivor verification reports an unavailable group. |
+| S3 seed refusal and failover retry | Original lost-settlement reconciliation does not return the required terminal result. |
+| Cold capacity and retained restart | Initial group startup returns transport timeout; cleanup failures remain visible. |
+
+One unchanged cold-router comparison on the pre-fix executable passes in
+44.10s. This neither waives the current failure nor establishes an exclusive
+cause. Investigate retirement/physical joins and the producer-quiescence
+observation without changing it to claim success for unresolved work. Preserve
+original operation identities for all ambiguous lifecycle outcomes.
+
+Bundle `CG-17-outbound-inspection-green-240d6e230-3373` retains the frozen
+executable/source, complete logs, the separately pinned comparison and verified
+copies of all 27 explicitly retained failed-fixture roots (none missing).
+The earlier red bundle is `CG-17-outbound-inspection-red-576ee6d8a-3365`.
+
+Separately, [Linux run 45517688951](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+passes **79/79 selections on preceding `8c3435a5f`**: 36 native and 43 original
+real-RustFS selections. Both six-thread Cellar libraries pass 1,444 tests with
+zero failures and two existing ignores each; Container passes 48/48. All original
+EventStream, Container/Sandbox, Queue C2/C4 and other selected primitive cases
+pass with unchanged 3s/5s requests, 3s maintenance and 60s restoration limits.
+RF3 primitive fixtures remain in-process on an ARM Linux runner; RustFS is
+limited to one CPU/2 GiB. These passes do not waive prior Mac deadline failures,
+qualify the new discovery code or replace independent voter/load/DR evidence.
+
+The portable upload and local verification both pass. Artifact `14986470835`
+contains matching source (5,321 files), all 3,612 required source-manifest inputs,
+13 verified ARM64 ELF roles, images, raw logs and retained temporary state.
+Bundle `CG-17-linux-current-8c3435a5f-3361` verifies the API ZIP digest
+`863de55b3f0f3f7524780034e4c19c8e82784fd9409563d87154c8a304c37712`
+and inner archive digest
+`3c6b704f9c8ea4f3444bdf11ea7fffe381f605fabc8cae64351cbf5e318c3dd4`.
+The source-bound evidence is retained; full release qualification remains false.
+The runner retains closed fixture files; it does not export the RustFS server
+object data or provider volumes. Independent recovery custody remains separate.
+
+The current-source [Linux follow-up](https://github.com/crabbuild/cellar/actions/runs/45537504606)
+was dispatched for `240d6e230`: the original 79 selections plus both discovery
+controls and the full serial managed target (82 selections total). It is not
+yet qualified. The 15 opt-in managed RustFS cases remain separate, and a later
+Linux pass cannot waive the recorded Mac managed failures.
+
+The next gates are the six managed failures, original-ID reconciliation of the
+independent maintenance failures, and a combined current-source Linux/managed
+RustFS/load/crash/disk-loss matrix. Complete provider/session APIs, CG-17's full
+cases, default cutover and legacy removal remain open. No task acceptance count
+changes from these focused results.
+
+### CG-17 submission ownership and constrained recovery
+
+Runtime `8c3435a5f` fixes an actual caller-cancellation gap in the Docker
+backend. A caller could disappear during the reservation's physical directory
+barrier, leaving a durable unknown operation with no job owner. The new bounded
+submission task retains custody through reservation and job installation. It
+captures the original expiry and charges capacity before dispatch. It neither
+replays an unknown effect nor clears one from provider absence.
+
+The unchanged owning regression fails on `0f40f7d07` in 4.71s and passes after
+the fix in 1.67s. All 48 Container library tests pass with six threads. The
+locked public/CLI builds, strict all-feature/all-target Cellar/Container Clippy,
+formatting, layout, dependency and documentation checks pass.
+
+The current-source original RustFS/Docker run is **FAILED, 7/11 complete
+functions**. It uses the original 4-CPU/8-GiB lab, one SQL worker per in-process
+voter, real Docker and RustFS limited to one CPU/2 GiB. All three physical safety
+controls pass. All eight source-proof refusal profiles, both requested-S3
+cleanup-floor profiles and both Delete-input/restoration profiles pass. Both
+Quorum Sandbox lifecycles pass, including files, lost replies, retained restart,
+generation fencing and constructor-independent terminal cleanup.
+
+| Remaining original case on `8c3435a5f` | Result |
+| --- | --- |
+| EventStream | Materialized completes; extent Consume returns ambiguous `DeadlineExceeded` at its original 3s bound. |
+| Container | Both extent profiles complete; materialized Quorum Execute3 and materialized S3 docker-b Status3 miss their original 5s bounds. |
+| Sandbox | Both Quorum profiles complete; materialized S3 Start1 and extent S3 Exec2 miss 5s after actual physical entry. |
+| Start-output proof | Materialized completes; extent misses the required actual-Create/source-input cut before the deadline. The absent precondition supplies no proof-gate acceptance. |
+
+These failures remain recorded. Their positions vary between runs, so the
+submission repair is not presented as their timing cure. Boundary-only
+EventStream metrics capture SQL manifest preparation and file-sync work; their
+overlapping, cross-operation sums do not establish a request critical path or
+exclusive latency cause. No proof, identity, quota or request/maintenance/recovery
+budget changed. Bundle `CG-17-submission-seal-owned-current-8c3435a5f-3348`
+retains frozen executables/source, raw logs and copies of all 94 closed fixture
+roots. Cleanup and the owned lab stop joined successfully.
+
+Separate constrained-voter campaign `3351` runs verified `ba4c8ab98` images.
+The eight daemon configurations finish **7/8**, with both image forms passing
+ordinary CLI/native/Axum paths and all four SQL/KV binding configurations passing
+at Quorum/S3 minima. Each daemon voter has one CPU, 2 GiB memory and no additional
+swap; RustFS has one CPU/2 GiB. The six-CPU/14-GiB VM supplies the controller and
+voters on one physical host. These scoped passes demonstrate the basic read/write path; subsequent startup
+and maintenance failures keep that profile unqualified. Cross-host and complete
+primitive/load coverage also remain open.
+
+| Separate Linux gate on `ba4c8ab98` | Result |
+| --- | --- |
+| Public daemon, two image forms | 2/2 pass: CLI provisioning, native/Axum reads/writes, actual leader SIGKILL, retained restart, archive outage, park/wake, maintenance and quorum refusal. |
+| Public SQL/KV bindings, two images × two minima | 4/4 pass: four logical cells in two groups, all responders, retained restart/lease renewal, leader loss, archive outage and quorum refusal. |
+| Failed-voter repair | Materialized passes, including actual replacement and obsolete-disk retention. Extent stops earlier at maintenance resume; replacement is not reached. |
+| Fenced all-voter disk loss, two image forms | 2/2 pass with separate one-CPU/3-GiB voters and one-CPU/2-GiB RustFS. |
+
+The extent return has the original disk and new process and publishes its
+paused-startup marker. `resume-maintenance` returns typed unknown/unavailable
+at its original 20s limit. The last successful pre-resume observation is paused;
+the mutation's final state requires fresh reconciliation; none of the stopped
+voter containers is OOM-killed. The complete request, snapshots and process logs
+are retained. Basic extent maintenance passed in the separate daemon run, so a
+later replay cannot waive this failure. Follow the original operation identity
+and reconcile its durable state before retrying or changing the resume path.
+
+Both actual disk-loss drills permanently revoke old launches, delete all three
+owned source voter disks and restore three SQL cells from the verified RustFS
+cut. New-incarnation genesis/fresh quorum, all three replica images, exact
+original receipts without callback replay, old-token/old-launch refusal, fresh
+writes and retained restart pass. This qualifies the SQL cut and Docker fencing
+contract; provider volumes, every primitive, managed interrupted transitions and
+Quorum-only suffix/RPO coverage remain separate requirements. Every drill's
+shutdown verifies stopped, non-OOM containers with successful exits.
+
+After portable image import, execution configuration, ordered rootfs layer
+hashes, complete source inputs and actual binaries are verified before using the
+Engine's new immutable IDs. The first setup-only attempt starts no voter and
+erases no disk; it remains failed. Campaign `3351` retains logs and source/image custody under
+`CG-17-independent-linux-ba4-3351`. Its overall result is **FAILED** because of
+the extent maintenance-resume case. Its DR named volumes survive, but restarting
+the VM before exporting daemon data clears the guest `/tmp` disks. That daemon
+capture has an evidence-retention gap. The single unchanged replay, `3358`, fails all three reached configurations:
+materialized daemon maintenance preparation is unconfirmed at 20s; materialized
+Quorum bindings and repair stop at peer startup inspection (Unavailable/Refused).
+The remaining five configurations are not reached. Its nine stopped mounted
+disks from three guest directories are exported before VM shutdown: archive
+`closed-daemon-guest-disks-3359.tar.gz`, 264,896,015 bytes, SHA-256
+`cae3f5d5aff29c6622ff7939c0f7913ce048bf3876d4affe5986a67a19c61ec2`.
+The source/request/profile are unchanged; this is another failed result, not a
+repair or waiver. The earlier maintenance failure remains unresolved. No original assertion, request budget or resource bound
+changes.
+
+The full [Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+finishes **79/79** on `8c3435a5f`: 36 native selections, including the cancellation
+control and two six-thread libraries, followed by all 43 original real selections.
+Portable source/binary/log/root retention and local verification pass; see the
+[newer discovery checkpoint](#cg-17-cold-node-discovery-and-retained-linux-qualification). Its RF3 primitive fixtures are in-process;
+it cannot replace the separate constrained-voter gate. CG-17's full cases,
+combined load/recovery qualification, default cutover and legacy removal remain
+open. The preceding frozen-source results follow.
+
+### CG-17 merged primitive qualification
+
+Frozen runtime `ba4c8ab98` includes main `7810ead24` (#187/#188), atomic
+built-in KV expiry and the Docker admission/journal repairs in
+[PR #186](https://github.com/crabbuild/cellar/pull/186).
+**Qualification remains FAILED; default cutover remains gated.**
+
+| Gate on `ba4c8ab98` | Result |
+| --- | --- |
+| Original-behavior journal/admission regressions | All six reproduce their intended failures; fixed Container library passes 47/47. |
+| Atomic KV expiry controls | 5/5 pass, including rollback before claim proof. |
+| Full Cellar library, six threads, twice | 1,443 passed, zero failed, two existing ignores each. |
+| Execution controller / public storage batch | 21/21 and 3/3 pass. |
+| Locked public build, strict affected Clippy and repository checks | Pass. |
+| Unchanged native campaign | **FAILED, 33/35 selections.** |
+| Focused original RustFS/Docker controls and load | **FAILED, 12/17 complete functions**; 111 closed roots retained and cleanup joined. |
+
+The public KV case now passes both image forms, including the original
+2,100-ms stored-row expiry assertion that failed on `f2423248b`. SQL bindings,
+ordinary Queue and Workflow, alarms, cron, filesystem, payload outage/restart,
+scheduled Workflow, replacement/park-wake, deletion/recreation and all six new
+checkpoint/prefetch controls pass their selected native cases. Alarms and cron
+retain both Quorum and S3 minima. These are scoped API/recovery results, not
+full primitive-by-scenario acceptance.
+
+The first original EventStream replay fails while provisioning its stream
+service group: `group startup unconfirmed: Transport(Timeout)`, before Consume.
+The second unchanged replay and Axum pass. Named bindings fail in the
+extent/Quorum profile while waiting for a ready leader before enrollment.
+The original five-second setup/readiness bounds remain unchanged, and later
+passes do not waive either failure. Filesystem logs also retain forced pre-drain
+warnings; its API pass cannot establish a clean-shutdown acceptance claim.
+
+Native ledger `3322` closes all 35 selections at the pinned executable/source
+hashes in `CG-17-event-file-ba4c8ab98-3321`. The ordinary broader-runtime launcher
+refuses the failed native aggregate. A separately recorded diagnostic decision
+`3328` runs 17 unchanged critical RustFS selections after the owning/library
+gates pass: original proof/fencing/lifecycle controls, KV, Workflow and Queue
+C2/C4. This additional diagnostic cannot turn the native aggregate into a pass.
+The original 3s/5s requests, 3s maintenance and 60s restoration remain intact.
+
+The `ba4c8ab98` real run passes KV and Workflow in both image modes and Queue
+C2 with all 528 unique messages. It fails EventStream Consume, one materialized
+S3 Container Status2, three Sandbox profiles, the materialized Start-output cut,
+and materialized Queue C4; the C4 function stops before extent qualification.
+All original physical, source-refusal, cleanup-floor and Delete-input controls
+pass. These results do not waive the failed native aggregate. The cancellation
+repair and failure-only leader diagnostics described above are outside this
+older frozen source.
+
+The earlier Linux run
+[45467991907](https://github.com/crabbuild/cellar/actions/runs/45467991907)
+reports 53/53 successful executions on `f2423248b`, but its artifact upload rejects
+colon-bearing log filenames. No binaries or voter roots survive from that
+runner; its retained log alone is **not release qualification**. Compile/package
+job [45499727062](https://github.com/crabbuild/cellar/actions/runs/45499727062)
+targets `ba4c8ab98`. Its build and image packaging pass, but metadata freezing
+fails on Python 3.10's missing `hashlib.file_digest`. The always-run portable
+archive retains three role binaries, one public test executable, both images
+and source; nine other test executables are missing. ZIP/tar digests, the full
+source archive/manifest and ARM64 executables are verified locally. This is a
+partial compile artifact, not a passing job or runtime qualification. The helper
+is corrected for subsequent runs; the failed original record remains intact.
+
+CG-17's 32 full acceptance cases, complete public feature/provider coverage,
+CG-15 release qualification and CG-16 default/legacy cutover remain open.
+The preceding source-specific checkpoints follow.
+
+### CG-17 primitive expansion and durable journal fences
+
+[PR #186](https://github.com/crabbuild/cellar/pull/186) now includes main
+`7810ead24` (#187/#188). The combined candidate adds SQL-only KV expiry and
+Docker admission/journal repairs. **It is not yet qualified.** The completed
+qualification below is pinned to `f2423248b`, before those changes and the main
+merge; it does not qualify the combined candidate.
+
+The frozen native campaign passes **27/28 selections**. Both full six-thread
+Cellar libraries pass **1,434 tests**, zero failures and two existing ignores
+each. Container tests pass 38/38, execution-controller tests 21/21 and public
+storage-batch tests 3/3. Original native EventStream replays and Axum pass their
+three-second requests. Materialized KV logically expires its row but misses the
+original 2,100-ms check for removal from the stored SQL rows; extent KV passes.
+
+The expanded real RustFS/Docker campaign finishes **FAILED, 38/43 complete
+selections**. It uses both image forms, RF3 voters sharing one macOS process,
+one SQL worker per voter and real RustFS capped at one CPU/two GiB. It preserves
+the original per-fixture budgets: EventStream requests remain three seconds,
+Container/Sandbox requests five seconds, maintenance three seconds and
+restoration sixty seconds. Existing multi-phase KV parent budgets remain their
+separately declared twenty seconds; none are increased by this campaign.
+
+Passing selections include native/Axum EventStream publication, subscriptions
+and Outbox recovery; named-cell, SQL and KV bindings; ordinary native/Axum Queue
+callbacks; Workflow execution, schedules, status reads through checkpoints,
+S3 replacement, park/wake and deletion/recreation; alarms/cron; filesystem
+transactions, descriptors, movement and wake; and payload outage/restart/GC.
+All original source-proof, Delete-input, Start-output and actual Docker
+process-fencing controls pass. Both complete Quorum Container/Sandbox lifecycle
+profiles pass.
+
+Five complete functions remain failed:
+
+| Case | Exact failure on `f2423248b` |
+| --- | --- |
+| Normal Container | Materialized S3 `docker-a Write2` returns its error after 12,347 ms; extent S3 `docker-b Status2` exceeds five seconds. |
+| Normal Sandbox | Materialized S3 `DestroyJob8` and extent S3 `FileWrite1` exceed five seconds. |
+| Requested-S3 Sandbox retirement | Materialized passes; extent S3 `Create1` expires before the retirement cut is reached. |
+| Queue load, two in flight | Materialized delivers 528 unique messages; all four extent producers fail with ambiguous deadlines. |
+| Queue load, four in flight | Materialized delivers 528 unique messages; three extent producers fail with ambiguous deadlines. |
+
+Both load image profiles report zero cleanup errors and joined domains. Native
+and Axum cross-deployment Queue faults, transfer identity and long callbacks
+pass separately. These passes do not waive either load failure, and an
+ambiguous producer failure does not establish whether its mutation committed.
+Intentional lost Exec replies remain separate from unexpected deadline errors.
+
+The filesystem all-voter-disk-loss selection also passes, but uses the existing
+fencing-authority **contract test**. It is not evidence of independent Linux
+voters or permanent infrastructure fencing. The Docker-fenced, constrained
+all-voter-disk-loss matrix remains required.
+
+Evidence is retained under `CG-17-event-file-f2423248b-3291` and `-3291b`,
+`CG-17-native-quarantine-f2423248b-3308`, and
+`CG-17-submission-seal-quarantine-f2423248b-3294` in this checkout's Workspace
+qualification directory. Retention verification `3314` matches all nine frozen
+executables and **193 closed roots / 18,634 files / 682,365,834 bytes** against
+their second copies. The owned RustFS and Colima stop commands joined with exit
+zero. Failed records, original binaries/source and operation identities remain
+retained; the product result remains FAILED.
+
+The [isolated Linux run](https://github.com/crabbuild/cellar/actions/runs/45467991907)
+checks `f2423248b`; its image packaging completed and its tests are still running
+at this checkpoint. Its RF3 tests share one process. A later source needs its
+own qualification and independent voter evidence.
+
+The combined implementation now:
+
+- Uses a private built-in KV factory hook on the actual namespace protocol lock.
+  Claim, bounded SQL expiry, rearm and completion share the final durability
+  proof. Busy namespaces/provider sweep obligations retain the ordinary proven
+  callback path. A failure before claim proof rolls back that whole turn; it
+  cannot fabricate proven callback backoff.
+- Serializes Docker fences and reservations per cell/binding, while shutdown
+  and history revocation exclude all bindings. Queued revocations recheck
+  closed admission before journal or Engine mutation.
+- Keeps last-durable journal snapshots readable while a separate physical
+  writer syncs replacement. Unproven updates stay private; failed or panicked
+  writers refuse live admission and subsequent writes.
+- Rechecks current custody, original operation identity and original expiry
+  inside serialized reservation. Cancelled waiters cannot overwrite receipts,
+  install stale custody or extend a deadline across writer waiting.
+
+Five KV regressions and the expanded 47-test Container library still need to
+run on this candidate, followed by the unchanged public qualification. The
+journal controls hold the actual replacement directory barrier; metadata
+admission tests use an unopened Engine and do not qualify process fencing.
+Original request identity, ambiguity, quorum/S3 proof and payload/provider
+boundaries remain unchanged. CG-17 and default/legacy cutover remain open.
+
+### CG-17 EventStream and bounded file-read follow-up
+
+[PR #184](https://github.com/crabbuild/cellar/pull/184) merged as `86cfe5d1c`.
+The earlier [PR #186](https://github.com/crabbuild/cellar/pull/186) checkpoint,
+branch `codex/cg17-event-file-read-deadlines`, carries runtime `d393aa447`.
+The requested EventStream and S3 file-read checks now pass their original
+3s/5s limits. The combined real qualification still **fails, 12/13 functions**:
+Sandbox's materialized S3 Create9 and extent S3 DestroyJob8 exceed five seconds
+later in the same original lifecycle flow. Both Quorum Sandbox profiles finish.
+
+The implementation retries transient EventStream reader refusals with fresh
+authority, distinguishing them from logical activation pending. Bounded Container
+read/stat/list activate and inspect under one proven I/O turn. Reservation and
+possible-submission debt persist together before controller entry; the durable
+outcome remains separate. Only authenticated Event children retain a Quorum
+cohort across idle gaps, bounded by its first original deadline. Public/System
+callback cadence and mandatory input/output proofs remain unchanged.
+
+Committed WAL verification now streams in at most 64-KiB windows and reuses
+frame/page buffers. Every checksum, salt, committed-frame, page and optional
+prefix check remains; each observation rereads the actual WAL prefix. The
+owning regression fails at `7f8c424a4` with 2,604 reads against a 537-read budget
+and passes after the change. All 17 image/extent/disposable checks pass, including
+short reads and real corruption across windows at 512-byte, 4-KiB and 64-KiB
+page sizes.
+No durability barrier was removed. The recovery daemon fixture's missing Axum
+dependency is declared and its strict all-feature check passes.
+
+| Gate on runtime `d393aa447` | Result |
+| --- | --- |
+| Original native EventStream, two runs | Both pass materialized and extent modes |
+| Original Axum and real RustFS EventStream | Both pass both image modes |
+| Full real RustFS campaign | **FAILED: 12/13 complete functions** |
+| Real Container normal execution/recovery | 4/4 profiles pass |
+| Real Sandbox normal execution/recovery | 2/4 pass; S3 fails later Create9/DestroyJob8 |
+| Container and Sandbox source-proof refusal | All eight profiles pass |
+| Requested S3 floor, Delete-input restoration, Start-output proof | All six profiles pass |
+| Physical fencing, failed-journal shutdown, expired-unsubmitted Delete | All three functions pass |
+| Full Cellar library, six threads, twice | 1,434 passed, zero failed, two existing ignores each |
+| Container library / execution controller | 38/38 and 21/21 pass |
+| Query, scheduling and park checks | 16/16 pass |
+| Locked build, strict affected Clippy, format, layout, dependencies and docs | Pass |
+
+Original S3 read assertions succeed, including their exact recovered bytes:
+
+| Read with original 5s budget | Materialized | Extent |
+| --- | ---: | ---: |
+| Container Read5 | 0.90s | 2.13s |
+| Sandbox recovered Read5 | 2.96s | 3.74s |
+| Sandbox FileRead2 | 3.48s | 3.93s |
+
+The six native/Axum Consume measurements span 1.45–2.50s against three seconds.
+These shared-host observations are not a matched speedup experiment. The real
+run used the original 4-CPU/8-GiB VM, 1-CPU/2-GiB RustFS and actual Docker engine,
+with another qualification VM co-resident. RF3 remains in one host process.
+The owned VM is stopped and joined; its objects and closed disks are retained.
+An initial launch stopped before any public test on a closed readiness socket.
+Its retained retry handles only that startup error within the same 30s readiness
+budget; it changes no business request or recovery limit.
+
+Both late Sandbox failures retain completed physical backend outcomes in
+checksummed journals. Their exact latency cause is not assigned. Preserve the
+ambiguous invocations and original identities; neither can be treated as an
+unsubmitted mutation or replayed. Next, attribute target input proof, provider
+work and parent S3 completion for those exact Create9/DestroyJob8 requests.
+The existing `profile_rustfs_native_sandbox_recovery` diagnostic keeps the same
+business oracles and deadlines while adding phase timing. Its results cannot
+waive the failed original run.
+
+Native evidence `CG-17-event-file-native-d393aa447-3263` has inventory SHA-256
+`008ea5466a07baa61582d04453ab0fbac587feaeff9a10be3b6a3d89d7e03481`.
+Real evidence `CG-17-submission-seal-wal-window-ready-d393aa447-3270` has
+inventory SHA-256
+`96d04e2861ad1299d43258135b274fba3bafc4010af45bf25a28a801fd795b57`.
+Both have verified second copies, source archives, exact binaries, raw results
+and closed retained roots. The current-source
+[isolated ARM Linux rerun](https://github.com/crabbuild/cellar/actions/runs/45439140164)
+is still building at this checkpoint; no pass is claimed for it.
+
+Earlier runs retain their own scope. `ded5ef6ec` passes both native replays but
+fails Axum extent Consume and passes 7/13 real functions. `383671c85` passes
+4/6 Workspace native selections and 8/13 real functions; isolated ARM Linux
+passes all six original native and 13 real functions, but fails overall 21/22
+because its second parallel library run races pump submission against runtime
+shutdown. The fixture now joins begun pumps before closing runtimes, preserving
+all scenario assertions and cleanup errors; both focused cases and both full
+current-source library runs pass. The idle-gap module's earlier red
+`dbab55f5c` retains eight old passes and two intended failures; `0c6974661`
+passes its 11 checks. Superseded builds and diagnostic replays, including the
+wrong-temporary-directory probe, receive no acceptance credit.
+
+CG-17's full case acceptance, independent Linux-voter/load/disk-loss gates,
+default cutover and legacy removal remain open.
+
 ### CG-17 Outbox proof and main 185 qualification
 
 Runtime `10fb1775d` in [PR #184](https://github.com/crabbuild/cellar/pull/184)
