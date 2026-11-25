@@ -8,43 +8,35 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-The [fresh verification](optimization-progress.md#fresh-main-and-constrained-runtime-verification)
-starts from main `86cfe5d1c` (#184/#185). Merged
-[#187](https://github.com/crabbuild/cellar/pull/187) retains eight idle hints within
-the existing memory bound and reuses a joined committed successor's active item
-under full apply admission. Compiler inputs `61ed9d55` also keep deferred commit
-metadata out of local checkpoint writes. Pre-integration inputs `3d75f9d8` wait for
-transient rooted workspace capacity before SQL entry, within the original
-deadline and unchanged eight-workspace bank. Both byte/item exhaustion controls
-fail before the repair and pass afterward. All **15 workspace controls**,
-**38 checkpoint/commit controls**, **16 prefetch controls**, **13 public RF3**
-and **13 native service selections** pass. Two full six-thread library repeats
-pass **1,437 tests** with two existing ignores. Strict Clippy and repository
-checks pass. An earlier **1,436/one failure/two ignores** peer-tunnel pre-cut
-fixture capture remains retained; fixed-plan focused baseline/candidate controls
-and the full baseline pass without changing its timers or assertions.
+The [updated-main qualification](optimization-progress.md#updated-main-workspace-qualification)
+starts from main `7810ead24`, after merged #187 and #188. Compiler inputs
+`24674839` retain the bounded rooted workspace wait before SQL entry.
+Both byte/item exhaustion regressions fail before the repair and pass afterward.
+All **15 workspace**, **38 checkpoint/commit**, **16 prefetch** and **39 query
+controls**, **13 public RF3 selections**, **13 native service selections** and
+the complete **1,438-test library suite** pass, with two existing ignores.
+Strict Clippy and repository checks pass. An earlier startup timeout remains
+recorded alongside passing unchanged controls and the fresh full campaign.
 
-The USB-backed native service capture passes **6/13 complete selections**.
-Matched rooted C4 controls pass both baseline and candidate internal-filesystem
-runs; the candidate passes one of two USB runs. Full service requalification on
-the normal internal persistent temporary filesystem passes **13/13** with the
-original time windows, identities and admission limits. The earlier `fe495002`
-constrained smoke passes **16/24 source cases**. The paired `a53855fb` smoke
-passes every Fleet/Bucket case and fails every Raft case on both sources. The
-first captured runtime error is a mixed local checkpoint write; the repair
-passes SQL/KV smoke in all four modes and publishes actual checkpoints. Queue
-Quorum still fails C16 with healthy runtimes: the original sequence retains
-ambiguous deadlines, and a fresh C16-only diagnostic retains immediate ambiguous
-overload responses. The immediate refusal is reproduced at the full eight-item
-workspace bank with healthy runtimes. Its bounded-wait repair passes native
-qualification and all **12 unchanged capped smoke cases**, including Queue C16
-in all four durability modes with verified delivery and settlement. The longer
-comparison then stops on one SQL read overload among 47,262 second-C16 attempts;
-earlier windows verify, but the full matrix remains unqualified. Advanced main
-includes #188's read-authentication change and merged #187; integrate that source
-before changing the older read path. Failed captures remain retained.
-Earlier private bundles were cleaned up; the current campaign uses a new evidence
-baseline. The older source-pinned checkpoints below retain their historical scope.
+The exact-source capped Colima smoke passes SQL Quorum at C1/4/16. SQL
+Quorum+S3 verifies all writes and earlier reads, then fails on one overloaded
+read among 8,498 C16 attempts. There are no unconfirmed mutations, runtime
+closures or extent-store quarantines in those cases. Current-source KV/Queue
+and the longer full matrix remain unqualified. Diagnose that read-admission
+refusal before claiming low latency or changing capacity and retry behavior.
+
+The earlier workspace source `3d75f9d8` passes all 12 short SQL/KV/Queue cases
+across the four durability modes. Its longer comparison fails one second-C16
+SQL read among 47,262 attempts. Those pre-integration observations remain
+separate from the new source. The earlier checkpoint and workspace repairs
+do not establish a cause for this read failure.
+
+The current campaign uses new private evidence after earlier bundles were
+cleaned up. All surviving exported native corpora match sealed inventories;
+missing temporary originals are recorded as unavailable. Fresh native originals
+use a persistent internal filesystem. Generated qualification/results JSON
+remains outside this tree and the PR. Historical checkpoints below keep their
+recorded source and scope.
 
 The preceding delivery was [PR #184](https://github.com/crabbuild/cellar/pull/184),
 synced with main `2a37acf6a` (#185), with its documentation conflict resolved.
@@ -85,27 +77,25 @@ below precede this integration. They do not qualify the combined runtime.
 C2 and C4 cap in-flight producer requests at two and four. Rooted cases use
 extent-backed SQL images; materialized cases use complete images.
 
-The recorded baseline is `86cfe5d1c`, and the verified workspace candidate's inputs
-are `3d75f9d8`. The new follow-up starts from main `7810ead24`, which includes
-merged #187 and #188; its combined-source qualification is pending. The preceding
-candidate's owning, repeated library and selected public controls pass. Native storage
-controls distinguish the earlier USB profile from the normal temporary
-filesystem, where all 13 service selections pass. The new constrained comparison
-remains required. The current priorities are:
+The recorded baseline is `86cfe5d1c`; the current candidate combines main
+`7810ead24` with the workspace repair at compiler inputs `24674839`. Its complete
+native campaign passes. The capped runtime retains a C16 SQL read overload,
+and the full comparison remains required. The current priorities are:
 
-1. **P0: Preserve the repaired C16 admission boundary under longer load.**
-   All 12 original capped smoke cases now pass, including Queue C16 delivery
-   and settlement. The byte/item owning regressions and native campaign also
-   pass after bounded pre-entry waiting. Longer runs must retain full charges,
-   physical joins, exact identities, original deadlines and unconfirmed mutation
-   evidence. Any renewed failure requires callback/source-proof and physical
-   custody diagnosis before changing persistence or admission budgets.
+1. **P0: Close the current-source C16 read-admission failure.** Identify the
+   exact refusing bank and pre-entry call site, add an owning regression and
+   rerun the unchanged reproduction. Preserve full charges, physical joins,
+   exact identities, original deadlines and typed refusal provenance. Do not
+   broadly retry opaque failures or replay callbacks. Then require all 12
+   current-source smoke cases and the longer matrix; the older smoke pass
+   alone does not close this gate.
 2. **P0: Keep combined-source correctness repeatable.** Native C2/C4 pass on
    internal storage with the original 3,000-ms RPC, 5,000-ms callback and
-   30-second drain windows. Two complete six-thread library repeats pass; the
-   earlier unchanged peer-tunnel pre-cut fixture failure remains retained.
-   Keep that timing observation and the failed USB profile separate; require
-   complete delivery, settlement and joined shutdown in each new campaign.
+   30-second drain windows. The combined-source six-thread library suite passes
+   1,438 tests. Earlier unchanged startup and peer-tunnel fixture failures remain
+   recorded alongside their passing controls. Keep those observations and the
+   failed USB profile separate; require complete delivery, settlement and joined
+   shutdown in each new campaign.
 3. **P1: Complete the requested constrained comparison.** After smoke passes,
    run all SQL/KV/Queue modes at C1/4/16 for 30 seconds and two reversed repeats,
    with three 1-vCPU/2-GiB RF3 nodes, three groups, capped client/store and shared
