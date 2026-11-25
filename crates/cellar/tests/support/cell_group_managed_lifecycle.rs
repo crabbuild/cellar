@@ -154,6 +154,15 @@ async fn replacement_with_store(
     .await;
     // Even failed entered work must have a joined owner before this test exits.
     let stopped = close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
+    if work.is_err() || stopped.is_err() {
+        for (index, root) in cluster.roots.iter().enumerate() {
+            eprintln!(
+                "retained replacement disk member={} extents={rooted} archive={from_s3}: {}",
+                index + 1,
+                root.path().display()
+            );
+        }
+    }
     let (seed, obsolete, joined_boot) = match work {
         Ok(value) => {
             stopped?;

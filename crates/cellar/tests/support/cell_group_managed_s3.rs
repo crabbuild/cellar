@@ -196,6 +196,7 @@ async fn check_minority_replacement(cluster: &ManagedCluster, committed_begin: b
     if let Some((authorization, permit)) = admission {
         let store = &cluster.fixtures[3].store;
         let reads = store.group_payload_reads.load(Ordering::Acquire);
+        let started = std::time::Instant::now();
         let activation = spare
             .activate_managed_learner_group(
                 authorization,
@@ -209,6 +210,7 @@ async fn check_minority_replacement(cluster: &ManagedCluster, committed_begin: b
                 },
             )
             .await;
+        let elapsed_ms = started.elapsed().as_millis();
         ensure!(
             matches!(
                 activation,
@@ -218,7 +220,7 @@ async fn check_minority_replacement(cluster: &ManagedCluster, committed_begin: b
                     ) | CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded)
                 ))
             ),
-            "standby did not refuse the quorumless S3 seed after submission: {activation:?}"
+            "standby did not refuse the quorumless S3 seed after submission in {elapsed_ms}ms: {activation:?}"
         );
         ensure!(
             store.group_payload_reads.load(Ordering::Acquire) == reads,
