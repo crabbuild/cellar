@@ -38,6 +38,8 @@ mod registry;
 mod rustfs;
 #[path = "support/cell_group_managed_shutdown.rs"]
 mod shutdown;
+#[path = "support/cell_group_managed_shutdown_retirement.rs"]
+mod shutdown_retirement;
 
 async fn stopped(node: Node, service: &RaftCells) -> Result<()> {
     ensure!(matches!(
