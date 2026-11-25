@@ -60,6 +60,10 @@ pub(super) struct InspectionTarget {
 pub(super) enum InspectionStart {
     Bound(Box<InspectionTarget>),
     Refresh(Box<crate::raft::fleet_catalog::FleetTrustSnapshot>),
+}
+
+enum NodeInspectionStart {
+    Known(InspectionStart),
     Discover(Box<(RouterRefreshClient, RouterRefreshKey)>),
 }
 
@@ -153,17 +157,19 @@ impl RaftTransport {
             return Err(TransportError::Timeout);
         }
         let start = match state.bind_node_inspection(node, minimum_revision) {
-            Ok(target) => InspectionStart::Bound(Box::new(target)),
-            Err(TransportError::StalePeer) => InspectionStart::Refresh(Box::new(
-                state
-                    .lagging_node_inspection_trust(minimum_revision)?
-                    .ok_or(TransportError::StalePeer)?,
-            )),
+            Ok(target) => NodeInspectionStart::Known(InspectionStart::Bound(Box::new(target))),
+            Err(TransportError::StalePeer) => {
+                NodeInspectionStart::Known(InspectionStart::Refresh(Box::new(
+                    state
+                        .lagging_node_inspection_trust(minimum_revision)?
+                        .ok_or(TransportError::StalePeer)?,
+                )))
+            }
             Err(TransportError::Refused) => {
                 let discovery = state
                     .outbound_node_inspection_refresh(node, minimum_revision)?
                     .ok_or(TransportError::Refused)?;
-                InspectionStart::Discover(Box::new(discovery))
+                NodeInspectionStart::Discover(Box::new(discovery))
             }
             Err(error) => return Err(error),
         };
@@ -232,18 +238,18 @@ impl RaftTransport {
 impl State {
     async fn resolve_node_inspection_target(
         &self,
-        start: InspectionStart,
+        start: NodeInspectionStart,
         node: NodeId,
         minimum_revision: u64,
         deadline: u64,
     ) -> Result<InspectionTarget, TransportError> {
         match start {
-            InspectionStart::Bound(target) => return Ok(*target),
-            InspectionStart::Refresh(previous) => {
+            NodeInspectionStart::Known(InspectionStart::Bound(target)) => return Ok(*target),
+            NodeInspectionStart::Known(InspectionStart::Refresh(previous)) => {
                 self.refresh_node_inspection_trust(*previous, minimum_revision, deadline)
                     .await?;
             }
-            InspectionStart::Discover(discovery) => {
+            NodeInspectionStart::Discover(discovery) => {
                 let (client, key) = *discovery;
                 self.refresh_node_inspection_endpoint(client, key, deadline)
                     .await?;
