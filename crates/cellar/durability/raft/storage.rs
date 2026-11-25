@@ -1325,7 +1325,7 @@ impl Worker {
         };
         let engine = Engine::open_with_file_system(
             config,
-            Arc::new(EngineFileSystem(fs.clone(), performance.clone())),
+            Arc::new(EngineFileSystem::new(fs.clone(), performance.clone())),
         )
         .map_err(engine_error)?;
         let root = match options.mode {

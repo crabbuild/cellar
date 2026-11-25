@@ -589,7 +589,7 @@ async fn fleet_lifecycle_missing_record_refuses_resume() -> anyhow::Result<()> {
                     dir,
                     ..Default::default()
                 },
-                Arc::new(EngineFileSystem(
+                Arc::new(EngineFileSystem::new(
                     Arc::new(cellar_ltx::DirectFileSystem),
                     performance,
                 )),

@@ -364,16 +364,17 @@ async fn call(
     let cell = cluster.hosts[leader].cell(history.clone())?;
     let started_unix_ms = cellar::asyncrt::wall_ms();
     let started = std::time::Instant::now();
-    let result = cell
-        .command(
-            &cell.contract("Run")?,
-            serde_json::to_vec(operation)?,
-            options(sequence, minimum)?,
-        )
-        .await;
+    let response = cell.command(
+        &cell.contract("Run")?,
+        serde_json::to_vec(operation)?,
+        options(sequence, minimum)?,
+    );
+    let admission_ms = started.elapsed().as_millis();
+    let waiting = std::time::Instant::now();
+    let result = response.await;
     eprintln!(
         "docker_native_request {}",
-        json!({"cell":history.cell.as_str(),"sequence":sequence,"operation":operation,"minimum":format!("{minimum:?}"),"started_unix_ms":started_unix_ms,"finished_unix_ms":cellar::asyncrt::wall_ms(),"elapsed_ms":started.elapsed().as_millis(),"success":result.is_ok()})
+        json!({"cell":history.cell.as_str(),"sequence":sequence,"operation":operation,"minimum":format!("{minimum:?}"),"started_unix_ms":started_unix_ms,"finished_unix_ms":cellar::asyncrt::wall_ms(),"elapsed_ms":started.elapsed().as_millis(),"admission_ms":admission_ms,"response_wait_ms":waiting.elapsed().as_millis(),"success":result.is_ok()})
     );
     Ok(result?)
 }

@@ -250,7 +250,7 @@ async fn physical_mapping_domain_refuses_old_and_corrupt_engine_records() -> any
                         dir,
                         ..Default::default()
                     },
-                    Arc::new(EngineFileSystem(
+                    Arc::new(EngineFileSystem::new(
                         Arc::new(cellar_ltx::DirectFileSystem),
                         performance,
                     )),

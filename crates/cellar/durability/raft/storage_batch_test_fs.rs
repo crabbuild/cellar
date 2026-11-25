@@ -7,7 +7,7 @@ use cellar_ltx::{
 };
 use std::io;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use tokio::sync::Notify;
 
@@ -33,10 +33,23 @@ pub(super) struct Barriers {
     pub files: AtomicUsize,
     pub directories: AtomicUsize,
     pub max_write_bytes: AtomicUsize,
+    failed: AtomicBool,
+    pub after_failure: AtomicUsize,
     before: Mutex<Option<Hook>>,
 }
 
 impl Barriers {
+    fn mutate<T>(&self, action: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+        if self.failed.load(Ordering::SeqCst) {
+            self.after_failure.fetch_add(1, Ordering::SeqCst);
+        }
+        let result = action();
+        if result.is_err() {
+            self.failed.store(true, Ordering::SeqCst);
+        }
+        result
+    }
+
     pub fn before_next_sync(&self, hook: impl FnOnce() -> io::Result<()> + Send + 'static) {
         let mut slot = self.before.lock().unwrap();
         assert!(slot.is_none(), "unconsumed physical sync schedule");
@@ -65,6 +78,8 @@ impl Barriers {
         self.files.store(0, Ordering::SeqCst);
         self.directories.store(0, Ordering::SeqCst);
         self.max_write_bytes.store(0, Ordering::SeqCst);
+        self.failed.store(false, Ordering::SeqCst);
+        self.after_failure.store(0, Ordering::SeqCst);
     }
 
     pub fn counts(&self) -> (usize, usize) {
@@ -87,14 +102,14 @@ impl HostFileIo for File {
         self.1
             .max_write_bytes
             .fetch_max(bytes.len(), Ordering::SeqCst);
-        self.0.write_all(bytes)
+        self.1.mutate(|| self.0.write_all(bytes))
     }
 
     fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
         self.1
             .max_write_bytes
             .fetch_max(bytes.len(), Ordering::SeqCst);
-        self.0.write_all_at(offset, bytes)
+        self.1.mutate(|| self.0.write_all_at(offset, bytes))
     }
 
     fn read_exact_at(&mut self, offset: u64, length: usize) -> io::Result<Vec<u8>> {
@@ -106,16 +121,18 @@ impl HostFileIo for File {
     }
 
     fn set_len(&mut self, length: u64) -> io::Result<()> {
-        self.0.set_len(length)
+        self.1.mutate(|| self.0.set_len(length))
     }
 
     fn sync_all(&mut self) -> io::Result<()> {
         self.1.files.fetch_add(1, Ordering::SeqCst);
-        let hook = self.1.before.lock().unwrap().take();
-        if let Some(hook) = hook {
-            hook()?;
-        }
-        self.0.sync_all()
+        self.1.mutate(|| {
+            let hook = self.1.before.lock().unwrap().take();
+            if let Some(hook) = hook {
+                hook()?;
+            }
+            self.0.sync_all()
+        })
     }
 }
 
@@ -127,11 +144,14 @@ impl Filesystem {
 
 impl FileSystem for Filesystem {
     fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
-        Ok(self.file(self.inner.temporary_file(directory)?))
+        Ok(self.file(
+            self.barriers
+                .mutate(|| self.inner.temporary_file(directory))?,
+        ))
     }
 
     fn lock_file(&self, path: &Path) -> io::Result<HostFileLock> {
-        self.inner.lock_file(path)
+        self.barriers.mutate(|| self.inner.lock_file(path))
     }
 
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
@@ -155,15 +175,18 @@ impl FileSystem for Filesystem {
     }
 
     fn create(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.file(self.inner.create(path)?))
+        Ok(self.file(self.barriers.mutate(|| self.inner.create(path))?))
     }
 
     fn create_new(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.file(self.inner.create_new(path)?))
+        Ok(self.file(self.barriers.mutate(|| self.inner.create_new(path))?))
     }
 
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.file(self.inner.create_read_write(path)?))
+        Ok(self.file(
+            self.barriers
+                .mutate(|| self.inner.create_read_write(path))?,
+        ))
     }
 
     fn open(&self, path: &Path) -> io::Result<HostFile> {
@@ -171,31 +194,31 @@ impl FileSystem for Filesystem {
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.file(self.inner.open_read_write(path)?))
+        Ok(self.file(self.barriers.mutate(|| self.inner.open_read_write(path))?))
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write(path, bytes)
+        self.barriers.mutate(|| self.inner.write(path, bytes))
     }
 
     fn sync_all(&self, path: &Path) -> io::Result<()> {
         self.barriers.directories.fetch_add(1, Ordering::SeqCst);
-        self.inner.sync_all(path)
+        self.barriers.mutate(|| self.inner.sync_all(path))
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
-        self.inner.rename(from, to)
+        self.barriers.mutate(|| self.inner.rename(from, to))
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
-        self.inner.remove_file(path)
+        self.barriers.mutate(|| self.inner.remove_file(path))
     }
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
-        self.inner.remove_dir_all(path)
+        self.barriers.mutate(|| self.inner.remove_dir_all(path))
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {
-        self.inner.create_dir_all(path)
+        self.barriers.mutate(|| self.inner.create_dir_all(path))
     }
 }

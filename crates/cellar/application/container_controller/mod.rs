@@ -512,7 +512,11 @@ impl ExecutionController {
                 request: operation.clone(),
                 claim: claim.clone(),
                 outcome: None,
-                submitted: false,
+                // Persist the reservation and possible-submission debt together.
+                // Backend entry still waits for this complete file/directory
+                // barrier. A crash after it must reconcile the original request,
+                // including the conservative case where no backend call began.
+                submitted: true,
             },
         );
         self.save(&admission, &slot).await?;
@@ -528,24 +532,7 @@ impl ExecutionController {
             .await?;
             return Ok(ExecutionOutcome::ExpiredBeforeSubmission);
         }
-        self.active(&mut slot, &claim)?
-            .operations
-            .get_mut(&id)
-            .context("reserved operation missing")?
-            .submitted = true;
-        self.save(&admission, &slot).await?;
-        if crate::asyncrt::mono_ms() >= deadline {
-            self.finish(
-                &admission,
-                &mut slot,
-                &claim,
-                &claim,
-                &id,
-                ExecutionOutcome::ExpiredBeforeSubmission,
-            )
-            .await?;
-            return Ok(ExecutionOutcome::ExpiredBeforeSubmission);
-        }
+        self.active(&mut slot, &claim)?;
         let observation = operation.kind.is_observation();
         let permit = admission.permit.clone();
         let admission = if observation {

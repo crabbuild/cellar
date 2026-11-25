@@ -8,6 +8,9 @@ use cellar_ltx::{CheckpointMode, Db};
 use rusqlite::{Connection, MAIN_DB};
 use sha2::{Digest, Sha256};
 
+#[path = "support/committed_wal_reads.rs"]
+mod wal_reads;
+
 fn compare(db: &Db, writer: &Connection) {
     let bytes = writer.serialize(MAIN_DB).unwrap();
     let page_size: u32 = writer

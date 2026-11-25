@@ -472,17 +472,21 @@ async fn uncertain_coalesced_sync_never_retries_or_publishes_cache() -> anyhow::
         drop(release);
         leading.await??;
         let results = futures_util::future::join_all(pending).await;
-        Ok::<_, anyhow::Error>((results, f.barriers.counts()))
+        Ok::<_, anyhow::Error>(results)
     }
     .await;
     let closed = f.log.close().await;
     f.domain.shutdown().await;
-    let (results, barriers) = work?;
+    let results = work?;
+    // Include engine destruction in the no-retry assertion. A failed worker
+    // can send its replies before the engine's file writers finish dropping.
+    let barriers = f.barriers.counts();
     assert!(results
         .into_iter()
         .all(|result| matches!(result, Err(LogError::Io(_)))));
     assert!(matches!(closed, Err(LogError::Io(_))));
     assert_eq!(barriers, (1, 0));
+    assert_eq!(f.barriers.after_failure.load(Ordering::Acquire), 0);
     // read() refuses after node close; the cache itself must still contain only
     // the prior durable state, never the failed cohort's candidate metadata.
     for (group, metadata_bytes) in f.groups.iter().zip(metadata_before) {

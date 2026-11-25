@@ -223,6 +223,37 @@ impl BindingLifecycleGuard {
         journal.fence_execution(context, self.retained(), authority)
     }
 
+    /// Activate the exact proven claim and perform one bounded inspection in
+    /// the same owned I/O turn. The callback must enforce the supplied claim
+    /// and reconcile uncertain mutations before observing provider state.
+    /// The original deadline and lifecycle admission remain held throughout;
+    /// this cannot submit a mutating operation or return an execution grant.
+    pub fn inspect_execution<T, F, Fut>(
+        &self,
+        context: &Context,
+        authority: Arc<dyn super::containers::ExecutionFenceAuthority>,
+        kind: super::containers::ExecutionOperationKind,
+        payload: Vec<u8>,
+        inspect: F,
+    ) -> HandlerFuture<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(
+                super::containers::ExecutionClaim,
+                super::containers::ExecutionOperation,
+                Vec<u8>,
+            ) -> Fut
+            + Send
+            + 'static,
+        Fut: std::future::Future<Output = Result<T>> + Send + 'static,
+    {
+        let journal = BindingJournal {
+            name: self.name.clone(),
+            authority: self.authority.clone(),
+        };
+        journal.inspect_execution(context, self.retained(), authority, kind, payload, inspect)
+    }
+
     /// Framework work retains its existing admission through both provider I/O
     /// and result settlement. This does not acquire the mutex a second time.
     pub(super) fn retained(&self) -> Self {

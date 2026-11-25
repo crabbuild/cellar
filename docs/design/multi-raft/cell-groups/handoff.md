@@ -4,9 +4,117 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current Outbox and merged-source qualification checkpoint
+## Current discovery and managed qualification checkpoint
 
-Continue [PR #184](https://github.com/crabbuild/cellar/pull/184) on
+Continue [PR #186](https://github.com/crabbuild/cellar/pull/186), branch
+`codex/cg17-event-file-read-deadlines`, including latest main `7810ead24`.
+Runtime `240d6e230` repairs missing outbound node process-view discovery.
+One original inspection owns the bounded directory request and validates the
+current enrolled boot/engine/process before RPC and response acceptance. Cached
+calls stay direct. No membership, application authority or weaker backend is
+created. The unchanged owning regression is red on `576ee6d8a` (production
+`8c3435a5f`) and green after the repair; the receiver control also passes.
+
+The full managed target on the new source is **FAILED: 34 passed, 6 failed,
+15 explicit RustFS ignores**. Preserve all six: cold-router producer quiescence,
+extent joint-restart leader wait, seeding-source terminal reconciliation,
+replacement survivor/handoff verification, S3 seed lost-settlement reconciliation
+and cold-capacity startup/cleanup. Both discovery controls pass within it.
+A single unchanged cold-router comparison passes on the older executable in
+44.10s; it neither waives the failure nor proves its cause. Keep original request
+identities and do not label an ambiguous lifecycle mutation rejected.
+
+`CG-17-outbound-inspection-green-240d6e230-3373` retains exact source/binary/logs,
+the separately pinned comparison and all 27 explicitly reported closed failed
+roots with a hashed inventory. The earlier red is retained separately. Trace
+`group_client/close.rs` quiescence and controller retirement/physical joins before
+changing closure behavior; never turn `Unobserved` into success by assumption.
+The first failed fixed build executed no tests and receives no pass credit.
+
+Separately, [Linux run 45517688951](https://github.com/crabbuild/cellar/actions/runs/45517688951)
+passes **79/79 on `8c3435a5f`**, with portable upload and local custody verification
+complete. Both full six-thread libraries pass 1,444 tests with two existing
+ignores each; Container passes 48. All selected original EventStream,
+Container/Sandbox, Queue C2/C4 and other primitive functions pass unchanged.
+Bundle `CG-17-linux-current-8c3435a5f-3361` verifies the full source, all 3,612
+required source-manifest inputs, 13 ARM64 executables, images and closed fixture files.
+RustFS server objects and provider volumes are not exported by this runner.
+It does not qualify new discovery code, independent voters or the full release.
+Prior Mac original-deadline failures remain recorded.
+
+Independent `ba4c8ab98` campaign `3351` passes 7/8 daemon configurations and both
+actual fenced SQL all-voter-disk-loss drills. Extent maintenance resume remains
+unconfirmed at its original 20s limit. Its daemon disks were lost when the VM
+cleared guest `/tmp`; host logs and DR named volumes survive. The single unchanged
+`3358` replay fails all three reached configurations (five not reached); its nine
+mounted disks from three closed directories are exported before VM stop in
+`closed-daemon-guest-disks-3359.tar.gz`. A separate scope correction preserves the
+original retention report while fixing its misleading eight-directory label.
+This is one physical host and a SQL S3 cut, not all-primitive/provider-volume DR.
+
+The current-source [Linux follow-up](https://github.com/crabbuild/cellar/actions/runs/45537504606)
+was dispatched for `240d6e230`: the original 79 selections plus both discovery
+controls and the full serial managed target (82 selections total). It is not
+yet qualified. The 15 opt-in managed RustFS cases remain separate, and a later
+Linux pass cannot waive the recorded Mac managed failures.
+
+The next priorities are the six managed failures and original-ID maintenance
+reconciliation, then a current-source combined Linux/managed-RustFS/load/crash/
+disk-loss matrix and complete provider/session contracts. The checked-in plan's
+acceptance counts are unchanged. Default cutover and legacy removal remain gated.
+See [the source-scoped checkpoint](progress.md#cg-17-cold-node-discovery-and-retained-linux-qualification)
+for full failed cases, artifacts and qualification limits. The locked build,
+strict all-feature/all-target Cellar/Container Clippy, formatting, layout,
+dependency and documentation checks pass; the managed gate remains failed.
+
+## Earlier EventStream and bounded file-read checkpoint
+
+Earlier runtime `d393aa447`, following merged #184,
+passes the requested original EventStream and S3 Container/Sandbox file-read
+checks. Its full real campaign is still **FAILED, 12/13 functions**: materialized
+S3 Sandbox Create9 and extent S3 DestroyJob8 expire at five seconds. All four
+Container profiles and both Quorum Sandbox lifecycles pass. Keep those exact
+failed S3 operations as the next priority; do not restart from the now-passing
+file-read or EventStream diagnosis.
+
+Two full six-thread Cellar library runs pass 1,434 tests each with zero failures
+and two existing ignores. Container library passes 38/38; execution controller
+passes 21/21; query, scheduling and park selections pass 16 checks. All original
+source-proof refusal, S3 floor, Delete-input restoration, Start-output and actual
+process-fencing controls pass. Current-source isolated Linux qualification is
+still building at this checkpoint; older Linux passes do not qualify this source.
+
+The implementation uses fresh-authority retries for transient EventStream
+readers, one proven activation/inspection turn for bounded file operations,
+combined controller reservation/submission debt, authenticated Event-only idle
+Quorum coalescing and bounded streamed WAL verification. The WAL budget regression
+is red before the optimization; all 17 integrity/extent/disposable checks pass
+afterward. Every frame and prefix check remains. The park fixture joins pumps
+before runtime shutdown and still reports every cleanup error. The recovery daemon
+fixture declares Axum and passes strict all-feature checking.
+
+Checksummed backend journals retain completed physical outcomes for Create9
+and DestroyJob8. They do
+not timestamp the entire public response path or prove its exclusive latency
+cause. Never replay either mutation or clear its ambiguity from provider absence.
+Use `profile_rustfs_native_sandbox_recovery` to measure target input proof,
+physical work and parent S3 completion with the same oracles; retain failures
+and rerun the original function after a production change.
+
+The native and real bundles, inventory hashes and verified second copies are
+listed in [progress](progress.md#cg-17-eventstream-and-bounded-file-read-follow-up).
+The actual Docker/RustFS run retained all original 3s/5s requests, 3s maintenance
+and 60s restoration limits on the 4-CPU/8-GiB owned VM; another VM was co-resident.
+The first startup-only connection-close failure is retained, followed by a
+same-30s-budget readiness retry. The owned VM is stopped and joined, with objects
+and disks preserved. Evidence JSON stays outside the PR.
+
+Full CG-17 acceptance and independent Linux-voter/load/disk-loss qualification
+remain open. Default cutover and legacy removal remain gated.
+
+## Earlier Outbox and merged-source qualification checkpoint
+
+Merged [PR #184](https://github.com/crabbuild/cellar/pull/184) used
 `codex/cg17-request-deadlines`. Runtime `10fb1775d` includes main `2a37acf6a`
 (#185); the documentation conflict is resolved. The Outbox implementation now
 proves its work claim, retry reservation and exact binding intent together
