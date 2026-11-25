@@ -203,11 +203,16 @@ pub async fn replace_with_retry(
                 .store(true, Ordering::Release);
             lose_settlement = true;
         }
-        let progress = match f
+        let started = std::time::Instant::now();
+        let result = f
             .catalog
             .reconcile_movement(&cut, &execution, observer, TIMEOUT)
-            .await
-        {
+            .await;
+        eprintln!(
+            "managed replacement turn {turn}: archive={from_s3} elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
+        let progress = match result {
             Ok(progress) => progress,
             Err(FleetCatalogError::Unconfirmed) => {
                 let current = f.catalog.read(TIMEOUT).await?;

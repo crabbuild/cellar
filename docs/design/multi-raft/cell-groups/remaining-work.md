@@ -8,61 +8,63 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
-[PR #186](https://github.com/crabbuild/cellar/pull/186) includes latest main
-`7810ead24`. Runtime `240d6e230` adds bounded cold-target discovery to outbound
-node inspection. Its unchanged regression fails before the repair and passes
-afterward; the receiver control passes too. Current managed qualification is
-**FAILED: 34 passed, 6 failed, 15 explicit RustFS ignores**. All 27 explicitly
-retained failed-fixture roots have verified copies. No assertion, request budget,
-identity, durability proof or ambiguity rule changed. See [the current results](progress.md#cg-17-cold-node-discovery-and-retained-linux-qualification).
+[PR #190](https://github.com/crabbuild/cellar/pull/190) follows merged #186 on
+main `b23ec563f`. Runtime `4485c26a5` adds successful physical-join gating for
+producer quiescence, retained-voter endpoint discovery for group inspections,
+and rejection of seed completions observed after the original deadline. Frozen
+red/green controls cover all three repairs. Retirement debt, archive coverage,
+reclamation authority and uncertain mutation outcomes remain separate proofs.
+See [the current source-scoped results](progress.md#cg-17-retirement-retained-endpoints-and-seed-expiry).
 
-The preceding `8c3435a5f` [Linux qualification](https://github.com/crabbuild/cellar/actions/runs/45517688951)
-is now **PASS, 79/79 selections** with verified portable source, binaries, logs
-and closed fixture files. Both six-thread full libraries pass 1,444 tests; Container
-passes 48. All selected original EventStream, Container/Sandbox and Queue C2/C4
-cases pass with real RustFS. RF3 primitive fixtures remain in-process. These
-passes do not waive prior Mac deadline failures, qualify the new discovery code
-or close the independent managed/release gates.
+The full six-thread Cellar library passes **1,445 tests**, with zero failures and
+two existing ignores. The full serial managed target remains **FAILED:
+42 passed, 2 failed, 17 explicit RustFS ignores**. The same-source local RustFS
+campaign is **FAILED, 6/7 complete functions**. Both held-archive retirement
+image modes, quorumless refusal and all three original public S3
+output/deadline/slow-delivery functions pass. The replacement's lost terminal
+receipt is reconciled in both modes, but extent post-transfer drain proof fails.
+All 101 closed retained roots have verified copies; the owned backend and VM
+stop join. No original budget or assertion is relaxed.
 
-The current-source [Linux follow-up](https://github.com/crabbuild/cellar/actions/runs/45537504606)
-was dispatched for `240d6e230`: the original 79 selections plus both discovery
-controls and the full serial managed target (82 selections total). It is not
-yet qualified. The 15 opt-in managed RustFS cases remain separate, and a later
-Linux pass cannot waive the recorded Mac managed failures.
+The next feature and release priorities are:
 
-The remaining feature and release priorities are:
+1. **Close the two S3 movement failures.** Restarting retained seeding sources
+   and recovering after payload refusal/source failover both retain the original
+   reservation after eight `Unconfirmed` turns. Capture receiver/controller and
+   fresh membership failure boundaries before changing admission or retry rules.
+   The latter failure has not reached terminal settlement; its generic error
+   label does not prove a lost terminal CAS. Preserve each original identity.
+2. **Complete post-transfer readiness and independent maintenance recovery.**
+   Current RustFS extent replacement accepts handoff and releases leadership,
+   then fails local drain proof before the later survivor audit. Reconcile
+   the older independent resume/maintenance outcomes at their original IDs and
+   20-second bounds. A later pass cannot waive an earlier unconfirmed mutation.
+3. **Finish one retained current-source qualification envelope.** The
+   [105-selection Linux campaign](https://github.com/crabbuild/cellar/actions/runs/45558046660)
+   is queued for `4485c26a5`, including all 17 opt-in managed RustFS functions.
+   The preceding 79/79 Linux pass is pinned to `8c3435a5f`; the 82-selection
+   follow-up is pinned to `240d6e230`. All three use in-process RF3 primitive
+   fixtures. Independently capped Linux voters, sustained load/reclamation,
+   crash/partition schedules and combined all-voter disk loss still need one
+   same-source matrix and exported closed-state evidence. Older SQL disk-loss
+   passes do not qualify every primitive, interrupted transition, provider
+   volume or unarchived Quorum suffix/RPO.
+4. **Close complete public primitive and provider coverage.** Preserve normal
+   SDK/native/Axum/daemon/admin behavior and both durability minima, including
+   WebSocket/session ownership and interactive/provider execution. Every family
+   needs its full API and recovery contract; unsupported paths must refuse.
+5. **Pass the combined release gate before cutover and legacy removal.**
+   CG-17's 32 full cases remain pending. Focused function totals do not supply
+   their acceptance. Restore missing historical CG-01 evidence without
+   fabrication or waiver; keep the generated plan synchronized.
 
-1. Close the six current managed failures: cold-router producer quiescence,
-   joint-restart leader election, seeding-source terminal reconciliation,
-   replacement survivor/handoff verification, S3 seed lost-settlement
-   reconciliation and cold-capacity startup/cleanup. Keep original IDs and
-   resolve unknown results rather than issue replacement operations. The
-   pre-fix cold-router comparison passes once; the current failure remains open.
-2. Reconcile the independent maintenance failures and rerun the same constrained
-   voter envelope on the repaired source. Older `3351` passes 7/8 daemon profiles
-   but fails extent resume at 20s and loses guest daemon disks before export.
-   Its single retained `3358` replay fails three reached configurations; five
-   are not reached. Nine mounted disks from three directories are retained.
-3. Complete one retained, same-source Linux/managed-RustFS/load/reclamation/crash
-   matrix and the original request paths. The new discovery source needs Linux
-   requalification; 15 ignored managed RustFS cases are not accepted. The older
-   real Mac run remains 7/11 with EventStream and Container/Sandbox deadlines;
-   the new Linux pass is scoped separately. Both actual SQL disk-loss image
-   drills pass on older `ba4c8ab98`, but all-primitive, interrupted-transition,
-   provider-volume and Quorum-only suffix/RPO recovery remain unqualified.
-4. Close the complete primitive API/provider and lifecycle matrix, including
-   WebSocket/session ownership and interactive/provider execution. Every
-   supported family needs its required public paths, minima, feature modes and
-   recovery scenarios; no unsupported adapter can fall back to Fleet/bucket.
-5. Pass one combined source-pinned release envelope, then default cutover and
-   legacy removal. CG-17's 32 full cases remain pending; focused function totals
-   do not supply their acceptance. Resolve missing historical CG-01 evidence
-   without fabricating or waiving it. The generated plan's counts remain current.
-
-The locked build, strict all-feature/all-target Clippy, formatting, layout,
-dependency and documentation checks pass for the scoped discovery repair. Older
-`ba4c8ab98` and `f2423248b` failures and evidence-retention limits remain recorded
-under their original source boundaries in progress. No later pass waives them.
+The locked native/public builds, strict all-feature/all-target Cellar/Container
+Clippy, layout and native-dependency checks pass.
+Final fixture lint cleanup removes two redundant expressions without changing
+assertions; production and compiler inputs match the frozen runtime. The
+generated implementation index matches its source. Full plan validation still
+fails because the historical CG-01 evidence file is missing; no acceptance is
+fabricated or waived.
 
 The following checkpoints precede this integration and retain their original
 source boundaries.

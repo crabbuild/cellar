@@ -23,6 +23,8 @@ pub mod managed_fixture;
 
 #[path = "support/cell_group_managed_bootstrap.rs"]
 mod bootstrap;
+#[path = "support/cell_group_managed_group_endpoint.rs"]
+mod group_endpoint;
 #[path = "support/cell_group_managed_inspection_catchup.rs"]
 mod inspection_catchup;
 #[path = "support/cell_group_managed_inspection_endpoint.rs"]
@@ -38,6 +40,8 @@ mod registry;
 mod rustfs;
 #[path = "support/cell_group_managed_shutdown.rs"]
 mod shutdown;
+#[path = "support/cell_group_managed_shutdown_retirement.rs"]
+mod shutdown_retirement;
 
 async fn stopped(node: Node, service: &RaftCells) -> Result<()> {
     ensure!(matches!(

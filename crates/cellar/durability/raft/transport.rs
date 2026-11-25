@@ -1044,11 +1044,17 @@ impl State {
             .domain
             .sleep_until(deadline)
             .map_err(|_| TransportError::Closed)?;
-        crate::asyncrt::select! {
+        let result = crate::asyncrt::select! {
             _ = timer => Err(TransportError::Timeout),
             _ = stopped.changed() => Err(TransportError::Closed),
             result = future => result,
+        };
+        // A poll can cross expiry before yielding its ready success or error.
+        // Selection alone cannot enforce the original deadline after that poll.
+        if self.domain.mono_ms().map_err(|_| TransportError::Closed)? >= deadline {
+            return Err(TransportError::Timeout);
         }
+        result
     }
 
     async fn seed_io<T>(
@@ -1064,10 +1070,14 @@ impl State {
             .domain
             .sleep_until(deadline)
             .map_err(|_| TransportError::Closed)?;
-        crate::asyncrt::select! {
+        let result = crate::asyncrt::select! {
             _ = timer => Err(TransportError::Timeout),
             result = self.bounded(None, future) => result,
+        };
+        if self.domain.mono_ms().map_err(|_| TransportError::Closed)? >= deadline {
+            return Err(TransportError::Timeout);
         }
+        result
     }
 
     /// Reserve every worker before mutating a view. Callers perform all other

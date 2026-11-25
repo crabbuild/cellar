@@ -1,6 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
+#[path = "transport_deadline_tests.rs"]
+mod deadlines;
 #[path = "transport_directory_tests.rs"]
 mod directory;
 #[path = "transport_pipeline_tests.rs"]

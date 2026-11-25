@@ -88,18 +88,10 @@ impl RaftTransport {
         } else {
             History::new(authorization)
         };
-        let start = match state.bind_node_inspection(node, minimum_revision) {
-            Ok(target) => {
-                validate_history_route(&target.route, &history)?;
-                InspectionStart::Bound(Box::new(target))
-            }
-            Err(TransportError::StalePeer) => InspectionStart::Refresh(Box::new(
-                state
-                    .lagging_node_inspection_trust(minimum_revision)?
-                    .ok_or(TransportError::StalePeer)?,
-            )),
-            Err(error) => return Err(error),
-        };
+        let start = state.start_node_inspection(node, minimum_revision)?;
+        if let InspectionStart::Bound(target) = &start {
+            validate_history_route(&target.route, &history)?;
+        }
         let node_memory = state
             .inspection_metadata
             .acquire(META_BYTES)
@@ -115,25 +107,19 @@ impl RaftTransport {
         state.spawn(async move {
             let stage = Arc::new(AtomicU8::new(0));
             let result = async {
-                let target = match start {
-                    InspectionStart::Bound(target) => *target,
-                    InspectionStart::Refresh(previous) => {
-                        // Discover only the complete enrolled node cut. The
-                        // receiver still independently authorizes this history
-                        // and obtains fresh quorum proof. This eager owner
-                        // retains the original deadline and cancellation.
-                        if *cancelled.borrow() {
-                            return Err(TransportError::Closed);
-                        }
-                        let refresh = operation.refresh_node_inspection_trust(
-                            *previous, minimum_revision, deadline,
-                        );
-                        crate::asyncrt::select_biased! { "caller cancellation precedes fleet inspection discovery";
-                            _ = cancelled.changed() => return Err(TransportError::Closed),
-                            result = operation.seed_until(deadline, refresh) => result?,
-                        }
-                        operation.bind_node_inspection(node, minimum_revision)?
-                    }
+                if *cancelled.borrow() {
+                    return Err(TransportError::Closed);
+                }
+                // Discover only the physical endpoint of the current enrolled
+                // boot. The receiver independently authorizes the rooted
+                // history and obtains fresh quorum proof. This eager owner
+                // retains the original deadline, quota and cancellation.
+                let resolve = operation.resolve_node_inspection_target(
+                    start, node, minimum_revision, deadline,
+                );
+                let target = crate::asyncrt::select_biased! { "caller cancellation precedes fleet inspection discovery";
+                    _ = cancelled.changed() => return Err(TransportError::Closed),
+                    result = operation.seed_until(deadline, resolve) => result?,
                 };
                 let InspectionTarget { peer, route, epoch, memory } = target;
                 validate_history_route(&route, &history)?;
