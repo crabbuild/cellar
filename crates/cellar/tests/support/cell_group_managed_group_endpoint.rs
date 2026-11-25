@@ -216,6 +216,17 @@ async fn exercise(
     .await
     .context("hold control sender's process-view reader")?;
     let boot = restart(cluster, target).await?;
+    // A retained process is a new Fleet boot. Qualify its capacity and let
+    // the ordinary voters discover it before asking it to lead; the independent
+    // control-only sender's held process view remains deliberately stale.
+    managed_fixture::admit_capacity(
+        &cluster.fixtures[target],
+        &cluster.hosts[target],
+        &cluster.directory,
+        244,
+    )
+    .await?;
+    movement::discover(cluster).await?;
     transfer(cluster, target).await?;
     let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
     let local = control
