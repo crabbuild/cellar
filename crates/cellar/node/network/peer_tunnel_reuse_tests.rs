@@ -143,18 +143,47 @@ async fn rpc_reuse_retires_an_old_tunnel_before_delayed_submission_crosses_idle_
                     .await
                     .context("warm RPC failed before the delayed-submission cut")?;
                 assert_eq!(warm.status(), StatusCode::SERVICE_UNAVAILABLE);
-                warm.into_body().collect().await?;
+                let mut body = warm.into_body();
+                let (warm_key, sender) = body
+                    .reusable
+                    .take()
+                    .context("warm response lost its original tunnel")?;
+                assert!(warm_key == key);
+                body.collect().await?;
                 assert_eq!(connections.load(Ordering::SeqCst), 1);
                 // Cross the advertised half-window, but prove the receiver is still
                 // alive. The failure must come from submitting on the old socket,
                 // rather than checking out an already closed connection.
+                // Retain this fixture's physical sender outside the global
+                // idle cache until the cut. Other RPC tests legitimately prune
+                // every expired cache entry, which would close this socket
+                // before the delayed-submission oracle gets to exercise it.
                 crate::asyncrt::sleep(std::time::Duration::from_millis(500)).await;
+                assert!(
+                    !sender.inner.is_closed(),
+                    "fixture lost its sending tunnel before the submission cut"
+                );
+                assert!(!sender.reusable(), "fixture did not cross cache expiry");
+                let unrelated = TunnelKey {
+                    address: "unrelated-idle-cache-probe".into(),
+                    ..key.clone()
+                };
+                drop(checkout(&unrelated));
                 assert_eq!(
                     crate::asyncrt::services().inbound_rpc_usage().open_tunnels,
                     1,
                     "fixture lost its receiving tunnel before the submission cut"
                 );
                 gate.blocked.store(true, Ordering::SeqCst);
+                // Install the exact old sender at the submission boundary.
+                // Ordinary park must refuse it; using park here would retire
+                // it before the checkout behavior under test can observe it.
+                {
+                    let mut pool = TUNNELS.get_or_init(Default::default).lock().unwrap();
+                    anyhow::ensure!(pool.0.len() < TUNNEL_POOL_CAP);
+                    anyhow::ensure!(!pool.0.iter().any(|(cached, _)| cached == &key));
+                    pool.0.push_back((key.clone(), sender));
+                }
                 let reply =
                     crate::asyncrt::timeout(std::time::Duration::from_secs(2), call()).await;
                 gate.release();
