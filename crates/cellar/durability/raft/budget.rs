@@ -102,13 +102,21 @@ impl RetainedBytes {
 }
 
 impl Permit {
+    /// Joined work can keep its byte owner in place while refunding its active
+    /// operation slot. Repeated retention never refunds another operation.
+    pub(crate) fn retain_in_place(&mut self) {
+        if self.item {
+            let mut usage = self.owner.lock();
+            usage.items -= 1;
+            self.item = false;
+            drop(usage);
+            self.owner.released();
+        }
+    }
+
     /// Joined work may refund its operation slot without refunding any bytes.
     pub(crate) fn retain_all(mut self) -> RetainedBytes {
-        let mut usage = self.owner.lock();
-        usage.items -= usize::from(self.item);
-        self.item = false;
-        drop(usage);
-        self.owner.released();
+        self.retain_in_place();
         RetainedBytes { _permit: self }
     }
 
@@ -118,12 +126,7 @@ impl Permit {
         if !self.shrink_to(bytes) {
             return None;
         }
-        let mut usage = self.owner.lock();
-        usage.items -= usize::from(self.item);
-        self.item = false;
-        drop(usage);
-        self.owner.released();
-        Some(RetainedBytes { _permit: self })
+        Some(self.retain_all())
     }
 
     /// Ensure an admitted read can retain its payload before allocating it.

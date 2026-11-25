@@ -415,6 +415,8 @@ pub struct CellSqlUsage {
     pub retained_activations: usize,
     pub activation_capacity: usize,
     pub retained_bytes: usize,
+    /// Producer reservations and physical queries. Joined immutable query
+    /// replies retain their bytes and pool lease without an operation item.
     pub retained_operations: usize,
     pub running_workers: usize,
     pub worker_capacity: usize,

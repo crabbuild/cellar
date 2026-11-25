@@ -1602,6 +1602,26 @@ async fn rooted_registered_queries_keep_cell_observation_and_ownership() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn joined_query_replies_release_node_operation_capacity() -> Result<()> {
+    Box::pin(runtime_fixture::joined_query_capacity(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn joined_query_replies_release_group_operation_capacity() -> Result<()> {
+    Box::pin(runtime_fixture::joined_query_capacity(false, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_joined_query_replies_release_node_operation_capacity() -> Result<()> {
+    Box::pin(runtime_fixture::joined_query_capacity(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_joined_query_replies_release_group_operation_capacity() -> Result<()> {
+    Box::pin(runtime_fixture::joined_query_capacity(true, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn catalog_routed_queries_preserve_invocation_and_authority() -> Result<()> {
     Box::pin(runtime_fixture::routed_queries(false)).await
 }

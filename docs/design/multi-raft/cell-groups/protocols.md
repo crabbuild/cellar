@@ -167,6 +167,11 @@ deadline and quotas. Catalog activation drops its prior response before waiting
 again; a version change grants no readiness or mutation permission.
 Retain result admission until consumption, and retain entered SQL/image owners
 through physical cleanup after disconnect, timeout or cancelled shutdown.
+After a received SQL worker reply, a uniquely owned immutable query result may
+refund its node and group SQL operation items. Its retained bytes and SQL pool
+lease remain charged until consumption. Shared physical owners keep their
+operation items; controller and transport result admission keep their own
+original reservations through delivery.
 
 Invocation routing shares a bounded namespace range-hint cache across query,
 command and enrollment dispatch. Configure both entry and reserved-byte bounds;

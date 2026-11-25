@@ -107,6 +107,16 @@ pub(super) struct Bytes {
 }
 
 impl Bytes {
+    /// Only a joined, uniquely owned immutable result may refund operation
+    /// items. Shared physical owners keep both banks active; all bytes and the
+    /// SQL pool lease remain charged in the original allocation until drop.
+    pub fn retain_joined(bytes: &mut Arc<Self>) {
+        if let Some(unique) = Arc::get_mut(bytes) {
+            unique._node.retain_in_place();
+            unique._group.retain_in_place();
+        }
+    }
+
     pub fn shrink(bytes: &mut Arc<Self>, retained: usize) -> Result<(), ExecutionError> {
         let unique =
             Arc::get_mut(bytes).ok_or(ExecutionError::Invalid("shared capture admission"))?;
