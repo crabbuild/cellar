@@ -65,12 +65,19 @@ impl GroupRoster {
             .page(scopes, revision, after, capacity, limit)
     }
 
-    pub(super) fn producers_quiesced(&self) -> bool {
+    /// Structural eligibility after the controller's successful physical join.
+    /// Retirement bookkeeping can remain unfinished after all producers stop;
+    /// it still withholds detachment, reclamation and registration-slot reuse.
+    /// This predicate alone never proves that any physical owner has joined.
+    pub(super) fn shutdown_states_valid(&self) -> bool {
         self.groups.lock().is_ok_and(|groups| {
             groups.entries.values().all(|state| {
                 matches!(
                     state,
-                    GroupState::Active | GroupState::ParkedRetired | GroupState::ParkedRemoved
+                    GroupState::Active
+                        | GroupState::Retiring
+                        | GroupState::ParkedRetired
+                        | GroupState::ParkedRemoved
                 )
             })
         })

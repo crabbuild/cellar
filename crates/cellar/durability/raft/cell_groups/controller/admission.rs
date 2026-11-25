@@ -115,11 +115,23 @@ impl Shared {
 }
 
 impl CellGroupController {
-    /// Conservative shutdown observation behind the sealed public barrier.
+    /// Conservative shutdown observation behind a successful terminal join and
+    /// the sealed public barrier. An empty live queue is not a closure proof.
     /// Poison, an unbound owner, held responses, pending provisioning or any
     /// accepted physical application work make this proof unavailable.
     pub(crate) fn local_producers_quiesced(&self) -> bool {
         let shared = &self.handle.0;
+        // The terminal result is installed only after the worker, transport,
+        // archive, SQL and runtime owners have joined and their charges released.
+        // A failed join, poisoned observation or still-running worker supplies
+        // no proof, even if its queues happen to be empty at this instant.
+        if !shared
+            .terminal
+            .lock()
+            .is_ok_and(|terminal| terminal.as_ref().is_some_and(|result| result.is_ok()))
+        {
+            return false;
+        }
         let Ok(_configuration) = shared.admission_configuration.lock() else {
             return false;
         };
@@ -132,7 +144,7 @@ impl CellGroupController {
             || shared.commands.usage().1 != 0
             || shared.callbacks.usage().1 != 0
             || shared.active_effects.load(Ordering::Acquire) != 0
-            || !shared.groups.producers_quiesced()
+            || !shared.groups.shutdown_states_valid()
         {
             return false;
         }

@@ -68,6 +68,63 @@ The locked build, strict all-feature/all-target Clippy, formatting, layout,
 dependency and documentation checks pass for the scoped discovery repair. Older
 `ba4c8ab98` and `f2423248b` failures and evidence-retention limits remain recorded
 under their original source boundaries in progress. No later pass waives them.
+[PR #190](https://github.com/crabbuild/cellar/pull/190) follows merged #186 on
+main `b23ec563f`. Runtime `4485c26a5` adds successful physical-join gating for
+producer quiescence, retained-voter endpoint discovery for group inspections,
+and rejection of seed completions observed after the original deadline. Frozen
+red/green controls cover all three repairs. Retirement debt, archive coverage,
+reclamation authority and uncertain mutation outcomes remain separate proofs.
+See [the current source-scoped results](progress.md#cg-17-retirement-retained-endpoints-and-seed-expiry).
+
+The full six-thread Cellar library passes **1,445 tests**, with zero failures and
+two existing ignores. The full serial managed target remains **FAILED:
+42 passed, 2 failed, 17 explicit RustFS ignores**. The same-source local RustFS
+campaign is **FAILED, 6/7 complete functions**. Both held-archive retirement
+image modes, quorumless refusal and all three original public S3
+output/deadline/slow-delivery functions pass. The replacement's lost terminal
+receipt is reconciled in both modes, but extent post-transfer drain proof fails.
+All 101 closed retained roots have verified copies; the owned backend and VM
+stop join. No original budget or assertion is relaxed.
+
+The next feature and release priorities are:
+
+1. **Close the two S3 movement failures.** Restarting retained seeding sources
+   and recovering after payload refusal/source failover both retain the original
+   reservation after eight `Unconfirmed` turns. Capture receiver/controller and
+   fresh membership failure boundaries before changing admission or retry rules.
+   The latter failure has not reached terminal settlement; its generic error
+   label does not prove a lost terminal CAS. Preserve each original identity.
+2. **Complete post-transfer readiness and independent maintenance recovery.**
+   Current RustFS extent replacement accepts handoff and releases leadership,
+   then fails local drain proof before the later survivor audit. Reconcile
+   the older independent resume/maintenance outcomes at their original IDs and
+   20-second bounds. A later pass cannot waive an earlier unconfirmed mutation.
+3. **Finish one retained current-source qualification envelope.** The
+   [105-selection Linux campaign](https://github.com/crabbuild/cellar/actions/runs/45558046660)
+   is queued for `4485c26a5`, including all 17 opt-in managed RustFS functions.
+   The preceding 79/79 Linux pass is pinned to `8c3435a5f`; the 82-selection
+   follow-up is pinned to `240d6e230`. All three use in-process RF3 primitive
+   fixtures. Independently capped Linux voters, sustained load/reclamation,
+   crash/partition schedules and combined all-voter disk loss still need one
+   same-source matrix and exported closed-state evidence. Older SQL disk-loss
+   passes do not qualify every primitive, interrupted transition, provider
+   volume or unarchived Quorum suffix/RPO.
+4. **Close complete public primitive and provider coverage.** Preserve normal
+   SDK/native/Axum/daemon/admin behavior and both durability minima, including
+   WebSocket/session ownership and interactive/provider execution. Every family
+   needs its full API and recovery contract; unsupported paths must refuse.
+5. **Pass the combined release gate before cutover and legacy removal.**
+   CG-17's 32 full cases remain pending. Focused function totals do not supply
+   their acceptance. Restore missing historical CG-01 evidence without
+   fabrication or waiver; keep the generated plan synchronized.
+
+The locked native/public builds, strict all-feature/all-target Cellar/Container
+Clippy, layout and native-dependency checks pass.
+Final fixture lint cleanup removes two redundant expressions without changing
+assertions; production and compiler inputs match the frozen runtime. The
+generated implementation index matches its source. Full plan validation still
+fails because the historical CG-01 evidence file is missing; no acceptance is
+fabricated or waived.
 
 The following checkpoints precede this integration and retain their original
 source boundaries.

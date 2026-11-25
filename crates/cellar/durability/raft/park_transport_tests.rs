@@ -177,6 +177,7 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
     let mut transports = Vec::new();
     let mut pumps = Vec::new();
     let (stop_pumps, pump_stop) = tokio::sync::watch::channel(false);
+    let (start_pumps, pump_start) = tokio::sync::watch::channel(false);
     // Preserve the original certificate lifetimes through owner shutdown.
     let mut selected_certificate = None;
     let mut retry_certificate = None;
@@ -322,60 +323,73 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
                 .attach(permit, root)
                 .await
                 .with_context(|| format!("park fixture attach voter={index}"))?;
-            let pump =
-                domain.spawn({
-                    let runtime = runtime.clone();
-                    let transport = transport.clone();
-                    let mut stopped = pump_stop.clone();
-                    async move {
-                        loop {
-                            let event = crate::asyncrt::select_biased! {
-                                "stop pump intake before runtime shutdown";
-                                _ = stopped.changed() => break,
-                                event = events.recv() => event,
-                            };
-                            let Some(event) = event else { break };
-                            match event.effect().map_err(Clone::clone).with_context(|| {
-                                format!("park fixture event effect voter={index}")
-                            })? {
-                                CellGroupEffect::Message(_) => {
-                                    // The transport owns queued delivery independent of the waiter.
-                                    let _delivery =
-                                        transport.submit_cell_group_event(&event).with_context(
-                                            || format!("park fixture submit event voter={index}"),
-                                        )?;
-                                }
-                                CellGroupEffect::Apply(_) => {
-                                    let work = event.retain_apply().context("physical apply")?;
-                                    drop(event);
-                                    let prepare = work.clone();
-                                    let applier = applier.clone();
-                                    let next = crate::asyncrt::blocking(move || {
-                                        let performance = crate::raft::performance::Registry::new(
-                                            crate::asyncrt::services().domain_token().ok_or(
-                                                crate::raft::execution::ExecutionError::Invalid(
-                                                    "park transport apply domain",
-                                                ),
-                                            )?,
-                                        );
-                                        applier
-                                            .prepare(&prepare, &performance, None, |_| Ok(None))
-                                            .map(|result| result.first)
-                                    })
-                                    .await??;
-                                    runtime
-                                        .complete_apply(history, work, next)
-                                        .await
-                                        .with_context(|| {
-                                            format!("park fixture complete apply voter={index}")
-                                        })?;
-                                }
-                                _ => (),
-                            }
+            let pump = domain.spawn({
+                let runtime = runtime.clone();
+                let transport = transport.clone();
+                let mut stopped = pump_stop.clone();
+                let mut started = pump_start.clone();
+                async move {
+                    loop {
+                        let ready = *started.borrow_and_update();
+                        if ready {
+                            break;
                         }
-                        Ok::<_, anyhow::Error>(())
+                        crate::asyncrt::select_biased! {
+                            "stop unstarted park pumps before cleanup";
+                            _ = stopped.changed() => return Ok::<_, anyhow::Error>(()),
+                            ready = started.changed() => ready.context("park route installation")?,
+                        }
                     }
-                })?;
+                    loop {
+                        let event = crate::asyncrt::select_biased! {
+                            "stop pump intake before runtime shutdown";
+                            _ = stopped.changed() => break,
+                            event = events.recv() => event,
+                        };
+                        let Some(event) = event else { break };
+                        match event
+                            .effect()
+                            .map_err(Clone::clone)
+                            .with_context(|| format!("park fixture event effect voter={index}"))?
+                        {
+                            CellGroupEffect::Message(_) => {
+                                // The transport owns queued delivery independent of the waiter.
+                                let _delivery =
+                                    transport.submit_cell_group_event(&event).with_context(
+                                        || format!("park fixture submit event voter={index}"),
+                                    )?;
+                            }
+                            CellGroupEffect::Apply(_) => {
+                                let work = event.retain_apply().context("physical apply")?;
+                                drop(event);
+                                let prepare = work.clone();
+                                let applier = applier.clone();
+                                let next = crate::asyncrt::blocking(move || {
+                                    let performance = crate::raft::performance::Registry::new(
+                                        crate::asyncrt::services().domain_token().ok_or(
+                                            crate::raft::execution::ExecutionError::Invalid(
+                                                "park transport apply domain",
+                                            ),
+                                        )?,
+                                    );
+                                    applier
+                                        .prepare(&prepare, &performance, None, |_| Ok(None))
+                                        .map(|result| result.first)
+                                })
+                                .await??;
+                                runtime
+                                    .complete_apply(history, work, next)
+                                    .await
+                                    .with_context(|| {
+                                        format!("park fixture complete apply voter={index}")
+                                    })?;
+                            }
+                            _ => (),
+                        }
+                    }
+                    Ok::<_, anyhow::Error>(())
+                }
+            })?;
             peers.push(RaftPeer {
                 replica: identity,
                 label,
@@ -394,6 +408,10 @@ async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
                 peers: peers.clone(),
             })?;
         }
+        // An early voter's election can enqueue messages while later voters
+        // are still opening disks. Forward them only after every physical route
+        // exists; UnknownGroup remains an error throughout the actual scenario.
+        start_pumps.send_replace(true);
         let runtime = &runtimes[0];
         let transport = &transports[0];
         let log = &logs[0];

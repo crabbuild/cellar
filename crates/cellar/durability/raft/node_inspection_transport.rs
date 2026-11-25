@@ -60,10 +60,6 @@ pub(super) struct InspectionTarget {
 pub(super) enum InspectionStart {
     Bound(Box<InspectionTarget>),
     Refresh(Box<crate::raft::fleet_catalog::FleetTrustSnapshot>),
-}
-
-enum NodeInspectionStart {
-    Known(InspectionStart),
     Discover(Box<(RouterRefreshClient, RouterRefreshKey)>),
 }
 
@@ -156,23 +152,7 @@ impl RaftTransport {
         if deadline <= now || deadline - now > 60_000 {
             return Err(TransportError::Timeout);
         }
-        let start = match state.bind_node_inspection(node, minimum_revision) {
-            Ok(target) => NodeInspectionStart::Known(InspectionStart::Bound(Box::new(target))),
-            Err(TransportError::StalePeer) => {
-                NodeInspectionStart::Known(InspectionStart::Refresh(Box::new(
-                    state
-                        .lagging_node_inspection_trust(minimum_revision)?
-                        .ok_or(TransportError::StalePeer)?,
-                )))
-            }
-            Err(TransportError::Refused) => {
-                let discovery = state
-                    .outbound_node_inspection_refresh(node, minimum_revision)?
-                    .ok_or(TransportError::Refused)?;
-                NodeInspectionStart::Discover(Box::new(discovery))
-            }
-            Err(error) => return Err(error),
-        };
+        let start = state.start_node_inspection(node, minimum_revision)?;
         let node_memory = state
             .inspection_metadata
             .acquire(META_BYTES)
@@ -236,20 +216,43 @@ impl RaftTransport {
 }
 
 impl State {
-    async fn resolve_node_inspection_target(
+    /// Physical discovery is shared by node and group inspections. It grants
+    /// neither rooted group authority nor a weaker process/engine binding.
+    pub(super) fn start_node_inspection(
         &self,
-        start: NodeInspectionStart,
+        node: NodeId,
+        minimum_revision: u64,
+    ) -> Result<InspectionStart, TransportError> {
+        match self.bind_node_inspection(node, minimum_revision) {
+            Ok(target) => Ok(InspectionStart::Bound(Box::new(target))),
+            Err(TransportError::StalePeer) => Ok(InspectionStart::Refresh(Box::new(
+                self.lagging_node_inspection_trust(minimum_revision)?
+                    .ok_or(TransportError::StalePeer)?,
+            ))),
+            Err(TransportError::Refused) => {
+                let discovery = self
+                    .outbound_node_inspection_refresh(node, minimum_revision)?
+                    .ok_or(TransportError::Refused)?;
+                Ok(InspectionStart::Discover(Box::new(discovery)))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(super) async fn resolve_node_inspection_target(
+        &self,
+        start: InspectionStart,
         node: NodeId,
         minimum_revision: u64,
         deadline: u64,
     ) -> Result<InspectionTarget, TransportError> {
         match start {
-            NodeInspectionStart::Known(InspectionStart::Bound(target)) => return Ok(*target),
-            NodeInspectionStart::Known(InspectionStart::Refresh(previous)) => {
+            InspectionStart::Bound(target) => return Ok(*target),
+            InspectionStart::Refresh(previous) => {
                 self.refresh_node_inspection_trust(*previous, minimum_revision, deadline)
                     .await?;
             }
-            NodeInspectionStart::Discover(discovery) => {
+            InspectionStart::Discover(discovery) => {
                 let (client, key) = *discovery;
                 self.refresh_node_inspection_endpoint(client, key, deadline)
                     .await?;
