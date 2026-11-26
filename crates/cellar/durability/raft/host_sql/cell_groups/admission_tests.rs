@@ -635,3 +635,51 @@ async fn writer_contention_and_release_retain_physical_admission() -> anyhow::Re
     domain.shutdown().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn joined_queries_release_only_unique_items_and_keep_retirement_pins() -> anyhow::Result<()> {
+    for node_items in [1, 2] {
+        let f = Fixture::new(node_items, 1).await?;
+        let group = group(6)?;
+        let mut output = f.admission.reserve_read(group, 32)?;
+        let physical = output.clone();
+        Bytes::retain_joined(&mut output);
+        assert_eq!(f.admission.usage()?, (0, 32, 1));
+        let capacity = refused(&f, &cell(group, "waiting-reader")?, group, 1)
+            .wait
+            .expect("the original node or group item is still occupied");
+        {
+            let mut wait = std::pin::pin!(capacity.released());
+            assert!(wait.as_mut().now_or_never().is_none());
+            drop(physical);
+            assert!(wait.as_mut().now_or_never().is_none());
+            Bytes::retain_joined(&mut output);
+            assert!(wait.as_mut().now_or_never().is_some());
+        }
+        Bytes::retain_joined(&mut output);
+        assert_eq!(f.admission.usage()?, (0, 32, 0));
+        let mut other = f.admission.reserve_read(group, 32)?;
+        assert_eq!(f.admission.usage()?, (0, 64, 1));
+        Bytes::retain_joined(&mut other);
+        assert_eq!(f.admission.usage()?, (0, 64, 0));
+        assert!(matches!(
+            f.admission.reserve_read(group, 1),
+            Err(ExecutionError::Refused(CommandFailure::Overloaded))
+        ));
+        assert_eq!(f.admission.usage()?, (0, 64, 0));
+        assert!(!f.admission.retire(group)?);
+        assert!(matches!(
+            f.admission.release_reclaimed_group(group),
+            Err(ExecutionError::Busy)
+        ));
+        assert!(matches!(
+            f.admission.reserve_read(group, 1),
+            Err(ExecutionError::Refused(CommandFailure::Unavailable))
+        ));
+        drop((output, other, capacity));
+        assert!(f.admission.retire(group)?);
+        f.admission.release_reclaimed_group(group)?;
+        f.close().await?;
+    }
+    Ok(())
+}

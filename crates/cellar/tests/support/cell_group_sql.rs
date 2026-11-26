@@ -613,6 +613,10 @@ pub(crate) use registered::disposable_directory;
 mod registered_queries;
 pub(crate) use registered_queries::queries as registered_queries;
 
+#[path = "cell_group_sql_read_capacity.rs"]
+mod read_capacity;
+pub(crate) use read_capacity::run as joined_query_capacity;
+
 #[path = "cell_group_sql_dispatch.rs"]
 mod dispatch;
 pub(crate) use dispatch::routed as routed_queries;

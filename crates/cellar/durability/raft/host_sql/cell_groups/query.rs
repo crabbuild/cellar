@@ -89,6 +89,16 @@ pub struct CellSqlQueryResult {
 }
 
 impl CellSqlQueryResult {
+    // Call only after receiving the physical SQL worker's reply. The callback,
+    // immutable database, image pin and work guard have then joined. Delivery
+    // keeps the same byte reservations and cannot occupy another SQL item.
+    fn retain_joined(mut self) -> Self {
+        if let OutputRetention::Sql { _bytes } = &mut self._retention {
+            Bytes::retain_joined(_bytes);
+        }
+        self
+    }
+
     /// The callback and image pin have joined before this immutable result
     /// exists. Acquire archive admission before releasing its SQL reservation.
     pub(crate) fn retain_for_archive(
@@ -450,7 +460,10 @@ impl CellGroupSqlPool {
                         if domain.mono_ms().map_err(|_| unavailable())? >= deadline {
                             return Err(crate::raft::execution::storage(RuntimeError::DeadlineExceeded));
                         }
-                        Ok(output)
+                        Ok(match output {
+                            CellSqlOutcome::Queried(result) => CellSqlOutcome::Queried(result.retain_joined()),
+                            output => output,
+                        })
                     }
                     _ => Err(ExecutionError::Invalid("cell query reply")),
                 }
