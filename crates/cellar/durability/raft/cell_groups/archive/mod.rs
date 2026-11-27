@@ -121,6 +121,9 @@ pub struct CellGroupArchiveLimits {
     pub max_checkpoint_bytes: u64,
     /// Deadline for a complete individual PUT or GET, including its body stream.
     pub io_timeout_ms: u64,
+    /// Minimum shared-timer interval between quiet background archive turns.
+    /// Foreground S3 waiters still wake immediately.
+    pub background_interval_ms: u64,
 }
 
 impl Default for CellGroupArchiveLimits {
@@ -132,6 +135,7 @@ impl Default for CellGroupArchiveLimits {
             max_chunks: 4096,
             max_checkpoint_bytes: 256 * 1024 * 1024,
             io_timeout_ms: 10_000,
+            background_interval_ms: 100,
         }
     }
 }
@@ -143,6 +147,7 @@ impl CellGroupArchiveLimits {
             || !(1..=65_536).contains(&self.max_chunks)
             || !(64 * 1024..=1024 * 1024 * 1024).contains(&self.max_checkpoint_bytes)
             || !(1..=60_000).contains(&self.io_timeout_ms)
+            || !(10..=60_000).contains(&self.background_interval_ms)
         {
             return Err(CellGroupArchiveError::Limit);
         }
@@ -258,6 +263,10 @@ impl CellGroupArchivePool {
             workspace,
             payloads: None,
         })
+    }
+
+    pub(crate) fn background_interval_ms(&self) -> u64 {
+        self.limits.background_interval_ms
     }
 
     /// Share the node's external-byte admission with foreground reads and

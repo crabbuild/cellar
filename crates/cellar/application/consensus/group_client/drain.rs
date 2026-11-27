@@ -2,6 +2,9 @@
 
 //! One bounded turn per physical group. The actual Raft owner rechecks term,
 //! membership revision, recent activity and catch-up before admitting transfer.
+//! A fair share of the caller's deadline is available only while the group
+//! keeps making observable progress, so a peer that is itself stopping cannot
+//! hold every later group for the whole budget.
 use super::*;
 use crate::raft::{
     completion::{LeadershipTransfer, RuntimeError},
@@ -22,42 +25,47 @@ impl RaftCells {
             .cell_groups()
             .map_err(|_| CommandFailure::Unavailable)?;
         let mut report = RaftDrainReport::default();
-        for group in groups {
+        let total = groups.len();
+        for (index, group) in groups.into_iter().enumerate() {
             let now = domain.mono_ms().map_err(|_| CommandFailure::Unavailable)?;
             if now >= deadline {
                 report.deadline_elapsed = true;
                 break;
             }
             report.groups_examined += 1;
-            let through = deadline.min(now.saturating_add(1000));
+            let remaining_groups = (total - index) as u64;
+            let share = (deadline - now).div_ceil(remaining_groups).max(PROGRESS_MS);
+            let through = deadline.min(now.saturating_add(share));
             let history = group.identity().scope;
             let local = group.identity().member.get();
+            let mut watch = Progress::new(now);
             let mut turn = Turn::default();
             let outcome = within(domain, through, async {
                 loop {
                     let status = core.runtime.status(history).await?;
+                    watch.observe(domain, &status)?;
                     if status.leader != Some(local) {
                         if status.applied.index == status.committed {
                             return Ok(());
                         }
-                        pause(domain, through).await?;
+                        pause(domain, through.min(watch.through())).await?;
                         continue;
                     }
                     turn.needed = true;
                     if status.ready && status.applied.index == status.committed {
                         break;
                     }
-                    pause(domain, through).await?;
+                    pause(domain, through.min(watch.through())).await?;
                 }
-                let progress = core.runtime.replication_status(history).await?;
-                for member in progress
+                let replication = core.runtime.replication_status(history).await?;
+                for member in replication
                     .members
                     .iter()
                     .filter(|p| {
                         p.voter
                             && p.member.get() != local
                             && p.recent_active
-                            && p.matched >= progress.committed
+                            && p.matched >= replication.committed
                     })
                     .take(8)
                 {
@@ -68,8 +76,8 @@ impl RaftCells {
                             history,
                             LeadershipTransfer {
                                 target: member.member,
-                                expected_term: progress.term,
-                                expected_revision: progress.membership_revision,
+                                expected_term: replication.term,
+                                expected_revision: replication.membership_revision,
                             },
                         )
                         .await
@@ -78,10 +86,12 @@ impl RaftCells {
                             // Admission remains a separate observation if this
                             // deadline expires before a successor is visible.
                             turn.accepted = true;
+                            watch.reset(domain)?;
                             within(domain, through, async {
                                 loop {
                                     let status = core.runtime.status(history).await?;
-                                    if status.term >= progress.term
+                                    watch.observe(domain, &status)?;
+                                    if status.term >= replication.term
                                         && status.leader.is_some_and(|id| id != local)
                                     {
                                         turn.released = true;
@@ -93,7 +103,7 @@ impl RaftCells {
                                             return Ok(());
                                         }
                                     }
-                                    pause(domain, through).await?;
+                                    pause(domain, through.min(watch.through())).await?;
                                 }
                             })
                             .await?;
@@ -125,6 +135,61 @@ struct Turn {
     attempts: usize,
     accepted: bool,
     released: bool,
+}
+
+/// A group may use its fair share of the node drain budget only while it shows
+/// observable progress. Once leadership, readiness, commit or apply stop
+/// changing for this window, the turn gives up instead of holding shutdown for
+/// the caller's whole deadline. A progressing handoff can still consume its
+/// fair share; a peer that is itself stopping cannot stall every later group.
+const PROGRESS_MS: u64 = 1_000;
+
+struct Progress {
+    observed: Option<(Option<u64>, bool, u64, u64)>,
+    through: u64,
+}
+
+impl Progress {
+    fn new(now: u64) -> Self {
+        Self {
+            observed: None,
+            through: now.saturating_add(PROGRESS_MS),
+        }
+    }
+
+    fn observe(
+        &mut self,
+        domain: &crate::asyncrt::DomainToken,
+        status: &crate::raft::cell_groups::CellGroupStatus,
+    ) -> Result<(), RuntimeError> {
+        let now = domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
+        let observed = (
+            status.leader,
+            status.ready,
+            status.committed.get(),
+            status.applied.index.get(),
+        );
+        if self.observed != Some(observed) {
+            self.observed = Some(observed);
+            self.through = now.saturating_add(PROGRESS_MS);
+        } else if now >= self.through {
+            return Err(RuntimeError::DeadlineExceeded);
+        }
+        Ok(())
+    }
+
+    /// Transfer acceptance is progress by itself; give the successor a fresh
+    /// no-progress window without extending the caller's overall deadline.
+    fn reset(&mut self, domain: &crate::asyncrt::DomainToken) -> Result<(), RuntimeError> {
+        let now = domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
+        self.observed = None;
+        self.through = now.saturating_add(PROGRESS_MS);
+        Ok(())
+    }
+
+    fn through(&self) -> u64 {
+        self.through
+    }
 }
 
 pub(super) async fn within<T>(

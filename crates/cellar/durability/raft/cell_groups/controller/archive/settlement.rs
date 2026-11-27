@@ -759,6 +759,7 @@ pub(super) async fn prove(
     eligibility: Option<Eligibility>,
 ) -> Vec<Request> {
     let mut waiting = Vec::new();
+    let mut verified = Vec::new();
     if let Err(error) = context.uses.track(coverage, eligibility) {
         let error = Arc::new(error);
         for request in requests {
@@ -902,33 +903,51 @@ pub(super) async fn prove(
                 let _ = request.reply.send(Err(CellDispatchError::Execution(error)));
             }
             Err(error) => request.fail(Arc::new(Error::Archive(error))),
-            Ok(true) => {
-                if let Err(error) = context.authority.require_current().await {
-                    request.fail(Arc::new(error));
-                    continue;
-                }
-                if let Err(error) = context.uses.prove_output(coverage) {
-                    request.fail(Arc::new(error));
-                    continue;
-                }
-                let Request {
-                    output,
-                    reply,
-                    permit,
-                    ..
-                } = request;
-                let _ = reply.send(Ok(Settled {
-                    output,
-                    proof: Box::new(OutputProof {
-                        _coverage: coverage.clone(),
-                        _journal: context.journal.clone(),
-                        _permit: permit,
-                        authority: context.authority.clone(),
-                        tails: registration.tails.clone(),
-                        checkpoints: registration.checkpoints.clone(),
-                    }),
-                }));
+            Ok(true) => verified.push(request),
+        }
+    }
+    if !verified.is_empty() {
+        // One post-verification authority check covers the entire same-group
+        // batch after every physical receipt/query check above completed.
+        if let Err(error) = context.authority.require_current().await {
+            let error = Arc::new(error);
+            for request in verified {
+                request.fail(error.clone());
             }
+            return waiting;
+        }
+        if let Err(error) = context.uses.prove_output(coverage) {
+            let error = Arc::new(error);
+            for request in verified {
+                request.fail(error.clone());
+            }
+            return waiting;
+        }
+        let now = execution
+            .run(async { crate::asyncrt::mono_ms() })
+            .await
+            .unwrap_or(u64::MAX);
+        for request in verified {
+            if request.expired(now) {
+                continue;
+            }
+            let Request {
+                output,
+                reply,
+                permit,
+                ..
+            } = request;
+            let _ = reply.send(Ok(Settled {
+                output,
+                proof: Box::new(OutputProof {
+                    _coverage: coverage.clone(),
+                    _journal: context.journal.clone(),
+                    _permit: permit,
+                    authority: context.authority.clone(),
+                    tails: registration.tails.clone(),
+                    checkpoints: registration.checkpoints.clone(),
+                }),
+            }));
         }
     }
     waiting

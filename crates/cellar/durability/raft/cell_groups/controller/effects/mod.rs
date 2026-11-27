@@ -175,7 +175,7 @@ pub(super) struct Completed {
     pub(super) group: GroupHistory,
     cell: Option<CellId>,
     interval: u64,
-    result: Result<(), turn::Error>,
+    result: Result<bool, turn::Error>,
 }
 
 impl Manager {
@@ -355,11 +355,15 @@ impl Manager {
                 self.cells.insert(completed.group, cell);
             }
         }
-        self.next_at = shared
-            .domain
-            .mono_ms()
-            .unwrap_or(u64::MAX)
-            .saturating_add(completed.interval);
+        let now = shared.domain.mono_ms().unwrap_or(u64::MAX);
+        // Back off only when the turn found no executable work or failed.
+        // Productive turns immediately advance the fair group/cell cursors
+        // so backlog drains without sleeping between consecutive batches.
+        self.next_at = if matches!(completed.result, Ok(true)) {
+            now
+        } else {
+            now.saturating_add(completed.interval)
+        };
         shared.active_effects.store(0, Ordering::Release);
         shared.effect_turns.fetch_add(1, Ordering::Relaxed);
         if let Err(error) = completed.result {
