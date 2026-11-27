@@ -506,7 +506,12 @@ async fn run(
             }
         }
         if warm_cache {
-            tokio::time::timeout(Duration::from_secs(5), async {
+            // The measurement profile paces quiet background archive turns at
+            // two seconds (`raft_limits::shared`). A follower can carry a
+            // transient archive error across several retry intervals, so the
+            // liveness bound must clear that cadence; the cache inventory
+            // assertions below remain exact.
+            tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
                     let mut caught_up = true;
                     for service in &services {
