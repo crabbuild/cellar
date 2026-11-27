@@ -79,7 +79,10 @@ pub fn shared(
             max_chunk_bytes: 64 * 1024,
         }),
         archive: Some(CellGroupNodeArchiveOptions {
-            io: CellGroupArchiveLimits::default(),
+            io: CellGroupArchiveLimits {
+                background_interval_ms: 2_000,
+                ..CellGroupArchiveLimits::default()
+            },
             uploads: CellGroupArchiveUploadLimits::default(),
             tails: tail_limits(host, occupancy)?,
         }),

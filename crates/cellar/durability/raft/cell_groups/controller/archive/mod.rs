@@ -1110,7 +1110,12 @@ impl Manager {
                         entry.fatal = !retryable(&error);
                         status.stopped = entry.fatal;
                         entry.dirty = true;
-                        entry.retry_at = now.saturating_add(retry_interval);
+                        let delay = if entry.waiters.is_empty() {
+                            retry_interval
+                        } else {
+                            shared.limits.retry_interval_ms
+                        };
+                        entry.retry_at = now.saturating_add(delay);
                         status.error = Some(Arc::new(error));
                     }
                 }
@@ -1126,7 +1131,12 @@ impl Manager {
                 }
                 status.stopped = entry.fatal;
                 entry.dirty = true;
-                entry.retry_at = now.saturating_add(retry_interval);
+                let delay = if entry.waiters.is_empty() {
+                    retry_interval
+                } else {
+                    shared.limits.retry_interval_ms
+                };
+                entry.retry_at = now.saturating_add(delay);
                 status.error = Some(Arc::new(error));
             }
         }

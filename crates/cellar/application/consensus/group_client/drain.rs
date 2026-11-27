@@ -22,14 +22,17 @@ impl RaftCells {
             .cell_groups()
             .map_err(|_| CommandFailure::Unavailable)?;
         let mut report = RaftDrainReport::default();
-        for group in groups {
+        let total = groups.len();
+        for (index, group) in groups.into_iter().enumerate() {
             let now = domain.mono_ms().map_err(|_| CommandFailure::Unavailable)?;
             if now >= deadline {
                 report.deadline_elapsed = true;
                 break;
             }
             report.groups_examined += 1;
-            let through = deadline.min(now.saturating_add(1000));
+            let remaining_groups = (total - index) as u64;
+            let share = (deadline - now).div_ceil(remaining_groups).max(1000);
+            let through = deadline.min(now.saturating_add(share));
             let history = group.identity().scope;
             let local = group.identity().member.get();
             let mut turn = Turn::default();

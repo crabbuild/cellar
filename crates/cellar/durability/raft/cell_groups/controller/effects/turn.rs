@@ -94,7 +94,7 @@ pub(super) async fn run(
     shared: &Arc<Shared>,
     reservation: crate::raft::budget::Permit,
     cursor: &mut Option<CellId>,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     open(shared)?;
     let Some(execution) = shared
         .runtime
@@ -102,7 +102,7 @@ pub(super) async fn run(
         .await
         .map_err(Error::Runtime)?
     else {
-        return Ok(());
+        return Ok(false);
     };
     if execution.route().schema_digest != registration.schema {
         return Err(Error::Invalid("effect group schema"));
@@ -122,7 +122,7 @@ pub(super) async fn run(
             .contains(&cell)
             .map_err(Error::Runtime)?
     {
-        return Ok(());
+        return Ok(false);
     }
     // Retain this coherent image and original leader fence through delivery.
     let sql = shared
@@ -202,11 +202,11 @@ pub(super) async fn run(
     } = *scan.into_scan();
     let _metadata = _reservation;
     let Some(mut due) = due else {
-        return Ok(());
+        return Ok(false);
     };
     if let DueEffect::Binding(pending) = &due {
         if pending.confirmation.is_some() {
-            return super::binding_confirmation::resume(
+            super::binding_confirmation::resume(
                 shared,
                 registration,
                 &cell,
@@ -214,7 +214,8 @@ pub(super) async fn run(
                 execution,
                 pending,
             )
-            .await;
+            .await?;
+            return Ok(true);
         }
     }
     let native_callback = matches!(due, DueEffect::Work { .. });
@@ -224,7 +225,7 @@ pub(super) async fn run(
             .contains(&cell)
             .map_err(Error::Runtime)?
     {
-        return Ok(());
+        return Ok(false);
     }
     let callback_window = registration.options.callback_timeout_ms + 1000;
     if let DueEffect::Work { work, .. } = &mut due {
@@ -264,7 +265,7 @@ pub(super) async fn run(
         let call = commands::admit(shared, invocation, options)
             .map_err(|error| Error::Command(Arc::new(error.error)))?;
         drop(call);
-        return Ok(());
+        return Ok(true);
     }
     let receipt = command(
         shared,
@@ -283,7 +284,7 @@ pub(super) async fn run(
                 serde_json::from_slice(receipt.result())
                     .map_err(|_| Error::Invalid("binding claim result"))?;
             let Some(pending) = pending else {
-                return Ok(());
+                return Ok(false);
             };
             let route = execution.route().clone();
             let authority = execution
@@ -355,10 +356,12 @@ pub(super) async fn run(
                 pending,
                 (receipt, candidate_lost),
             )
-            .await
+            .await?;
+            Ok(true)
         }
         DueEffect::Alarm(_) | DueEffect::Work { .. } | DueEffect::Payload(_) => {
-            check_result(receipt.result())
+            check_result(receipt.result())?;
+            Ok(true)
         }
         DueEffect::Delivery {
             selected,
@@ -374,7 +377,7 @@ pub(super) async fn run(
             )
             .map_err(effect)?
             else {
-                return Ok(());
+                return Ok(false);
             };
             let authority = execution
                 .effect_authority(&local.version, local.position.term)
@@ -418,7 +421,8 @@ pub(super) async fn run(
                 )?,
             )
             .await?;
-            check_result(receipt.result())
+            check_result(receipt.result())?;
+            Ok(true)
         }
     }
 }

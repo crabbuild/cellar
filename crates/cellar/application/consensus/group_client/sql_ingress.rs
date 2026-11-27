@@ -507,6 +507,37 @@ impl RaftCells {
                 ))
             };
             let operation = async {
+                let mut inline_read = inline_read;
+                // A read-only inline lookup with an already known local history
+                // locator does not mutate cell sequence numbers and does not
+                // need exclusive serialization on the cell's mutation lane.
+                // Fresh quorum authority (and S3 coverage when required) is
+                // still enforced by `query_resource`.
+                if let (Some(history), Some(mut route)) =
+                    (history_hint.as_ref(), inline_read.as_ref().cloned())
+                {
+                    owner.check_open()?;
+                    remaining()?;
+                    route.history_hint = Some(history.clone());
+                    let response = owner
+                        .query_resource(route, input.clone(), remaining()?, false)
+                        .await?;
+                    if !crate::application::kv::read::is_fallback(&response)? {
+                        if let Some(limit) = reservation.reply_limit() {
+                            anyhow::ensure!(
+                                matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
+                                crate::application::rpc::Failure::new(
+                                    crate::application::rpc::Code::InvalidResponse
+                                )
+                            );
+                        }
+                        remaining()?;
+                        return Ok((Reply::Rpc(response), None, None));
+                    }
+                    // The callback returned its fallback sentinel; enter the
+                    // serialized mutation path without repeating the inline read.
+                    inline_read = None;
+                }
                 let mut turn = lane.lock().await;
                 owner.check_open()?;
                 remaining()?;
@@ -592,7 +623,7 @@ impl RaftCells {
                             );
                         }
                         remaining()?;
-                        return Ok((Reply::Rpc(response), None, turn));
+                        return Ok((Reply::Rpc(response), None, Some(turn)));
                     }
                     // Only the private callback's eligibility sentinel may
                     // enter the original command. Errors retain their cause;
@@ -646,7 +677,7 @@ impl RaftCells {
                             );
                         }
                         remaining()?;
-                        return Ok((Reply::Rpc(response), None, turn));
+                        return Ok((Reply::Rpc(response), None, Some(turn)));
                     }
                 }
                 // Updates and other primitives need the same bounded SQL/image
@@ -674,7 +705,7 @@ impl RaftCells {
                         crate::raft::performance::Counter::CellKvResolvedPayloadPreparations,
                         1,
                     );
-                    return Ok((Reply::Rpc(response), None, turn));
+                    return Ok((Reply::Rpc(response), None, Some(turn)));
                 }
                 let cell = owner.cell(history.clone())?;
                 // The runtime-owned initializer creates an empty stream. This
@@ -782,7 +813,7 @@ impl RaftCells {
                 if fetch {
                     let response = super::super::native_fetch::decode_response(&receipt.result)?;
                     remaining()?;
-                    return Ok((Reply::Fetch(response), Some((history, id)), turn));
+                    return Ok((Reply::Fetch(response), Some((history, id)), Some(turn)));
                 }
                 let response = native_rpc::decode_response(&receipt.result)?;
                 if let Some(limit) = reservation.reply_limit() {
@@ -794,7 +825,7 @@ impl RaftCells {
                     );
                 }
                 remaining()?;
-                Ok((Reply::Rpc(response), Some((history, id)), turn))
+                Ok((Reply::Rpc(response), Some((history, id)), Some(turn)))
             };
             let timed = async {
                 let timer = owner.handle.domain.sleep_until(deadline)?;
@@ -809,11 +840,11 @@ impl RaftCells {
                 timed,
             )
             .await
-            .and_then(|(reply, completed, mut turn)| {
+            .and_then(|(reply, completed, turn)| {
                 // Preserve FIFO ownership through the original success selection.
                 // Cancellation, deadline or an undelivered receipt replenishes
                 // neither the live lane, invocation cursor nor node advice.
-                if let Some((history, id)) = completed {
+                if let (Some((history, id)), Some(mut turn)) = (completed, turn) {
                     let now = owner.handle.domain.mono_ms()?;
                     anyhow::ensure!(now < deadline, RuntimeError::DeadlineExceeded);
                     turn.acknowledged(&history, id, schema, deadline, now);

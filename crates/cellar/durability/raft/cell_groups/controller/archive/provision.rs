@@ -103,7 +103,7 @@ impl Provisioning {
             .map_err(|e| CellGroupControllerError::Apply(Arc::new(e)))?;
         Ok(CellGroupArchiveRegistration {
             publisher: CellGroupArchivePublisher::GroupLeader {
-                retry_interval_ms: 100,
+                retry_interval_ms: self.io.background_interval_ms(),
             },
             directory: directory.clone(),
             birth: birth.clone(),
