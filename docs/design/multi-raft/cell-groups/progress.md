@@ -23162,3 +23162,28 @@ stopped without a run after the harness refusal was confirmed. No 256-cell pass
 is claimed. Implementing the owned all-voter-erasure/managed-and-unmanaged
 restore lifecycle adapter is a prerequisite for scheduling the profile; the six
 scoped managed recovery tests listed above do not substitute for it.
+
+## Native execution stabilization remains open — 2026-11-27
+
+Main `a95ca7807`'s SDK native job fails
+`pending_command_or_dispatch_pins_cache`, the effects-suite flake addressed by
+PR #197. Running the all-features `native_cell_groups_execution` target exposes
+13 failures, so fixing the effects target alone does not make current-source
+native green.
+
+Two of the 13 are deterministic on both this branch (no retention change) and
+the PR #197 branch:
+
+- `command_expired_before_sql_dequeue_does_not_execute`: the command callback
+  executes once after the routing deadline (`left: 0, right: 1` at
+  `cell_group_background_admission.rs:147`).
+- `retained_pending_producer_skips_resume_after_stale_observation`: the queued
+  reconciliation finishes early (`queued reconciliation finished: false`).
+
+They are therefore pre-existing current-source defects, not regressions from
+the PR #197 retention change. The remaining CI failures cover automatic query
+routing/failover, both joint membership image modes, fair admission and remote
+enrollment; they are load/order sensitive locally. Main's CI job stopped at the
+earlier effects target, so it did not execute this target. PR #197's native job
+did and reports 13 failed / 284 passed / 2 ignored. Native execution
+stabilization is required before claiming current-source green.
