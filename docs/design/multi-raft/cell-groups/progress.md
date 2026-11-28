@@ -23078,3 +23078,37 @@ pass is claimed. All owned build/runtime handles are joined; the RustFS backend
 and dedicated VM are stopped with objects and failed disks retained. Draft
 PR [#177](https://github.com/crabbuild/cellar/pull/177) carries the isolated
 follow-up pending shared-runtime integration.
+
+## Queue-primitives RustFS suite pass — 2026-11-27
+
+Source `9e44e6347` (PR [#198](https://github.com/crabbuild/cellar/pull/198);
+main `a95ca7807` plus the qualification-harness isolation and result-parsing
+fixes) passes the fixed `queue-primitives` suite: **7/7 RustFS cases**, both
+materialized and extents, one SQL worker per host-native voter.
+
+- C2 `rustfs_queue_load_preserves_acknowledged_messages`: **528/528**
+  acknowledged messages, two requests in flight, p99 batch enqueue
+  529 ms materialized / 637 ms extents in this run.
+- C4 `rustfs_queue_four_in_flight_preserves_acknowledged_messages`:
+  **528/528** delivered, four requests in flight, peak four, p99
+  1,126 ms materialized / 1,419 ms extents, joined cleanup.
+- Cross-deployment native and Axum, 65-second callbacks and ordinary
+  native/Axum callbacks also pass.
+
+Two harness defects, not Queue deadlines, caused the earlier campaign
+failures. Every queue case reused one RustFS prefix, so C4 observed C2's
+`queue-load` catalog and failed in 0.15 s with
+`fleet catalog: PayloadConflict`; and the strict verifier required
+`test … ok` on one line even though `--nocapture` interleaves workload output
+between them. PR #198 isolates the prefix per case and accepts the
+authoritative single-case result line. Test names, workloads, limits,
+deadlines and oracles are unchanged.
+
+Evidence is retained in
+`/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/queue-primitives-20261127-01`
+(`record.json`, logs `00`–`07`, executable SHA-256
+`f7ece40687b049eecb52d0c69a73ef73f2423348ceab0ba28aa18285d2ac78d8`).
+Voters are host-native in one process: the original constrained
+3×1-vCPU/2-GiB voter-process matrix, independent host loss and all 32 formal
+CG-17 cases remain open. This is a scoped Queue-family pass, not CG-17
+acceptance.
