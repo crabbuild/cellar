@@ -168,11 +168,17 @@ pub(super) async fn admission(rooted: bool) -> Result<()> {
         .await?;
     let rb = pool.finish(cb).await?;
     assert_eq!(rb.receipt().receipt.result(), b"b-pool");
-    assert_eq!(pool.usage()?.active_cells, 1);
+    // The completed receipt owns B's active-cell lease until it is dropped.
     drop(rb);
     drop(pb);
+    assert_eq!(pool.usage()?.active_cells, 1);
     assert_eq!(pool.usage()?.retained_bytes, retained.retained_bytes);
     release.send(())?;
+    // A's private producer has entered. Wait for the worker to publish the
+    // prepared command (the transient workspace shrinks) before resuming the
+    // exact proposal; the two operations are otherwise allowed to race.
+    controller::wait_for(async || Ok(pool.usage()?.retained_bytes < retained.retained_bytes))
+        .await?;
     let pa = tokio::time::timeout(Duration::from_secs(5), pool.resume(a.clone(), pa)).await??;
     pool.mark_submitted(a.clone(), pa.proposal()).await?;
     let proposal = accepted_sql(&fixture.runtimes[0], &pa).await?;
