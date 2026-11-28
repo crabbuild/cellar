@@ -23328,3 +23328,20 @@ The 256-cell `rustfs_disaster` profile is still unsupported by
 `cell_group_campaign.py` (`profile needs an unfinished lifecycle or
 independent-host adapter`). CG-13 remains open until that profile runs; the six
 formal cases are now complete.
+
+## Native execution progress — 2026-11-28
+
+Two deterministic native failures were fixed on PR #197:
+
+- Fair admission: the completed receipt keeps its active-cell lease until
+  dropped, and resume now waits for the worker to publish the prepared command
+  before resuming the exact proposal.
+- Automatic query routing: the candidate plan could lead with the remote
+  leader even though Automatic routing documents a local-first preference. A
+  remote first ticket without a query gateway spent the invocation budget
+  before the local read ran. The local member is now placed first.
+
+`native_cell_groups_execution` is **291 passed / 6 failed / 2 ignored** (down
+from 284/13/2 in the earlier CI run). Remaining: expired SQL dequeue (1),
+joint membership authority timing (2), stale-pending settlement semantics (2)
+and remote enrollment/TLS (1). No assertions were weakened or cases skipped.
