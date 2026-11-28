@@ -527,20 +527,23 @@ impl Cells {
                 Poll::Ready(result) => result,
             };
             let staged = image.and_then(|image| {
-                let check = check_waiter(preparation.mode, preparation.reply.is_closed(), now)
-                    .and_then(|()| {
-                        if stopped.load(Ordering::Acquire)
-                            || preparation
-                                .activation
-                                .as_ref()
-                                .and_then(|a| a.activation.as_ref())
-                                .is_some_and(|activation| !activation.live())
-                        {
-                            Err(unavailable())
-                        } else {
-                            Ok(())
-                        }
-                    });
+                // The caller may drop its response after the private producer
+                // has entered. Retain that exact prepared producer for resume;
+                // its lease and current authority bound the pending entry.
+                // Only a caller that cancels before opening is refused.
+                let check = check_waiter(preparation.mode, false, now).and_then(|()| {
+                    if stopped.load(Ordering::Acquire)
+                        || preparation
+                            .activation
+                            .as_ref()
+                            .and_then(|a| a.activation.as_ref())
+                            .is_some_and(|activation| !activation.live())
+                    {
+                        Err(unavailable())
+                    } else {
+                        Ok(())
+                    }
+                });
                 let image = image.checked(check)?;
                 preparation.executor.complete_preparation(image)
             });
