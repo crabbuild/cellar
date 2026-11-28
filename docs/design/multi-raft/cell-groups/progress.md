@@ -23218,3 +23218,15 @@ finished. This confirms the PR #197 disaster failure was the original
 45-minute build cap: that run spent ~42 minutes building and only started six
 tests. Test commands, `--test-threads=1`, retries, assertions and profile flags
 are unchanged.
+
+## CG-13 RustFS closure case pass — 2026-11-28
+
+On the owned RustFS backend, `rustfs_transition_disaster_selects_complete_closure`
+passes in **274.67 s** (both image modes). This is one of the six formal CG-13
+cases and covers published-child acknowledged tails plus unpublished-parent
+complete-domain recovery. Source checkout `0901b4365` (main `a95ca7807` plus
+docs/qualification changes only); executable `3e5bd5774b4806ca` built with the
+native test profile. Evidence: `/tmp/cg13-closure.log`, SHA-256
+`d5f5063e0efd3d23c201aea7af5d82aaaaab1089ad83a26d54dfc647c66ef5fc`,
+retained under `/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/`.
+No 256-cell profile or CG-13 acceptance is claimed.
