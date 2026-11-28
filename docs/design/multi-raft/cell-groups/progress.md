@@ -23187,3 +23187,24 @@ enrollment; they are load/order sensitive locally. Main's CI job stopped at the
 earlier effects target, so it did not execute this target. PR #197's native job
 did and reports 13 failed / 284 passed / 2 ignored. Native execution
 stabilization is required before claiming current-source green.
+
+### Native execution failures individually reproducible on main
+
+The 13 execution failures are not only order or load effects. Running the
+public acceptance binary on main `a95ca7807` with each test selected exactly
+fails these cases without any retention change:
+
+- `automatic_queries_join_catalog_refresh_before_first_reply`:
+  `completed query must join same-route confirmation` /
+  `Transport(Query(Unavailable))`.
+- `command_expired_before_sql_dequeue_does_not_execute`: the callback enters
+  before the routing deadline (`calls` is 1 after the timeout).
+- `retained_pending_producer_skips_resume_after_stale_observation`:
+  `queued reconciliation finished: false`.
+- `shared_group_fair_admission`: `Raft private execution: Uncertain`.
+- `shared_remote_enrollment_requires_write_grants_and_exact_creation`: the
+  TLS peer closes without `close_notify`, leaving an ambiguous creation.
+
+These are current-source native execution defects/flakes that require their
+own fixes; the effects-suite retention change does not cause them. Native
+execution green remains a prerequisite for the P0 native claim.
