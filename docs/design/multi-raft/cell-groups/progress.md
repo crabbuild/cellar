@@ -23208,3 +23208,13 @@ fails these cases without any retention change:
 These are current-source native execution defects/flakes that require their
 own fixes; the effects-suite retention change does not cause them. Native
 execution green remains a prerequisite for the P0 native claim.
+
+## Disaster diagnostic CI budget verified — 2026-11-28
+
+PR [#199](https://github.com/crabbuild/cellar/pull/199) passes the managed
+transition disaster target on CI with a four-job cold build and a 60-minute
+ceiling. The build completed and the unchanged 22-test serial sequence
+finished. This confirms the PR #197 disaster failure was the original
+45-minute build cap: that run spent ~42 minutes building and only started six
+tests. Test commands, `--test-threads=1`, retries, assertions and profile flags
+are unchanged.
