@@ -361,6 +361,8 @@ def case(args, engine, report, family, mode, config, token):
             trace.append('cellar::raft::version_clock=debug')
         if len(trace) > 1:
             common += ['-e', 'RUST_LOG=' + ','.join(trace)]
+        if args.max_callbacks is not None and mode.startswith('raft-'):
+            common += ['-e', f'CELLAR_PERF_MAX_CALLBACKS={args.max_callbacks}']
         for i in range(1, 4):
             engine.call('volume', 'create', '--label', owner, prefix + f'-node{i}')
         if mode.startswith('raft-'):
@@ -506,6 +508,7 @@ def run(args):
     require(args.concurrency and len(set(args.concurrency)) == len(args.concurrency) and all(1 <= c <= 32 for c in args.concurrency), 'invalid concurrency')
     require(not (args.lease_trace or args.version_clock_trace) or all(mode.startswith('raft-') for mode in args.modes),
             'Raft tracing requires only Raft modes')
+    require(args.max_callbacks is None or 1 <= args.max_callbacks <= 7, 'invalid Raft callback slots')
     args.output = args.output.resolve()
     args.output.mkdir(mode=0o700)
     token, access, secret = secrets.token_hex(32), secrets.token_hex(10), secrets.token_hex(32)
@@ -538,6 +541,7 @@ def run(args):
                           'cpu_sets':{'nodes':[0,1,2],'store':3,'load':4}},'entities':24,'raft_groups':3,
                          'payload_bytes':256,'queue_batch_messages':8,'actor_operation_ms':5000,'actor_lease_ms':5000,
                          'lease_trace':args.lease_trace,'version_clock_trace':args.version_clock_trace,
+                         'raft_max_callbacks':args.max_callbacks,
                          'seconds':args.seconds,'warmup_seconds':args.warmup,'repetitions':args.repetitions,'concurrency':args.concurrency},
               'compiler':engine.call('run','--rm','--network','none','--entrypoint','cat',args.image,'/usr/local/bin/raft-rustc.txt'),
               'binary_digests':engine.call('run','--rm','--network','none','--entrypoint','cat',args.image,'/usr/local/bin/executables.sha256'),
@@ -579,6 +583,7 @@ if __name__ == '__main__':
     parser.add_argument('--concurrency',nargs='+',type=int,default=[1,4,16])
     parser.add_argument('--lease-trace',action='store_true',help='record existing Raft node-lease attempt and store-request traces')
     parser.add_argument('--version-clock-trace', action='store_true', help='record signed time bounds on Raft cell version refusals')
+    parser.add_argument('--max-callbacks', type=int, help='override Raft native-callback slots per node (default: the controller default of 2)')
     try:
         run(parser.parse_args())
     except Exception as error:

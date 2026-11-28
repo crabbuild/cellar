@@ -28,6 +28,7 @@ pub fn shared(
             retry_interval_ms: host.poll_ms,
             max_commands: host.max_requests,
             max_command_bytes: host.max_pending_bytes,
+            max_callbacks: 2,
             checkpoints: (host.checkpoint_entries > 0).then_some(CellGroupCheckpointPolicy {
                 interval_entries: host.checkpoint_entries,
                 max_parallel: sources,

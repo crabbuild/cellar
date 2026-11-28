@@ -199,8 +199,8 @@ pub(super) fn admit(
             .checked_add(option_bytes(&mut options).map_err(|e| error(command, false, e))?)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
         // Native callbacks have independent child-call progress capacity and
-        // one retained invocation per cell. Rediscovery must not fill both
-        // node slots with overlapping claims for the same installation.
+        // one retained invocation per cell. Rediscovery must not fill the
+        // node's slots with overlapping claims for the same installation.
         if let Some(cell) = invocation.native_callback_cell() {
             bytes = bytes
                 .checked_add(

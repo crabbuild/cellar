@@ -182,6 +182,7 @@ pub fn limits() -> CellGroupNodeLimits {
             retry_interval_ms: 5,
             max_commands: 8,
             max_command_bytes: 1024 * 1024,
+            max_callbacks: 2,
             checkpoints: None,
         },
         sql: CellSqlLimits {
