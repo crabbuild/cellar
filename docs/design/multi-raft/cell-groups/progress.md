@@ -23278,3 +23278,21 @@ Evidence: `/tmp/cg13-archive.log`, retained under
 required formal entry points: the names and owning target contract still need
 wiring, and the 256-cell profile remains unsupported. No CG-13 acceptance is
 claimed.
+
+## CG-13 formal wiring requires shared fixture extraction — 2026-11-28
+
+An attempt to wire the three missing formal cases directly into
+`native_cell_groups_disaster` by including
+`cell_group_disaster_fence.rs`/`activation`/`receipts`/`public` failed to
+compile with 141 errors. The helpers depend on target-local functions and
+types defined at the root of `native_cell_groups_archive`
+(`destination_at`, `index`, `cell_objects`, archive window fixtures, and
+similarly named engine/archive modules) rather than on self-contained support
+modules. Simply moving the `#[path]` includes also collides with the disaster
+target's managed/source fixtures.
+
+No code from the experiment is retained. Closing the formal cases cleanly
+requires extracting the archive recovery fixture into a shared support module
+(the same direction as the existing `cell_group_host_context.rs` extraction),
+then adding exact-name wrappers in the declared target. This is a fixture
+refactor, not a test-run or naming fix.
