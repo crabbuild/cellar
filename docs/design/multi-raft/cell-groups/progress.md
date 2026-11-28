@@ -23230,3 +23230,32 @@ native test profile. Evidence: `/tmp/cg13-closure.log`, SHA-256
 `d5f5063e0efd3d23c201aea7af5d82aaaaab1089ad83a26d54dfc647c66ef5fc`,
 retained under `/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/`.
 No 256-cell profile or CG-13 acceptance is claimed.
+
+## CG-13 formal RustFS cases: three pass, three absent — 2026-11-28
+
+On the owned RustFS backend at source checkout `9a3d09ecb` (main `a95ca7807`
+plus docs/qualification changes), the implemented formal CG-13 disaster cases
+pass in both image modes:
+
+| Formal case | Result |
+| --- | --- |
+| `rustfs_transition_disaster_selects_complete_closure` | PASS, 274.67 s |
+| `rustfs_disaster_retry_and_old_token_refusal` | PASS, 142.97 s |
+| `rustfs_disaster_outbox_ambiguity_refuses` | PASS, 186.91 s |
+
+Evidence is retained under
+`/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/cg13-rustfs-closure-20261128`
+and `cg13-rustfs-retry-outbox-20261128`.
+
+A static audit of the declared `native_cell_groups_disaster` target and the
+whole repository finds **no implementation or test entry point** for the other
+three formal CG-13 cases:
+
+- `managed_disaster_blocks_old_lifecycle`
+- `fence_all_possible_old_writers`
+- `all_disks_deleted_restore_all_cells`
+
+`tasks.json` lists these names, but `--list` on the disaster target exposes only
+the three passing cases. CG-13 therefore remains open on two independent
+requirements: the three missing formal cases and the unsupported 256-cell
+`rustfs_disaster` profile. No CG-13 acceptance is claimed.
