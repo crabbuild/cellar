@@ -23144,3 +23144,21 @@ is the owned local `cellar-multi-raft-p0` profile; voters remain host-native in
 one process. The 256-cell `rustfs_disaster` profile, independent process-voter
 crashes, platform fencing and the six formal CG-13 task cases remain open; this
 is a scoped recovery pass, not CG-13 acceptance.
+
+## 256-cell `rustfs_disaster` runner blocker — 2026-11-27
+
+The required 256-cell `rustfs_disaster` profile cannot be scheduled by the
+current workload campaign runner. `tools/perf/cell_group_campaign.py` has
+`SUPPORTED = {'idle_density', 'mixed_quorum', 'mixed_s3'}`; its
+`selected_profile` refuses `rustfs_disaster` with
+`profile needs an unfinished lifecycle or independent-host adapter`. The
+profile is declared required in `profiles.json` (5 nodes, 3 voters, 256 cells,
+occupancy 64, 900 s, 3 repetitions, both image modes, owned all-voter erasure
+and managed/unmanaged restore gates), but no adapter currently executes that
+lifecycle.
+
+A Docker image build and 5-node preflight were started for this profile and
+stopped without a run after the harness refusal was confirmed. No 256-cell pass
+is claimed. Implementing the owned all-voter-erasure/managed-and-unmanaged
+restore lifecycle adapter is a prerequisite for scheduling the profile; the six
+scoped managed recovery tests listed above do not substitute for it.
