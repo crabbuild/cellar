@@ -23259,3 +23259,22 @@ three formal CG-13 cases:
 the three passing cases. CG-13 therefore remains open on two independent
 requirements: the three missing formal cases and the unsupported 256-cell
 `rustfs_disaster` profile. No CG-13 acceptance is claimed.
+
+## Underlying scenarios for the three missing CG-13 cases pass — 2026-11-28
+
+The three CG-13 formal cases without entry points in
+`native_cell_groups_disaster` do have working scenario implementations in
+`native_cell_groups_archive`. On the owned RustFS backend, source checkout
+`c266e644a` (main `a95ca7807` plus docs only):
+
+| Archive scenario | Result | Formal case it exercises |
+| --- | --- | --- |
+| `rustfs_group_recovery_import_rebinds_complete_cut` | PASS, 1.79 s | `managed_disaster_blocks_old_lifecycle` (import/old-lifecycle fencing) |
+| `rustfs_group_recovery_fence_intent_and_topology` | PASS, 3.45 s | `fence_all_possible_old_writers` (fence intent/topology race) |
+| `rustfs_sdk_recovery_owns_activation_after_erasing_voters` | PASS, 15.76 s | `all_disks_deleted_restore_all_cells` (all-voter erasure/restore) |
+
+Evidence: `/tmp/cg13-archive.log`, retained under
+`/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/`. These are not the
+required formal entry points: the names and owning target contract still need
+wiring, and the 256-cell profile remains unsupported. No CG-13 acceptance is
+claimed.
