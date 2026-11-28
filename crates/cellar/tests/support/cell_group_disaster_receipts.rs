@@ -6,6 +6,7 @@ use anyhow::ensure;
 #[path = "cell_group_disaster_public.rs"]
 mod public;
 use cellar::storage::CommandInputs;
+pub(crate) use public::{all_disks_deleted, all_disks_deleted_rooted, all_disks_deleted_with};
 use std::collections::BTreeMap;
 
 pub(in super::super) struct ReceiptWorkload {

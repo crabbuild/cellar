@@ -420,6 +420,26 @@ async fn rustfs_sdk_recovery_owns_activation_after_erasing_voters() -> Result<()
     Ok(())
 }
 
+pub(crate) async fn all_disks_deleted() -> Result<()> {
+    all_disks_deleted_with(Arc::new(object_store::memory::InMemory::new())).await
+}
+
+pub(crate) async fn all_disks_deleted_with(
+    store: Arc<dyn object_store::ObjectStore>,
+) -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(drill(rooted, store.clone())).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn all_disks_deleted_rooted(
+    rooted: bool,
+    store: Arc<dyn object_store::ObjectStore>,
+) -> Result<()> {
+    Box::pin(drill(rooted, store)).await
+}
+
 async fn drill(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<()> {
     let mut w = ReceiptWorkload::new()?;
     let class = Arc::try_unwrap(w.class).map_err(|_| anyhow::anyhow!("unshared workload"))?;

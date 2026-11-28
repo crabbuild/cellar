@@ -9,7 +9,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 mod activation;
 #[path = "cell_group_disaster_seed.rs"]
 mod seed;
-pub(super) use activation::{activate_quorum, filesystem_disaster, registered_receipts};
+pub(crate) use activation::{
+    activate_quorum, all_disks_deleted, all_disks_deleted_rooted, all_disks_deleted_with,
+    filesystem_disaster, registered_receipts,
+};
 pub(super) use seed::seed_engine;
 
 #[derive(Default)]
@@ -348,7 +351,7 @@ impl Scenario {
     }
 }
 
-pub(super) async fn cancel_import(rooted: bool) -> Result<()> {
+pub(crate) async fn cancel_import(rooted: bool) -> Result<()> {
     let s = Box::new(Scenario::new(rooted, Arc::new(object_store::memory::InMemory::new())).await?);
     let gate = fault::Gate::new(None);
     let target = destination_at(
@@ -426,7 +429,7 @@ pub(super) async fn cancel_import(rooted: bool) -> Result<()> {
     Ok(())
 }
 
-pub(super) async fn import(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<()> {
+pub(crate) async fn import(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<()> {
     let s = Box::new(Scenario::new(rooted, store).await?);
     let route = s.request.replacement().route().clone();
     let target = destination_at(
@@ -594,7 +597,7 @@ pub(super) async fn import(rooted: bool, store: Arc<dyn object_store::ObjectStor
     s.cluster.close().await
 }
 
-pub(super) async fn resume(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<()> {
+pub(crate) async fn resume(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<()> {
     let s = Box::pin(Scenario::new(rooted, store)).await?;
     let (path, index) = index(s.remote.as_ref(), &s.checkpoint).await?;
     let dependency = cell_objects(&path, &index, "beta")[0].clone();
@@ -709,7 +712,7 @@ pub(super) async fn resume(rooted: bool, store: Arc<dyn object_store::ObjectStor
     s.finish().await
 }
 
-pub(super) async fn topology_wins(
+pub(crate) async fn topology_wins(
     rooted: bool,
     store: Arc<dyn object_store::ObjectStore>,
 ) -> Result<()> {

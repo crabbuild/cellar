@@ -23296,3 +23296,35 @@ requires extracting the archive recovery fixture into a shared support module
 (the same direction as the existing `cell_group_host_context.rs` extraction),
 then adding exact-name wrappers in the declared target. This is a fixture
 refactor, not a test-run or naming fix.
+
+## All six formal CG-13 cases wired and passing — 2026-11-28
+
+The archive recovery fixture was extracted into shared support
+(`cell_group_archive_recovery_fixture.rs` plus the path-anchored
+`tests/formal/mod.rs`), and the three missing exact-name cases were added to
+the declared `native_cell_groups_disaster` target:
+
+| Formal CG-13 case | In-memory | Real RustFS |
+| --- | --- | --- |
+| `managed_disaster_blocks_old_lifecycle` | PASS | PASS, 2.41 s |
+| `fence_all_possible_old_writers` | PASS | PASS, 3.35 s |
+| `all_disks_deleted_restore_all_cells` | PASS | PASS, 16.13 s |
+
+Together with the previously wired closure (274.67 s), retry/old-token
+(142.97 s) and outbox ambiguity (186.91 s) cases, all six formal CG-13 cases
+now have entry points in the declared target and pass on the owned real RustFS
+backend. The new tests use the real RustFS store when the explicit
+`CELLAR_CELL_GROUPS_RUSTFS_*` environment is present and a fresh in-memory
+store in ordinary CI; the oracles and assertions are unchanged.
+
+The final file-based wiring passes the full disaster target with the RustFS
+backend stopped: **18 passed / 0 failed / 9 ignored in 660.06 s**. An earlier
+full run with the 16 GiB RustFS VM still running failed one managed transition
+case under resource contention; that case passes exactly on its own and the
+clean full run is green. Evidence: `cg13-formal-six-20261128` under the
+qualification evidence tree (`formal-rustfs.log`, `full-disaster.log`).
+
+The 256-cell `rustfs_disaster` profile is still unsupported by
+`cell_group_campaign.py` (`profile needs an unfinished lifecycle or
+independent-host adapter`). CG-13 remains open until that profile runs; the six
+formal cases are now complete.

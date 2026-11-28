@@ -35,6 +35,50 @@ pub use source_fixture::runtime_fixture::catalog_fault;
 #[path = "support/cell_group_managed_process.rs"]
 mod process;
 
+mod formal;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_disaster_blocks_old_lifecycle() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(formal::cancel_import(rooted)).await?;
+        Box::pin(formal::import(
+            rooted,
+            formal::backend("managed-disaster-old-lifecycle", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fence_all_possible_old_writers() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(formal::resume(
+            rooted,
+            formal::backend("fence-old-writers-resume", rooted)?,
+        ))
+        .await?;
+        Box::pin(formal::topology_wins(
+            rooted,
+            formal::backend("fence-old-writers-topology", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn all_disks_deleted_restore_all_cells() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(formal::all_disks_deleted_rooted(
+            rooted,
+            formal::backend("all-disks-deleted", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn transition_disaster_selects_complete_closure() -> Result<()> {
     use bootstrap::transition::RecoveryPoint;
