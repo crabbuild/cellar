@@ -950,7 +950,12 @@ selected SQL execution verifies class-specific image, receipt and retry bounds.
 
 One owned turn per node rotates ready groups and due cells. Its group queue is
 initialized from the selected in-memory markers and updated only after synced
-publication. Empty and future-only groups require no runtime probe or SQLite open.
+publication. Admitted native callbacks, such as Queue deliveries and work
+callbacks, run in at most `CellGroupControllerLimits::max_callbacks` node slots
+(1–64), one per cell. The slots share the callback lane's byte ceiling and wait
+for child commands independently of ordinary command admission. A parked
+callback can retain a private SQL workspace, so configure fewer slots than the
+workspace bank. Empty and future-only groups require no runtime probe or SQLite open.
 Outbox summaries retain the minimum time among lane fronts; a blocked later
 sequence with an earlier timestamp cannot keep a sleeping lane busy. Hints remain
 advisory: the actual ready leader issues cell execution authority and a fresh

@@ -77,6 +77,13 @@ pub struct CellGroupControllerLimits {
     /// callback lane each have this byte ceiling: reserve three times this
     /// value. SQL capture/apply/results retain separate SQL pool admission.
     pub max_command_bytes: usize,
+    /// Native callbacks (Queue deliveries, alarms, outbox and other leader-side
+    /// work) admitted concurrently on this node, each on a distinct cell, within
+    /// 1..=64. They share the callback lane's `max_command_bytes` ceiling and
+    /// wait for child commands independently of `max_commands`. A parked
+    /// callback can retain a private SQL workspace, so keep this below the SQL
+    /// workspace bank. The historical fixed value is two.
+    pub max_callbacks: usize,
     /// Automatic compaction at an apply boundary. Requires the transport's
     /// shared checkpoint pool. None leaves local publication to its caller.
     pub checkpoints: Option<CellGroupCheckpointPolicy>,
@@ -114,7 +121,7 @@ impl From<RuntimeError> for CellGroupControllerError {
 pub struct CellGroupControllerUsage {
     pub ordinary: super::CellGroupAdmissionUsage,
     pub archive_settlement: super::CellGroupAdmissionUsage,
-    /// Two bounded internal callbacks can wait for ordinary child commands independently.
+    /// `max_callbacks` bounded internal callbacks can wait for ordinary child commands independently.
     pub callbacks: super::CellGroupAdmissionUsage,
     pub groups: usize,
     pub pending_registrations: usize,
@@ -313,6 +320,7 @@ impl CellGroupController {
             || appliers.len() > limits.max_groups
             || !(1..=65_536).contains(&limits.max_commands)
             || limits.max_command_bytes < 8192
+            || !(1..=64).contains(&limits.max_callbacks)
         {
             return Err(CellGroupControllerError::Invalid(
                 "controller limits/roster",
@@ -338,7 +346,8 @@ impl CellGroupController {
         }
         runtime.admit()?;
         let domain = runtime.log().domain();
-        let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands + 2);
+        let (requests, receiver) =
+            tokio::sync::mpsc::channel(limits.max_commands + limits.max_callbacks);
         let shared = Arc::new(Shared {
             admission_configuration: Mutex::new(()),
             public: OnceLock::new(),
@@ -349,8 +358,11 @@ impl CellGroupController {
             limits,
             domain: domain.clone(),
             commands: commands::budget(limits),
-            callbacks: crate::raft::budget::Budget::new(limits.max_command_bytes, 2),
-            callback_cells: Arc::new(admission::CallbackCells::default()),
+            callbacks: crate::raft::budget::Budget::new(
+                limits.max_command_bytes,
+                limits.max_callbacks,
+            ),
+            callback_cells: Arc::new(admission::CallbackCells::new(limits.max_callbacks)),
             provisioning: Mutex::new(None),
             retired_sources: Mutex::new(BTreeMap::new()),
             effects: Mutex::new(None),

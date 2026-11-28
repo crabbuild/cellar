@@ -10,8 +10,8 @@ use std::sync::MutexGuard;
 
 /// Only active callbacks retain entries. A response timeout cannot release the
 /// cell while its physical invocation or result still retains node admission.
-#[derive(Default)]
-pub(super) struct CallbackCells(Mutex<[Option<CellHistory>; 2]>);
+/// The slot count is fixed at controller start by `max_callbacks`.
+pub(super) struct CallbackCells(Mutex<Vec<Option<CellHistory>>>);
 
 pub(super) struct CallbackCell {
     cells: Arc<CallbackCells>,
@@ -19,6 +19,10 @@ pub(super) struct CallbackCell {
 }
 
 impl CallbackCells {
+    pub fn new(slots: usize) -> Self {
+        Self(Mutex::new(vec![None; slots]))
+    }
+
     pub fn contains(&self, cell: &CellHistory) -> Result<bool, RuntimeError> {
         Ok(self
             .0
@@ -28,9 +32,20 @@ impl CallbackCells {
             .any(|value| value.as_ref() == Some(cell)))
     }
 
+    /// Every slot is retained by an active callback. This is a scheduling
+    /// hint only: admission still acquires a free slot atomically.
+    pub fn is_full(&self) -> Result<bool, RuntimeError> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| RuntimeError::Closed)?
+            .iter()
+            .all(Option::is_some))
+    }
+
     pub fn acquire(self: &Arc<Self>, cell: &CellHistory) -> Result<CallbackCell, RuntimeError> {
         let mut cells = self.0.lock().map_err(|_| RuntimeError::Closed)?;
-        // Acquire the two-slot callback budget first. Fixed metadata never
+        // Acquire the bounded callback slots first. Fixed metadata never
         // grows with idle cells, failed admissions or duplicate discoveries.
         if cells.iter().any(|value| value.as_ref() == Some(cell)) {
             return Err(RuntimeError::Overloaded);
@@ -206,7 +221,7 @@ mod tests {
         };
         let mut other = cell.clone();
         other.cell = cellar_logic::cell_group::CellId::new("second").unwrap();
-        let cells = Arc::new(CallbackCells::default());
+        let cells = Arc::new(CallbackCells::new(2));
         let budget = crate::raft::budget::Budget::new(1024, 2);
         let owner = Arc::new(Retention {
             _permit: budget.acquire(64).unwrap(),
@@ -231,5 +246,42 @@ mod tests {
         drop((peer, returned));
         assert!(!cells.contains(&cell).unwrap());
         assert_eq!(budget.usage().1, 0);
+    }
+
+    #[test]
+    fn configured_callback_slots_bound_distinct_cells() {
+        let history = |name: &str| CellHistory {
+            cluster: ClusterId::new([1; 16]).unwrap(),
+            namespace: NamespaceId::new([2; 16]).unwrap(),
+            incarnation: IncarnationId::new([3; 16]).unwrap(),
+            cell: cellar_logic::cell_group::CellId::new(name).unwrap(),
+        };
+        let cells = Arc::new(CallbackCells::new(4));
+        let mut held: Vec<_> = ["a", "b", "c", "d"]
+            .into_iter()
+            .map(|name| cells.acquire(&history(name)).unwrap())
+            .collect();
+        // Every configured slot is in use: a further cell refuses, and a
+        // retained cell can never receive a second overlapping callback.
+        assert!(cells.is_full().unwrap());
+        assert!(matches!(
+            cells.acquire(&history("e")),
+            Err(RuntimeError::Overloaded)
+        ));
+        drop(held.remove(1));
+        assert!(matches!(
+            cells.acquire(&history("a")),
+            Err(RuntimeError::Overloaded)
+        ));
+        assert!(!cells.is_full().unwrap());
+        let reused = cells.acquire(&history("e")).unwrap();
+        assert!(cells.is_full().unwrap());
+        assert!(cells.contains(&history("e")).unwrap());
+        assert!(!cells.contains(&history("b")).unwrap());
+        drop(reused);
+        assert!(!cells.contains(&history("e")).unwrap());
+        assert!(cells.contains(&history("a")).unwrap());
+        drop(held);
+        assert!(!cells.contains(&history("a")).unwrap());
     }
 }

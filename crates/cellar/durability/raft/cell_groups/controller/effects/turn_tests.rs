@@ -91,3 +91,76 @@ fn kv_payload_capabilities_keep_retirement_discovery() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn follower_turns_neither_delay_led_groups_nor_requeue() {
+    use crate::raft::completion::RuntimeError;
+    let follower = after_turn(&Err(Error::Runtime(RuntimeError::NotLeader)));
+    assert_eq!(
+        follower,
+        AfterTurn {
+            delay: false,
+            dequeue: true
+        }
+    );
+    assert_eq!(
+        after_turn(&Ok(true)),
+        AfterTurn {
+            delay: false,
+            dequeue: false
+        }
+    );
+    for result in [
+        Ok(false),
+        Err(Error::Runtime(RuntimeError::NotReady)),
+        Err(Error::Runtime(RuntimeError::Overloaded)),
+        Err(Error::Invalid("other")),
+    ] {
+        assert_eq!(
+            after_turn(&result),
+            AfterTurn {
+                delay: true,
+                dequeue: false
+            }
+        );
+    }
+}
+
+#[test]
+fn dequeued_group_returns_on_its_next_observation() -> anyhow::Result<()> {
+    use cellar_logic::consensus::{ClusterId, GroupId, IncarnationId, LogIndex, NamespaceId};
+    let group = |byte| GroupHistory {
+        cluster: ClusterId::new([1; 16]).unwrap(),
+        namespace: NamespaceId::new([2; 16]).unwrap(),
+        group: GroupId::new([byte; 16]).unwrap(),
+        incarnation: IncarnationId::new([4; 16]).unwrap(),
+    };
+    let (follower, led) = (group(5), group(6));
+    let mut manager = Manager::default();
+    let observed = |error: CellGroupControllerError| anyhow::anyhow!("{error}");
+    manager
+        .observe(follower, LogIndex::new(7), Some(10))
+        .map_err(observed)?;
+    manager
+        .observe(led, LogIndex::new(7), Some(10))
+        .map_err(observed)?;
+    manager.ready.insert(follower);
+    // The worker re-registers the completed group before completion; dequeue
+    // must win over that same-position observation.
+    manager
+        .observe(follower, LogIndex::new(7), Some(10))
+        .map_err(observed)?;
+    manager.dequeue(&follower);
+    assert!(!manager.ready.contains(&follower));
+    assert!(manager
+        .waiting
+        .iter()
+        .all(|(_, waiting)| *waiting != follower));
+    assert!(manager.waiting.contains(&(10, led)));
+    // A later synced publication re-observes the follower group.
+    manager
+        .observe(follower, LogIndex::new(8), Some(10))
+        .map_err(observed)?;
+    assert!(manager.waiting.contains(&(10, follower)));
+    Ok(())
+}

@@ -42,6 +42,38 @@ impl std::fmt::Display for Error {
     }
 }
 
+/// Node scheduling after one completed turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AfterTurn {
+    /// Wait the effect interval before the node's next turn.
+    pub delay: bool,
+    /// Drop the group from discovery until its next synced publication.
+    pub dequeue: bool,
+}
+
+/// Only a group's leader executes effects. A follower turn proves only that
+/// nothing is runnable on this replica, so it must not delay the groups this
+/// node leads or keep rediscovering the same group. Followers apply every
+/// committed entry, and a new leader applies its own term entry, so the next
+/// synced publication observes the group again. Other failures keep the
+/// node-wide backoff; productive turns continue immediately.
+pub(super) fn after_turn(result: &Result<bool, Error>) -> AfterTurn {
+    match result {
+        Ok(true) => AfterTurn {
+            delay: false,
+            dequeue: false,
+        },
+        Err(Error::Runtime(RuntimeError::NotLeader)) => AfterTurn {
+            delay: false,
+            dequeue: true,
+        },
+        Ok(false) | Err(_) => AfterTurn {
+            delay: true,
+            dequeue: false,
+        },
+    }
+}
+
 fn open(shared: &Shared) -> Result<(), Error> {
     if shared.closing.load(Ordering::Acquire) {
         Err(Error::Runtime(RuntimeError::Closed))
@@ -110,17 +142,19 @@ pub(super) async fn run(
     let cell = execution.cell().version.history.clone();
     *cursor = Some(cell.cell.clone());
     // One physically retained callback already excludes another native work
-    // command for this cell. If that is the only possible due work, do not
-    // compete with foreground writers for a fresh barrier and SQL scan first.
+    // command for this cell, and admission refuses while every node callback
+    // slot is retained. If that is the only possible due work, do not compete
+    // with foreground writers for a fresh barrier and SQL scan first.
     // This is only a scheduling omission, never execution or output authority.
     // Independent alarm capabilities, possible KV payload retirement and any
     // binding/outbox/inbox work keep the ordinary scan; its exact callback
-    // check remains below as well.
+    // check and atomic slot admission remain below as well.
     if native_callback_only(&registration.class, execution.cell().effects)
-        && shared
+        && (shared
             .callback_cells
             .contains(&cell)
             .map_err(Error::Runtime)?
+            || shared.callback_cells.is_full().map_err(Error::Runtime)?)
     {
         return Ok(false);
     }
@@ -249,7 +283,7 @@ pub(super) async fn run(
     if native_callback {
         // Admission transfers the entire invocation to the joined controller.
         // Dropping its response does not cancel it. Discovery remains available
-        // for other queues while a long callback holds one of two bounded slots.
+        // for other queues while a long callback holds one of the bounded slots.
         let invocation = registration
             .dispatcher
             .system_command(

@@ -175,6 +175,7 @@ pub use crate::raft::transport_options::{
 };
 pub use crate::raft::version::{
     VersionError, VersionKeys, VersionSigningKey, VersionToken, VersionVerificationKey,
+    MAX_ISSUER_CLOCK_LEAD_MS,
 };
 pub use crate::storage::{CommandInputs, CommandTransaction};
 pub use cellar_logic::cell_group::{CellBound, CellRange, RouteEpoch};

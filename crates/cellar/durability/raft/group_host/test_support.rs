@@ -16,6 +16,7 @@ pub(crate) fn limits() -> CellGroupNodeLimits {
             retry_interval_ms: 5,
             max_commands: 2,
             max_command_bytes: 64 * 1024,
+            max_callbacks: 2,
             checkpoints: None,
         },
         sql: CellSqlLimits {

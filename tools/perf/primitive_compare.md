@@ -152,6 +152,12 @@ distinguish transport loss from cancellation; retain its ambiguity and actual
 readback outcome. This switch changes no lease, deadline, admission or resource
 limit.
 
+For matched callback-concurrency experiments, `--max-callbacks N` (1–7) sets
+the Raft nodes' native-callback slots, which carry Queue deliveries, on the same
+executable. Unset keeps the controller's default of two. The run profile records
+the value as `raft_max_callbacks`; Fleet and bucket nodes ignore it. The node
+refuses a value that would leave no private SQL workspace for foreground writes.
+
 For signed cell version refusals, use `--version-clock-trace` with Raft modes.
 The node log records the signed validity bounds and the verifier's wall-clock
 sample when time validation fails. It identifies whether the failure occurred

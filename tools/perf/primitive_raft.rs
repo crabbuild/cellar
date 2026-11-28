@@ -137,6 +137,16 @@ pub async fn run() -> Result<()> {
             io_timeout: Duration::from_secs(10),
         });
     }
+    // Matched experiments may raise native-callback concurrency on the same
+    // executable. Unset keeps the controller's historical two slots.
+    if let Ok(value) = std::env::var("CELLAR_PERF_MAX_CALLBACKS") {
+        let slots: usize = value.parse().context("CELLAR_PERF_MAX_CALLBACKS")?;
+        ensure!(
+            (1..WRITER_WORKSPACES).contains(&slots),
+            "callback slots must leave a private workspace for foreground writers"
+        );
+        shared.controller.max_callbacks = slots;
+    }
     // Record the pre-existing production harness page budget. This is a new
     // resource profile, not a repair of the separate 1,024-page fixture failure.
     let inventory = host.extents.context("primitive extent options")?.inventory;
@@ -147,7 +157,7 @@ pub async fn run() -> Result<()> {
         "imageOwnershipCopies":8,"manifestBudgetScope":"per physical group page store","images":"extents",
         "privateWorkspaceBytes":RootPrivateOptions::workspace_bounds(host.execution)?.reservation()?,
         "extentInventoryBytes":inventory.max_bytes,"extentWriterWorkspaces":inventory.max_workspaces,
-        "layout":layout.json(placement)});
+        "maxCallbacks":shared.controller.max_callbacks,"layout":layout.json(placement)});
     let initialize = std::env::var("RAFT_INITIALIZE").as_deref() == Ok("1");
     ensure!(!initialize || i == 1, "initialization owner");
     raft_setup::prepare(

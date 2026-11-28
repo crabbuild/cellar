@@ -696,12 +696,57 @@ fn shared_query_reply_rechecks_signed_time_after_transport() {
     let decode = |now| cell::decode_cell_result(&body, &history, [9; 32], &keys, now, 4096, member);
     let response = decode(1500).unwrap().unwrap();
 
-    for now in [0, 999, 2000, u64::MAX] {
+    // Issued at 1000 for 1000 ms. A caller clock behind the signer by at most
+    // the bounded issuer lead still authenticates; expiry is never extended.
+    let lead = crate::raft::version::MAX_ISSUER_CLOCK_LEAD_MS;
+    for now in [0, 1000 - lead - 1, 2000, u64::MAX] {
         assert!(matches!(decode(now), Err(TransportError::Authentication)));
         assert_eq!(response.version.check_time(now), Err(VersionError::Expired));
     }
-    for now in [1000, 1500, 1999] {
+    for now in [1000 - lead, 999, 1000, 1500, 1999] {
+        assert!(decode(now).unwrap().is_ok());
         assert_eq!(response.version.check_time(now), Ok(()));
+    }
+}
+
+#[test]
+fn shared_command_result_tolerates_bounded_issuer_clock_lead() {
+    // Constrained-node runs observed replies signed 81-102 ms ahead of the
+    // ingress clock. A committed write's authenticated reply must not become
+    // an ambiguous outcome under that skew; skew beyond the bound still refuses.
+    let call = command_call();
+    let observation = cell_observation();
+    let cell = &observation.version.history;
+    let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
+    let mut body = b"CLGCCS01".to_vec();
+    body.extend_from_slice(&[0, 0]);
+    body.push(0);
+    body.push(1);
+    body.extend_from_slice(&call.request.id.client.bytes());
+    body.extend_from_slice(&call.request.id.sequence().to_be_bytes());
+    body.extend_from_slice(&9000u64.to_be_bytes());
+    string(&mut body, token.as_str()).unwrap();
+    body.extend_from_slice(&2u32.to_be_bytes());
+    body.extend_from_slice(b"ok");
+    let decode = |now| {
+        command::decode_result(
+            &body,
+            (call.request.id, cell, Durability::Quorum),
+            [9; 32],
+            &keys(),
+            now,
+            4096,
+            MemberId::new(2).unwrap(),
+        )
+    };
+    let lead = crate::raft::version::MAX_ISSUER_CLOCK_LEAD_MS;
+    for now in [898, 1000 - lead] {
+        let decoded = decode(now).unwrap().unwrap();
+        assert_eq!(decoded.value.version.observation(), &observation);
+        assert_eq!(decoded.value.result, b"ok");
+    }
+    for now in [1000 - lead - 1, 2000] {
+        assert!(matches!(decode(now), Err(TransportError::Authentication)));
     }
 }
 

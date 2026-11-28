@@ -223,6 +223,13 @@ impl Manager {
         Ok(())
     }
 
+    /// Stop rediscovering a group until a later hint observation. The retained
+    /// hint lets that observation replace this state as usual.
+    fn dequeue(&mut self, group: &GroupHistory) {
+        self.ready.remove(group);
+        self.waiting.retain(|(_, waiting)| waiting != group);
+    }
+
     pub fn remove(&mut self, group: &GroupHistory) {
         self.cells.remove(group);
         self.ready.remove(group);
@@ -359,10 +366,15 @@ impl Manager {
         // Back off only when the turn found no executable work or failed.
         // Productive turns immediately advance the fair group/cell cursors
         // so backlog drains without sleeping between consecutive batches.
-        self.next_at = if matches!(completed.result, Ok(true)) {
-            now
-        } else {
+        // A follower group leaves discovery without delaying led groups.
+        let next = turn::after_turn(&completed.result);
+        if next.dequeue {
+            self.dequeue(&completed.group);
+        }
+        self.next_at = if next.delay {
             now.saturating_add(completed.interval)
+        } else {
+            now
         };
         shared.active_effects.store(0, Ordering::Release);
         shared.effect_turns.fetch_add(1, Ordering::Relaxed);
