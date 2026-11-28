@@ -134,6 +134,7 @@ pub(crate) async fn commands_with_transport(rooted: bool, tcp: bool) -> Result<(
     drop(preparation); // Cancelled response, not physical SQL ownership.
     assert_eq!(pool.usage()?.active_cells, 1);
     release.send(())?;
+    let settle = tokio::time::Instant::now() + Duration::from_secs(5);
     command.retry().await?;
     assert_eq!(
         command.attempt().context("retry")?.request(),
@@ -144,16 +145,28 @@ pub(crate) async fn commands_with_transport(rooted: bool, tcp: bool) -> Result<(
         first.deadline_ms()
     );
     let other_pool = fixture.appliers[&(1, route.history)].0.clone();
-    assert!(matches!(
-        command
-            .prepare(
-                &fixture.runtimes[1],
-                &other_pool,
-                fixture.cell_options_at(&a, 1).await?
-            )
-            .await?,
-        CellCommandPreparation::Prepared
-    ));
+    // The dropped response retained the private producer. Wait until its large
+    // SQL workspace has settled into the small prepared command before resuming;
+    // otherwise the worker is still completing the same preparation.
+    loop {
+        let usage = pool.usage()?;
+        if usage.queued_or_running == 0 && usage.retained_bytes < 1024 * 1024 {
+            break;
+        }
+        if tokio::time::Instant::now() >= settle {
+            anyhow::bail!("private producer did not settle: {usage:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let other = command
+        .prepare(
+            &fixture.runtimes[1],
+            &other_pool,
+            fixture.cell_options_at(&a, 1).await?,
+        )
+        .await
+        .context("prepare other pool")?;
+    assert!(matches!(other, CellCommandPreparation::Prepared));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(other_pool.usage()?.active_cells, 0);
     let first_acceptance = accepted(&mut command).await?;

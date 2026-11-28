@@ -219,9 +219,20 @@ async fn alarms(hold_callback: bool, rearm_hot: bool) -> Result<()> {
             let completed = controller::wait_for(async || {
                 for runtime in &fixture.runtimes {
                     for cell in [&a, &b] {
-                        let selected = runtime
+                        let selected = match runtime
                             .reconciliation_authority(route.history, cell.clone())
-                            .await?;
+                            .await
+                        {
+                            Ok(selected) => selected,
+                            // A follower or an apply boundary can be transiently
+                            // unready while the controller advances the durable
+                            // index. That is not a failed oracle; keep observing
+                            // until the original progress deadline.
+                            Err(RuntimeError::NotReady | RuntimeError::NotLeader) => {
+                                return Ok(false)
+                            }
+                            Err(error) => return Err(error.into()),
+                        };
                         let sequence = if rearm_hot && cell == &a { 6 } else { 3 };
                         if selected.cell().version.sequence.get() != sequence
                             || selected.cell().effects.next_due_unix_millis().is_some()
