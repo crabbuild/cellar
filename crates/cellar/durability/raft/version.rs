@@ -22,6 +22,26 @@ const MAX_LIFETIME_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 const CELL_MAGIC: &[u8; 8] = b"CLRCVS01";
 const CELL_DOMAIN: &[u8] = b"cellar-cell-group-version-1";
 
+/// Largest issuer wall-clock lead accepted for a signed version's start time.
+///
+/// A token observes an already committed version and confers no authority.
+/// Accepting it before its issuer's timestamp cannot grant an older cut:
+/// callers still enforce the observed version as a floor, and expiry, key
+/// retention and the maximum lifetime remain exact. Without an allowance, a
+/// verifier clock stepping backwards, or a leader clock leading an ingress node
+/// by more than the one-way RPC latency, refuses valid replies and turns
+/// committed remote writes into ambiguous outcomes.
+pub const MAX_ISSUER_CLOCK_LEAD_MS: u64 = 500;
+
+/// Signed validity check shared by group- and cell-scoped tokens: the start
+/// tolerates [`MAX_ISSUER_CLOCK_LEAD_MS`]; the end is never extended. An empty
+/// or inverted interval always refuses, so callers may subtract its bounds.
+fn within_signed_validity(issued_ms: u64, expires_ms: u64, now_ms: u64) -> bool {
+    issued_ms < expires_ms
+        && now_ms < expires_ms
+        && now_ms.saturating_add(MAX_ISSUER_CLOCK_LEAD_MS) >= issued_ms
+}
+
 // Framing/key/time, cell identity, sequence/image, schema, witness and signature.
 const CELL_FIXED_BYTES: usize = 8 + 32 + 16 + 48 + 2 + 8 + 24 + 37 + 32 + 64 + 16 + 16 + 64;
 const CELL_MAX_BYTES: usize = CELL_FIXED_BYTES + cellar_logic::cell_group::MAX_CELL_ID_BYTES;
@@ -91,7 +111,7 @@ fn check_cell_version_time(
     now_ms: u64,
     boundary: &'static str,
 ) -> Result<(), VersionError> {
-    if validity.contains(&now_ms) {
+    if within_signed_validity(validity.start, validity.end, now_ms) {
         return Ok(());
     }
     tracing::debug!(
@@ -571,10 +591,10 @@ impl VersionKeys {
             .map_err(|_| VersionError::Invalid)?;
         let issued = input.u64()?;
         let expires = input.u64()?;
-        // No future-clock allowance is needed for correctness. A clock skew or
-        // rollback can refuse a token, but cannot grant a read an older cut.
-        if issued > now_ms
-            || now_ms >= expires
+        // A bounded issuer clock lead preserves availability across ordinary
+        // skew. Skew or rollback beyond it refuses; neither case can grant a
+        // read an older cut, and expiry is never extended.
+        if !within_signed_validity(issued, expires, now_ms)
             || expires > key.verify_until_ms
             || expires <= issued
             || expires - issued > MAX_LIFETIME_MS

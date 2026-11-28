@@ -7,7 +7,7 @@ use cellar::application::consensus::verification::cell_groups::*;
 use cellar::application::consensus::verification::{Catalog, CatalogOptions};
 use cellar::application::consensus::{
     ClusterId, GroupId, IncarnationId, LogIndex, LogPosition, ProposalId, Term, VersionError,
-    VersionKeys, VersionSigningKey, VersionToken,
+    VersionKeys, VersionSigningKey, VersionToken, MAX_ISSUER_CLOCK_LEAD_MS,
 };
 use cellar::application::consensus::{NamespaceConfig, NamespaceId, NamespaceMode};
 use std::{
@@ -173,8 +173,34 @@ fn version_survives_transfer_not_disaster() {
         keys.verify_cell(&token, &original.version.history, schema, 10_100),
         Err(VersionError::Expired)
     );
+    // A verifier clock behind the issuer by at most the bounded lead still
+    // authenticates the committed observation. Beyond it the token refuses,
+    // and expiry is never extended by the allowance.
     assert_eq!(
         keys.verify_cell(&token, &original.version.history, schema, 99),
+        Ok(original.clone())
+    );
+    let late = keys.issue_cell(&original, schema, 2_000).unwrap();
+    assert_eq!(
+        keys.verify_cell(
+            &late,
+            &original.version.history,
+            schema,
+            2_000 - MAX_ISSUER_CLOCK_LEAD_MS - 1
+        ),
+        Err(VersionError::Expired)
+    );
+    assert_eq!(
+        keys.verify_cell(
+            &late,
+            &original.version.history,
+            schema,
+            2_000 - MAX_ISSUER_CLOCK_LEAD_MS
+        ),
+        Ok(original.clone())
+    );
+    assert_eq!(
+        keys.verify_cell(&late, &original.version.history, schema, 12_000),
         Err(VersionError::Expired)
     );
 }

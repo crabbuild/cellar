@@ -304,7 +304,7 @@ fixtures must be converted before they can qualify the shared runtime.
 - Configured token lifetime is between one millisecond and seven days.
 - At most 64 verification keys are retained.
 - A token cannot outlive its signing key's verification deadline.
-- Future-issued or expired tokens are refused; clock skew/rollback can affect availability and supplies no strong-read proof.
+- Expired tokens are refused. A token issued at most `MAX_ISSUER_CLOCK_LEAD_MS` (500 ms) ahead of the verifier's wall clock is accepted; one issued further ahead is refused. The allowance never extends expiry or key retention, and accepting an observation of a committed version cannot grant an older cut. Larger skew or rollback still affects availability and supplies no strong-read proof.
 - Shared-cell query transport authenticates the reply against the invocation's
   immutable keys, cell history and schema. The caller rechecks the signed time
   bounds with a fresh wall-clock sample before enforcing the requested version
