@@ -1353,7 +1353,10 @@ def main():
             record["build_environment"] = {key: env[key] for key in ("CARGO_INCREMENTAL", "CARGO_BUILD_JOBS")}
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
-            if args.suite == "native-docker" and number != 0:
+            # Each standalone RustFS case must start from its own catalog
+            # namespace. Reusing one prefix makes a later case observe an
+            # earlier case's committed identities and fail with PayloadConflict.
+            if args.suite in ("native-docker", "queue-primitives") and number != 0:
                 # Standalone cases reuse deterministic catalog identities with
                 # different declared minima. They must not inherit each other's
                 # catalog, receipts or archive state within the same campaign.
