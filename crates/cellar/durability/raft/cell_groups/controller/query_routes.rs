@@ -376,7 +376,17 @@ impl Destination<'_> {
             // A local proof remains available while no physical send view is
             // installed. Missing routing metadata never grants remote access.
             Err(TransportError::UnknownGroup) => Ok(vec![local]),
-            result => result.map_err(Error::Transport),
+            result => {
+                let mut members = result.map_err(Error::Transport)?;
+                // Automatic routing prefers the active local replica. The
+                // candidate plan may lead with the current leader; a remote
+                // first ticket would spend the invocation's budget on a peer
+                // that can refuse without a query gateway.
+                if let Some(position) = members.iter().position(|member| *member == local) {
+                    members.swap(0, position);
+                }
+                Ok(members)
+            }
         }
     }
 
