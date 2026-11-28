@@ -23112,3 +23112,35 @@ Voters are host-native in one process: the original constrained
 3×1-vCPU/2-GiB voter-process matrix, independent host loss and all 32 formal
 CG-17 cases remain open. This is a scoped Queue-family pass, not CG-17
 acceptance.
+
+## CG-13 managed recovery scoped passes — 2026-11-27
+
+Source `31e6fa12b` (main `a95ca7807` plus the PR #198 qualification-harness
+isolation and result parsing) passes the previously failing managed recovery
+cases against the owned real-RustFS backend, both materialized and extents:
+
+| Suite / owning test | Result | Covers |
+| --- | --- | --- |
+| `managed-ingress` (2/2) | PASS | native/Axum read-write + retained restart; cold-router after birth voters retire |
+| `managed-joint-restart` (2/2) | PASS | replacement and joint seed-owner retained restarts settle the original debit |
+| `managed-lifecycle` (1/1) | PASS | managed operator birth, repair, handoff, stop, return, resume |
+| `managed-liveness` (2/2) | PASS | S3 seed refusal/source failover; archived maintenance stop/return/resume |
+| `managed-standby` (2/2) | PASS | quorumless S3 standby refusal; S3 group replacement and joined restart |
+| `rustfs_managed_seeding_source_restarts_settle_original_debit` | PASS | seeding-source terminal reconciliation (41.42 s) |
+| `managed_cold_capacity_group_and_retained_restart` | PASS | cold-capacity startup/cleanup (17.90 s) |
+
+This clears the six recorded managed failures at their owning scoped tests:
+cold-router producer quiescence, joint-restart leader election, seeding-source
+terminal reconciliation, replacement survivor/handoff verification, S3 seed
+lost-settlement reconciliation and cold-capacity startup/cleanup. Test names,
+deadlines, identities, workloads and oracles were unchanged.
+
+Evidence is retained under
+`/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/` in
+`managed-ingress-20261127-01`, `managed-joint-restart-20261127-01`,
+`managed-lifecycle-20261127-01`, `managed-liveness-20261127-01` and
+`managed-standby-20261127-01`, plus the two standalone logs. The RustFS backend
+is the owned local `cellar-multi-raft-p0` profile; voters remain host-native in
+one process. The 256-cell `rustfs_disaster` profile, independent process-voter
+crashes, platform fencing and the six formal CG-13 task cases remain open; this
+is a scoped recovery pass, not CG-13 acceptance.
