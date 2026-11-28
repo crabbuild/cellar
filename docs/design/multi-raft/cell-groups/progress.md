@@ -23296,3 +23296,181 @@ requires extracting the archive recovery fixture into a shared support module
 (the same direction as the existing `cell_group_host_context.rs` extraction),
 then adding exact-name wrappers in the declared target. This is a fixture
 refactor, not a test-run or naming fix.
+
+## Constrained Colima quorum verification on main `4ea355ce1` — 2026-11-28
+
+Scope: the requested topology of three node containers capped at 1 vCPU and
+2 GiB with no swap, three RF3 groups, shared pinned RustFS and separately
+capped store/client containers in one owned Colima VM. The throughput smoke
+uses `tools/perf/primitive_compare.py` with SQL, KV and Queue at Raft Quorum
+and Quorum+S3, concurrency 1/4/16, 3-second warmup, 10-second windows and one
+repetition. This is not the 30-second, two-repeat comparison, and no release,
+latency, CG-17 or OPT gate is accepted by this record.
+
+### Environment limits
+
+- The first owned VM used the external USB SSD (`/Volumes/Workspace`). Its
+  4-KiB `O_DSYNC` write cost about 1.8 ms versus 0.5 ms on an internal-SSD
+  VM, and other sessions' Cargo builds shared that disk. Its partial run is
+  retained only as a correctness observation.
+- The host was oversubscribed for most of the session: load averages of
+  12–80 on 12 cores and 26–40 GiB of swap in use from other sessions' VMs and
+  builds. Container CPU stayed at 25–60 % of the 1-vCPU ceiling with zero
+  throttling, so the runs were wait-bound. Absolute timings below are not
+  low-latency evidence; only interleaved comparisons are meaningful.
+
+### Baseline correctness and throughput
+
+Baseline main `4ea355ce1`, internal-SSD VM:
+
+| Case | Result | Write or enqueue req/s, C1/4/16 | Write p99 ms, C1/4/16 | Read req/s, C1/4/16 | Read p99 ms, C1/4/16 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| SQL raft-quorum | PASS | 20.9/19.6/12.6 | 124/1032/2944 | 62.4/179.5/367.8 | 106/166/178 |
+| SQL raft-s3 | FAIL (C16 writes unconfirmed after deadline) | 2.6/4.2/5.8 | 836/1985/4553 | 81.4/140.0 | 74/165 |
+| KV raft-quorum | FAIL (C16 writes unconfirmed after deadline) | 17.2/27.0/2.4 | 158/407/4961 | 135.6/354.3 | 34/111 |
+| KV raft-s3 | PASS | 0.6/12.6/33.2 | 2379/860/888 | 48.4/290.7/344.8 | 55/42/250 |
+| QUEUE raft-quorum | PASS | 12.7/39.4/52.6 | 229/298/945 | — | — |
+| QUEUE raft-s3 | PASS | 4.0/9.1/17.4 | 469/1249/2233 | — | — |
+
+Every completed window verified exact readback or exact Queue delivery and
+settlement. Both failures are C16 writes that reached the original 5-second
+operation deadline and were reported as `unconfirmed` (2 SQL S3 writes, 14 KV
+Quorum writes). No acknowledged value was lost or replaced, and no uncertain
+mutation was retried under a new identity.
+
+Per-phase means from the nodes' `/state` histograms in the SQL Quorum case:
+Raft log file sync 5.5–6.2 ms, SQL preparation 35–39 ms, committed image
+preparation 17–20 ms, manifest preparation 12.5–13 ms and leader command
+settlement 187–285 ms (p95 bucket 1–5 s). The same harness on 2026-11-25
+(`aa0d887e0`, internal-SSD VM) measured 1.0, 8.2, 2.9, 3.0 and 74 ms. The
+Raft log sync path is unchanged between those sources, so the sixfold
+difference is attributed to the host; no old-main image was rerun here to
+prove it. Effect turns stayed at zero in the SQL case.
+
+### Managed daemon fault suites
+
+`tools/multi-raft/daemon.py --node-memory-gib 2` ran a `git archive` image of
+`4ea355ce1` against the owned RustFS backend with three Linux voter
+containers at 1 vCPU and 2 GiB:
+
+- The base suite **passes** both image modes (materialized 63 s, extents
+  57 s). Each mode exercises TLS quorum writes through native and Axum ingress,
+  park/wake and post-wake reads, a RustFS archive-write outage (Quorum writes
+  and linearizable reads continue, S3 acknowledgements refuse, then the
+  original results replay at S3), a leader `SIGKILL` with a successor elected
+  before restart and a retained-disk restart, maintenance stop/offline
+  SQL/paused return/resume, and loss of quorum (writes and linearizable reads
+  refuse; historical reads serve).
+- `--primitives` **passes** all four configurations: both image modes at
+  Quorum and S3 minima (materialized 149 s/217 s, extents 140 s/220 s). Each
+  provisions two managed RF3 groups through the operator CLI and verifies SQL
+  and KV binding writes and exact reads, joined shutdown, node leases,
+  retained restart, leader loss after a kill, the archive outage boundary and
+  minority refusal.
+
+These voters share one VM and host; they do not qualify independent failure
+domains.
+
+### Matched comparisons
+
+- **Main versus candidate, SQL Quorum at C4**, three interleaved rounds in
+  alternating order: all six runs verified. Writes were 13.1/23.8/8.6 requests/s
+  for main and 6.4/8.9/51.9 for the candidate; reads 250/197/107 and 70/221/592.
+  Variation within each source exceeds the difference between them, so no
+  regression or gain is established.
+- **Native-callback slots, Queue Quorum at C4/C16**, one candidate executable:
+  two slots drained 60–72 messages/s in two verified runs and four slots
+  58–61 messages/s in one verified run; another four-slot run failed one
+  enqueue during a load spike. About 77 % of effect turns failed with either
+  setting, so the slot count was not the binding limit.
+- **Effect scheduler, Queue Quorum at C4/C16**, six interleaved runs in the
+  quietest window (host load 3.6–9.8):
+
+| Scheduler | Callback slots | Verified runs | Drain messages/s, C4 | Drain messages/s, C16 |
+| --- | ---: | ---: | --- | --- |
+| Original | 2 | 0/2 | 106, 106 | 106, 100 |
+| Follower dequeue | 2 | 2/2 | 251, 259 | 197, 210 |
+| Follower dequeue | 4 | 2/2 | 295, 302 | 226, 208 |
+
+Both original-scheduler failures are C16 drain-window exhaustion. One run
+acknowledged 7,472 messages and delivered 7,176 within 60 seconds, with 280
+still queued, zero dead letters and zero duplicates. Enqueue rates were
+comparable (C16 82–92 batches/s); four slots lowered C4 enqueue to 51–52
+batches/s from 67–90.
+
+### Candidate source changes
+
+Committed as `c81aca559` (bounded issuer clock lead) and `10d1fc465`
+(effect scheduling and callback slots):
+
+- Signed cell and group version tokens accept an issuer wall clock up to
+  `MAX_ISSUER_CLOCK_LEAD_MS` (500 ms) ahead of the verifier. Expiry, key
+  retention and the maximum lifetime are unchanged; an empty or inverted
+  interval still refuses. Earlier C16 `Version(Expired)` and
+  `Transport(Authentication)` read failures matched replies issued 81–102 ms
+  ahead after guest clock steps. Across hosts, a leader clock leading an
+  ingress node by more than one-way RPC latency would refuse every remote
+  reply and make committed remote writes ambiguous. The
+  [application contract](../application-contract.md) records this contract
+  change for review.
+- `CellGroupControllerLimits::max_callbacks` replaces the fixed two native
+  callback slots, validated within 1–64; every existing configuration keeps
+  two. The performance node accepts `CELLAR_PERF_MAX_CALLBACKS`, and the
+  comparison runner accepts `--max-callbacks` and records it in the profile.
+- `next_effect` refuses `NotLeader` on followers, and each node follows two of
+  its three groups. Previously every such turn applied the node-wide 100-ms
+  effect interval and post-turn registration re-queued the same group, so a
+  node's led group received about one turn per 200 ms. The effect manager now
+  drops a `NotLeader` group from discovery until its next synced publication
+  without delaying other groups. Native-callback-only cells also skip their
+  barrier and scan while every callback slot is held. Both changes omit
+  scheduling work only; each turn still obtains leader execution authority
+  and atomic slot admission.
+
+Real-RustFS primitive cases on the final source, run directly with the
+campaign runner's test profile (`opt-level=1`, debug assertions, one case per
+process and a fresh store prefix each) against the owned backend: **11/11
+pass**. They cover SQL bindings (184 s), KV bindings (100 s), Queue load
+(51 s), Queue callbacks (151 s), EventStream publication, subscriptions and
+outbox recovery (183 s), Workflows (116 s), alarms (72 s), Blob provider
+contracts (36 s), filesystem transactions and descriptors (80 s), ordinary
+cell JSON RPC (18 s) and exact Storage cell versions (13 s). The sources were
+uncommitted when these ran, so this did not use `tools/multi-raft/cell_groups.py`
+and records no campaign evidence. One case per family does not accept the
+family's CG-17 matrix: WebSocket session ownership, complete Container and
+provider APIs and provider-volume recovery remain feature gaps, and the 32
+formal CG-17 entry points still do not exist.
+
+Owning checks on the final source: 40 query-wire, 47 filtered library
+(admission, effect-turn and version) and 9 contract tests pass, including the
+new clock-lead, slot-bound and follower-dequeue cases. The effects target
+passes 11/11 with its two RustFS cases also passing against the owned
+backend. `hot_due_cell_rotates_without_hydrating_cold_cells`, which failed
+main's CI run for `4ea355ce1` after repeated `NotLeader` effect turns, passes
+six consecutive runs; that does not prove the CI failure is closed. Strict
+locked `cargo clippy -p cellar --all-targets --all-features -- -D warnings`,
+formatting, module layout, documentation and native-dependency checks pass.
+The other targets of the full native suite were not rerun locally. The cell-group
+baseline re-pins only the `version` anchor (`version.rs`, excerpt now at line
+129) and the `effects` anchor (`controller/effects/mod.rs`) to reviewed source
+`10d1fc465`; every other anchored file and excerpt is unchanged.
+
+### Remaining gaps confirmed here
+
+1. Apply handles one entry per job (`CellGroupApply` carries one `Entry`),
+   and a group's successor waits for its predecessor's publication. Every
+   committed write pays its own image-closure sync, manifest sync and root
+   publication on every replica; end-to-end batching of a contiguous committed
+   prefix is unimplemented.
+2. In the 1-vCPU profile one SQL worker per node prepares its own group's
+   writes and applies every entry of all three groups, about 50 ms of worker
+   time per cluster write at the measured phase costs.
+3. Overloaded writes are admitted and then time out as ambiguous instead of
+   being refused early with a definite `Overloaded`.
+4. A released callback slot does not wake the effect scheduler; the next turn
+   waits for the effect interval.
+5. HTTP error bodies repeat the same dispatch context four or more times.
+
+Evidence is retained under `/Volumes/Workspace/crabbuild-target/c4/runs/` on
+the workspace volume, with the owned VMs, containers and volumes stopped but
+not removed.

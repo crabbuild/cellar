@@ -8,6 +8,33 @@ Machine-readable qualification and benchmark outputs are retained separately.
 Keep generated run outputs outside this documentation tree; the prose summaries
 preserve their source, scope and unresolved failures.
 
+The [2026-11-28 constrained verification](progress.md#constrained-colima-quorum-verification-on-main-4ea355ce1--2026-11-28)
+of main `4ea355ce1` used three 1-vCPU/2-GiB RF3 voters, three groups and real
+RustFS. Every completed SQL/KV/Queue window verified, the managed daemon fault
+suite passed both image modes, and its SQL/KV primitive campaign passed all four
+image/minimum configurations. Two C16 smoke cases ended with `unconfirmed`
+writes at the original deadline. The host was swap-saturated, so only matched
+comparisons carry weight. The priorities supported by that evidence are:
+
+1. **Review and merge the scheduler and clock-lead candidates.** Dropping
+   `NotLeader` follower groups from effect discovery raised Queue drain from
+   about 106 to 197–302 messages/s and turned 0/2 verified C16 runs into 4/4.
+   The bounded 500-ms issuer clock lead for signed versions is a documented
+   contract change. `max_callbacks` remains two by default.
+2. **Batch apply across a contiguous committed prefix.** `CellGroupApply`
+   carries one entry and successors wait for each publication, so every write
+   pays its own image, manifest and root persistence on every replica. Preserve
+   receipts, root atomicity and the crash-cut table per batch.
+3. **Separate replica apply from leader SQL preparation.** In the 1-vCPU
+   profile one worker prepares the node's own writes and applies every entry of
+   all three groups, about 50 ms per cluster write at the measured costs.
+4. **Refuse early instead of timing out after admission.** Return a definite
+   `Overloaded` before SQL entry when the measured group backlog exceeds the
+   remaining deadline, and wake effect discovery when a callback slot frees.
+5. **Requalify on an unshared host with internal storage.** Repeat the full
+   30-second, two-repeat matrix, the daemon fault suites and the CG-17 formal
+   cases before claiming throughput, latency or full primitive compatibility.
+
 Main `b23ec563f` now includes merged #186 after #187/#188. The bounded
 workspace follow-up integrates that source; combined native and constrained
 runtime qualification is pending. The completed workspace results below remain
