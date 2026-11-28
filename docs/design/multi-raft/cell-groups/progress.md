@@ -23078,3 +23078,221 @@ pass is claimed. All owned build/runtime handles are joined; the RustFS backend
 and dedicated VM are stopped with objects and failed disks retained. Draft
 PR [#177](https://github.com/crabbuild/cellar/pull/177) carries the isolated
 follow-up pending shared-runtime integration.
+
+## Queue-primitives RustFS suite pass — 2026-11-27
+
+Source `9e44e6347` (PR [#198](https://github.com/crabbuild/cellar/pull/198);
+main `a95ca7807` plus the qualification-harness isolation and result-parsing
+fixes) passes the fixed `queue-primitives` suite: **7/7 RustFS cases**, both
+materialized and extents, one SQL worker per host-native voter.
+
+- C2 `rustfs_queue_load_preserves_acknowledged_messages`: **528/528**
+  acknowledged messages, two requests in flight, p99 batch enqueue
+  529 ms materialized / 637 ms extents in this run.
+- C4 `rustfs_queue_four_in_flight_preserves_acknowledged_messages`:
+  **528/528** delivered, four requests in flight, peak four, p99
+  1,126 ms materialized / 1,419 ms extents, joined cleanup.
+- Cross-deployment native and Axum, 65-second callbacks and ordinary
+  native/Axum callbacks also pass.
+
+Two harness defects, not Queue deadlines, caused the earlier campaign
+failures. Every queue case reused one RustFS prefix, so C4 observed C2's
+`queue-load` catalog and failed in 0.15 s with
+`fleet catalog: PayloadConflict`; and the strict verifier required
+`test … ok` on one line even though `--nocapture` interleaves workload output
+between them. PR #198 isolates the prefix per case and accepts the
+authoritative single-case result line. Test names, workloads, limits,
+deadlines and oracles are unchanged.
+
+Evidence is retained in
+`/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/queue-primitives-20261127-01`
+(`record.json`, logs `00`–`07`, executable SHA-256
+`f7ece40687b049eecb52d0c69a73ef73f2423348ceab0ba28aa18285d2ac78d8`).
+Voters are host-native in one process: the original constrained
+3×1-vCPU/2-GiB voter-process matrix, independent host loss and all 32 formal
+CG-17 cases remain open. This is a scoped Queue-family pass, not CG-17
+acceptance.
+
+## CG-13 managed recovery scoped passes — 2026-11-27
+
+Source `31e6fa12b` (main `a95ca7807` plus the PR #198 qualification-harness
+isolation and result parsing) passes the previously failing managed recovery
+cases against the owned real-RustFS backend, both materialized and extents:
+
+| Suite / owning test | Result | Covers |
+| --- | --- | --- |
+| `managed-ingress` (2/2) | PASS | native/Axum read-write + retained restart; cold-router after birth voters retire |
+| `managed-joint-restart` (2/2) | PASS | replacement and joint seed-owner retained restarts settle the original debit |
+| `managed-lifecycle` (1/1) | PASS | managed operator birth, repair, handoff, stop, return, resume |
+| `managed-liveness` (2/2) | PASS | S3 seed refusal/source failover; archived maintenance stop/return/resume |
+| `managed-standby` (2/2) | PASS | quorumless S3 standby refusal; S3 group replacement and joined restart |
+| `rustfs_managed_seeding_source_restarts_settle_original_debit` | PASS | seeding-source terminal reconciliation (41.42 s) |
+| `managed_cold_capacity_group_and_retained_restart` | PASS | cold-capacity startup/cleanup (17.90 s) |
+
+This clears the six recorded managed failures at their owning scoped tests:
+cold-router producer quiescence, joint-restart leader election, seeding-source
+terminal reconciliation, replacement survivor/handoff verification, S3 seed
+lost-settlement reconciliation and cold-capacity startup/cleanup. Test names,
+deadlines, identities, workloads and oracles were unchanged.
+
+Evidence is retained under
+`/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/` in
+`managed-ingress-20261127-01`, `managed-joint-restart-20261127-01`,
+`managed-lifecycle-20261127-01`, `managed-liveness-20261127-01` and
+`managed-standby-20261127-01`, plus the two standalone logs. The RustFS backend
+is the owned local `cellar-multi-raft-p0` profile; voters remain host-native in
+one process. The 256-cell `rustfs_disaster` profile, independent process-voter
+crashes, platform fencing and the six formal CG-13 task cases remain open; this
+is a scoped recovery pass, not CG-13 acceptance.
+
+## 256-cell `rustfs_disaster` runner blocker — 2026-11-27
+
+The required 256-cell `rustfs_disaster` profile cannot be scheduled by the
+current workload campaign runner. `tools/perf/cell_group_campaign.py` has
+`SUPPORTED = {'idle_density', 'mixed_quorum', 'mixed_s3'}`; its
+`selected_profile` refuses `rustfs_disaster` with
+`profile needs an unfinished lifecycle or independent-host adapter`. The
+profile is declared required in `profiles.json` (5 nodes, 3 voters, 256 cells,
+occupancy 64, 900 s, 3 repetitions, both image modes, owned all-voter erasure
+and managed/unmanaged restore gates), but no adapter currently executes that
+lifecycle.
+
+A Docker image build and 5-node preflight were started for this profile and
+stopped without a run after the harness refusal was confirmed. No 256-cell pass
+is claimed. Implementing the owned all-voter-erasure/managed-and-unmanaged
+restore lifecycle adapter is a prerequisite for scheduling the profile; the six
+scoped managed recovery tests listed above do not substitute for it.
+
+## Native execution stabilization remains open — 2026-11-27
+
+Main `a95ca7807`'s SDK native job fails
+`pending_command_or_dispatch_pins_cache`, the effects-suite flake addressed by
+PR #197. Running the all-features `native_cell_groups_execution` target exposes
+13 failures, so fixing the effects target alone does not make current-source
+native green.
+
+Two of the 13 are deterministic on both this branch (no retention change) and
+the PR #197 branch:
+
+- `command_expired_before_sql_dequeue_does_not_execute`: the command callback
+  executes once after the routing deadline (`left: 0, right: 1` at
+  `cell_group_background_admission.rs:147`).
+- `retained_pending_producer_skips_resume_after_stale_observation`: the queued
+  reconciliation finishes early (`queued reconciliation finished: false`).
+
+They are therefore pre-existing current-source defects, not regressions from
+the PR #197 retention change. The remaining CI failures cover automatic query
+routing/failover, both joint membership image modes, fair admission and remote
+enrollment; they are load/order sensitive locally. Main's CI job stopped at the
+earlier effects target, so it did not execute this target. PR #197's native job
+did and reports 13 failed / 284 passed / 2 ignored. Native execution
+stabilization is required before claiming current-source green.
+
+### Native execution failures individually reproducible on main
+
+The 13 execution failures are not only order or load effects. Running the
+public acceptance binary on main `a95ca7807` with each test selected exactly
+fails these cases without any retention change:
+
+- `automatic_queries_join_catalog_refresh_before_first_reply`:
+  `completed query must join same-route confirmation` /
+  `Transport(Query(Unavailable))`.
+- `command_expired_before_sql_dequeue_does_not_execute`: the callback enters
+  before the routing deadline (`calls` is 1 after the timeout).
+- `retained_pending_producer_skips_resume_after_stale_observation`:
+  `queued reconciliation finished: false`.
+- `shared_group_fair_admission`: `Raft private execution: Uncertain`.
+- `shared_remote_enrollment_requires_write_grants_and_exact_creation`: the
+  TLS peer closes without `close_notify`, leaving an ambiguous creation.
+
+These are current-source native execution defects/flakes that require their
+own fixes; the effects-suite retention change does not cause them. Native
+execution green remains a prerequisite for the P0 native claim.
+
+## Disaster diagnostic CI budget verified — 2026-11-28
+
+PR [#199](https://github.com/crabbuild/cellar/pull/199) passes the managed
+transition disaster target on CI with a four-job cold build and a 60-minute
+ceiling. The build completed and the unchanged 22-test serial sequence
+finished. This confirms the PR #197 disaster failure was the original
+45-minute build cap: that run spent ~42 minutes building and only started six
+tests. Test commands, `--test-threads=1`, retries, assertions and profile flags
+are unchanged.
+
+## CG-13 RustFS closure case pass — 2026-11-28
+
+On the owned RustFS backend, `rustfs_transition_disaster_selects_complete_closure`
+passes in **274.67 s** (both image modes). This is one of the six formal CG-13
+cases and covers published-child acknowledged tails plus unpublished-parent
+complete-domain recovery. Source checkout `0901b4365` (main `a95ca7807` plus
+docs/qualification changes only); executable `3e5bd5774b4806ca` built with the
+native test profile. Evidence: `/tmp/cg13-closure.log`, SHA-256
+`d5f5063e0efd3d23c201aea7af5d82aaaaab1089ad83a26d54dfc647c66ef5fc`,
+retained under `/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/`.
+No 256-cell profile or CG-13 acceptance is claimed.
+
+## CG-13 formal RustFS cases: three pass, three absent — 2026-11-28
+
+On the owned RustFS backend at source checkout `9a3d09ecb` (main `a95ca7807`
+plus docs/qualification changes), the implemented formal CG-13 disaster cases
+pass in both image modes:
+
+| Formal case | Result |
+| --- | --- |
+| `rustfs_transition_disaster_selects_complete_closure` | PASS, 274.67 s |
+| `rustfs_disaster_retry_and_old_token_refusal` | PASS, 142.97 s |
+| `rustfs_disaster_outbox_ambiguity_refuses` | PASS, 186.91 s |
+
+Evidence is retained under
+`/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/cg13-rustfs-closure-20261128`
+and `cg13-rustfs-retry-outbox-20261128`.
+
+A static audit of the declared `native_cell_groups_disaster` target and the
+whole repository finds **no implementation or test entry point** for the other
+three formal CG-13 cases:
+
+- `managed_disaster_blocks_old_lifecycle`
+- `fence_all_possible_old_writers`
+- `all_disks_deleted_restore_all_cells`
+
+`tasks.json` lists these names, but `--list` on the disaster target exposes only
+the three passing cases. CG-13 therefore remains open on two independent
+requirements: the three missing formal cases and the unsupported 256-cell
+`rustfs_disaster` profile. No CG-13 acceptance is claimed.
+
+## Underlying scenarios for the three missing CG-13 cases pass — 2026-11-28
+
+The three CG-13 formal cases without entry points in
+`native_cell_groups_disaster` do have working scenario implementations in
+`native_cell_groups_archive`. On the owned RustFS backend, source checkout
+`c266e644a` (main `a95ca7807` plus docs only):
+
+| Archive scenario | Result | Formal case it exercises |
+| --- | --- | --- |
+| `rustfs_group_recovery_import_rebinds_complete_cut` | PASS, 1.79 s | `managed_disaster_blocks_old_lifecycle` (import/old-lifecycle fencing) |
+| `rustfs_group_recovery_fence_intent_and_topology` | PASS, 3.45 s | `fence_all_possible_old_writers` (fence intent/topology race) |
+| `rustfs_sdk_recovery_owns_activation_after_erasing_voters` | PASS, 15.76 s | `all_disks_deleted_restore_all_cells` (all-voter erasure/restore) |
+
+Evidence: `/tmp/cg13-archive.log`, retained under
+`/Volumes/Workspace/crabbuild-target/cellar-p0-evidence/`. These are not the
+required formal entry points: the names and owning target contract still need
+wiring, and the 256-cell profile remains unsupported. No CG-13 acceptance is
+claimed.
+
+## CG-13 formal wiring requires shared fixture extraction — 2026-11-28
+
+An attempt to wire the three missing formal cases directly into
+`native_cell_groups_disaster` by including
+`cell_group_disaster_fence.rs`/`activation`/`receipts`/`public` failed to
+compile with 141 errors. The helpers depend on target-local functions and
+types defined at the root of `native_cell_groups_archive`
+(`destination_at`, `index`, `cell_objects`, archive window fixtures, and
+similarly named engine/archive modules) rather than on self-contained support
+modules. Simply moving the `#[path]` includes also collides with the disaster
+target's managed/source fixtures.
+
+No code from the experiment is retained. Closing the formal cases cleanly
+requires extracting the archive recovery fixture into a shared support module
+(the same direction as the existing `cell_group_host_context.rs` extraction),
+then adding exact-name wrappers in the declared target. This is a fixture
+refactor, not a test-run or naming fix.

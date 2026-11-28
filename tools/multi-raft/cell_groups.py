@@ -1176,8 +1176,13 @@ def exact_case_passed(output, case):
                        for value in observations)):
             raise ValueError("incomplete or invalid Queue load observations")
         output = re.sub(pattern, "", output)
-    return bool(re.search(rf"^test {re.escape(case)} \.\.\. ok$", output, re.M)
-                and "test result: ok. 1 passed; 0 failed; 0 ignored;" in output)
+    # `--nocapture` interleaves the test's own output between libtest's
+    # "test name ... " line and its trailing "ok" line. The exact result line is
+    # authoritative; require the selected test's start line as well.
+    started = re.search(rf"^test {re.escape(case)} \.\.\.", output, re.M)
+    same_line = re.search(rf"^test {re.escape(case)} \.\.\. ok$", output, re.M)
+    result_ok = "test result: ok. 1 passed; 0 failed; 0 ignored;" in output
+    return bool(started and result_ok and (same_line or re.search(r"^ok$", output, re.M)))
 
 
 def sha(path):
@@ -1353,7 +1358,10 @@ def main():
             record["build_environment"] = {key: env[key] for key in ("CARGO_INCREMENTAL", "CARGO_BUILD_JOBS")}
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
-            if args.suite == "native-docker" and number != 0:
+            # Each standalone RustFS case must start from its own catalog
+            # namespace. Reusing one prefix makes a later case observe an
+            # earlier case's committed identities and fail with PayloadConflict.
+            if args.suite in ("native-docker", "queue-primitives") and number != 0:
                 # Standalone cases reuse deterministic catalog identities with
                 # different declared minima. They must not inherit each other's
                 # catalog, receipts or archive state within the same campaign.
